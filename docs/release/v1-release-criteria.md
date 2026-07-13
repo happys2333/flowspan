@@ -84,7 +84,7 @@ implementation convenience.
   trust create/restart/update/revoke smoke passed with disposable Keychain items.
 - [2026-07-13 hosted CI foundation](../evidence/2026-07-13-hosted-ci.md):
   locked restore, format, build, tests, simulator, secret scan, and CodeQL passed
-  on committed slices through `8b3e11b` using Windows, macOS, and Ubuntu hosted
+  on committed slices through `2ef9961` using Windows, macOS, and Ubuntu hosted
   runners.
 
 This is foundation evidence only. It does not satisfy physical-device, native
