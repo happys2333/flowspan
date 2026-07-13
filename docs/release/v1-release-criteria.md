@@ -76,9 +76,14 @@ implementation convenience.
 ## Current evidence
 
 - [2026-07-13 macOS headless foundation](../evidence/2026-07-13-macos-foundation.md):
-  locked restore, format verification, warning-free Release build, 98 portable
-  tests, simulator, and NuGet vulnerability query passed locally.
+  locked restore, format verification, warning-free Release build, 135 unit,
+  integration, security, and platform-contract tests, simulator, and NuGet
+  vulnerability query passed locally.
+- [2026-07-13 hosted CI foundation](../evidence/2026-07-13-hosted-ci.md):
+  locked restore, format, build, tests, simulator, secret scan, and CodeQL passed
+  on committed slices through `71d25c7` using Windows, macOS, and Ubuntu hosted
+  runners.
 
-This is foundation evidence only. GitHub CI has not yet executed these new
-workflows, no Windows/Linux runner result exists, and no native platform feature
-or production security claim is supported by this evidence.
+This is foundation evidence only. It does not satisfy physical-device, native
+permission/hardware, packaging, independent security-review, or full product
+acceptance gates.

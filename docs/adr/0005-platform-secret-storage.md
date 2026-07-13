@@ -56,7 +56,9 @@ Sources:
   always classified `DegradedTestOnly`.
 - Windows uses `System.Security.Cryptography.ProtectedData` 10.0.9 with
   `DataProtectionScope.CurrentUser`, fixed Flowspan entropy/context, and an
-  atomically replaced per-profile blob. No plaintext private key is written.
+  atomically created per-profile blob. No plaintext private key is written.
+  Concurrent first launches write unique same-directory temporary files and use
+  a no-overwrite rename so exactly one protected identity wins.
 - macOS uses a narrow byte-oriented Security.framework Keychain adapter. It
   stores one generic-password item scoped by a stable Flowspan service/account;
   the adapter is isolated behind a native boundary so contract tests do not
@@ -75,6 +77,9 @@ Sources:
 
 - Adding the Microsoft Windows package requires a locked dependency update,
   license inventory, vulnerability scan, and CodeQL/CI run.
+- Windows contract tests use a fake byte protector with the real atomic file
+  boundary on every OS. A platform-conditional test exercises actual CurrentUser
+  DPAPI only on Windows and verifies explicit rejection elsewhere.
 - Contract tests must cover missing, create, reload, concurrent create, delete,
   corrupt payload, cancellation, unavailable backend, and no-silent-downgrade
   behavior.

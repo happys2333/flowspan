@@ -83,8 +83,9 @@ means its linked evidence exists; it does not imply the entire product works.
 - [-] 4.4 Implement Windows Credential Manager/DPAPI, macOS Keychain, and Linux
   Secret Service adapters with marked degraded-mode behavior.
   - ADR 0005 selects byte-oriented platform mechanisms and rejects silent
-    plaintext fallback; the shared bounded payload format is implemented, while
-    native adapters and evidence remain open.
+    plaintext fallback. The shared bounded payload bridge and Windows
+    CurrentUser-DPAPI/atomic-file adapter are implemented with contract tests;
+    its Windows-hosted result plus macOS/Linux adapters remain open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection
