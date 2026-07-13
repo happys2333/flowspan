@@ -134,9 +134,9 @@ means its linked evidence exists; it does not imply the entire product works.
     browser/publisher, timed signed-offer refresh, and current-trust candidate
     source are implemented; multi-peer listener orchestration and physical
     multicast evidence remain open. The 22-project gate and 236 tests pass
-    locally for the publisher slice. The prior 226-test browser slice passes on
-    hosted Windows, macOS, and Ubuntu at `a3771ef`, together with secret scan and
-    CodeQL; hosted publisher evidence is not yet recorded.
+    locally and on hosted Windows, macOS, and Ubuntu at `5dee727`, together with
+    secret scan and CodeQL. These are contract results, not physical multicast
+    evidence.
   - _Requirements: R2.1, R8.1, R9.1_
 - [-] 5.3 Implement bounded reconnect/backoff and reauthentication across network
   changes and restarts.
