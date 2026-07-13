@@ -73,9 +73,10 @@ means its linked evidence exists; it does not imply the entire product works.
     identity payload codec rejects hostile and non-canonical input. ADR 0006,
     `ITrustStore`, the 64-peer/64 KiB canonical trust codec, and an atomic
     payload-backed persistent repository cover restart, corrupt input,
-    cancellation, concurrent mutation, and failed-save rollback. The macOS
-    `ITrustPayloadStore` is implemented with atomic `SecItemUpdate`; Windows and
-    Linux trust payload adapters remain open. Peer revocation and capability
+    cancellation, concurrent mutation, and failed-save rollback. macOS uses
+    atomic `SecItemUpdate`; Windows uses domain-separated CurrentUser DPAPI and
+    an fsynced same-directory atomic replace. The Linux trust payload adapter
+    remains open. Peer revocation and capability
     downgrade atomically remove session eligibility, stop every affected
     registered session before returning, reject concurrent new sessions, and
     surface aggregate stop failures without skipping another session. Awaited
@@ -100,8 +101,10 @@ means its linked evidence exists; it does not imply the entire product works.
     bounded output, cancellation, and process-tree termination. A live,
     unlocked desktop Secret Service round trip remains open. macOS additionally
     persists the bounded trust snapshot with update/add race recovery and passes
-    local native create/restart/update/revoke evidence. Windows and Linux
-    protected trust-payload replace adapters remain open.
+    local native create/restart/update/revoke evidence. Windows adds a separate
+    DPAPI trust context and atomic protected-file replace with cross-platform
+    contracts; its native hosted result remains open. The Linux protected
+    trust-payload adapter remains open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection

@@ -1,6 +1,6 @@
 # ADR 0006: Bounded platform-protected trust repository
 
-- Status: Accepted; core and macOS adapter implemented, Windows/Linux pending
+- Status: Accepted; core, Windows, and macOS implemented, Linux pending
 - Date: 2026-07-13
 
 ## Context
@@ -53,14 +53,17 @@ selected by ADR 0005 and are never included in this repository.
 - Startup decodes the protected snapshot before exposing the store. Missing data
   produces an empty store; corrupt, unsupported, or unavailable data blocks the
   store from opening and is never replaced automatically.
-- Windows will protect the bounded blob with CurrentUser DPAPI and atomically
-  replace its per-profile file. macOS uses a dedicated
+- Windows protects the bounded blob with CurrentUser DPAPI using a trust-specific
+  entropy/context distinct from device identity. Under a persistent per-profile
+  coordination lock it writes and fsyncs a same-directory temporary file, then
+  atomically replaces the prior snapshot; cancellation or write failure leaves
+  the prior file in force. macOS uses a dedicated
   `WhenUnlockedThisDeviceOnly` Keychain item: `SecItemUpdate` atomically replaces
   an existing snapshot; initial update/add and a retrying update resolve a
   concurrent creator without a delete window. Linux will use a dedicated Secret
   Service item through the bounded `secret-tool` boundary. Adapter-specific
-  limits or failures are reported structurally. Windows/Linux adapters and all
-  matching-runner/real-desktop evidence remain separate implementation gates.
+  limits or failures are reported structurally. The Linux adapter and remaining
+  matching-runner/real-desktop evidence are separate implementation gates.
 
 ## Security boundary
 

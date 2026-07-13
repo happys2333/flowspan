@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using Flowspan.Security;
 
 namespace Flowspan.Platform.Windows;
@@ -12,8 +13,27 @@ public interface IWindowsDataProtector
 
 public sealed class CurrentUserDpapiProtector : IWindowsDataProtector
 {
-    private static readonly byte[] Entropy =
-        "Flowspan.DeviceIdentity.DPAPI.v1"u8.ToArray();
+    public const string DeviceIdentityContext = "Flowspan.DeviceIdentity.DPAPI.v1";
+    public const string TrustRepositoryContext = "Flowspan.TrustRepository.DPAPI.v1";
+    private readonly byte[] entropy;
+
+    public CurrentUserDpapiProtector()
+        : this(DeviceIdentityContext)
+    {
+    }
+
+    public CurrentUserDpapiProtector(string protectionContext)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(protectionContext);
+        if (protectionContext.Length > 200 || protectionContext.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "A DPAPI protection context must contain 1 to 200 non-control characters.",
+                nameof(protectionContext));
+        }
+
+        entropy = Encoding.UTF8.GetBytes(protectionContext);
+    }
 
     public byte[] Protect(ReadOnlySpan<byte> plaintext)
     {
@@ -27,7 +47,7 @@ public sealed class CurrentUserDpapiProtector : IWindowsDataProtector
         {
             return ProtectedData.Protect(
                 input,
-                Entropy,
+                entropy,
                 DataProtectionScope.CurrentUser);
         }
         finally
@@ -48,7 +68,7 @@ public sealed class CurrentUserDpapiProtector : IWindowsDataProtector
         {
             return ProtectedData.Unprotect(
                 input,
-                Entropy,
+                entropy,
                 DataProtectionScope.CurrentUser);
         }
         finally
@@ -58,7 +78,68 @@ public sealed class CurrentUserDpapiProtector : IWindowsDataProtector
     }
 
     private static PlatformNotSupportedException CreatePlatformException() =>
-        new("Windows DPAPI identity storage is available only on Windows.");
+        new("Windows DPAPI protected storage is available only on Windows.");
+}
+
+public sealed class WindowsTrustPayloadStore : ITrustPayloadStore
+{
+    private const int MaximumProtectedPayloadBytes = 128 * 1024;
+    private readonly DpapiProtectedPayloadFile inner;
+
+    public WindowsTrustPayloadStore()
+        : this(GetDefaultStoragePath())
+    {
+    }
+
+    public WindowsTrustPayloadStore(string storagePath)
+        : this(
+            storagePath,
+            new CurrentUserDpapiProtector(
+                CurrentUserDpapiProtector.TrustRepositoryContext))
+    {
+    }
+
+    public WindowsTrustPayloadStore(
+        string storagePath,
+        IWindowsDataProtector dataProtector)
+    {
+        inner = new DpapiProtectedPayloadFile(
+            storagePath,
+            dataProtector,
+            TrustStorePayloadCodec.MaximumPayloadBytes,
+            MaximumProtectedPayloadBytes,
+            "trust");
+    }
+
+    public SecretStoreProtection Protection =>
+        SecretStoreProtection.OperatingSystemProtected;
+
+    public static string GetDefaultStoragePath()
+    {
+        string localApplicationData = Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData,
+            Environment.SpecialFolderOption.DoNotVerify);
+        if (string.IsNullOrWhiteSpace(localApplicationData))
+        {
+            throw new InvalidOperationException(
+                "The current user has no LocalApplicationData directory.");
+        }
+
+        return Path.GetFullPath(Path.Combine(
+            localApplicationData,
+            "Flowspan",
+            "Security",
+            "trust.dpapi"));
+    }
+
+    public ValueTask<byte[]?> LoadAsync(
+        CancellationToken cancellationToken = default) =>
+        inner.LoadAsync(cancellationToken);
+
+    public ValueTask SaveAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default) =>
+        inner.SaveReplacingAsync(payload, cancellationToken);
 }
 
 public sealed class WindowsDeviceIdentityStore : IDeviceIdentityStore
@@ -119,25 +200,68 @@ public sealed class WindowsDeviceIdentityStore : IDeviceIdentityStore
 
 internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
 {
-    private const int CreationLockAttempts = 500;
-    private static readonly TimeSpan CreationLockRetryDelay =
-        TimeSpan.FromMilliseconds(10);
     private const int MaximumProtectedPayloadBytes = 16 * 1024;
-    private readonly IWindowsDataProtector dataProtector;
-    private readonly string storagePath;
+    private readonly DpapiProtectedPayloadFile inner;
 
     public DpapiIdentityPayloadStore(
         string storagePath,
         IWindowsDataProtector dataProtector)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
-        ArgumentNullException.ThrowIfNull(dataProtector);
-        this.storagePath = Path.GetFullPath(storagePath);
-        this.dataProtector = dataProtector;
+        inner = new DpapiProtectedPayloadFile(
+            storagePath,
+            dataProtector,
+            DeviceIdentityPayloadCodec.MaximumPayloadBytes,
+            MaximumProtectedPayloadBytes,
+            "identity");
     }
 
     public SecretStoreProtection Protection =>
         SecretStoreProtection.OperatingSystemProtected;
+
+    public ValueTask<bool> DeleteAsync(
+        CancellationToken cancellationToken = default) =>
+        inner.DeleteAsync(cancellationToken);
+
+    public ValueTask<byte[]?> LoadAsync(
+        CancellationToken cancellationToken = default) =>
+        inner.LoadAsync(cancellationToken);
+
+    public ValueTask<bool> TrySaveNewAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default) =>
+        inner.TrySaveNewAsync(payload, cancellationToken);
+}
+
+internal sealed class DpapiProtectedPayloadFile
+{
+    private const int LockAttempts = 500;
+    private static readonly TimeSpan LockRetryDelay = TimeSpan.FromMilliseconds(10);
+    private readonly IWindowsDataProtector dataProtector;
+    private readonly int maximumPlaintextBytes;
+    private readonly int maximumProtectedBytes;
+    private readonly string payloadKind;
+    private readonly string storagePath;
+
+    public DpapiProtectedPayloadFile(
+        string storagePath,
+        IWindowsDataProtector dataProtector,
+        int maximumPlaintextBytes,
+        int maximumProtectedBytes,
+        string payloadKind)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
+        ArgumentNullException.ThrowIfNull(dataProtector);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumPlaintextBytes);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            maximumProtectedBytes,
+            maximumPlaintextBytes);
+        ArgumentException.ThrowIfNullOrWhiteSpace(payloadKind);
+        this.storagePath = Path.GetFullPath(storagePath);
+        this.dataProtector = dataProtector;
+        this.maximumPlaintextBytes = maximumPlaintextBytes;
+        this.maximumProtectedBytes = maximumProtectedBytes;
+        this.payloadKind = payloadKind;
+    }
 
     public async ValueTask<bool> DeleteAsync(
         CancellationToken cancellationToken = default)
@@ -151,7 +275,7 @@ internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
 
         try
         {
-            await using FileStream creationLock = await AcquireCreationLockAsync(
+            await using FileStream coordinationLock = await AcquireLockAsync(
                 cancellationToken).ConfigureAwait(false);
             if (!File.Exists(storagePath))
             {
@@ -182,10 +306,10 @@ internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
                     Share = FileShare.Read | FileShare.Delete,
                     Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
                 });
-            if (stream.Length is < 1 or > MaximumProtectedPayloadBytes)
+            if (stream.Length is < 1 || stream.Length > maximumProtectedBytes)
             {
                 throw new InvalidDataException(
-                    "The protected Windows identity payload has an invalid length.");
+                    $"The protected Windows {payloadKind} payload has an invalid length.");
             }
 
             protectedPayload = new byte[checked((int)stream.Length)];
@@ -202,11 +326,11 @@ internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
         try
         {
             byte[] plaintext = dataProtector.Unprotect(protectedPayload);
-            if (plaintext.Length is < 1 or > DeviceIdentityPayloadCodec.MaximumPayloadBytes)
+            if (plaintext.Length is < 1 || plaintext.Length > maximumPlaintextBytes)
             {
                 CryptographicOperations.ZeroMemory(plaintext);
                 throw new InvalidDataException(
-                    "The unprotected Windows identity payload has an invalid length.");
+                    $"The unprotected Windows {payloadKind} payload has an invalid length.");
             }
 
             return plaintext;
@@ -217,29 +341,51 @@ internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
         }
     }
 
-    public async ValueTask<bool> TrySaveNewAsync(
+    public async ValueTask SaveReplacingAsync(
         ReadOnlyMemory<byte> payload,
         CancellationToken cancellationToken = default)
     {
-        if (payload.IsEmpty || payload.Length > DeviceIdentityPayloadCodec.MaximumPayloadBytes)
+        await SaveProtectedAsync(
+            payload,
+            replaceExisting: true,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public ValueTask<bool> TrySaveNewAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default) =>
+        SaveProtectedAsync(
+            payload,
+            replaceExisting: false,
+            cancellationToken);
+
+    private async ValueTask<bool> SaveProtectedAsync(
+        ReadOnlyMemory<byte> payload,
+        bool replaceExisting,
+        CancellationToken cancellationToken)
+    {
+        if (payload.IsEmpty || payload.Length > maximumPlaintextBytes)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(payload),
-                $"An identity payload must contain 1 to {DeviceIdentityPayloadCodec.MaximumPayloadBytes} bytes.");
+                $"A {payloadKind} payload must contain 1 to {maximumPlaintextBytes} bytes.");
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         byte[] protectedPayload = dataProtector.Protect(payload.Span);
         try
         {
-            if (protectedPayload.Length is < 1 or > MaximumProtectedPayloadBytes)
+            if (protectedPayload.Length is < 1 ||
+                protectedPayload.Length > maximumProtectedBytes)
             {
                 throw new InvalidDataException(
-                    "The protected Windows identity payload has an invalid length.");
+                    $"The protected Windows {payloadKind} payload has an invalid length.");
             }
 
-            return await TryWriteAtomicallyAsync(protectedPayload, cancellationToken)
-                .ConfigureAwait(false);
+            return await WriteAtomicallyAsync(
+                protectedPayload,
+                replaceExisting,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -247,17 +393,18 @@ internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
         }
     }
 
-    private async ValueTask<bool> TryWriteAtomicallyAsync(
+    private async ValueTask<bool> WriteAtomicallyAsync(
         ReadOnlyMemory<byte> protectedPayload,
+        bool replaceExisting,
         CancellationToken cancellationToken)
     {
         string directory = Path.GetDirectoryName(storagePath)
             ?? throw new InvalidOperationException(
-                "The Windows identity store path has no parent directory.");
+                $"The Windows {payloadKind} store path has no parent directory.");
         Directory.CreateDirectory(directory);
-        await using FileStream creationLock = await AcquireCreationLockAsync(
+        await using FileStream coordinationLock = await AcquireLockAsync(
             cancellationToken).ConfigureAwait(false);
-        if (File.Exists(storagePath))
+        if (!replaceExisting && File.Exists(storagePath))
         {
             return false;
         }
@@ -282,6 +429,12 @@ internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            if (replaceExisting)
+            {
+                File.Move(temporaryPath, storagePath, overwrite: true);
+                return true;
+            }
+
             try
             {
                 File.Move(temporaryPath, storagePath, overwrite: false);
@@ -298,12 +451,12 @@ internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
         }
     }
 
-    private async ValueTask<FileStream> AcquireCreationLockAsync(
+    private async ValueTask<FileStream> AcquireLockAsync(
         CancellationToken cancellationToken)
     {
         string lockPath = $"{storagePath}.lock";
         IOException? lastFailure = null;
-        for (int attempt = 0; attempt < CreationLockAttempts; attempt++)
+        for (int attempt = 0; attempt < LockAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
@@ -323,12 +476,12 @@ internal sealed class DpapiIdentityPayloadStore : IDeviceIdentityPayloadStore
                 lastFailure = exception;
             }
 
-            await Task.Delay(CreationLockRetryDelay, cancellationToken)
+            await Task.Delay(LockRetryDelay, cancellationToken)
                 .ConfigureAwait(false);
         }
 
         throw new IOException(
-            "Timed out waiting for exclusive access to the Windows identity store.",
+            $"Timed out waiting for exclusive access to the Windows {payloadKind} store.",
             lastFailure);
     }
 }

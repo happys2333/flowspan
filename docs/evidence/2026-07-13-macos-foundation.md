@@ -32,7 +32,7 @@ Observed results:
 - locked restore: passed for 20 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 170 passed, 0 failed, 0 skipped;
+- tests: 175 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
@@ -40,7 +40,7 @@ Observed results:
   - platform contracts: 8 passed;
   - Linux identity-store contracts/platform guards: 8 passed;
   - macOS identity/trust-store contracts/native smoke: 10 passed;
-  - Windows identity-store contracts: 7 passed;
+  - Windows identity/trust-store contracts/platform guards: 12 passed;
   - transport: 16 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
@@ -66,7 +66,9 @@ code. It did not contain the Activity text.
   atomic identity provisioning/restart/deletion with an explicitly degraded
   test store, bounded/canonical identity payload round trips and hostile-shape
   rejection, shared platform-payload bridging, Windows atomic protected-file
-  semantics through a fake protector, concurrent first-start convergence,
+  identity create and trust replace semantics through a fake protector,
+  separate trust/identity paths and context selection, cancellation preserving
+  the old trust snapshot, concurrent first-start convergence,
   corrupt/cancel cleanup, non-Windows DPAPI rejection, native macOS Keychain
   identity create/reload/delete/concurrent-add and trust
   create/restart/update/revoke behavior, Linux secret-tool fake
