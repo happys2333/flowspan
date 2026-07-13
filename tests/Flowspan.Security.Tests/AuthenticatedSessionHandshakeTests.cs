@@ -248,6 +248,36 @@ public sealed class AuthenticatedSessionHandshakeTests
     }
 
     [Fact]
+    public void ClaimedHelloDeviceIdDoesNotBypassTrustedKeyValidation()
+    {
+        DeviceId deviceId =
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222");
+        using DeviceIdentity trustedIdentity = DeviceIdentity.Generate(
+            deviceId,
+            "Desk");
+        using DeviceIdentity substitutedIdentity = DeviceIdentity.Generate(
+            deviceId,
+            "Desk");
+        using EphemeralKeyAgreement agreement = EphemeralKeyAgreement.Generate();
+        byte[] encoded = SessionHandshakeWireCodec.EncodeHello(CreateHello(
+            substitutedIdentity,
+            agreement,
+            SecureSessionRole.Initiator,
+            0x11,
+            [new ProtocolVersion(1, 0)]));
+
+        DeviceId claimed =
+            SessionHandshakeWireCodec.ReadClaimedHelloDeviceId(encoded);
+        SessionHandshakeException failure = Assert.Throws<SessionHandshakeException>(
+            () => SessionHandshakeWireCodec.DecodeHello(
+                encoded,
+                trustedIdentity.PublicIdentity));
+
+        Assert.Equal(deviceId, claimed);
+        Assert.Equal(SessionHandshakeFailure.PeerIdentityChanged, failure.Failure);
+    }
+
+    [Fact]
     public void NonCanonicalWireVersionOrderIsRejected()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(

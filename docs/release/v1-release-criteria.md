@@ -76,9 +76,14 @@ implementation convenience.
 ## Current evidence
 
 - [2026-07-13 macOS headless foundation](../evidence/2026-07-13-macos-foundation.md):
-  locked restore, format verification, warning-free Release build, 236 unit,
+  locked restore, format verification, warning-free Release build, 246 unit,
   integration, security, and platform-contract tests, simulator, and NuGet
   vulnerability query passed locally.
+- [2026-07-13 macOS authenticated inbound listener](../evidence/2026-07-13-macos-inbound-listener.md):
+  one real loopback port authenticated two different trusted peers; unknown-peer,
+  key-substitution, capability, concurrency/backpressure, handler-failure,
+  revoke, cancellation, and fatal-accept contracts passed locally. This is not
+  physical-device or remotely reachable LAN evidence.
 - [2026-07-13 macOS Keychain](../evidence/2026-07-13-macos-keychain.md):
   local Security.framework identity create/reload/delete, concurrent-add, and
   trust create/restart/update/revoke smoke passed with disposable Keychain items.

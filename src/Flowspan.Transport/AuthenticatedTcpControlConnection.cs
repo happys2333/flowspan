@@ -183,6 +183,70 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
         }
     }
 
+    public static async ValueTask<AuthenticatedTcpControlConnection>
+        AcceptAnyTrustedAsync(
+            TcpListener listener,
+            DeviceIdentity localIdentity,
+            TrustSessionCoordinator trustSessions,
+            IEnumerable<ProtocolVersion> supportedVersions,
+            TimeSpan handshakeTimeout,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(listener);
+        ArgumentNullException.ThrowIfNull(localIdentity);
+        ArgumentNullException.ThrowIfNull(trustSessions);
+        ArgumentNullException.ThrowIfNull(supportedVersions);
+        ValidateHandshakeTimeout(handshakeTimeout);
+        DirectTcpPeerConnection connection = await DirectTcpPeerConnection.AcceptAsync(
+            listener,
+            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using CancellationTokenSource handshakeCancellation =
+                CreateHandshakeCancellation(handshakeTimeout, cancellationToken);
+            try
+            {
+                return await AuthenticateResolvedResponderAsync(
+                    connection,
+                    localIdentity,
+                    trustSessions,
+                    supportedVersions,
+                    handshakeCancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception) when (
+                !cancellationToken.IsCancellationRequested
+                && handshakeCancellation.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    "The authenticated TCP handshake timed out.",
+                    exception);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            IPEndPoint remoteEndPoint = connection.RemoteEndPoint;
+            Exception failure = exception;
+            try
+            {
+                await connection.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure)
+            {
+                failure = new AggregateException(
+                    "Incoming authentication and connection cleanup both failed.",
+                    exception,
+                    cleanupFailure);
+            }
+
+            throw new IncomingPeerAuthenticationException(remoteEndPoint, failure);
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         try
@@ -250,6 +314,79 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             connection,
             trustedPeer.PeerIdentity,
             cancellationToken).ConfigureAwait(false);
+        SessionHandshakeHello localHello = CreateHello(
+            SecureSessionRole.Responder,
+            localIdentity,
+            supportedVersions,
+            agreement);
+        await SendAsync(connection, SessionHandshakeWireCodec.EncodeHello(localHello), cancellationToken)
+            .ConfigureAwait(false);
+        SessionHandshakeTranscript transcript = SessionHandshakeTranscript.Create(
+            peerHello,
+            localHello);
+        SessionHandshakeAuthentication peerAuthentication =
+            await ReceiveAuthenticationAsync(connection, cancellationToken)
+                .ConfigureAwait(false);
+        AuthenticatedSession authenticated = AuthenticatedSessionHandshake.Complete(
+            transcript,
+            SecureSessionRole.Responder,
+            localIdentity.PublicIdentity,
+            trustedPeer.PeerIdentity,
+            agreement,
+            peerAuthentication);
+        try
+        {
+            SessionHandshakeAuthentication localAuthentication =
+                SessionHandshakeAuthentication.Create(transcript, localIdentity);
+            await SendAsync(
+                connection,
+                SessionHandshakeWireCodec.EncodeAuthentication(localAuthentication),
+                cancellationToken).ConfigureAwait(false);
+            return Upgrade(connection, authenticated, localIdentity.DeviceId);
+        }
+        catch
+        {
+            authenticated.Dispose();
+            throw;
+        }
+    }
+
+    private static async ValueTask<AuthenticatedTcpControlConnection>
+        AuthenticateResolvedResponderAsync(
+            DirectTcpPeerConnection connection,
+            DeviceIdentity localIdentity,
+            TrustSessionCoordinator trustSessions,
+            IEnumerable<ProtocolVersion> supportedVersions,
+            CancellationToken cancellationToken)
+    {
+        using EphemeralKeyAgreement agreement = EphemeralKeyAgreement.Generate();
+        byte[] message = await connection.ReceiveHandshakeAsync(cancellationToken)
+            .ConfigureAwait(false);
+        SessionHandshakeHello peerHello;
+        TrustRecord trustedPeer;
+        try
+        {
+            DeviceId claimedPeerId =
+                SessionHandshakeWireCodec.ReadClaimedHelloDeviceId(message);
+            if (!trustSessions.TryGetCurrentTrust(
+                    claimedPeerId,
+                    out TrustRecord? currentTrust))
+            {
+                throw new SessionHandshakeException(
+                    SessionHandshakeFailure.PeerNotTrusted,
+                    "The incoming peer is not currently trusted.");
+            }
+
+            trustedPeer = currentTrust;
+            peerHello = SessionHandshakeWireCodec.DecodeHello(
+                message,
+                trustedPeer.PeerIdentity);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(message);
+        }
+
         SessionHandshakeHello localHello = CreateHello(
             SecureSessionRole.Responder,
             localIdentity,
@@ -401,4 +538,18 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
                 $"A TCP handshake timeout must be positive and at most {MaximumHandshakeTimeout.TotalMinutes} minutes.");
         }
     }
+}
+
+public sealed class IncomingPeerAuthenticationException : Exception
+{
+    public IncomingPeerAuthenticationException(
+        IPEndPoint remoteEndPoint,
+        Exception innerException)
+        : base("An incoming TCP peer failed authentication.", innerException)
+    {
+        ArgumentNullException.ThrowIfNull(remoteEndPoint);
+        RemoteEndPoint = remoteEndPoint;
+    }
+
+    public IPEndPoint RemoteEndPoint { get; }
 }

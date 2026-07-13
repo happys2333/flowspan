@@ -154,6 +154,14 @@ four messages on a fresh direct TCP connection are ordered:
 4. responder authentication, sent only after the responder validates the
    initiator's trust binding and signature.
 
+On a listener shared by multiple peers, the responder parses the Device ID from
+the bounded initiator hello only to select a current trust record. That claim is
+unauthenticated and cannot authorize a session. An unknown ID receives no
+Flowspan response; a known ID still requires the complete hello Device ID and
+fingerprint match plus a transcript signature verified by the selected trusted
+key. The listener reloads current trust and compares the authenticated key again
+immediately before capability registration.
+
 Every handshake wire message is itself prefixed by a signed 32-bit big-endian
 TCP frame length bounded to 1..4096. Either parse, identity, version, signature,
 or cancellation failure closes the candidate socket. After both sides validate
@@ -220,8 +228,8 @@ rotation.
 - Pairing transcript determinism, role binding, SAS equality, dual-confirmation,
   rejection, and identity-key substitution tests.
 - Authenticated-handshake transcript/wire round trip, highest-common-version,
-  identity substitution, altered-version signature, and direct TCP loopback
-  tests.
+  claimed-ID/key substitution, altered-version signature, direct TCP loopback,
+  and two-current-peer shared-listener tests.
 - AEAD round trip, independent directional keys, tamper, replay, sequence gap,
   wrong session/direction, malformed length, and maximum-size tests.
 - Windows/macOS/Linux CI execution, followed by real-machine credential-store
@@ -229,12 +237,13 @@ rotation.
 
 ## Known gaps and release blockers
 
-- No platform credential-store adapter exists.
 - No key rotation/rekey protocol exists.
 - No independent security review has approved these formats.
-- In-memory identities are test/simulator infrastructure only.
-- Pairing-ceremony wire orchestration, multi-peer listener trust lookup,
-  revocation-driven active session shutdown, and an explicit encrypted Finished
-  exchange are not yet implemented.
+- Interactive pairing-ceremony wire/UI orchestration and an explicit encrypted
+  Finished exchange are not yet implemented.
+- The platform credential-store adapters remain provisional and do not yet have
+  the complete real-machine Windows/macOS/Linux acceptance evidence.
+- In-memory identities are test/simulator infrastructure only, and the listener
+  loopback tests are not physical-device or remotely reachable LAN evidence.
 
 All gaps above remain v1 security release blockers.

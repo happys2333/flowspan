@@ -32,16 +32,16 @@ Observed results:
 - locked restore: passed for 22 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 236 passed, 0 failed, 0 skipped;
+- tests: 246 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
-  - security: 49 passed;
+  - security: 50 passed;
   - platform contracts: 8 passed;
   - Linux identity/trust-store contracts/platform guards: 15 passed;
   - macOS identity/trust-store contracts/native smoke: 10 passed;
   - Windows identity/trust-store contracts/platform guards: 12 passed;
-  - transport: 56 passed;
+  - transport: 65 passed;
   - isolated mDNS/DNS-SD browser/publisher adapter: 14 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
@@ -73,7 +73,11 @@ code. It did not contain the Activity text.
   device rename handling, transient/permanent handshake classification, real
   loopback authenticated-session composition, post-handshake registration race
   rejection, active peer-revoke/capability-downgrade handler draining, and
-  authenticated disconnect classification,
+  authenticated disconnect classification, claimed inbound Device-ID routing
+  with full trusted-key validation, two-current-peer authentication through one
+  real loopback listener, bounded inbound handshake/session slots, capability
+  denial, handler-failure isolation, current-key recheck before registration,
+  and peer-specific/fatal-listener/caller-cancellation draining,
   bounded canonical DNS-SD TXT chunking/decoding, randomized hostile TXT
   containment, current-trust candidate construction, dual-stack candidate
   rotation, unsafe-address rejection, split SRV/TXT/A/AAAA resolution,
@@ -120,9 +124,9 @@ code. It did not contain the Activity text.
   separately, while Linux still lacks a live Secret Service round trip.
 - Physical LAN discovery or network-interface churn, the interactive pairing
   wire/UI ceremony, Linux Secret Service, untested Keychain/DPAPI profile states,
-  live DNS-SD browse/publication, multi-peer listener operation,
-  independent security review, native permissions, capture, input, protected
-  surfaces, Remote Window, UI,
+  live DNS-SD browse/publication, remotely reachable multi-device listener
+  behavior, independent security review, native permissions, capture, input,
+  protected surfaces, Remote Window, UI,
   accessibility, packaging, signing, or update behavior.
 - Resistance to an independent security review, fuzzing, or real hostile peers.
 

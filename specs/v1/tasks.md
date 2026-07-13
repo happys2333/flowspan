@@ -125,18 +125,21 @@ means its linked evidence exists; it does not imply the entire product works.
     Avahi lifecycles. Its age, transitive graph, physical reliability, and
     package-license provenance remain explicit release risks.
   - _Requirements: R2.1, R8.1, R12_
-- [-] 5.2 Implement signed minimal discovery offers and direct framed TCP
+- [x] 5.2 Implement signed minimal discovery offers and direct framed TCP
   transport.
   - Signed, short-lived canonical offers, identity-change detection, expiry,
     replay rejection, deterministic in-memory discovery, direct TCP connection,
     bounded framing, and secure control upgrade are implemented. The bounded
     DNS-SD TXT codec, split-record cache, provisional production
     browser/publisher, timed signed-offer refresh, and current-trust candidate
-    source are implemented; multi-peer listener orchestration and physical
-    multicast evidence remain open. The 22-project gate and 236 tests pass
-    locally and on hosted Windows, macOS, and Ubuntu at `5dee727`, together with
-    secret scan and CodeQL. These are contract results, not physical multicast
-    evidence.
+    source are implemented. One bounded listener now authenticates different
+    current trusted peers on the same port, rechecks the authenticated key before
+    capability registration, isolates peer/handler failure, and drains revoked
+    or shutdown sessions. The 22-project gate and 246 tests pass locally. The
+    preceding 236-test slice passes hosted Windows, macOS, and Ubuntu at
+    `5dee727`, together with secret scan and CodeQL; hosted evidence for the new
+    listener source state is pending. Physical multicast evidence remains task
+    5.4. These are contract results, not physical-network evidence.
   - _Requirements: R2.1, R8.1, R9.1_
 - [-] 5.3 Implement bounded reconnect/backoff and reauthentication across network
   changes and restarts.

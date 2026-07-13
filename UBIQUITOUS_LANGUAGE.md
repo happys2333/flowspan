@@ -29,6 +29,7 @@ screens or arbitrary process migration.
 | **Capability** | A narrow permission granted to a paired peer for one class of action. | Trust, access |
 | **Pairing** | An interactive ceremony that verifies device identities and creates initial Capability grants. | Login, connection |
 | **Trust Record** | A local binding from a peer identity key to its name, verification state, and granted Capabilities. | Account, session |
+| **Identity Claim** | An unauthenticated Device ID or fingerprint carried before handshake proof and usable only to locate candidate trust. | Authenticated identity |
 | **Sensitive Surface** | A window, secure-input state, protected content, or policy label that must block or blank capture or input. | Private window |
 | **Emergency Stop** | A local action that immediately disables capture and input, revokes Driver Leases, and disconnects active sharing. | Disconnect |
 | **Degradation** | A named reduction from requested behavior, such as Semantic Handoff to Remote Window. | Fallback without qualification |
@@ -56,6 +57,8 @@ screens or arbitrary process migration.
   **Handoff** never removes the source.
 - A **Mirror** has at most one effective **Driver Lease** at a time.
 - A **Trust Record** may grant zero or more independent **Capabilities**.
+- An **Identity Claim** selects candidate trust but cannot establish identity or
+  authorize a **Capability** without key and transcript verification.
 - An **Activity Group** contains one or more ordered **Activities**; a **Scene**
   may describe Placements for Activities or Groups.
 - An **Operation** produces one terminal **Operation Receipt** and may reference

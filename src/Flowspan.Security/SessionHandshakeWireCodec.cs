@@ -47,12 +47,7 @@ public static class SessionHandshakeWireCodec
             reader.RequireMagic(Magic);
             reader.RequireKind(HelloKind);
             SecureSessionRole role = FromWireRole(reader.ReadByte());
-            string deviceIdText = reader.ReadUtf8(maximumBytes: 36);
-            if (!Guid.TryParseExact(deviceIdText, "D", out Guid deviceId)
-                || deviceId == Guid.Empty)
-            {
-                throw new InvalidDataException("The session hello device ID is invalid.");
-            }
+            DeviceId deviceId = ReadDeviceId(ref reader);
 
             string fingerprint = reader.ReadUtf8(maximumBytes: 64);
             uint versionCount = reader.ReadUInt32();
@@ -83,7 +78,7 @@ public static class SessionHandshakeWireCodec
             byte[] ephemeralPublicKey = reader.ReadBytes(maximumBytes: 1024);
             byte[] nonce = reader.ReadBytes(maximumBytes: SessionHandshakeHello.NonceLength);
             reader.RequireEnd();
-            if (expectedIdentity.DeviceId != DeviceId.From(deviceId)
+            if (expectedIdentity.DeviceId != deviceId
                 || !StringComparer.Ordinal.Equals(
                     expectedIdentity.Fingerprint,
                     fingerprint))
@@ -110,6 +105,27 @@ public static class SessionHandshakeWireCodec
             or OverflowException)
         {
             throw new InvalidDataException("The session hello is malformed.", exception);
+        }
+    }
+
+    public static DeviceId ReadClaimedHelloDeviceId(ReadOnlySpan<byte> message)
+    {
+        ValidateMessageSize(message);
+        try
+        {
+            var reader = new SessionHandshakeWireReader(message);
+            reader.RequireMagic(Magic);
+            reader.RequireKind(HelloKind);
+            _ = FromWireRole(reader.ReadByte());
+            return ReadDeviceId(ref reader);
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException
+            or OverflowException)
+        {
+            throw new InvalidDataException(
+                "The session hello identity claim is malformed.",
+                exception);
         }
     }
 
@@ -183,6 +199,18 @@ public static class SessionHandshakeWireCodec
             throw new InvalidDataException(
                 $"A session handshake message must contain 1 to {MaximumMessageBytes} bytes.");
         }
+    }
+
+    private static DeviceId ReadDeviceId(ref SessionHandshakeWireReader reader)
+    {
+        string deviceIdText = reader.ReadUtf8(maximumBytes: 36);
+        if (!Guid.TryParseExact(deviceIdText, "D", out Guid deviceId)
+            || deviceId == Guid.Empty)
+        {
+            throw new InvalidDataException("The session hello device ID is invalid.");
+        }
+
+        return DeviceId.From(deviceId);
     }
 }
 

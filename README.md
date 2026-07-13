@@ -24,13 +24,15 @@ installation. The repository currently includes:
   primitives with negative tests;
 - bounded signed DNS-SD offers, an isolated provisional browser/publisher, and
   trusted-candidate/reconnect contracts;
+- a bounded authenticated TCP listener that can route multiple currently
+  trusted peers through one port and drain revoked sessions;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet include the pairing UI, physical-LAN discovery evidence,
-multi-peer listener orchestration, native capture/input, Remote Window media,
-desktop UI, packaging, or the complete real-machine Windows/macOS/Linux
-acceptance matrix. See [the v1 task tracker](specs/v1/tasks.md) and [release
-criteria](docs/release/v1-release-criteria.md) for the honest status.
+native capture/input, Remote Window media, desktop UI, packaging, or the
+complete real-machine Windows/macOS/Linux acceptance matrix. See [the v1 task
+tracker](specs/v1/tasks.md) and [release criteria](docs/release/v1-release-criteria.md)
+for the honest status.
 
 ## Run the current slice
 

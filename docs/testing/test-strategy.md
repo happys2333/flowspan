@@ -48,6 +48,17 @@ network-stack replay, old-stack cleanup recovery, and failed-publish rollback.
 These are contract tests; only the manual two-device matrix may be labelled
 physical multicast evidence.
 
+Inbound-listener integration tests open one real loopback TCP listener and
+authenticate two different current trust records through the same port. Negative
+and fault tests reject an unknown peer without poisoning the next accept, prove
+that a claimed Device ID cannot substitute another key, enforce the default and
+hard concurrency limits with slot backpressure, isolate handler failure, reject
+missing capabilities, and drain the correct sessions on peer revocation, caller
+cancellation, or fatal accept failure. Fake accept/session ports make failure
+ordering deterministic. These tests prove the bounded listener contract only;
+they do not prove physical two-device networking, firewall behavior, or remote
+interface reachability.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance;

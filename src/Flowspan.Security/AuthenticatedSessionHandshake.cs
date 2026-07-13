@@ -322,6 +322,7 @@ public enum SessionHandshakeFailure
     PeerIdentityChanged,
     InvalidPeerSignature,
     EphemeralKeyMismatch,
+    PeerNotTrusted,
 }
 
 public sealed class SessionHandshakeException : CryptographicException

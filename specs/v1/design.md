@@ -233,6 +233,28 @@ or local shutdown cancels the handler and disposes the connection; a later
 supervisor iteration performs a new discovery/trust lookup and handshake. Tests
 use signed candidates and real loopback TCP for the success path while faulting
 the ports at the trust, registration, handler, and cancellation boundaries.
+
+The inbound side accepts multiple paired peers through one TCP listener. The
+initiator's claimed Device ID is parsed from the first bounded hello only to
+select a current `TrustRecord`; it is unauthenticated routing input and grants no
+authority. An unknown claim is closed before Flowspan responds. The normal hello
+decoder then requires the Device ID and fingerprint to match the selected trust
+record, and the transcript signature proves possession of that record's identity
+key. Immediately before capability registration, the listener reloads current
+trust and compares the authenticated key again, closing the handshake-to-register
+race.
+
+`AuthenticatedTcpInboundListener` acquires a bounded slot before accept and keeps
+it for the handshake and registered session lifetime. The default limit is 32
+slots and configuration cannot exceed 128. Authentication or capability denial
+affects only that peer; handler failures are reported as structured diagnostics
+without stopping other sessions. Peer revocation or capability downgrade drains
+the affected registered session, while listener cancellation or a fatal accept
+failure cancels and awaits every active session before returning. Injected
+acceptor/session ports make these lifecycle and failure paths deterministic in
+tests. The real-network integration test uses two clients on the same process's
+loopback interface; it is not physical-device or multicast evidence.
+
 That reconnect-composition slice did not publish or resolve DNS-SD records. The
 subsequent DNS-SD slices resolve bounded SRV/TXT/A/AAAA observations into the
 same candidate source and publish minimized signed offers through the isolated
