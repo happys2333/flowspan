@@ -47,6 +47,11 @@ Sources:
 
 - `Flowspan.Security` owns `IDeviceIdentityStore`, atomic provisioning, and the
   explicit `OperatingSystemProtected` versus `DegradedTestOnly` classification.
+- `DeviceIdentityPayloadCodec` owns one bounded binary format with `FSID` magic,
+  version 1, an RFC 4122 big-endian DeviceId, a canonical UTF-8 display name,
+  and a PKCS#8 P-256 private key. Payloads are limited to 1 KiB and reject
+  unknown versions, malformed lengths, non-canonical names, invalid keys, and
+  trailing bytes.
 - The in-memory implementation is test-only, clears its PKCS#8 buffer, and is
   always classified `DegradedTestOnly`.
 - Windows uses `System.Security.Cryptography.ProtectedData` 10.0.9 with
@@ -73,6 +78,8 @@ Sources:
 - Contract tests must cover missing, create, reload, concurrent create, delete,
   corrupt payload, cancellation, unavailable backend, and no-silent-downgrade
   behavior.
+- Codec tests must preserve identity and fingerprint on round trip and reject
+  hostile payload shapes before any native adapter consumes the result.
 - A native smoke test must create, reload, and delete a disposable Flowspan test
   identity on a real user profile for each OS. Hosted runner success is useful
   compilation/contract evidence but does not replace this gate.

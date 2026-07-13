@@ -32,11 +32,11 @@ Observed results:
 - locked restore: passed for 14 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 124 passed, 0 failed, 0 skipped;
+- tests: 127 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
-  - security: 28 passed;
+  - security: 31 passed;
   - platform contracts: 8 passed;
   - transport: 16 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
@@ -61,7 +61,8 @@ code. It did not contain the Activity text.
   rejection, bounded handshake timeout, direct loopback TCP secure upgrade,
   authenticated control identity/version binding, bounded reconnect backoff,
   atomic identity provisioning/restart/deletion with an explicitly degraded
-  test store, conflict detection, and receipt redaction cases behave as asserted
+  test store, bounded/canonical identity payload round trips and hostile-shape
+  rejection, conflict detection, and receipt redaction cases behave as asserted
   by the tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.
