@@ -23,6 +23,20 @@ public sealed class InMemoryActivityCatalog : IActivityCatalog
         ArgumentNullException.ThrowIfNull(activity);
         return activities.TryAdd(activity.Descriptor.Id, activity);
     }
+
+    public bool TryUpdate(ActivityInstance expected, ActivityInstance replacement)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(replacement);
+        if (expected.Descriptor.Id != replacement.Descriptor.Id)
+        {
+            throw new ArgumentException(
+                "An Activity update cannot change its ID.",
+                nameof(replacement));
+        }
+
+        return activities.TryUpdate(expected.Descriptor.Id, replacement, expected);
+    }
 }
 
 public sealed class InMemoryOperationJournal : IOperationJournal
@@ -75,6 +89,18 @@ public sealed class InMemoryOperationJournal : IOperationJournal
         {
             OperationReceipt receipt = await operation(cancellationToken).ConfigureAwait(false);
             entry.Completion.TrySetResult(receipt);
+            if (receipt.Status is OperationStatus.Failed or OperationStatus.Recovering)
+            {
+                lock (gate)
+                {
+                    if (entries.TryGetValue(operationId, out Entry? current)
+                        && ReferenceEquals(current, entry))
+                    {
+                        entries.Remove(operationId);
+                    }
+                }
+            }
+
             return new JournalExecutionResult(receipt, false, false);
         }
         catch (Exception exception)

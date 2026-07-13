@@ -38,4 +38,13 @@ public sealed class WorkspaceNoteAdapter : IActivityAdapter
 
         return ValueTask.FromResult(ResumeActivityResult.Success);
     }
+
+    public ValueTask<CloseActivityResult> CloseAsync(
+        ActivityInstance activity,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(activity);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(CloseActivityResult.Success);
+    }
 }

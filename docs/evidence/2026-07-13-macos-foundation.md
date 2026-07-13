@@ -32,10 +32,10 @@ Observed results:
 - locked restore: passed for 8 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 31 passed, 0 failed, 0 skipped;
+- tests: 51 passed, 0 failed, 0 skipped;
   - domain: 19 passed;
-  - protocol: 3 passed;
-  - integration: 9 passed;
+  - protocol: 17 passed;
+  - integration: 15 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
 - NuGet query: no known vulnerable package reported for any of the 8 projects.
@@ -48,8 +48,10 @@ code. It did not contain the Activity text.
 
 - The headless solution restores and compiles on this one macOS arm64 host.
 - The current domain validation, capability denial, protocol negotiation,
-  semantic handoff, sequential/concurrent idempotency, conflict detection, and
-  receipt redaction cases behave as asserted by the committed tests.
+  bounded/canonical control codec, framed partial reads, semantic handoff,
+  move ordering/recovery, deterministic delivery faults, sequential/concurrent
+  idempotency, conflict detection, and receipt redaction cases behave as
+  asserted by the committed tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.
 

@@ -33,7 +33,7 @@ means its linked evidence exists; it does not imply the entire product works.
 - [x] 2.1 Implement validated IDs, Activity descriptor metadata, sensitivity,
   revision, placement, capability, and receipt value types.
   - _Requirements: R3.1–R3.2, R9.2, R11.1_
-- [-] 2.2 Implement in-memory node, adapter, journal, fake clock, and deterministic
+- [x] 2.2 Implement in-memory node, adapter, journal, fake clock, and deterministic
   transport ports.
   - _Requirements: R4, R8.4, R12.3_
 - [x] 2.3 Implement semantic handoff and target validation with a portable note
@@ -45,16 +45,16 @@ means its linked evidence exists; it does not imply the entire product works.
 
 ## 3. Reliable operations and protocol
 
-- [ ] 3.1 Implement version envelope, bounded codec, negotiation, golden fixtures,
+- [x] 3.1 Implement version envelope, bounded codec, negotiation, golden fixtures,
   and compatibility errors.
   - _Requirements: R8.3, R9.1, R12.3_
-- [ ] 3.2 Implement move/replace ordering, undo capsule metadata, and idempotent
+- [-] 3.2 Implement move/replace ordering, undo capsule metadata, and idempotent
   operation journal.
   - _Requirements: R4, R11.2_
 - [ ] 3.3 Implement atomic swap prepare/reserve/decision/commit/recovery state
   machines.
   - _Requirements: R5_
-- [ ] 3.4 Add generated transition/property cases and deterministic drop,
+- [-] 3.4 Add generated transition/property cases and deterministic drop,
   duplicate, delay, disconnect, and journal-failure tests.
   - _Requirements: R4.5, R5, R8.4, R12.3_
 

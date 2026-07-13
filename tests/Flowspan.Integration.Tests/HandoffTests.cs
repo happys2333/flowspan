@@ -177,7 +177,11 @@ public sealed class HandoffTests
             CapabilityGrant.Of(Capability.ActivityReceive));
 
         public ValueTask<OperationReceipt> HandoffAsync(string slot = "main") =>
-            Source.HandoffAsync(Descriptor.Id, Target, slot, context);
+            Source.HandoffAsync(
+                Descriptor.Id,
+                new DirectActivityChannel(Target),
+                slot,
+                context);
     }
 
     private sealed class TestClock(DateTimeOffset utcNow) : IClock
@@ -201,5 +205,10 @@ public sealed class HandoffTests
             Interlocked.Increment(ref callCount);
             return inner.ResumeAsync(descriptor, placement, cancellationToken);
         }
+
+        public ValueTask<CloseActivityResult> CloseAsync(
+            ActivityInstance activity,
+            CancellationToken cancellationToken) =>
+            inner.CloseAsync(activity, cancellationToken);
     }
 }

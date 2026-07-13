@@ -57,7 +57,7 @@ OperationContext context = OperationContext.Create(
     clock.UtcNow.AddSeconds(30));
 OperationReceipt receipt = await source.HandoffAsync(
     descriptor.Id,
-    target,
+    new DirectActivityChannel(target),
     "main",
     context);
 

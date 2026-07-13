@@ -268,4 +268,18 @@ public sealed record ActivityInstance
             revision,
             ActivityLifecycle.Active);
     }
+
+    public ActivityInstance Close()
+    {
+        if (Lifecycle == ActivityLifecycle.Closed)
+        {
+            return this;
+        }
+
+        return new ActivityInstance(
+            Descriptor,
+            Placement,
+            checked(Revision + 1),
+            ActivityLifecycle.Closed);
+    }
 }

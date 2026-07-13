@@ -34,19 +34,23 @@ public sealed record OperationContext
     }
 }
 
-public sealed record HandoffOffer
+public sealed record ActivityTransferOffer
 {
-    private HandoffOffer(
+    private ActivityTransferOffer(
+        OperationKind kind,
         OperationContext context,
         ActivityDescriptor descriptor,
         ActivityPlacement targetPlacement,
         string requestDigest)
     {
+        Kind = kind;
         Context = context;
         Descriptor = descriptor;
         TargetPlacement = targetPlacement;
         RequestDigest = requestDigest;
     }
+
+    public OperationKind Kind { get; }
 
     public OperationContext Context { get; }
 
@@ -56,7 +60,8 @@ public sealed record HandoffOffer
 
     public string RequestDigest { get; }
 
-    public static HandoffOffer Create(
+    public static ActivityTransferOffer Create(
+        OperationKind kind,
         OperationContext context,
         ActivityDescriptor descriptor,
         ActivityPlacement targetPlacement)
@@ -64,10 +69,17 @@ public sealed record HandoffOffer
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(targetPlacement);
+        if (kind is not (OperationKind.Handoff or OperationKind.Move))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "An Activity transfer offer must be a handoff or move.");
+        }
 
         string digestInput = string.Join(
             '\n',
-            OperationKind.Handoff.ToString(),
+            kind.ToString(),
             context.OperationId.ToString(),
             descriptor.Id.ToString(),
             descriptor.Kind.Value,
@@ -78,7 +90,8 @@ public sealed record HandoffOffer
         string requestDigest = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(digestInput)));
 
-        return new HandoffOffer(
+        return new ActivityTransferOffer(
+            kind,
             context,
             descriptor,
             targetPlacement,

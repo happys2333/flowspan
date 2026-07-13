@@ -32,6 +32,9 @@ public enum FailureCode
     OperationIdConflict,
     OperationInProgress,
     ProtocolIncompatible,
+    PeerUnavailable,
+    AcknowledgementLost,
+    SourceCleanupFailed,
     InternalFailure,
 }
 
@@ -140,6 +143,63 @@ public sealed record OperationReceipt
             failureCode);
     }
 
+    public static OperationReceipt Failed(
+        OperationId operationId,
+        CorrelationId correlationId,
+        OperationKind kind,
+        DeviceId sourceDeviceId,
+        DeviceId targetDeviceId,
+        ActivityDescriptor descriptor,
+        DateTimeOffset occurredAt,
+        FailureCode failureCode) => CreateNonSuccess(
+            operationId,
+            correlationId,
+            kind,
+            OperationStatus.Failed,
+            sourceDeviceId,
+            targetDeviceId,
+            descriptor,
+            occurredAt,
+            failureCode);
+
+    public static OperationReceipt Recovering(
+        OperationId operationId,
+        CorrelationId correlationId,
+        OperationKind kind,
+        DeviceId sourceDeviceId,
+        DeviceId targetDeviceId,
+        ActivityDescriptor descriptor,
+        DateTimeOffset occurredAt,
+        FailureCode failureCode) => CreateNonSuccess(
+            operationId,
+            correlationId,
+            kind,
+            OperationStatus.Recovering,
+            sourceDeviceId,
+            targetDeviceId,
+            descriptor,
+            occurredAt,
+            failureCode);
+
+    public static OperationReceipt CommittedWithWarning(
+        OperationId operationId,
+        CorrelationId correlationId,
+        OperationKind kind,
+        DeviceId sourceDeviceId,
+        DeviceId targetDeviceId,
+        ActivityDescriptor descriptor,
+        DateTimeOffset occurredAt,
+        FailureCode failureCode) => CreateNonSuccess(
+            operationId,
+            correlationId,
+            kind,
+            OperationStatus.CommittedWithWarning,
+            sourceDeviceId,
+            targetDeviceId,
+            descriptor,
+            occurredAt,
+            failureCode);
+
     public static OperationReceipt RejectedMissingActivity(
         OperationId operationId,
         CorrelationId correlationId,
@@ -196,6 +256,36 @@ public sealed record OperationReceipt
             descriptor.Id,
             descriptor.Kind,
             descriptor.DescriptorDigest,
+            occurredAt,
+            failureCode);
+    }
+
+    private static OperationReceipt CreateNonSuccess(
+        OperationId operationId,
+        CorrelationId correlationId,
+        OperationKind kind,
+        OperationStatus status,
+        DeviceId sourceDeviceId,
+        DeviceId targetDeviceId,
+        ActivityDescriptor descriptor,
+        DateTimeOffset occurredAt,
+        FailureCode failureCode)
+    {
+        if (failureCode == FailureCode.None)
+        {
+            throw new ArgumentException(
+                "This receipt status must contain a failure code.",
+                nameof(failureCode));
+        }
+
+        return Create(
+            operationId,
+            correlationId,
+            kind,
+            status,
+            sourceDeviceId,
+            targetDeviceId,
+            descriptor,
             occurredAt,
             failureCode);
     }

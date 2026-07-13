@@ -27,6 +27,27 @@ public interface IActivityAdapter
         ActivityDescriptor descriptor,
         ActivityPlacement placement,
         CancellationToken cancellationToken);
+
+    public ValueTask<CloseActivityResult> CloseAsync(
+        ActivityInstance activity,
+        CancellationToken cancellationToken);
+}
+
+public readonly record struct CloseActivityResult(bool Succeeded, FailureCode FailureCode)
+{
+    public static CloseActivityResult Success { get; } = new(true, FailureCode.None);
+
+    public static CloseActivityResult Failed(FailureCode failureCode)
+    {
+        if (failureCode == FailureCode.None)
+        {
+            throw new ArgumentException(
+                "A failed close result must have a failure code.",
+                nameof(failureCode));
+        }
+
+        return new CloseActivityResult(false, failureCode);
+    }
 }
 
 public readonly record struct ResumeActivityResult(bool Succeeded, FailureCode FailureCode)
@@ -53,6 +74,8 @@ public interface IActivityCatalog
         [NotNullWhen(true)] out ActivityInstance? activity);
 
     public bool TryAdd(ActivityInstance activity);
+
+    public bool TryUpdate(ActivityInstance expected, ActivityInstance replacement);
 }
 
 public interface IOperationJournal
@@ -90,8 +113,42 @@ public interface IActivityPeer
 {
     public DeviceId DeviceId { get; }
 
-    public ValueTask<OperationReceipt> ReceiveHandoffAsync(
+    public ValueTask<OperationReceipt> ReceiveActivityAsync(
         DeviceId senderDeviceId,
-        HandoffOffer offer,
+        ActivityTransferOffer offer,
         CancellationToken cancellationToken);
+}
+
+public interface IActivityChannel
+{
+    public DeviceId TargetDeviceId { get; }
+
+    public ValueTask<ActivityDeliveryResult> SendAsync(
+        DeviceId senderDeviceId,
+        ActivityTransferOffer offer,
+        CancellationToken cancellationToken);
+}
+
+public enum ActivityDeliveryStatus
+{
+    Acknowledged,
+    NotDelivered,
+    AcknowledgementLost,
+}
+
+public readonly record struct ActivityDeliveryResult(
+    ActivityDeliveryStatus Status,
+    OperationReceipt? Receipt)
+{
+    public static ActivityDeliveryResult Acknowledged(OperationReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        return new ActivityDeliveryResult(ActivityDeliveryStatus.Acknowledged, receipt);
+    }
+
+    public static ActivityDeliveryResult NotDelivered { get; } =
+        new(ActivityDeliveryStatus.NotDelivered, null);
+
+    public static ActivityDeliveryResult AcknowledgementLost { get; } =
+        new(ActivityDeliveryStatus.AcknowledgementLost, null);
 }

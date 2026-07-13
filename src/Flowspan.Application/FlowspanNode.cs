@@ -70,13 +70,13 @@ public sealed class FlowspanNode : IActivityPeer
 
     public async ValueTask<OperationReceipt> HandoffAsync(
         ActivityId activityId,
-        IActivityPeer target,
+        IActivityChannel channel,
         string targetSlot,
         OperationContext context,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(activityId);
-        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(context);
 
         if (!catalog.TryGet(activityId, out ActivityInstance? sourceActivity)
@@ -87,29 +87,150 @@ public sealed class FlowspanNode : IActivityPeer
                 context.CorrelationId,
                 OperationKind.Handoff,
                 DeviceId,
-                target.DeviceId,
+                channel.TargetDeviceId,
                 activityId,
                 clock.UtcNow);
             receiptSink.Write(missing);
             return missing;
         }
 
-        ActivityPlacement targetPlacement = ActivityPlacement.On(target.DeviceId, targetSlot);
-        HandoffOffer offer = HandoffOffer.Create(
+        ActivityPlacement targetPlacement = ActivityPlacement.On(channel.TargetDeviceId, targetSlot);
+        ActivityTransferOffer offer = ActivityTransferOffer.Create(
+            OperationKind.Handoff,
             context,
             sourceActivity.Descriptor,
             targetPlacement);
 
-        OperationReceipt receipt = await target
-            .ReceiveHandoffAsync(DeviceId, offer, cancellationToken)
+        ActivityDeliveryResult delivery = await channel
+            .SendAsync(DeviceId, offer, cancellationToken)
             .ConfigureAwait(false);
+        OperationReceipt receipt = ResolveDelivery(delivery, offer);
         receiptSink.Write(receipt);
         return receipt;
     }
 
-    public async ValueTask<OperationReceipt> ReceiveHandoffAsync(
+    public async ValueTask<OperationReceipt> MoveAsync(
+        ActivityId activityId,
+        IActivityChannel channel,
+        string targetSlot,
+        OperationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(activityId);
+        ArgumentNullException.ThrowIfNull(channel);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (!catalog.TryGet(activityId, out ActivityInstance? sourceActivity)
+            || sourceActivity is null)
+        {
+            OperationReceipt missing = OperationReceipt.RejectedMissingActivity(
+                context.OperationId,
+                context.CorrelationId,
+                OperationKind.Move,
+                DeviceId,
+                channel.TargetDeviceId,
+                activityId,
+                clock.UtcNow);
+            receiptSink.Write(missing);
+            return missing;
+        }
+
+        ActivityPlacement targetPlacement = ActivityPlacement.On(channel.TargetDeviceId, targetSlot);
+        ActivityTransferOffer offer = ActivityTransferOffer.Create(
+            OperationKind.Move,
+            context,
+            sourceActivity.Descriptor,
+            targetPlacement);
+        string coordinatorDigest = offer.BindAuthenticatedSender(DeviceId);
+
+        JournalExecutionResult execution = await journal.ExecuteOnceAsync(
+            context.OperationId,
+            coordinatorDigest,
+            ExecuteMoveAsync,
+            cancellationToken).ConfigureAwait(false);
+        OperationReceipt receipt;
+        if (execution.IsConflict)
+        {
+            receipt = OperationReceipt.Rejected(
+                context.OperationId,
+                context.CorrelationId,
+                OperationKind.Move,
+                DeviceId,
+                channel.TargetDeviceId,
+                sourceActivity.Descriptor,
+                clock.UtcNow,
+                FailureCode.OperationIdConflict);
+        }
+        else
+        {
+            receipt = execution.Receipt
+                ?? throw new InvalidOperationException(
+                    "The coordinator journal returned no operation receipt.");
+        }
+
+        if (!execution.WasReplay || execution.IsConflict)
+        {
+            receiptSink.Write(receipt);
+        }
+
+        return receipt;
+
+        async ValueTask<OperationReceipt> ExecuteMoveAsync(CancellationToken innerToken)
+        {
+            ActivityDeliveryResult delivery = await channel
+                .SendAsync(DeviceId, offer, innerToken)
+                .ConfigureAwait(false);
+            OperationReceipt targetReceipt = ResolveDelivery(delivery, offer);
+            if (!targetReceipt.IsSuccess)
+            {
+                return targetReceipt;
+            }
+
+            if (!adapterRegistry.TryFind(sourceActivity.Descriptor.Kind, out IActivityAdapter? adapter)
+                || adapter is null)
+            {
+                return OperationReceipt.CommittedWithWarning(
+                    context.OperationId,
+                    context.CorrelationId,
+                    OperationKind.Move,
+                    DeviceId,
+                    channel.TargetDeviceId,
+                    sourceActivity.Descriptor,
+                    clock.UtcNow,
+                    FailureCode.SourceCleanupFailed);
+            }
+
+            CloseActivityResult closeResult = await adapter
+                .CloseAsync(sourceActivity, innerToken)
+                .ConfigureAwait(false);
+            if (!closeResult.Succeeded
+                || !catalog.TryUpdate(sourceActivity, sourceActivity.Close()))
+            {
+                return OperationReceipt.CommittedWithWarning(
+                    context.OperationId,
+                    context.CorrelationId,
+                    OperationKind.Move,
+                    DeviceId,
+                    channel.TargetDeviceId,
+                    sourceActivity.Descriptor,
+                    clock.UtcNow,
+                    FailureCode.SourceCleanupFailed);
+            }
+
+            return OperationReceipt.Committed(
+                context.OperationId,
+                context.CorrelationId,
+                OperationKind.Move,
+                DeviceId,
+                channel.TargetDeviceId,
+                sourceActivity.Descriptor,
+                clock.UtcNow);
+        }
+    }
+
+    public async ValueTask<OperationReceipt> ReceiveActivityAsync(
         DeviceId senderDeviceId,
-        HandoffOffer offer,
+        ActivityTransferOffer offer,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(senderDeviceId);
@@ -174,7 +295,7 @@ public sealed class FlowspanNode : IActivityPeer
             OperationReceipt committed = OperationReceipt.Committed(
                 offer.Context.OperationId,
                 offer.Context.CorrelationId,
-                OperationKind.Handoff,
+                offer.Kind,
                 senderDeviceId,
                 DeviceId,
                 offer.Descriptor,
@@ -193,11 +314,42 @@ public sealed class FlowspanNode : IActivityPeer
         OperationReceipt Reject(FailureCode failureCode) => OperationReceipt.Rejected(
             offer.Context.OperationId,
             offer.Context.CorrelationId,
-            OperationKind.Handoff,
+            offer.Kind,
             senderDeviceId,
             DeviceId,
             offer.Descriptor,
             clock.UtcNow,
             failureCode);
     }
+
+    private OperationReceipt ResolveDelivery(
+        ActivityDeliveryResult delivery,
+        ActivityTransferOffer offer) => delivery.Status switch
+        {
+            ActivityDeliveryStatus.Acknowledged => delivery.Receipt
+                ?? throw new InvalidOperationException(
+                    "An acknowledged delivery must include a receipt."),
+            ActivityDeliveryStatus.NotDelivered => OperationReceipt.Failed(
+                offer.Context.OperationId,
+                offer.Context.CorrelationId,
+                offer.Kind,
+                DeviceId,
+                offer.TargetPlacement.DeviceId,
+                offer.Descriptor,
+                clock.UtcNow,
+                FailureCode.PeerUnavailable),
+            ActivityDeliveryStatus.AcknowledgementLost => OperationReceipt.Recovering(
+                offer.Context.OperationId,
+                offer.Context.CorrelationId,
+                offer.Kind,
+                DeviceId,
+                offer.TargetPlacement.DeviceId,
+                offer.Descriptor,
+                clock.UtcNow,
+                FailureCode.AcknowledgementLost),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(delivery),
+                delivery.Status,
+                "Unknown Activity delivery status."),
+        };
 }
