@@ -40,5 +40,7 @@ Observed result: 5 passed, 0 failed, 0 skipped.
   platform capability;
 - Windows or Linux credential storage.
 
-Those remain release evidence gates, and hosted macOS CI must independently run
-the committed adapter before its result is recorded.
+Those remain release evidence gates. Hosted macOS CI run
+[29233261468](https://github.com/happys2333/flowspan/actions/runs/29233261468)
+independently passed the committed native and contract tests for `c3a5aa2`; this
+still does not substitute for signed-package and locked-profile evidence.

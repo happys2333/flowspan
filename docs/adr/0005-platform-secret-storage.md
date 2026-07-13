@@ -66,11 +66,15 @@ Sources:
   build bounded CoreFoundation dictionaries with owned SafeHandles and return
   structured status/recovery information without converting secrets to strings.
 - Linux invokes the standard `secret-tool` client for the freedesktop Secret
-  Service, passes secret bytes through standard input rather than arguments, and
-  captures output as clearable byte buffers. Missing `secret-tool`, missing
-  session bus, locked collection, or denied prompt is an explicit unavailable or
-  permission result. A direct `Tmds.DBus.Protocol` adapter remains a replacement
-  option if packaging `secret-tool` proves unreliable.
+  Service. The bounded binary payload is Base64-encoded directly between
+  clearable byte buffers because the CLI accepts text secrets; bytes travel only
+  through standard input, never arguments or immutable managed strings. Lookup
+  output is bounded and decoded in place. Because `secret-tool store` may replace
+  a matching item, a per-user coordination lock serializes lookup/store/delete so
+  first launches converge. Missing `secret-tool`, missing session bus, locked
+  collection, denied prompt, timeout, and oversized output are explicit failures.
+  A direct `Tmds.DBus.Protocol` adapter remains a replacement option if packaging
+  `secret-tool` proves unreliable.
 - Trust/history persistence will use a separate authenticated repository; it may
   wrap its data-encryption key with this platform store. It will not serialize
   private identity keys into the general repository.

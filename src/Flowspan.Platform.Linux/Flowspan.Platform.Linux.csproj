@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Linux platform adapters for Flowspan.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Security/Flowspan.Security.csproj" />
+  </ItemGroup>
+</Project>

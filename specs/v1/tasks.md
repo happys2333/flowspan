@@ -86,7 +86,9 @@ means its linked evidence exists; it does not imply the entire product works.
     plaintext fallback. The shared bounded payload bridge and Windows
     CurrentUser-DPAPI/atomic-file adapter are implemented and pass hosted
     Windows native smoke. The macOS Security.framework adapter passes local
-    native and contract tests; its hosted result plus Linux remain open.
+    and hosted native/contract tests. The Linux secret-tool adapter has bounded
+    process and fake contracts; its hosted result and real desktop Secret
+    Service evidence remain open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection

@@ -29,21 +29,22 @@ dotnet list Flowspan.slnx package --vulnerable --include-transitive
 
 Observed results:
 
-- locked restore: passed for 18 projects;
+- locked restore: passed for 20 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 140 passed, 0 failed, 0 skipped;
+- tests: 148 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
   - security: 32 passed;
   - platform contracts: 8 passed;
+  - Linux identity-store contracts/platform guards: 8 passed;
   - macOS identity-store contracts/native smoke: 5 passed;
   - Windows identity-store contracts: 7 passed;
   - transport: 16 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
-- NuGet query: no known vulnerable package reported for any of the 18 projects.
+- NuGet query: no known vulnerable package reported for any of the 20 projects.
 
 The simulator receipt contained operation/correlation/device/Activity IDs,
 `workspace.note/v1`, a full descriptor digest, timestamp, and `none` failure
@@ -67,8 +68,10 @@ code. It did not contain the Activity text.
   rejection, shared platform-payload bridging, Windows atomic protected-file
   semantics through a fake protector, concurrent first-start convergence,
   corrupt/cancel cleanup, non-Windows DPAPI rejection, native macOS Keychain
-  create/reload/delete and concurrent-add behavior, conflict detection, and
-  receipt redaction cases behave as asserted by the tests.
+  create/reload/delete and concurrent-add behavior, Linux secret-tool fake
+  boundary Base64/stdin/atomic-lock/error contracts and non-Linux rejection,
+  conflict detection, and receipt redaction cases behave as asserted by the
+  tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.
 
@@ -80,6 +83,8 @@ code. It did not contain the Activity text.
 - Actual Windows CurrentUser DPAPI execution; this macOS run exercised the
   production adapter's explicit platform rejection and fake-protector contract
   only.
+- Linux `secret-tool` process execution or a live desktop Secret Service; Linux
+  conditional process-limit/cancellation tests did not execute on macOS.
 - Physical LAN discovery, the interactive pairing wire/UI ceremony, Linux Secret
   Service, untested Keychain/DPAPI profile states, multi-peer listener operation,
   independent security review, native permissions, capture, input, protected
