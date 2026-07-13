@@ -14,10 +14,14 @@ public interface ISecretToolProcessRunner
 
 public sealed class SecretToolInvocation
 {
+    public const int DefaultMaximumStandardOutputBytes = 4 * 1024;
+    public const int MaximumAllowedStandardOutputBytes = 128 * 1024;
+
     internal SecretToolInvocation(
         string verb,
         IEnumerable<string> arguments,
-        ReadOnlyMemory<byte> standardInput)
+        ReadOnlyMemory<byte> standardInput,
+        int maximumStandardOutputBytes = DefaultMaximumStandardOutputBytes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(verb);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -33,14 +37,24 @@ public sealed class SecretToolInvocation
                 nameof(arguments));
         }
 
+        if (maximumStandardOutputBytes is < 1 or > MaximumAllowedStandardOutputBytes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumStandardOutputBytes),
+                $"secret-tool stdout must be limited to 1 to {MaximumAllowedStandardOutputBytes} bytes.");
+        }
+
         Verb = verb;
         Arguments = materializedArguments;
         StandardInput = standardInput;
+        MaximumStandardOutputBytes = maximumStandardOutputBytes;
     }
 
     public IReadOnlyList<string> Arguments { get; }
 
     public ReadOnlyMemory<byte> StandardInput { get; }
+
+    public int MaximumStandardOutputBytes { get; }
 
     public string Verb { get; }
 }
@@ -135,7 +149,8 @@ public sealed class LinuxDeviceIdentityStore : IDeviceIdentityStore
                 account));
     }
 
-    public SecretStoreProtection Protection => inner.Protection;
+    public SecretStoreProtection Protection =>
+        SecretStoreProtection.OperatingSystemProtected;
 
     public static string GetDefaultCoordinationLockPath()
     {
@@ -179,45 +194,160 @@ public sealed class LinuxDeviceIdentityStore : IDeviceIdentityStore
         inner.TrySaveNewAsync(identity, cancellationToken);
 }
 
+public sealed class LinuxTrustPayloadStore : ITrustPayloadStore
+{
+    public const string DefaultAccount = "trust-snapshot";
+    private readonly SecretToolProtectedPayloadStore inner;
+
+    public LinuxTrustPayloadStore()
+        : this(
+            new SecretToolProcessRunner(),
+            GetDefaultCoordinationLockPath(),
+            DefaultAccount)
+    {
+    }
+
+    public LinuxTrustPayloadStore(
+        ISecretToolProcessRunner runner,
+        string coordinationLockPath,
+        string account = DefaultAccount)
+    {
+        inner = new SecretToolProtectedPayloadStore(
+            runner,
+            coordinationLockPath,
+            account,
+            "trust",
+            "Flowspan trust repository",
+            TrustStorePayloadCodec.MaximumPayloadBytes);
+    }
+
+    public SecretStoreProtection Protection =>
+        SecretStoreProtection.OperatingSystemProtected;
+
+    public static string GetDefaultCoordinationLockPath()
+    {
+        string? runtimeDirectory = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        if (!string.IsNullOrWhiteSpace(runtimeDirectory)
+            && Path.IsPathFullyQualified(runtimeDirectory))
+        {
+            return Path.Combine(
+                runtimeDirectory,
+                "flowspan",
+                "trust-secret-tool.lock");
+        }
+
+        string localApplicationData = Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData,
+            Environment.SpecialFolderOption.DoNotVerify);
+        if (string.IsNullOrWhiteSpace(localApplicationData))
+        {
+            throw new InvalidOperationException(
+                "The current user has no runtime or LocalApplicationData directory.");
+        }
+
+        return Path.GetFullPath(Path.Combine(
+            localApplicationData,
+            "Flowspan",
+            "Security",
+            "trust-secret-tool.lock"));
+    }
+
+    public ValueTask<byte[]?> LoadAsync(
+        CancellationToken cancellationToken = default) =>
+        inner.LoadAsync(cancellationToken);
+
+    public ValueTask SaveAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default) =>
+        inner.SaveReplacingAsync(payload, cancellationToken);
+}
+
 internal sealed class SecretToolIdentityPayloadStore : IDeviceIdentityPayloadStore
 {
-    private const int CoordinationLockAttempts = 500;
-    private static readonly TimeSpan CoordinationLockRetryDelay =
-        TimeSpan.FromMilliseconds(10);
-    private readonly string[] attributes;
-    private readonly string coordinationLockPath;
-    private readonly ISecretToolProcessRunner runner;
+    private readonly SecretToolProtectedPayloadStore inner;
 
     public SecretToolIdentityPayloadStore(
         ISecretToolProcessRunner runner,
         string coordinationLockPath,
         string account)
     {
+        inner = new SecretToolProtectedPayloadStore(
+            runner,
+            coordinationLockPath,
+            account,
+            "device-identity",
+            "Flowspan device identity",
+            DeviceIdentityPayloadCodec.MaximumPayloadBytes);
+    }
+
+    public SecretStoreProtection Protection =>
+        SecretStoreProtection.OperatingSystemProtected;
+
+    public ValueTask<bool> DeleteAsync(
+        CancellationToken cancellationToken = default) =>
+        inner.DeleteAsync(cancellationToken);
+
+    public ValueTask<byte[]?> LoadAsync(
+        CancellationToken cancellationToken = default) =>
+        inner.LoadAsync(cancellationToken);
+
+    public ValueTask<bool> TrySaveNewAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default) =>
+        inner.TrySaveNewAsync(payload, cancellationToken);
+}
+
+internal sealed class SecretToolProtectedPayloadStore
+{
+    private const int CoordinationLockAttempts = 500;
+    private static readonly TimeSpan CoordinationLockRetryDelay =
+        TimeSpan.FromMilliseconds(10);
+    private readonly string[] attributes;
+    private readonly string coordinationLockPath;
+    private readonly string label;
+    private readonly int maximumEncodedBytes;
+    private readonly int maximumPayloadBytes;
+    private readonly string payloadKind;
+    private readonly ISecretToolProcessRunner runner;
+
+    public SecretToolProtectedPayloadStore(
+        ISecretToolProcessRunner runner,
+        string coordinationLockPath,
+        string account,
+        string payloadKind,
+        string label,
+        int maximumPayloadBytes)
+    {
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentException.ThrowIfNullOrWhiteSpace(coordinationLockPath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(account);
-        if (account.Length > 200 || account.Any(char.IsControl))
+        ValidateIdentifier(account, nameof(account));
+        ValidateIdentifier(payloadKind, nameof(payloadKind));
+        ValidateIdentifier(label, nameof(label));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumPayloadBytes);
+        int encodedBytes = Base64.GetMaxEncodedToUtf8Length(maximumPayloadBytes);
+        if (encodedBytes + 2 > SecretToolInvocation.MaximumAllowedStandardOutputBytes)
         {
-            throw new ArgumentException(
-                "A Secret Service account must contain 1 to 200 non-control characters.",
-                nameof(account));
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumPayloadBytes),
+                "The payload's bounded Base64 form exceeds the secret-tool output limit.");
         }
 
         this.runner = runner;
         this.coordinationLockPath = Path.GetFullPath(coordinationLockPath);
+        this.payloadKind = payloadKind;
+        this.label = label;
+        this.maximumPayloadBytes = maximumPayloadBytes;
+        maximumEncodedBytes = encodedBytes;
         attributes =
         [
             "application",
             "flowspan",
             "kind",
-            "device-identity",
+            payloadKind,
             "account",
             account,
         ];
     }
-
-    public SecretStoreProtection Protection =>
-        SecretStoreProtection.OperatingSystemProtected;
 
     public async ValueTask<bool> DeleteAsync(
         CancellationToken cancellationToken = default)
@@ -242,17 +372,21 @@ internal sealed class SecretToolIdentityPayloadStore : IDeviceIdentityPayloadSto
         CancellationToken cancellationToken = default) =>
         LookupAsync(cancellationToken);
 
+    public async ValueTask SaveReplacingAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default)
+    {
+        ValidatePayload(payload);
+        await using FileStream coordinationLock = await AcquireLockAsync(
+            cancellationToken).ConfigureAwait(false);
+        await StoreAsync(payload, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask<bool> TrySaveNewAsync(
         ReadOnlyMemory<byte> payload,
         CancellationToken cancellationToken = default)
     {
-        if (payload.IsEmpty || payload.Length > DeviceIdentityPayloadCodec.MaximumPayloadBytes)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(payload),
-                $"An identity payload must contain 1 to {DeviceIdentityPayloadCodec.MaximumPayloadBytes} bytes.");
-        }
-
+        ValidatePayload(payload);
         await using FileStream coordinationLock = await AcquireLockAsync(
             cancellationToken).ConfigureAwait(false);
         byte[]? existing = await LookupAsync(cancellationToken).ConfigureAwait(false);
@@ -262,35 +396,8 @@ internal sealed class SecretToolIdentityPayloadStore : IDeviceIdentityPayloadSto
             return false;
         }
 
-        int encodedLength = Base64.GetMaxEncodedToUtf8Length(payload.Length);
-        byte[] encoded = new byte[encodedLength];
-        try
-        {
-            OperationStatus status = Base64.EncodeToUtf8(
-                payload.Span,
-                encoded,
-                out int consumed,
-                out int written,
-                isFinalBlock: true);
-            if (status != OperationStatus.Done
-                || consumed != payload.Length
-                || written != encoded.Length)
-            {
-                throw new InvalidDataException(
-                    "The identity payload could not be encoded for Secret Service.");
-            }
-
-            string[] storeArguments = ["--label=Flowspan device identity", .. attributes];
-            using SecretToolProcessResult result = await runner.RunAsync(
-                new SecretToolInvocation("store", storeArguments, encoded),
-                cancellationToken).ConfigureAwait(false);
-            RequireSuccess(result, "store");
-            return true;
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(encoded);
-        }
+        await StoreAsync(payload, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     private async ValueTask<FileStream> AcquireLockAsync(
@@ -326,7 +433,7 @@ internal sealed class SecretToolIdentityPayloadStore : IDeviceIdentityPayloadSto
         }
 
         throw new IOException(
-            "Timed out waiting for exclusive access to the Linux identity store.",
+            $"Timed out waiting for exclusive access to the Linux {payloadKind} store.",
             lastFailure);
     }
 
@@ -334,7 +441,11 @@ internal sealed class SecretToolIdentityPayloadStore : IDeviceIdentityPayloadSto
         CancellationToken cancellationToken)
     {
         using SecretToolProcessResult result = await runner.RunAsync(
-            new SecretToolInvocation("lookup", attributes, ReadOnlyMemory<byte>.Empty),
+            new SecretToolInvocation(
+                "lookup",
+                attributes,
+                ReadOnlyMemory<byte>.Empty,
+                maximumEncodedBytes + 2),
             cancellationToken).ConfigureAwait(false);
         if (result.ExitCode == 1
             && result.StandardOutput.Length == 0
@@ -355,23 +466,79 @@ internal sealed class SecretToolIdentityPayloadStore : IDeviceIdentityPayloadSto
             }
         }
 
-        if (encodedLength is < 1 or > 2048)
+        if (encodedLength is < 1 || encodedLength > maximumEncodedBytes)
         {
             throw new InvalidDataException(
-                "The Secret Service identity value has an invalid encoded length.");
+                $"The Secret Service {payloadKind} value has an invalid encoded length.");
         }
 
         OperationStatus status = Base64.DecodeFromUtf8InPlace(
             result.StandardOutput.AsSpan(0, encodedLength),
             out int bytesWritten);
         if (status != OperationStatus.Done
-            || bytesWritten is < 1 or > DeviceIdentityPayloadCodec.MaximumPayloadBytes)
+            || bytesWritten is < 1
+            || bytesWritten > maximumPayloadBytes)
         {
             throw new InvalidDataException(
-                "The Secret Service identity value is not valid bounded Base64.");
+                $"The Secret Service {payloadKind} value is not valid bounded Base64.");
         }
 
         return result.StandardOutput.AsSpan(0, bytesWritten).ToArray();
+    }
+
+    private async ValueTask StoreAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken)
+    {
+        int encodedLength = Base64.GetMaxEncodedToUtf8Length(payload.Length);
+        byte[] encoded = new byte[encodedLength];
+        try
+        {
+            OperationStatus status = Base64.EncodeToUtf8(
+                payload.Span,
+                encoded,
+                out int consumed,
+                out int written,
+                isFinalBlock: true);
+            if (status != OperationStatus.Done
+                || consumed != payload.Length
+                || written != encoded.Length)
+            {
+                throw new InvalidDataException(
+                    $"The {payloadKind} payload could not be encoded for Secret Service.");
+            }
+
+            string[] storeArguments = [$"--label={label}", .. attributes];
+            using SecretToolProcessResult result = await runner.RunAsync(
+                new SecretToolInvocation("store", storeArguments, encoded),
+                cancellationToken).ConfigureAwait(false);
+            RequireSuccess(result, "store");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(encoded);
+        }
+    }
+
+    private void ValidatePayload(ReadOnlyMemory<byte> payload)
+    {
+        if (payload.IsEmpty || payload.Length > maximumPayloadBytes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(payload),
+                $"A {payloadKind} payload must contain 1 to {maximumPayloadBytes} bytes.");
+        }
+    }
+
+    private static void ValidateIdentifier(string value, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        if (value.Length > 200 || value.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "A Secret Service identifier must contain 1 to 200 non-control characters.",
+                parameterName);
+        }
     }
 
     private static void RequireSuccess(

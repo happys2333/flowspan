@@ -1,6 +1,6 @@
 # ADR 0006: Bounded platform-protected trust repository
 
-- Status: Accepted; core, Windows, and macOS implemented, Linux pending
+- Status: Accepted; core and all adapters implemented, Linux desktop evidence pending
 - Date: 2026-07-13
 
 ## Context
@@ -60,10 +60,14 @@ selected by ADR 0005 and are never included in this repository.
   the prior file in force. macOS uses a dedicated
   `WhenUnlockedThisDeviceOnly` Keychain item: `SecItemUpdate` atomically replaces
   an existing snapshot; initial update/add and a retrying update resolve a
-  concurrent creator without a delete window. Linux will use a dedicated Secret
-  Service item through the bounded `secret-tool` boundary. Adapter-specific
-  limits or failures are reported structurally. The Linux adapter and remaining
-  matching-runner/real-desktop evidence are separate implementation gates.
+  concurrent creator without a delete window. Linux uses a separately attributed
+  Secret Service item through the `secret-tool` boundary. Its Base64 stdout cap
+  is selected per invocation so identity remains at 4 KiB while trust permits
+  only its calculated 64 KiB payload envelope; stderr remains at 4 KiB. Store
+  replacement runs under a persistent per-user coordination lock, and secret
+  bytes appear only on stdin. Adapter-specific limits or failures are reported
+  structurally. Linux real-desktop and remaining matching-runner evidence are
+  separate implementation gates.
 
 ## Security boundary
 

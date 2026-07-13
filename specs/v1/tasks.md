@@ -75,8 +75,10 @@ means its linked evidence exists; it does not imply the entire product works.
     payload-backed persistent repository cover restart, corrupt input,
     cancellation, concurrent mutation, and failed-save rollback. macOS uses
     atomic `SecItemUpdate`; Windows uses domain-separated CurrentUser DPAPI and
-    an fsynced same-directory atomic replace. The Linux trust payload adapter
-    remains open. Peer revocation and capability
+    an fsynced same-directory atomic replace. Linux uses a separately attributed
+    Secret Service item, bounded per-invocation Base64 output, stdin-only secret
+    transport, and a cross-process replacement lock. A live desktop Secret
+    Service round trip remains open. Peer revocation and capability
     downgrade atomically remove session eligibility, stop every affected
     registered session before returning, reject concurrent new sessions, and
     surface aggregate stop failures without skipping another session. Awaited
@@ -103,8 +105,10 @@ means its linked evidence exists; it does not imply the entire product works.
     persists the bounded trust snapshot with update/add race recovery and passes
     local native create/restart/update/revoke evidence. Windows adds a separate
     DPAPI trust context and atomic protected-file replace with cross-platform
-    contracts; its native hosted result remains open. The Linux protected
-    trust-payload adapter remains open.
+    contracts and passes hosted native create/restart/update/revoke plus domain
+    separation. Linux identity/trust payload adapters and bounded process
+    contracts are implemented; live unlocked desktop Secret Service evidence
+    remains open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection

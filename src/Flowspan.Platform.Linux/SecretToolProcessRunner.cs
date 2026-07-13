@@ -6,7 +6,7 @@ namespace Flowspan.Platform.Linux;
 
 public sealed class SecretToolProcessRunner : ISecretToolProcessRunner
 {
-    private const int MaximumCapturedBytes = 4 * 1024;
+    private const int MaximumCapturedErrorBytes = 4 * 1024;
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(10);
     private readonly string executablePath;
 
@@ -59,9 +59,11 @@ public sealed class SecretToolProcessRunner : ISecretToolProcessRunner
         CancellationToken operationToken = timeout.Token;
         Task<byte[]> standardOutput = ReadBoundedAsync(
             process.StandardOutput.BaseStream,
+            invocation.MaximumStandardOutputBytes,
             operationToken);
         Task<byte[]> standardError = ReadBoundedAsync(
             process.StandardError.BaseStream,
+            MaximumCapturedErrorBytes,
             operationToken);
         Exception? inputFailure = null;
         try
@@ -142,9 +144,10 @@ public sealed class SecretToolProcessRunner : ISecretToolProcessRunner
 
     private static async Task<byte[]> ReadBoundedAsync(
         Stream stream,
+        int maximumCapturedBytes,
         CancellationToken cancellationToken)
     {
-        byte[] captured = new byte[MaximumCapturedBytes];
+        byte[] captured = new byte[maximumCapturedBytes];
         byte[] buffer = new byte[1024];
         int capturedLength = 0;
         bool exceeded = false;
@@ -159,7 +162,7 @@ public sealed class SecretToolProcessRunner : ISecretToolProcessRunner
                     break;
                 }
 
-                int available = MaximumCapturedBytes - capturedLength;
+                int available = maximumCapturedBytes - capturedLength;
                 int copyLength = Math.Min(available, read);
                 if (copyLength > 0)
                 {
@@ -174,7 +177,7 @@ public sealed class SecretToolProcessRunner : ISecretToolProcessRunner
             if (exceeded)
             {
                 throw new InvalidDataException(
-                    $"secret-tool output exceeded {MaximumCapturedBytes} bytes.");
+                    $"secret-tool output exceeded {maximumCapturedBytes} bytes.");
             }
 
             return captured.AsSpan(0, capturedLength).ToArray();
