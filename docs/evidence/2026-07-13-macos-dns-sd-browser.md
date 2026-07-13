@@ -74,7 +74,8 @@ transitive graph and maintenance/license caveats are recorded in
 - DNS-SD publication; the current slice is browse/candidate-only.
 - Makaretu packet-parser resilience against an independent fuzzing corpus, or
   final acceptance of its old transitive graph and package-license provenance.
-- Windows or Linux runtime behavior; hosted matrix results are required for the
-  committed code, and physical-machine evidence remains separate.
+- Windows and Linux hosted runners compile and pass the same contract suites at
+  `a3771ef`; they do not prove physical/runtime multicast behavior. The
+  physical-machine evidence remains separate.
 
 Those boundaries remain open in `specs/v1/tasks.md` and the v1 release criteria.
