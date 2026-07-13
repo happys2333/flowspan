@@ -76,7 +76,7 @@ public sealed class SecurityFrameworkKeychain : IMacOSKeychain
         if (result == IntPtr.Zero)
         {
             throw new InvalidDataException(
-                "The macOS Keychain returned no identity value after success.");
+                "The macOS Keychain returned no protected value after success.");
         }
 
         using var data = new MacOSCoreFoundationHandle(result);
@@ -84,15 +84,15 @@ public sealed class SecurityFrameworkKeychain : IMacOSKeychain
             != MacOSCoreFoundationNative.CFDataGetTypeID())
         {
             throw new InvalidDataException(
-                "The macOS Keychain returned a non-data identity value.");
+                "The macOS Keychain returned a non-data protected value.");
         }
 
         nint length = MacOSCoreFoundationNative.CFDataGetLength(
             data.DangerousGetHandle());
-        if (length is < 1 or > DeviceIdentityPayloadCodec.MaximumPayloadBytes)
+        if (length is < 1 or > TrustStorePayloadCodec.MaximumPayloadBytes)
         {
             throw new InvalidDataException(
-                "The macOS Keychain identity value has an invalid length.");
+                "The macOS Keychain protected value has an invalid length.");
         }
 
         byte[] value = new byte[checked((int)length)];
@@ -110,24 +110,10 @@ public sealed class SecurityFrameworkKeychain : IMacOSKeychain
         ReadOnlyMemory<byte> value)
     {
         EnsureMacOS();
-        if (value.IsEmpty || value.Length > DeviceIdentityPayloadCodec.MaximumPayloadBytes)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(value),
-                $"A Keychain identity value must contain 1 to {DeviceIdentityPayloadCodec.MaximumPayloadBytes} bytes.");
-        }
+        ValidateValue(value);
 
         using MacOSKeychainQuery query = MacOSKeychainQuery.Create(service, account);
-        byte[] valueCopy = value.ToArray();
-        try
-        {
-            query.SetOwnedData(MacOSSecuritySymbols.ValueData, valueCopy);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(valueCopy);
-        }
-
+        query.SetOwnedData(MacOSSecuritySymbols.ValueData, value.Span);
         query.SetBorrowed(
             MacOSSecuritySymbols.Accessible,
             MacOSSecuritySymbols.AccessibleWhenUnlockedThisDeviceOnly);
@@ -140,12 +126,40 @@ public sealed class SecurityFrameworkKeychain : IMacOSKeychain
         };
     }
 
+    public bool UpdateGenericPassword(
+        string service,
+        string account,
+        ReadOnlyMemory<byte> value)
+    {
+        EnsureMacOS();
+        ValidateValue(value);
+        using MacOSKeychainQuery query = MacOSKeychainQuery.Create(service, account);
+        using MacOSKeychainQuery update = MacOSKeychainQuery.CreateValueUpdate(value);
+        int status = MacOSSecurityNative.SecItemUpdate(query.Handle, update.Handle);
+        return status switch
+        {
+            MacOSSecurityStatus.Success => true,
+            MacOSSecurityStatus.ItemNotFound => false,
+            _ => throw new MacOSKeychainException(status, "update"),
+        };
+    }
+
+    private static void ValidateValue(ReadOnlyMemory<byte> value)
+    {
+        if (value.IsEmpty || value.Length > TrustStorePayloadCodec.MaximumPayloadBytes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                $"A Keychain protected value must contain 1 to {TrustStorePayloadCodec.MaximumPayloadBytes} bytes.");
+        }
+    }
+
     private static void EnsureMacOS()
     {
         if (!OperatingSystem.IsMacOS())
         {
             throw new PlatformNotSupportedException(
-                "Security.framework identity storage is available only on macOS.");
+                "Security.framework protected storage is available only on macOS.");
         }
     }
 }
@@ -193,6 +207,21 @@ internal sealed class MacOSKeychainQuery : IDisposable
         }
     }
 
+    public static MacOSKeychainQuery CreateValueUpdate(ReadOnlyMemory<byte> value)
+    {
+        MacOSKeychainQuery query = CreateMutable();
+        try
+        {
+            query.SetOwnedData(MacOSSecuritySymbols.ValueData, value.Span);
+            return query;
+        }
+        catch
+        {
+            query.Dispose();
+            throw;
+        }
+    }
+
     public void Dispose()
     {
         query.Dispose();
@@ -205,12 +234,22 @@ internal sealed class MacOSKeychainQuery : IDisposable
     public void SetBorrowed(IntPtr key, IntPtr value) =>
         MacOSCoreFoundationNative.CFDictionarySetValue(Handle, key, value);
 
-    public void SetOwnedData(IntPtr key, byte[] value)
+    public void SetOwnedData(IntPtr key, ReadOnlySpan<byte> value)
     {
-        IntPtr data = MacOSCoreFoundationNative.CFDataCreate(
-            IntPtr.Zero,
-            value,
-            value.Length);
+        byte[] valueCopy = value.ToArray();
+        IntPtr data;
+        try
+        {
+            data = MacOSCoreFoundationNative.CFDataCreate(
+                IntPtr.Zero,
+                valueCopy,
+                valueCopy.Length);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(valueCopy);
+        }
+
         AddOwnedValue(key, data, "data");
     }
 
@@ -234,6 +273,22 @@ internal sealed class MacOSKeychainQuery : IDisposable
         var handle = new MacOSCoreFoundationHandle(value);
         ownedValues.Add(handle);
         SetBorrowed(key, handle.DangerousGetHandle());
+    }
+
+    private static MacOSKeychainQuery CreateMutable()
+    {
+        IntPtr dictionary = MacOSCoreFoundationNative.CFDictionaryCreateMutable(
+            IntPtr.Zero,
+            0,
+            IntPtr.Zero,
+            IntPtr.Zero);
+        if (dictionary == IntPtr.Zero)
+        {
+            throw new InvalidOperationException(
+                "CoreFoundation could not allocate a Keychain query.");
+        }
+
+        return new MacOSKeychainQuery(new MacOSCoreFoundationHandle(dictionary));
     }
 
     private static void ValidateIdentifier(string value, string parameterName)
@@ -332,6 +387,11 @@ internal static partial class MacOSSecurityNative
 
     [LibraryImport(Library)]
     public static partial int SecItemDelete(IntPtr query);
+
+    [LibraryImport(Library)]
+    public static partial int SecItemUpdate(
+        IntPtr query,
+        IntPtr attributesToUpdate);
 }
 
 internal static partial class MacOSCoreFoundationNative

@@ -13,6 +13,96 @@ public interface IMacOSKeychain
         string service,
         string account,
         ReadOnlyMemory<byte> value);
+
+    public bool UpdateGenericPassword(
+        string service,
+        string account,
+        ReadOnlyMemory<byte> value);
+}
+
+public sealed class MacOSTrustPayloadStore : ITrustPayloadStore
+{
+    public const string DefaultAccount = "trust-snapshot";
+    public const string DefaultService = "app.flowspan.trust";
+    private readonly string account;
+    private readonly IMacOSKeychain keychain;
+    private readonly string service;
+
+    public MacOSTrustPayloadStore()
+        : this(DefaultService, DefaultAccount)
+    {
+    }
+
+    public MacOSTrustPayloadStore(string service, string account)
+        : this(new SecurityFrameworkKeychain(), service, account)
+    {
+    }
+
+    public MacOSTrustPayloadStore(
+        IMacOSKeychain keychain,
+        string service = DefaultService,
+        string account = DefaultAccount)
+    {
+        ArgumentNullException.ThrowIfNull(keychain);
+        this.service = ValidateIdentifier(service, nameof(service));
+        this.account = ValidateIdentifier(account, nameof(account));
+        this.keychain = keychain;
+    }
+
+    public SecretStoreProtection Protection =>
+        SecretStoreProtection.OperatingSystemProtected;
+
+    public ValueTask<byte[]?> LoadAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        byte[]? payload = keychain.LoadGenericPassword(service, account);
+        if (payload is not null
+            && payload.Length is < 1 or > TrustStorePayloadCodec.MaximumPayloadBytes)
+        {
+            CryptographicOperations.ZeroMemory(payload);
+            throw new InvalidDataException(
+                "The macOS Keychain trust payload has an invalid length.");
+        }
+
+        return ValueTask.FromResult(payload);
+    }
+
+    public ValueTask SaveAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default)
+    {
+        if (payload.IsEmpty || payload.Length > TrustStorePayloadCodec.MaximumPayloadBytes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(payload),
+                $"A trust payload must contain 1 to {TrustStorePayloadCodec.MaximumPayloadBytes} bytes.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (keychain.UpdateGenericPassword(service, account, payload)
+            || keychain.TryAddGenericPassword(service, account, payload)
+            || keychain.UpdateGenericPassword(service, account, payload))
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        throw new IOException(
+            "The macOS Keychain trust item changed repeatedly during atomic replacement.");
+    }
+
+    private static string ValidateIdentifier(string value, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        if (value.Length > 200 || value.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "A Keychain identifier must contain 1 to 200 non-control characters.",
+                parameterName);
+        }
+
+        return value;
+    }
 }
 
 public sealed class MacOSDeviceIdentityStore : IDeviceIdentityStore

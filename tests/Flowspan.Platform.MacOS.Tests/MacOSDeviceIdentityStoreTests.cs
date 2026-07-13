@@ -232,6 +232,26 @@ public sealed class MacOSDeviceIdentityStoreTests
             }
         }
 
+        public bool UpdateGenericPassword(
+            string service,
+            string account,
+            ReadOnlyMemory<byte> value)
+        {
+            lock (gate)
+            {
+                SaveCalls++;
+                LastSaveInput = value;
+                if (secret is null)
+                {
+                    return false;
+                }
+
+                CryptographicOperations.ZeroMemory(secret);
+                secret = value.ToArray();
+                return true;
+            }
+        }
+
         public void Dispose()
         {
             lock (gate)

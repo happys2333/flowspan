@@ -32,14 +32,14 @@ Observed results:
 - locked restore: passed for 20 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 165 passed, 0 failed, 0 skipped;
+- tests: 170 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
   - security: 49 passed;
   - platform contracts: 8 passed;
   - Linux identity-store contracts/platform guards: 8 passed;
-  - macOS identity-store contracts/native smoke: 5 passed;
+  - macOS identity/trust-store contracts/native smoke: 10 passed;
   - Windows identity-store contracts: 7 passed;
   - transport: 16 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
@@ -68,7 +68,8 @@ code. It did not contain the Activity text.
   rejection, shared platform-payload bridging, Windows atomic protected-file
   semantics through a fake protector, concurrent first-start convergence,
   corrupt/cancel cleanup, non-Windows DPAPI rejection, native macOS Keychain
-  create/reload/delete and concurrent-add behavior, Linux secret-tool fake
+  identity create/reload/delete/concurrent-add and trust
+  create/restart/update/revoke behavior, Linux secret-tool fake
   boundary Base64/stdin/atomic-lock/error contracts and non-Linux rejection,
   trust-revocation/capability-downgrade session shutdown ordering and failure
   fan-out, canonical bounded persistent-trust encoding/golden fixture, restart,
@@ -90,9 +91,9 @@ code. It did not contain the Activity text.
 - Linux `secret-tool` process execution or a live desktop Secret Service; Linux
   conditional process-limit/cancellation tests did not execute on macOS. Hosted
   Ubuntu process-contract evidence is recorded separately.
-- Native Windows, macOS, or Linux `ITrustPayloadStore` execution. The persistent
-  trust repository used an in-memory protected-payload contract fake; no trust
-  record was written to a platform credential store by this run.
+- Native Windows or Linux `ITrustPayloadStore` execution. The macOS trust test
+  used a unique disposable Keychain item; it does not prove Windows or Linux
+  trust persistence.
 - Physical LAN discovery, the interactive pairing wire/UI ceremony, Linux Secret
   Service, untested Keychain/DPAPI profile states, multi-peer listener operation,
   independent security review, native permissions, capture, input, protected

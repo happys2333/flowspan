@@ -1,6 +1,6 @@
 # ADR 0006: Bounded platform-protected trust repository
 
-- Status: Accepted core architecture; native persistence adapters pending
+- Status: Accepted; core and macOS adapter implemented, Windows/Linux pending
 - Date: 2026-07-13
 
 ## Context
@@ -54,11 +54,13 @@ selected by ADR 0005 and are never included in this repository.
   produces an empty store; corrupt, unsupported, or unavailable data blocks the
   store from opening and is never replaced automatically.
 - Windows will protect the bounded blob with CurrentUser DPAPI and atomically
-  replace its per-profile file. macOS will use a dedicated
-  `WhenUnlockedThisDeviceOnly` Keychain item. Linux will use a dedicated Secret
+  replace its per-profile file. macOS uses a dedicated
+  `WhenUnlockedThisDeviceOnly` Keychain item: `SecItemUpdate` atomically replaces
+  an existing snapshot; initial update/add and a retrying update resolve a
+  concurrent creator without a delete window. Linux will use a dedicated Secret
   Service item through the bounded `secret-tool` boundary. Adapter-specific
-  limits or failures are reported structurally. These native adapters and their
-  matching-runner/real-desktop evidence are separate implementation gates.
+  limits or failures are reported structurally. Windows/Linux adapters and all
+  matching-runner/real-desktop evidence remain separate implementation gates.
 
 ## Security boundary
 
