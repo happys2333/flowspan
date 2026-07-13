@@ -75,14 +75,19 @@ means its linked evidence exists; it does not imply the entire product works.
 
 ## 5. LAN discovery and reconnection
 
-- [ ] 5.1 Spike DNS-SD implementation choices and record dependency/security
+- [x] 5.1 Spike DNS-SD implementation choices and record dependency/security
   decision.
   - _Requirements: R2.1, R8.1, R12_
-- [ ] 5.2 Implement signed minimal discovery offers and direct framed TCP
+- [-] 5.2 Implement signed minimal discovery offers and direct framed TCP
   transport.
+  - Signed, short-lived canonical offers, identity-change detection, expiry,
+    replay rejection, and deterministic in-memory discovery are implemented;
+    DNS-SD and direct TCP adapters remain open.
   - _Requirements: R2.1, R8.1, R9.1_
-- [ ] 5.3 Implement bounded reconnect/backoff and reauthentication across network
+- [-] 5.3 Implement bounded reconnect/backoff and reauthentication across network
   changes and restarts.
+  - Bounded deterministic exponential backoff is implemented; connection
+    supervision, network-change handling, and reauthentication remain open.
   - _Requirements: R8.2_
 - [ ] 5.4 Run physical two-device LAN tests and preserve evidence.
   - _Requirements: R2, R8, R12.5_
