@@ -71,6 +71,9 @@ rather than grant it.
 - `Discovered` is never equivalent to `Paired`.
 - `Paired` is never equivalent to capability-authorized.
 - Capabilities are evaluated for every new operation and driver lease.
+- Trust revocation removes authorization and active-session eligibility before
+  waiting for shutdown; every affected registered session receives a stop
+  request before the revocation call returns, with failures surfaced.
 - Reconnection creates a new secure session and key epoch.
 - Unknown identity, version, protection state, transaction outcome, or lease
   epoch cannot authorize capture or input.

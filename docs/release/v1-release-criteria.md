@@ -76,7 +76,7 @@ implementation convenience.
 ## Current evidence
 
 - [2026-07-13 macOS headless foundation](../evidence/2026-07-13-macos-foundation.md):
-  locked restore, format verification, warning-free Release build, 148 unit,
+  locked restore, format verification, warning-free Release build, 152 unit,
   integration, security, and platform-contract tests, simulator, and NuGet
   vulnerability query passed locally.
 - [2026-07-13 macOS Keychain](../evidence/2026-07-13-macos-keychain.md):
@@ -84,7 +84,7 @@ implementation convenience.
   with disposable Keychain items.
 - [2026-07-13 hosted CI foundation](../evidence/2026-07-13-hosted-ci.md):
   locked restore, format, build, tests, simulator, secret scan, and CodeQL passed
-  on committed slices through `c3a5aa2` using Windows, macOS, and Ubuntu hosted
+  on committed slices through `38f6eab` using Windows, macOS, and Ubuntu hosted
   runners.
 
 This is foundation evidence only. It does not satisfy physical-device, native

@@ -71,7 +71,10 @@ means its linked evidence exists; it does not imply the entire product works.
   - The identity-store port, atomic load-or-create lifecycle, deletion, and
     explicitly degraded in-memory store are implemented. The versioned 1 KiB
     identity payload codec rejects hostile and non-canonical input; persistent
-    trust and revocation-driven session shutdown remain open.
+    trust remains open. Peer revocation and capability downgrade atomically
+    remove session eligibility, stop every affected registered session before
+    returning, reject concurrent new sessions, and surface aggregate stop
+    failures without skipping another session.
   - _Requirements: R2, R9.2, R9.6_
 - [-] 4.3 Implement encrypted framed sessions and negative tests for tamper,
   replay, downgrade, expiry, and key substitution.
@@ -87,8 +90,9 @@ means its linked evidence exists; it does not imply the entire product works.
     CurrentUser-DPAPI/atomic-file adapter are implemented and pass hosted
     Windows native smoke. The macOS Security.framework adapter passes local
     and hosted native/contract tests. The Linux secret-tool adapter has bounded
-    process and fake contracts; its hosted result and real desktop Secret
-    Service evidence remain open.
+    process and fake contracts; Ubuntu hosted CI verifies missing-tool recovery,
+    bounded output, cancellation, and process-tree termination. A live,
+    unlocked desktop Secret Service round trip remains open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection

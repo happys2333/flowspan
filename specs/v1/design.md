@@ -217,6 +217,15 @@ capabilities are denied. Suggested independent grants are:
 `activity.offer`, `activity.receive`, `activity.replace`, `mirror.view`,
 `mirror.drive`, `file.receive`, and `scene.apply`.
 
+All product trust mutations and active peer-session registrations pass through
+one coordinator boundary. Revocation or capability downgrade first removes the
+trust/session eligibility under the same lock, then invokes every affected
+session stop outside the lock before returning. A stop failure is reported only
+after all affected sessions have received a stop request. This ordering prevents
+a concurrent session from being admitted with revoked authority. The current
+coordinator uses the in-memory trust store; the persistent trust repository must
+remain behind this boundary rather than exposing an independent mutation path.
+
 Platform adapters continuously expose a `ProtectionState`. Unknown or stale
 protection state fails closed for capture and remote input. The global emergency
 stop is implemented in the platform process as well as the application layer so
