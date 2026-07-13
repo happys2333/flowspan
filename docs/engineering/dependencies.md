@@ -11,7 +11,7 @@ transitive license report remain mandatory under the v1 release criteria.
 
 | Package | Version | License | Purpose | Decision evidence |
 | --- | --- | --- | --- | --- |
-| `Makaretu.Dns.Multicast` | 0.27.0 | MIT source tag; nupkg metadata undeclared | Isolated provisional mDNS/DNS-SD browser | [ADR 0004](../adr/0004-dns-sd-discovery-boundary.md) |
+| `Makaretu.Dns.Multicast` | 0.27.0 | MIT source tag; nupkg metadata undeclared | Isolated provisional mDNS/DNS-SD browser and publisher | [ADR 0004](../adr/0004-dns-sd-discovery-boundary.md) |
 | `System.Security.Cryptography.ProtectedData` | 10.0.9 | MIT | Windows CurrentUser DPAPI byte API | [ADR 0005](../adr/0005-platform-secret-storage.md) |
 
 The package is published by Microsoft from

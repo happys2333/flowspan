@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Net;
+using System.Runtime.ExceptionServices;
 using Makaretu.Dns;
 
 namespace Flowspan.Transport.Mdns;
@@ -9,6 +11,7 @@ internal sealed class MakaretuMdnsDiscoveryStack : IMdnsDiscoveryStack
     private static readonly DomainName ServiceName = "_flowspan._tcp";
     private readonly ServiceDiscovery discovery;
     private readonly MulticastService multicast;
+    private ServiceProfile? advertisedProfile;
     private int disposed;
 
     public MakaretuMdnsDiscoveryStack()
@@ -37,12 +40,15 @@ internal sealed class MakaretuMdnsDiscoveryStack : IMdnsDiscoveryStack
             return;
         }
 
+        var failures = new List<Exception>(capacity: 3);
+        AttemptCleanup(Withdraw, failures);
         discovery.ServiceInstanceDiscovered -= OnServiceInstanceDiscovered;
         discovery.ServiceInstanceShutdown -= OnServiceInstanceShutdown;
         multicast.AnswerReceived -= OnAnswerReceived;
         multicast.NetworkInterfaceDiscovered -= OnNetworkInterfaceDiscovered;
-        discovery.Dispose();
-        multicast.Dispose();
+        AttemptCleanup(discovery.Dispose, failures);
+        AttemptCleanup(multicast.Dispose, failures);
+        ThrowCleanupFailures(failures);
     }
 
     public void QueryHost(string hostName)
@@ -67,10 +73,130 @@ internal sealed class MakaretuMdnsDiscoveryStack : IMdnsDiscoveryStack
         discovery.QueryServiceInstances(ServiceName);
     }
 
+    public void Publish(SignedDiscoveryOffer offer)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        ArgumentNullException.ThrowIfNull(offer);
+        if (advertisedProfile is not null)
+        {
+            TXTRecord current = advertisedProfile.Resources
+                .OfType<TXTRecord>()
+                .Single();
+            IReadOnlyDictionary<string, string> expected =
+                DnsSdDiscoveryOfferTxtCodec.Encode(offer);
+            var currentProperties = current.Strings
+                .Select(static value => value.Split('=', 2))
+                .ToDictionary(
+                    static pair => pair[0],
+                    static pair => pair[1],
+                    StringComparer.OrdinalIgnoreCase);
+            if (currentProperties.Count == expected.Count
+                && expected.All(pair => currentProperties.TryGetValue(
+                    pair.Key,
+                    out string? value)
+                    && StringComparer.Ordinal.Equals(value, pair.Value)))
+            {
+                return;
+            }
+
+            Withdraw();
+        }
+
+        ServiceProfile profile = CreateProfile(offer);
+        discovery.Advertise(profile);
+        advertisedProfile = profile;
+        try
+        {
+            discovery.Announce(profile);
+        }
+        catch (Exception announceFailure)
+        {
+            try
+            {
+                Withdraw();
+            }
+            catch (Exception withdrawFailure)
+            {
+                throw new AggregateException(
+                    "The mDNS announcement and its withdrawal both failed.",
+                    announceFailure,
+                    withdrawFailure);
+            }
+
+            ExceptionDispatchInfo.Capture(announceFailure).Throw();
+            throw new UnreachableException();
+        }
+    }
+
     public void Start()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         multicast.Start();
+    }
+
+    public void Withdraw()
+    {
+        ServiceProfile? profile = advertisedProfile;
+        advertisedProfile = null;
+        if (profile is not null)
+        {
+            discovery.Unadvertise(profile);
+        }
+    }
+
+    internal static ServiceProfile CreateProfile(SignedDiscoveryOffer offer)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+        string instanceName = $"flowspan-{offer.DeviceId.ToString().Replace(
+            "-",
+            string.Empty,
+            StringComparison.Ordinal)}";
+        var profile = new ServiceProfile(
+            instanceName,
+            ServiceName,
+            offer.Port);
+        TXTRecord textRecord = profile.Resources.OfType<TXTRecord>().Single();
+        textRecord.Strings.Clear();
+        foreach ((string key, string value) in
+                 DnsSdDiscoveryOfferTxtCodec.Encode(offer)
+                     .OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            textRecord.Strings.Add($"{key}={value}");
+        }
+
+        return profile;
+    }
+
+    private static void AttemptCleanup(
+        Action cleanup,
+        List<Exception> failures)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private static void ThrowCleanupFailures(List<Exception> failures)
+    {
+        if (failures.Count == 0)
+        {
+            return;
+        }
+
+        if (failures.Count == 1)
+        {
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            throw new UnreachableException();
+        }
+
+        throw new AggregateException(
+            "Multiple failures occurred while disposing the mDNS stack.",
+            failures);
     }
 
     internal static IReadOnlyList<MdnsResource> Translate(

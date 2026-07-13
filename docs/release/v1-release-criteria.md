@@ -90,10 +90,11 @@ implementation convenience.
   draining. The CI maintenance slice verifies immutable Node 24 Action pins,
   and the DNS-SD slice verifies the bounded browser/candidate contracts. None is
   physical-LAN evidence.
-- [2026-07-13 macOS DNS-SD browser](../evidence/2026-07-13-macos-dns-sd-browser.md):
-  226 local tests cover the bounded TXT/candidate core and isolated provisional
-  browser adapter, including dual-stack, split-record, cache-limit, restart, and
-  injected failure contracts. No multicast socket or physical peer was used.
+- [2026-07-13 macOS DNS-SD browser/publisher](../evidence/2026-07-13-macos-dns-sd-browser.md):
+  236 local tests cover the bounded TXT/candidate/publisher core and isolated
+  provisional browser/publisher adapter, including dual-stack, split-record,
+  cache-limit, refresh, withdraw, restart/replay, and injected failure contracts.
+  No multicast socket or physical peer was used.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product

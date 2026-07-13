@@ -149,6 +149,36 @@ public sealed class MakaretuDnsSdServiceBrowserTests
     }
 
     [Fact]
+    public void MakaretuProfileContainsOnlyCanonicalSignedOfferProperties()
+    {
+        using DeviceIdentityFixture identity = DeviceIdentityFixture.Create();
+
+        ServiceProfile profile = MakaretuMdnsDiscoveryStack.CreateProfile(
+            identity.Offer);
+
+        Assert.Equal(
+            $"flowspan-{identity.Identity.DeviceId.ToString().Replace("-", string.Empty, StringComparison.Ordinal)}",
+            profile.InstanceName.ToString());
+        Assert.Equal("_flowspan._tcp", profile.ServiceName.ToString());
+        SRVRecord srv = Assert.Single(profile.Resources.OfType<SRVRecord>());
+        Assert.Equal(identity.Offer.Port, srv.Port);
+        TXTRecord txt = Assert.Single(profile.Resources.OfType<TXTRecord>());
+        Dictionary<string, string> properties = txt.Strings
+            .Select(static value => value.Split('=', 2))
+            .ToDictionary(
+                static pair => pair[0],
+                static pair => pair[1],
+                StringComparer.OrdinalIgnoreCase);
+        Assert.True(DnsSdDiscoveryOfferTxtCodec.TryDecode(
+            properties,
+            out SignedDiscoveryOffer? decoded));
+        Assert.Equal(identity.Offer.OfferDigest, decoded.OfferDigest);
+        Assert.DoesNotContain(
+            txt.Strings,
+            static value => value.Contains("Activity", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void BrowserQueriesDetailsAndRestartsAcrossNetworkChange()
     {
         using DeviceIdentityFixture identity = DeviceIdentityFixture.Create();
@@ -206,6 +236,57 @@ public sealed class MakaretuDnsSdServiceBrowserTests
     }
 
     [Fact]
+    public void PublishedOfferIsReplayedAfterStackReplacementAndWithdrawn()
+    {
+        using DeviceIdentityFixture identity = DeviceIdentityFixture.Create();
+        var network = new FakeNetworkChangeSource();
+        var first = new FakeMdnsDiscoveryStack();
+        var second = new FakeMdnsDiscoveryStack();
+        var stacks = new Queue<FakeMdnsDiscoveryStack>([first, second]);
+        using var browser = new MakaretuDnsSdServiceBrowser(
+            network,
+            () => stacks.Dequeue());
+        browser.Publish(identity.Offer);
+        browser.Start();
+
+        Assert.Equal(
+            identity.Offer.OfferDigest,
+            Assert.Single(first.PublishedOffers).OfferDigest);
+
+        network.Signal();
+
+        Assert.Equal(
+            identity.Offer.OfferDigest,
+            Assert.Single(second.PublishedOffers).OfferDigest);
+        browser.Withdraw();
+        Assert.Equal(1, second.WithdrawCount);
+    }
+
+    [Fact]
+    public void FailedPublishIsNotReplayedAfterNetworkChange()
+    {
+        using DeviceIdentityFixture identity = DeviceIdentityFixture.Create();
+        var network = new FakeNetworkChangeSource();
+        var first = new FakeMdnsDiscoveryStack
+        {
+            PublishException = new IOException("announce failed"),
+        };
+        var second = new FakeMdnsDiscoveryStack();
+        var stacks = new Queue<FakeMdnsDiscoveryStack>([first, second]);
+        using var browser = new MakaretuDnsSdServiceBrowser(
+            network,
+            () => stacks.Dequeue());
+        browser.Start();
+
+        IOException failure = Assert.Throws<IOException>(() =>
+            browser.Publish(identity.Offer));
+        network.Signal();
+
+        Assert.Equal("announce failed", failure.Message);
+        Assert.Empty(second.PublishedOffers);
+    }
+
+    [Fact]
     public void BrowserDisposalIsIdempotentAndDrainsSubscriptions()
     {
         var network = new FakeNetworkChangeSource();
@@ -245,6 +326,31 @@ public sealed class MakaretuDnsSdServiceBrowserTests
     }
 
     [Fact]
+    public void OldStackCleanupFailureDoesNotLeaveReplacementUnstarted()
+    {
+        var network = new FakeNetworkChangeSource();
+        var first = new FakeMdnsDiscoveryStack
+        {
+            DisposeException = new IOException("old cleanup failed"),
+        };
+        var second = new FakeMdnsDiscoveryStack();
+        var stacks = new Queue<FakeMdnsDiscoveryStack>([first, second]);
+        using var browser = new MakaretuDnsSdServiceBrowser(
+            network,
+            () => stacks.Dequeue());
+        var faults = new List<Exception>();
+        browser.Faulted += faults.Add;
+        browser.Start();
+
+        network.Signal();
+
+        Assert.Equal(1, first.DisposeCount);
+        Assert.Equal(1, second.StartCount);
+        Assert.Equal(1, second.QueryInstancesCount);
+        Assert.Equal("old cleanup failed", Assert.Single(faults).Message);
+    }
+
+    [Fact]
     public void InitialStackFailureDrainsNetworkSubscription()
     {
         var network = new FakeNetworkChangeSource();
@@ -261,19 +367,52 @@ public sealed class MakaretuDnsSdServiceBrowserTests
         Assert.Equal(0, network.SubscriberCount);
     }
 
+    [Fact]
+    public void InitialStackAndCleanupFailuresAreBothPreserved()
+    {
+        using DeviceIdentityFixture identity = DeviceIdentityFixture.Create();
+        var network = new FakeNetworkChangeSource();
+        var stack = new FakeMdnsDiscoveryStack
+        {
+            PublishException = new IOException("announce failed"),
+            DisposeException = new InvalidOperationException("cleanup failed"),
+        };
+        var browser = new MakaretuDnsSdServiceBrowser(network, () => stack);
+        browser.Publish(identity.Offer);
+
+        AggregateException failure = Assert.Throws<AggregateException>(
+            browser.Start);
+
+        Assert.Collection(
+            failure.InnerExceptions,
+            exception => Assert.Equal("announce failed", exception.Message),
+            exception => Assert.Equal("cleanup failed", exception.Message));
+        Assert.Equal(1, stack.DisposeCount);
+        Assert.Equal(0, network.SubscriberCount);
+        browser.Dispose();
+    }
+
     private sealed class FakeMdnsDiscoveryStack : IMdnsDiscoveryStack
     {
+        public Exception? DisposeException { get; init; }
+
         public int DisposeCount { get; private set; }
 
         public List<string> HostQueries { get; } = [];
 
         public List<string> InstanceQueries { get; } = [];
 
+        public List<SignedDiscoveryOffer> PublishedOffers { get; } = [];
+
+        public Exception? PublishException { get; init; }
+
         public int QueryInstancesCount { get; private set; }
 
         public int StartCount { get; private set; }
 
         public Exception? StartException { get; init; }
+
+        public int WithdrawCount { get; private set; }
 
         public event Action<string>? InstanceDiscovered;
 
@@ -284,7 +423,14 @@ public sealed class MakaretuDnsSdServiceBrowserTests
         public void Discover(string instanceName) =>
             InstanceDiscovered?.Invoke(instanceName);
 
-        public void Dispose() => DisposeCount++;
+        public void Dispose()
+        {
+            DisposeCount++;
+            if (DisposeException is not null)
+            {
+                throw DisposeException;
+            }
+        }
 
         public void Observe(IReadOnlyList<MdnsResource> records) =>
             RecordsReceived?.Invoke(records);
@@ -295,6 +441,16 @@ public sealed class MakaretuDnsSdServiceBrowserTests
             InstanceQueries.Add(instanceName);
 
         public void QueryInstances() => QueryInstancesCount++;
+
+        public void Publish(SignedDiscoveryOffer offer)
+        {
+            if (PublishException is not null)
+            {
+                throw PublishException;
+            }
+
+            PublishedOffers.Add(offer);
+        }
 
         public void Remove(string instanceName) =>
             InstanceRemoved?.Invoke(instanceName);
@@ -307,6 +463,8 @@ public sealed class MakaretuDnsSdServiceBrowserTests
                 throw StartException;
             }
         }
+
+        public void Withdraw() => WithdrawCount++;
     }
 
     private sealed class FakeNetworkChangeSource : INetworkChangeSource

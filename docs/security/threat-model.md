@@ -49,7 +49,7 @@ rather than grant it.
 
 | ID | Threat | Required mitigations | Verification |
 | --- | --- | --- | --- |
-| T01 | Spoofed or malformed discovery offer | Signed short-lived canonical offer, minimal metadata, current trusted-key binding, bounded TXT/record/address caches, reject self/loopback/multicast endpoints, never trust discovery alone | forged/expired/random TXT, identity-change, batch-limit, and candidate-address tests |
+| T01 | Spoofed or malformed discovery offer | Signed short-lived canonical offer, fresh nonce refresh, prompt withdraw, minimal metadata, current trusted-key binding, bounded TXT/record/address caches, reject self/loopback/multicast endpoints, never trust discovery alone | forged/expired/random TXT, canonical publication profile, refresh/withdraw, identity-change, batch-limit, and candidate-address tests |
 | T02 | Pairing MITM | Transcript-bound identity signatures, matching SAS on both endpoints, explicit dual confirmation, timeout | known-answer and altered-transcript tests |
 | T03 | Peer impersonation after pairing | Bind signed candidates to the current trusted key; authenticate every secure-session transcript; reload trust on every attempt; block identity-key changes; permanent rejection outranks network-change retry | key-substitution, candidate-binding, and reconnect-race integration tests |
 | T04 | Replay/duplicate command | Session epoch, message/operation IDs, TTL, request digest, durable idempotency journal | property/fault tests |

@@ -41,8 +41,12 @@ boundary. Core tests cover canonical TXT limits, hostile randomized payloads,
 current-trust binding, dual-stack address selection, expiry, and removal.
 Adapter tests cover split SRV/TXT/A/AAAA arrival, batch/cache bounds, package
 record translation, full-stack restart on network change, and injected
-bind/factory/diagnostic failures. These are contract tests; only the manual
-two-device matrix may be labelled physical multicast evidence.
+bind/factory/diagnostic failures. Publisher tests cover canonical minimized
+profiles, immediate publication, fresh-nonce refresh, cancellation withdrawal,
+failure preservation (including simultaneous startup/cleanup failure),
+network-stack replay, old-stack cleanup recovery, and failed-publish rollback.
+These are contract tests; only the manual two-device matrix may be labelled
+physical multicast evidence.
 
 Core invariants are asserted after every event:
 

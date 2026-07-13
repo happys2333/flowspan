@@ -1,7 +1,7 @@
 # ADR 0004: DNS-SD discovery boundary and signed short-lived offers
 
-- Status: Accepted; provisional browse adapter selected, publication and
-  physical validation open
+- Status: Accepted; provisional browse/publish adapter implemented, physical
+  validation open
 - Date: 2026-07-13
 
 ## Context
@@ -69,7 +69,7 @@ review fails.
 
 ## Decision
 
-- Keep DNS-SD behind `IDnsSdServiceBrowser` and
+- Keep DNS-SD behind `IDnsSdServiceBrowser`, `IDnsSdServicePublisher`, and
   `IPeerConnectionCandidateSource`; isolate the third-party package in
   `Flowspan.Transport.Mdns` so the core and tests do not depend on its types.
 - Use DNS-SD service type `_flowspan._tcp.local`.
@@ -86,8 +86,13 @@ review fails.
   accepts at most 256 records per batch, 128 instances, 32 addresses per host,
   and 16 TXT properties. It produces candidates only after SRV, TXT, and A/AAAA
   data agree with the signed offer and the current trusted identity.
-- Keep DNS-SD publication, physical dual-stack/interface churn, sleep/wake, VPN,
-  and two-device evidence open. A failed physical matrix or unresolved package
+- Generate a new signed offer immediately and every 45 seconds with a 90-second
+  lifetime. Refresh withdraws the old profile before advertising and announcing
+  the new one, preferring a short absence over simultaneous stale and current
+  offers. Cancellation withdraws the active profile; a network-stack rebuild
+  replays only the most recent successfully accepted offer.
+- Keep physical dual-stack/interface churn, sleep/wake, VPN, and two-device
+  evidence open. A failed physical matrix or unresolved package
   provenance/maintenance review triggers replacement by native adapters.
 
 ## TXT/connection split
@@ -107,8 +112,10 @@ signature—never Activity content, capabilities, or trust state.
   deduplication, and reconnect timing without multicast access.
 - Portable tests prove split SRV/TXT/address resolution, dual-stack candidate
   rotation, hostile TXT and record-count limits, same-key rename, removal/TTL,
-  stack-restart cleanup, and injected bind/restart failures. They do not prove a
-  packet crossed a physical interface.
+  stack-restart cleanup, canonical profile publication, timed nonce refresh,
+  withdraw, publish/restart replay, and injected bind/restart/announce/cleanup
+  failures, including replacement progress after old-stack cleanup failure. They
+  do not prove a packet crossed a physical interface.
 - Real zero-config acceptance remains open until an adapter passes Windows,
   macOS, Linux, IPv4/IPv6, VPN/multiple-interface, sleep/wake, and network-change
   tests.

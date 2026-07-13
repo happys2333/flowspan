@@ -130,11 +130,13 @@ means its linked evidence exists; it does not imply the entire product works.
   - Signed, short-lived canonical offers, identity-change detection, expiry,
     replay rejection, deterministic in-memory discovery, direct TCP connection,
     bounded framing, and secure control upgrade are implemented. The bounded
-    DNS-SD TXT codec, split-record cache, provisional production browser, and
-    current-trust candidate source are implemented; DNS-SD publication,
-    multi-peer listener orchestration, and physical multicast evidence remain
-    open. The 22-project gate and 226 tests pass locally and on hosted Windows,
-    macOS, and Ubuntu at `a3771ef`, together with secret scan and CodeQL.
+    DNS-SD TXT codec, split-record cache, provisional production
+    browser/publisher, timed signed-offer refresh, and current-trust candidate
+    source are implemented; multi-peer listener orchestration and physical
+    multicast evidence remain open. The 22-project gate and 236 tests pass
+    locally for the publisher slice. The prior 226-test browser slice passes on
+    hosted Windows, macOS, and Ubuntu at `a3771ef`, together with secret scan and
+    CodeQL; hosted publisher evidence is not yet recorded.
   - _Requirements: R2.1, R8.1, R9.1_
 - [-] 5.3 Implement bounded reconnect/backoff and reauthentication across network
   changes and restarts.
@@ -148,9 +150,10 @@ means its linked evidence exists; it does not imply the entire product works.
     composes current trust/capability checks, a fresh authenticated TCP handshake,
     post-handshake coordinator registration, active revoke/downgrade draining,
     and structured permanent stop reasons. The production DNS-SD browser now
-    feeds the candidate source and recreates its isolated mDNS stack on outer
-    address-change events. Publishing, sleep/wake, peer-restart, and physical
-    interface-churn evidence remain open.
+    feeds the candidate source, publishes the current short-lived offer, and
+    recreates its isolated mDNS stack on outer address-change events. Physical
+    publication/discovery, sleep/wake, peer-restart, and interface-churn evidence
+    remain open.
     The composed slice passes 207 tests plus secret scan and CodeQL on hosted
     Windows, macOS, and Ubuntu runners at `fc39d6e`.
   - _Requirements: R8.2_

@@ -1,6 +1,11 @@
+using System.Diagnostics;
+using System.Runtime.ExceptionServices;
+
 namespace Flowspan.Transport.Mdns;
 
-public sealed class MakaretuDnsSdServiceBrowser : IDnsSdServiceBrowser
+public sealed class MakaretuDnsSdServiceBrowser :
+    IDnsSdServiceBrowser,
+    IDnsSdServicePublisher
 {
     private readonly DnsSdResolutionCache cache = new();
     private readonly Func<IMdnsDiscoveryStack> createStack;
@@ -9,6 +14,7 @@ public sealed class MakaretuDnsSdServiceBrowser : IDnsSdServiceBrowser
     private readonly Lock restartGate = new();
     private StackBinding? binding;
     private IDisposable? networkSubscription;
+    private SignedDiscoveryOffer? publishedOffer;
     private int disposed;
     private int started;
 
@@ -35,6 +41,53 @@ public sealed class MakaretuDnsSdServiceBrowser : IDnsSdServiceBrowser
 
     public event Action<string>? ServiceRemoved;
 
+    public void Publish(SignedDiscoveryOffer offer)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        lock (restartGate)
+        {
+            StackBinding? current;
+            SignedDiscoveryOffer? previous;
+            lock (gate)
+            {
+                previous = publishedOffer;
+                publishedOffer = offer;
+                current = binding;
+            }
+
+            try
+            {
+                current?.Stack.Publish(offer);
+            }
+            catch
+            {
+                lock (gate)
+                {
+                    publishedOffer = previous;
+                }
+
+                throw;
+            }
+        }
+    }
+
+    public void Withdraw()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        lock (restartGate)
+        {
+            StackBinding? current;
+            lock (gate)
+            {
+                publishedOffer = null;
+                current = binding;
+            }
+
+            current?.Stack.Withdraw();
+        }
+    }
+
     public void Dispose()
     {
         lock (restartGate)
@@ -51,6 +104,7 @@ public sealed class MakaretuDnsSdServiceBrowser : IDnsSdServiceBrowser
             {
                 removed = binding;
                 binding = null;
+                publishedOffer = null;
                 cache.Clear();
             }
 
@@ -233,10 +287,11 @@ public sealed class MakaretuDnsSdServiceBrowser : IDnsSdServiceBrowser
             {
                 newBinding = new StackBinding(this, stack);
             }
-            catch
+            catch (Exception bindingFailure)
             {
-                stack.Dispose();
-                throw;
+                Exception failure = DisposeAfterFailure(stack, bindingFailure);
+                ExceptionDispatchInfo.Capture(failure).Throw();
+                throw new UnreachableException();
             }
 
             lock (gate)
@@ -247,7 +302,16 @@ public sealed class MakaretuDnsSdServiceBrowser : IDnsSdServiceBrowser
                 binding = newBinding;
             }
 
-            oldBinding?.Dispose();
+            Exception? oldCleanupFailure = null;
+            try
+            {
+                oldBinding?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                oldCleanupFailure = exception;
+            }
+
             foreach (string instanceName in removedInstances)
             {
                 PublishRemoved(instanceName);
@@ -257,6 +321,16 @@ public sealed class MakaretuDnsSdServiceBrowser : IDnsSdServiceBrowser
             {
                 newBinding.Stack.Start();
                 newBinding.Stack.QueryInstances();
+                SignedDiscoveryOffer? offer;
+                lock (gate)
+                {
+                    offer = publishedOffer;
+                }
+
+                if (offer is not null)
+                {
+                    newBinding.Stack.Publish(offer);
+                }
             }
             catch (Exception exception)
             {
@@ -268,14 +342,44 @@ public sealed class MakaretuDnsSdServiceBrowser : IDnsSdServiceBrowser
                     }
                 }
 
-                newBinding.Dispose();
+                Exception startFailure = oldCleanupFailure is null
+                    ? exception
+                    : new AggregateException(
+                        "The old mDNS stack cleanup and replacement startup both failed.",
+                        oldCleanupFailure,
+                        exception);
+                Exception failure = DisposeAfterFailure(newBinding, startFailure);
                 if (throwOnFailure)
                 {
-                    throw;
+                    ExceptionDispatchInfo.Capture(failure).Throw();
                 }
 
-                ReportFault(exception);
+                ReportFault(failure);
+                return;
             }
+
+            if (oldCleanupFailure is not null)
+            {
+                ReportFault(oldCleanupFailure);
+            }
+        }
+    }
+
+    private static Exception DisposeAfterFailure(
+        IDisposable resource,
+        Exception primaryFailure)
+    {
+        try
+        {
+            resource.Dispose();
+            return primaryFailure;
+        }
+        catch (Exception cleanupFailure)
+        {
+            return new AggregateException(
+                "The replacement mDNS stack failed and its cleanup also failed.",
+                primaryFailure,
+                cleanupFailure);
         }
     }
 

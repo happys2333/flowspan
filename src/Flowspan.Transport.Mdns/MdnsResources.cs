@@ -41,5 +41,9 @@ internal interface IMdnsDiscoveryStack : IDisposable
 
     public void QueryInstances();
 
+    public void Publish(SignedDiscoveryOffer offer);
+
     public void Start();
+
+    public void Withdraw();
 }

@@ -1,4 +1,4 @@
-# Evidence: macOS DNS-SD browser contracts, 2026-07-13
+# Evidence: macOS DNS-SD browser/publisher contracts, 2026-07-13
 
 Classification: **Local** and **simulated/contract**
 
@@ -32,9 +32,10 @@ Observed results:
 - locked restore passed for 22 projects;
 - format verification passed;
 - Release build passed with 0 warnings and 0 errors;
-- 226 tests passed, 0 failed, 0 skipped;
-  - `Flowspan.Transport.Tests`: 51, including 10 DNS-SD TXT/candidate tests;
-- `Flowspan.Transport.Mdns.Tests`: 9 adapter/cache/fault tests;
+- 236 tests passed, 0 failed, 0 skipped;
+  - `Flowspan.Transport.Tests`: 56, including 15 DNS-SD
+    TXT/candidate/publisher tests;
+- `Flowspan.Transport.Mdns.Tests`: 14 adapter/cache/publication/fault tests;
 - all other suites retained their prior 166 passing tests;
 - simulator reported protocol 1.0, source preserved, and target resumed;
 - NuGet reported no known vulnerable direct or transitive package for any of
@@ -64,14 +65,23 @@ transitive graph and maintenance/license caveats are recorded in
 - An outer BCL network-change notification replaces the entire injected mDNS
   stack, withdraws the old cache, and issues a new browse query. If replacement
   construction fails, the old stack is retained and the failure is surfaced.
+- The publisher produces a canonical `_flowspan._tcp` service profile containing
+  only the signed offer, publishes immediately, refreshes with a fresh nonce,
+  withdraws on cancellation, preserves publish/withdraw failures, replays the
+  current offer after stack replacement, and does not replay an initially failed
+  publish. If stack startup/announcement and cleanup both fail, diagnostics
+  retain both exceptions. A failed old-stack cleanup is reported without
+  leaving its replacement unstarted.
 
 ## What this does not prove
 
-- The production adapter opened multicast sockets, emitted a query, received a
-  packet, or discovered a second process/device on this host.
+- The production adapter opened multicast sockets, emitted an actual query or
+  announcement packet, received a packet, or discovered a second process/device
+  on this host.
 - IPv4/IPv6 interoperability, same-interface address churn, multiple interfaces,
   VPN routing, firewall prompts, sleep/wake, or packet loss on a physical LAN.
-- DNS-SD publication; the current slice is browse/candidate-only.
+- DNS-SD publication across a real interface; publication assertions stop at the
+  core lifecycle, isolated adapter, and third-party service-profile boundary.
 - Makaretu packet-parser resilience against an independent fuzzing corpus, or
   final acceptance of its old transitive graph and package-license provenance.
 - Windows and Linux hosted runners compile and pass the same contract suites at

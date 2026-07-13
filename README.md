@@ -22,12 +22,15 @@ installation. The repository currently includes:
   conflict, protocol negotiation, and diagnostic-redaction tests;
 - provisional, review-gated identity, pairing, trust, HKDF, and encrypted-frame
   primitives with negative tests;
+- bounded signed DNS-SD offers, an isolated provisional browser/publisher, and
+  trusted-candidate/reconnect contracts;
 - Windows/macOS/Linux CI definitions.
 
-It does **not** yet include production pairing/encryption, LAN discovery, native
-capture/input, Remote Window media, desktop UI, packaging, or real-machine
-Windows/Linux evidence. See [the v1 task tracker](specs/v1/tasks.md) and
-[release criteria](docs/release/v1-release-criteria.md) for the honest status.
+It does **not** yet include the pairing UI, physical-LAN discovery evidence,
+multi-peer listener orchestration, native capture/input, Remote Window media,
+desktop UI, packaging, or the complete real-machine Windows/macOS/Linux
+acceptance matrix. See [the v1 task tracker](specs/v1/tasks.md) and [release
+criteria](docs/release/v1-release-criteria.md) for the honest status.
 
 ## Run the current slice
 
@@ -60,13 +63,14 @@ src/Flowspan.Platform/    capability, protection-state, and input-safety contrac
 src/Flowspan.Protocol/    protocol version negotiation primitives
 src/Flowspan.Security/    provisional identity, pairing, trust, and AEAD primitives
 src/Flowspan.Diagnostics/ redacted receipt serialization
+src/Flowspan.Transport*/  direct secure transport, discovery, and reconnect boundaries
 src/Flowspan.Simulator/   runnable deterministic two-node scenario
 tests/                    domain, protocol, and integration tests
 ```
 
 Start with [v1 requirements](specs/v1/requirements.md), then read the
 [technical design](specs/v1/design.md) and
-[ubiquitous language](docs/glossary.md).
+[ubiquitous language](UBIQUITOUS_LANGUAGE.md).
 
 ## Safety boundary
 
