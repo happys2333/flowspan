@@ -30,3 +30,25 @@ portable fallback.
 Transitive versions and content hashes are recorded in each
 `packages.lock.json`. This inventory is an engineering control, not the final
 release license artifact.
+
+## CI automation
+
+GitHub Actions are pinned to immutable commits; the adjacent workflow comments
+retain their human-readable release tags. On 2026-07-13, the exact tag targets
+were queried from each upstream repository and each pinned `action.yml` was
+checked for the Node 24 runtime. CodeQL `v4.37.0` is an annotated tag, so the
+table records its peeled commit rather than its tag-object SHA.
+
+| Action | Release | Immutable commit | Runtime | Purpose |
+| --- | --- | --- | --- | --- |
+| `actions/checkout` | `v7.0.0` | `9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` | Node 24 | Minimal/full-history source checkout |
+| `actions/setup-dotnet` | `v5.4.0` | `26b0ec14cb23fa6904739307f278c14f94c95bf1` | Node 24 | Install SDK selected by `global.json` and cache locked packages |
+| `actions/upload-artifact` | `v7.0.1` | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | Node 24 | Retain per-runner test evidence |
+| `gitleaks/gitleaks-action` | `v3.0.0` | `e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e` | Node 24 | Scan committed history for secrets |
+| `github/codeql-action` | `v4.37.0` | `99df26d4f13ea111d4ec1a7dddef6063f76b97e9` | Node 24 | Initialize and analyze C# CodeQL database |
+
+The gitleaks `v3.0.0` release states that it changes the runtime from Node 20 to
+Node 24 without changing inputs, outputs, or behavior. GitHub repository
+metadata did not identify an SPDX license for `gitleaks/gitleaks-action` at the
+reviewed commit; that remains an explicit input to the final release-license
+review rather than an inferred license claim.

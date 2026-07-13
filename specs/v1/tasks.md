@@ -26,6 +26,9 @@ means its linked evidence exists; it does not imply the entire product works.
   projects with enforced dependency direction.
   - _Requirements: R12.1_
 - [x] 1.3 Add developer commands and CI jobs for Windows, macOS, and Linux.
+  - Third-party Actions are pinned to reviewed immutable commits and use the
+    Node 24 action runtime; release tags and query evidence are recorded in the
+    dependency inventory.
   - _Requirements: R1.3, R12.4–R12.5_
 
 ## 2. Two-node semantic handoff slice
@@ -137,6 +140,8 @@ means its linked evidence exists; it does not imply the entire product works.
     post-handshake coordinator registration, active revoke/downgrade draining,
     and structured permanent stop reasons. A production DNS-SD candidate source,
     sleep/wake, peer-restart, and physical interface-churn evidence remain open.
+    The composed slice passes 207 tests plus secret scan and CodeQL on hosted
+    Windows, macOS, and Ubuntu runners at `fc39d6e`.
   - _Requirements: R8.2_
 - [ ] 5.4 Run physical two-device LAN tests and preserve evidence.
   - _Requirements: R2, R8, R12.5_
