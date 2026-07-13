@@ -96,7 +96,7 @@ code. It did not contain the Activity text.
 ## What this does not prove
 
 - Windows or Linux behavior on a physical Flowspan test machine. Hosted CI
-  evidence through commit `fc39d6e` is recorded separately in
+  evidence through commit `6bf191b` is recorded separately in
   `2026-07-13-hosted-ci.md`.
 - Actual Windows CurrentUser DPAPI execution; this macOS run exercised the
   production adapter's explicit platform rejection and fake-protector contract

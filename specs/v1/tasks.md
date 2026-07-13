@@ -28,7 +28,8 @@ means its linked evidence exists; it does not imply the entire product works.
 - [x] 1.3 Add developer commands and CI jobs for Windows, macOS, and Linux.
   - Third-party Actions are pinned to reviewed immutable commits and use the
     Node 24 action runtime; release tags and query evidence are recorded in the
-    dependency inventory.
+    dependency inventory. The resulting Windows/macOS/Linux CI, gitleaks, and
+    CodeQL v4 runs pass at `6bf191b`.
   - _Requirements: R1.3, R12.4–R12.5_
 
 ## 2. Two-node semantic handoff slice
