@@ -31,8 +31,8 @@ installation. The repository currently includes:
 It does **not** yet include the pairing UI, physical-LAN discovery evidence,
 native capture/input, Remote Window media, desktop UI, packaging, or the
 complete real-machine Windows/macOS/Linux acceptance matrix. See [the v1 task
-tracker](specs/v1/tasks.md) and [release criteria](docs/release/v1-release-criteria.md)
-for the honest status.
+tracker](specs/v1/tasks.md) and
+[release criteria](docs/release/v1-release-criteria.md) for the honest status.
 
 ## Run the current slice
 

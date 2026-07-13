@@ -67,8 +67,10 @@ Observed results:
 - No second process, second device, non-loopback interface, multicast socket,
   firewall rule, VPN, sleep/wake transition, or network-interface change was
   involved.
-- The test does not prove that Windows or Linux TCP/network providers behave the
-  same way; matching hosted CI is required for this source state.
+- This local test alone does not prove Windows or Linux provider behavior.
+  Matching hosted loopback/contract results for this source state are recorded
+  in [the hosted CI evidence](2026-07-13-hosted-ci.md); they still are not
+  physical-machine evidence.
 - The test does not validate physical DNS-SD publication/discovery or connection
   through a discovered LAN address.
 - The provisional handshake has not received independent security review and

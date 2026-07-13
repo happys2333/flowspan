@@ -135,11 +135,10 @@ means its linked evidence exists; it does not imply the entire product works.
     source are implemented. One bounded listener now authenticates different
     current trusted peers on the same port, rechecks the authenticated key before
     capability registration, isolates peer/handler failure, and drains revoked
-    or shutdown sessions. The 22-project gate and 246 tests pass locally. The
-    preceding 236-test slice passes hosted Windows, macOS, and Ubuntu at
-    `5dee727`, together with secret scan and CodeQL; hosted evidence for the new
-    listener source state is pending. Physical multicast evidence remains task
-    5.4. These are contract results, not physical-network evidence.
+    or shutdown sessions. The 22-project gate and 246 tests pass locally and on
+    hosted Windows, macOS, and Ubuntu at `657c9dd`, together with secret scan and
+    CodeQL. Physical multicast evidence remains task 5.4. These are contract
+    results, not physical-network evidence.
   - _Requirements: R2.1, R8.1, R9.1_
 - [-] 5.3 Implement bounded reconnect/backoff and reauthentication across network
   changes and restarts.

@@ -89,12 +89,13 @@ implementation convenience.
   trust create/restart/update/revoke smoke passed with disposable Keychain items.
 - [2026-07-13 hosted CI foundation](../evidence/2026-07-13-hosted-ci.md):
   locked restore, format, build, tests, simulator, secret scan, and CodeQL passed
-  on committed slices through `5dee727` using Windows, macOS, and Ubuntu hosted
+  on committed slices through `657c9dd` using Windows, macOS, and Ubuntu hosted
   runners. The authenticated reconnect slice composes current trust/capability
   checks with a real loopback authenticated TCP session and revoke/downgrade
   draining. The CI maintenance slice verifies immutable Node 24 Action pins,
-  and the DNS-SD slices verify bounded browser/candidate/publisher contracts.
-  None is physical-LAN evidence.
+  the DNS-SD slices verify bounded browser/candidate/publisher contracts, and the
+  shared inbound listener authenticates multiple current peers with bounded
+  lifecycle/failure behavior. None is physical-LAN evidence.
 - [2026-07-13 macOS DNS-SD browser/publisher](../evidence/2026-07-13-macos-dns-sd-browser.md):
   236 local tests cover the bounded TXT/candidate/publisher core and isolated
   provisional browser/publisher adapter, including dual-stack, split-record,
