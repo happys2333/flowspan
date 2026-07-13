@@ -2,7 +2,7 @@ using System.Net.NetworkInformation;
 
 namespace Flowspan.Transport;
 
-public enum PeerSessionAttemptOutcome
+public enum PeerSessionAttemptStatus
 {
     TransientFailure,
     AuthenticatedSessionEnded,
@@ -11,12 +11,53 @@ public enum PeerSessionAttemptOutcome
 
 public enum PeerReconnectStopReason
 {
-    PermanentRejection,
+    PeerNotTrusted,
+    CandidateIdentityChanged,
+    CapabilityDenied,
+    ProtocolIncompatible,
+    AuthenticationFailed,
+}
+
+public readonly record struct PeerSessionAttemptResult
+{
+    private PeerSessionAttemptResult(
+        PeerSessionAttemptStatus status,
+        PeerReconnectStopReason? stopReason)
+    {
+        Status = status;
+        StopReason = stopReason;
+    }
+
+    public PeerSessionAttemptStatus Status { get; }
+
+    public PeerReconnectStopReason? StopReason { get; }
+
+    public static PeerSessionAttemptResult TransientFailure { get; } =
+        new(PeerSessionAttemptStatus.TransientFailure, null);
+
+    public static PeerSessionAttemptResult AuthenticatedSessionEnded { get; } =
+        new(PeerSessionAttemptStatus.AuthenticatedSessionEnded, null);
+
+    public static PeerSessionAttemptResult PermanentlyRejected(
+        PeerReconnectStopReason stopReason)
+    {
+        if (!Enum.IsDefined(stopReason))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(stopReason),
+                stopReason,
+                "Unknown peer reconnect stop reason.");
+        }
+
+        return new PeerSessionAttemptResult(
+            PeerSessionAttemptStatus.PermanentRejection,
+            stopReason);
+    }
 }
 
 public interface IAuthenticatedPeerSessionAttempt
 {
-    public ValueTask<PeerSessionAttemptOutcome> RunAsync(
+    public ValueTask<PeerSessionAttemptResult> RunAsync(
         CancellationToken cancellationToken = default);
 }
 
@@ -116,7 +157,7 @@ public sealed class PeerReconnectSupervisor
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 long observedNetworkGeneration = networkInterrupt.Generation;
-                PeerSessionAttemptOutcome outcome = default;
+                PeerSessionAttemptResult outcome = default;
                 bool networkChanged = await ExecuteInterruptiblyAsync(
                     async attemptCancellation =>
                     {
@@ -126,9 +167,11 @@ public sealed class PeerReconnectSupervisor
                     networkInterrupt,
                     observedNetworkGeneration,
                     cancellationToken).ConfigureAwait(false);
-                if (outcome is PeerSessionAttemptOutcome.PermanentRejection)
+                if (outcome.Status is PeerSessionAttemptStatus.PermanentRejection)
                 {
-                    return PeerReconnectStopReason.PermanentRejection;
+                    return outcome.StopReason
+                        ?? throw new InvalidOperationException(
+                            "A permanent peer rejection must include a stop reason.");
                 }
 
                 if (networkChanged)
@@ -137,7 +180,7 @@ public sealed class PeerReconnectSupervisor
                     continue;
                 }
 
-                if (outcome is PeerSessionAttemptOutcome.AuthenticatedSessionEnded)
+                if (outcome.Status is PeerSessionAttemptStatus.AuthenticatedSessionEnded)
                 {
                     failedAttempts = 0;
                 }
@@ -145,7 +188,7 @@ public sealed class PeerReconnectSupervisor
                 TimeSpan retryDelay = backoff.DelayForAttempt(
                     failedAttempts,
                     nextJitterSample());
-                if (outcome is PeerSessionAttemptOutcome.TransientFailure
+                if (outcome.Status is PeerSessionAttemptStatus.TransientFailure
                     && failedAttempts < int.MaxValue)
                 {
                     failedAttempts++;

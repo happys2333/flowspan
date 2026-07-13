@@ -32,7 +32,7 @@ Observed results:
 - locked restore: passed for 20 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 192 passed, 0 failed, 0 skipped;
+- tests: 207 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
@@ -41,7 +41,7 @@ Observed results:
   - Linux identity/trust-store contracts/platform guards: 15 passed;
   - macOS identity/trust-store contracts/native smoke: 10 passed;
   - Windows identity/trust-store contracts/platform guards: 12 passed;
-  - transport: 26 passed;
+  - transport: 41 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
 - NuGet query: no known vulnerable package reported for any of the 20 projects.
@@ -67,7 +67,12 @@ code. It did not contain the Activity text.
   policy, network-change cancellation and burst coalescing, no-overlap and
   permanent-rejection race safety, caller-cancellation draining, production
   wait cancellation, BCL network-change subscription lifecycle, cancellation
-  callback fault containment,
+  callback fault containment, structured reconnect stop reasons, signed
+  candidate/endpoint validation, current trust and capability reload, same-key
+  device rename handling, transient/permanent handshake classification, real
+  loopback authenticated-session composition, post-handshake registration race
+  rejection, active peer-revoke/capability-downgrade handler draining, and
+  authenticated disconnect classification,
   atomic identity provisioning/restart/deletion with an explicitly degraded
   test store, bounded/canonical identity payload round trips and hostile-shape
   rejection, shared platform-payload bridging, Windows atomic protected-file
@@ -91,7 +96,7 @@ code. It did not contain the Activity text.
 ## What this does not prove
 
 - Windows or Linux behavior on a physical Flowspan test machine. Hosted CI
-  evidence through commit `8b3e11b` is recorded separately in
+  evidence through commit `2ef9961` is recorded separately in
   `2026-07-13-hosted-ci.md`.
 - Actual Windows CurrentUser DPAPI execution; this macOS run exercised the
   production adapter's explicit platform rejection and fake-protector contract
@@ -105,7 +110,7 @@ code. It did not contain the Activity text.
   separately, while Linux still lacks a live Secret Service round trip.
 - Physical LAN discovery or network-interface churn, the interactive pairing
   wire/UI ceremony, Linux Secret Service, untested Keychain/DPAPI profile states,
-  concrete DNS-SD/session composition, multi-peer listener operation,
+  production DNS-SD candidate resolution, multi-peer listener operation,
   independent security review, native permissions, capture, input, protected
   surfaces, Remote Window, UI,
   accessibility, packaging, signing, or update behavior.

@@ -207,6 +207,25 @@ delay, jitter, and change source. Hosted tests prove this lifecycle contract,
 not that a runner emitted or received a real DNS-SD record or survived physical
 interface churn.
 
+The next composition slice binds a resolved endpoint to the signed offer and
+candidate public identity as one `VerifiedPeerConnectionCandidate`; the name
+means the discovery adapter verified internal consistency, not that the peer is
+trusted. Each `AuthenticatedTcpPeerSessionAttempt` reloads the current trust
+record, checks required capabilities, verifies the candidate against that trust
+and current UTC, and only then opens TCP. Missing/expired candidates are
+transient; absent trust, identity change, capability denial, incompatible
+protocol, and authentication failure are structured permanent stop reasons.
+
+After the TCP handshake, the attempt registers its live control session through
+`TrustSessionCoordinator` before handing the connection to the injected control
+session handler. Registration failure closes the connection without exposing a
+session. Peer revocation, capability downgrade, supervisor/network cancellation,
+or local shutdown cancels the handler and disposes the connection; a later
+supervisor iteration performs a new discovery/trust lookup and handshake. Tests
+use signed candidates and real loopback TCP for the success path while faulting
+the ports at the trust, registration, handler, and cancellation boundaries.
+This slice still does not publish or resolve DNS-SD records.
+
 ## 7. Identity, pairing, and encryption
 
 Each device owns a long-lived P-256 ECDSA identity key stored via an

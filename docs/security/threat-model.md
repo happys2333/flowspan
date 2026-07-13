@@ -51,9 +51,9 @@ rather than grant it.
 | --- | --- | --- | --- |
 | T01 | Spoofed discovery offer | Signed short-lived offer, minimal metadata, identity fingerprint, never trust discovery alone | forged/expired offer tests |
 | T02 | Pairing MITM | Transcript-bound identity signatures, matching SAS on both endpoints, explicit dual confirmation, timeout | known-answer and altered-transcript tests |
-| T03 | Peer impersonation after pairing | Authenticate every secure-session transcript; block identity-key changes; every supervised reconnect is a fresh authenticated attempt and permanent rejection outranks network-change retry | key-substitution and reconnect-race integration tests |
+| T03 | Peer impersonation after pairing | Bind signed candidates to the current trusted key; authenticate every secure-session transcript; reload trust on every attempt; block identity-key changes; permanent rejection outranks network-change retry | key-substitution, candidate-binding, and reconnect-race integration tests |
 | T04 | Replay/duplicate command | Session epoch, message/operation IDs, TTL, request digest, durable idempotency journal | property/fault tests |
-| T05 | Capability escalation | Deny by default; typed independent capabilities; authorize at use, not only connect | permission matrix tests |
+| T05 | Capability escalation | Deny by default; typed independent capabilities; check before connect and again through the coordinator after authentication; revoke/downgrade drains the active handler | permission matrix and connection-registration race tests |
 | T06 | Remote input after authority loss | Monotonic driver lease epochs, short expiry, local enforcement, emergency-stop epoch bump | lease model/property tests |
 | T07 | Sensitive content capture | Continuous protection-state probe, fail closed on unknown/stale, visible pause/blank state | platform contract + native manual tests |
 | T08 | Malformed/oversized protocol input | frame, depth, field, count, decompression, timeout, and allocation limits | fuzz/property corpus |

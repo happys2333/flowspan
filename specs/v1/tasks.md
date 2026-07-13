@@ -132,8 +132,11 @@ means its linked evidence exists; it does not imply the entire product works.
     and drain the old boundary operation, coalesce bursts, reset backoff, and
     start no overlapping attempt. A BCL network-address-change adapter and real
     cancellable delay are present, and the lifecycle contracts pass hosted
-    Windows, macOS, and Ubuntu CI. Concrete DNS-SD/session composition, sleep/wake,
-    peer-restart, and physical interface-churn evidence remain open.
+    Windows, macOS, and Ubuntu CI. A verified-candidate source boundary now
+    composes current trust/capability checks, a fresh authenticated TCP handshake,
+    post-handshake coordinator registration, active revoke/downgrade draining,
+    and structured permanent stop reasons. A production DNS-SD candidate source,
+    sleep/wake, peer-restart, and physical interface-churn evidence remain open.
   - _Requirements: R8.2_
 - [ ] 5.4 Run physical two-device LAN tests and preserve evidence.
   - _Requirements: R2, R8, R12.5_

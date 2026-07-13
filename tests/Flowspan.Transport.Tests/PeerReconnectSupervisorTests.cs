@@ -5,14 +5,32 @@ namespace Flowspan.Transport.Tests;
 public sealed class PeerReconnectSupervisorTests
 {
     [Fact]
+    public async Task PermanentRejectionReasonIsReturnedToCaller()
+    {
+        var supervisor = new PeerReconnectSupervisor(
+            new IdentityChangedSessionAttempt(),
+            new SilentNetworkChangeSource(),
+            new RecordingDelay(),
+            new ReconnectBackoff(
+                TimeSpan.FromMilliseconds(250),
+                TimeSpan.FromSeconds(1),
+                jitterFraction: 0),
+            static () => 0.5);
+
+        PeerReconnectStopReason result = await supervisor.RunAsync();
+
+        Assert.Equal(PeerReconnectStopReason.CandidateIdentityChanged, result);
+    }
+
+    [Fact]
     public async Task TransientFailuresBackOffUntilPermanentRejection()
     {
         var attempt = new SequenceSessionAttempt(
         [
-            PeerSessionAttemptOutcome.TransientFailure,
-            PeerSessionAttemptOutcome.TransientFailure,
-            PeerSessionAttemptOutcome.TransientFailure,
-            PeerSessionAttemptOutcome.PermanentRejection,
+            PeerSessionAttemptResult.TransientFailure,
+            PeerSessionAttemptResult.TransientFailure,
+            PeerSessionAttemptResult.TransientFailure,
+            RejectedAsUntrusted(),
         ]);
         var delay = new RecordingDelay();
         var supervisor = new PeerReconnectSupervisor(
@@ -27,7 +45,7 @@ public sealed class PeerReconnectSupervisorTests
 
         PeerReconnectStopReason result = await supervisor.RunAsync();
 
-        Assert.Equal(PeerReconnectStopReason.PermanentRejection, result);
+        Assert.Equal(PeerReconnectStopReason.PeerNotTrusted, result);
         Assert.Equal(4, attempt.Count);
         Assert.Equal<TimeSpan>(
         [
@@ -42,8 +60,8 @@ public sealed class PeerReconnectSupervisorTests
     {
         var attempt = new SequenceSessionAttempt(
         [
-            PeerSessionAttemptOutcome.TransientFailure,
-            PeerSessionAttemptOutcome.PermanentRejection,
+            PeerSessionAttemptResult.TransientFailure,
+            RejectedAsUntrusted(),
         ]);
         var networkChanges = new TestNetworkChangeSource();
         var delay = new CancellableDelay();
@@ -66,7 +84,7 @@ public sealed class PeerReconnectSupervisorTests
         {
             PeerReconnectStopReason result = await running.WaitAsync(
                 TimeSpan.FromSeconds(1));
-            Assert.Equal(PeerReconnectStopReason.PermanentRejection, result);
+            Assert.Equal(PeerReconnectStopReason.PeerNotTrusted, result);
             Assert.Equal(2, attempt.Count);
         }
         finally
@@ -87,11 +105,11 @@ public sealed class PeerReconnectSupervisorTests
     {
         var attempt = new SequenceSessionAttempt(
         [
-            PeerSessionAttemptOutcome.TransientFailure,
-            PeerSessionAttemptOutcome.TransientFailure,
-            PeerSessionAttemptOutcome.AuthenticatedSessionEnded,
-            PeerSessionAttemptOutcome.TransientFailure,
-            PeerSessionAttemptOutcome.PermanentRejection,
+            PeerSessionAttemptResult.TransientFailure,
+            PeerSessionAttemptResult.TransientFailure,
+            PeerSessionAttemptResult.AuthenticatedSessionEnded,
+            PeerSessionAttemptResult.TransientFailure,
+            RejectedAsUntrusted(),
         ]);
         var delay = new RecordingDelay();
         var supervisor = new PeerReconnectSupervisor(
@@ -106,7 +124,7 @@ public sealed class PeerReconnectSupervisorTests
 
         PeerReconnectStopReason result = await supervisor.RunAsync();
 
-        Assert.Equal(PeerReconnectStopReason.PermanentRejection, result);
+        Assert.Equal(PeerReconnectStopReason.PeerNotTrusted, result);
         Assert.Equal<TimeSpan>(
         [
             TimeSpan.FromMilliseconds(250),
@@ -197,7 +215,7 @@ public sealed class PeerReconnectSupervisorTests
         PeerReconnectStopReason result = await running.WaitAsync(
             TimeSpan.FromSeconds(1));
 
-        Assert.Equal(PeerReconnectStopReason.PermanentRejection, result);
+        Assert.Equal(PeerReconnectStopReason.PeerNotTrusted, result);
         Assert.Equal(2, attempt.Count);
         Assert.Equal(1, attempt.MaximumConcurrency);
     }
@@ -252,7 +270,7 @@ public sealed class PeerReconnectSupervisorTests
             TimeSpan.FromSeconds(1));
 
         Assert.Null(signalFailure);
-        Assert.Equal(PeerReconnectStopReason.PermanentRejection, result);
+        Assert.Equal(PeerReconnectStopReason.PeerNotTrusted, result);
         Assert.Equal(2, attempt.Count);
     }
 
@@ -277,23 +295,40 @@ public sealed class PeerReconnectSupervisorTests
         PeerReconnectStopReason result = await running.WaitAsync(
             TimeSpan.FromSeconds(1));
 
-        Assert.Equal(PeerReconnectStopReason.PermanentRejection, result);
+        Assert.Equal(PeerReconnectStopReason.PeerNotTrusted, result);
         Assert.Equal(1, attempt.Count);
     }
 
+    private static PeerSessionAttemptResult RejectedAsUntrusted() =>
+        PeerSessionAttemptResult.PermanentlyRejected(
+            PeerReconnectStopReason.PeerNotTrusted);
+
     private sealed class SequenceSessionAttempt(
-        IEnumerable<PeerSessionAttemptOutcome> outcomes) : IAuthenticatedPeerSessionAttempt
+        IEnumerable<PeerSessionAttemptResult> outcomes) : IAuthenticatedPeerSessionAttempt
     {
-        private readonly Queue<PeerSessionAttemptOutcome> outcomes = new(outcomes);
+        private readonly Queue<PeerSessionAttemptResult> outcomes = new(outcomes);
 
         public int Count { get; private set; }
 
-        public ValueTask<PeerSessionAttemptOutcome> RunAsync(
+        public ValueTask<PeerSessionAttemptResult> RunAsync(
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Count++;
             return ValueTask.FromResult(outcomes.Dequeue());
+        }
+    }
+
+    private sealed class IdentityChangedSessionAttempt :
+        IAuthenticatedPeerSessionAttempt
+    {
+        public ValueTask<PeerSessionAttemptResult> RunAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(
+                PeerSessionAttemptResult.PermanentlyRejected(
+                    PeerReconnectStopReason.CandidateIdentityChanged));
         }
     }
 
@@ -338,7 +373,7 @@ public sealed class PeerReconnectSupervisorTests
 
         public int MaximumConcurrency => Volatile.Read(ref maximumConcurrency);
 
-        public async ValueTask<PeerSessionAttemptOutcome> RunAsync(
+        public async ValueTask<PeerSessionAttemptResult> RunAsync(
             CancellationToken cancellationToken = default)
         {
             int invocation = Interlocked.Increment(ref count);
@@ -348,12 +383,12 @@ public sealed class PeerReconnectSupervisorTests
             {
                 if (invocation > 1)
                 {
-                    return PeerSessionAttemptOutcome.PermanentRejection;
+                    return RejectedAsUntrusted();
                 }
 
                 FirstStarted.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                return PeerSessionAttemptOutcome.AuthenticatedSessionEnded;
+                return PeerSessionAttemptResult.AuthenticatedSessionEnded;
             }
             finally
             {
@@ -387,13 +422,13 @@ public sealed class PeerReconnectSupervisorTests
 
         public int Count { get; private set; }
 
-        public async ValueTask<PeerSessionAttemptOutcome> RunAsync(
+        public async ValueTask<PeerSessionAttemptResult> RunAsync(
             CancellationToken cancellationToken = default)
         {
             Count++;
             if (Count > 1)
             {
-                return PeerSessionAttemptOutcome.PermanentRejection;
+                return RejectedAsUntrusted();
             }
 
             using CancellationTokenRegistration registration =
@@ -401,7 +436,7 @@ public sealed class PeerReconnectSupervisorTests
                     throw new InvalidOperationException("Injected cancellation failure."));
             FirstStarted.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            return PeerSessionAttemptOutcome.AuthenticatedSessionEnded;
+            return PeerSessionAttemptResult.AuthenticatedSessionEnded;
         }
     }
 
@@ -422,7 +457,7 @@ public sealed class PeerReconnectSupervisorTests
 
         public int MaximumConcurrency => Volatile.Read(ref maximumConcurrency);
 
-        public async ValueTask<PeerSessionAttemptOutcome> RunAsync(
+        public async ValueTask<PeerSessionAttemptResult> RunAsync(
             CancellationToken cancellationToken = default)
         {
             int invocation = Interlocked.Increment(ref count);
@@ -432,7 +467,7 @@ public sealed class PeerReconnectSupervisorTests
             {
                 if (invocation > 1)
                 {
-                    return PeerSessionAttemptOutcome.PermanentRejection;
+                    return RejectedAsUntrusted();
                 }
 
                 FirstStarted.TrySetResult();
@@ -446,7 +481,7 @@ public sealed class PeerReconnectSupervisorTests
                 }
 
                 await AllowDrain.Task;
-                return PeerSessionAttemptOutcome.AuthenticatedSessionEnded;
+                return PeerSessionAttemptResult.AuthenticatedSessionEnded;
             }
             finally
             {
@@ -481,7 +516,7 @@ public sealed class PeerReconnectSupervisorTests
 
         public int Count { get; private set; }
 
-        public async ValueTask<PeerSessionAttemptOutcome> RunAsync(
+        public async ValueTask<PeerSessionAttemptResult> RunAsync(
             CancellationToken cancellationToken = default)
         {
             Count++;
@@ -498,7 +533,7 @@ public sealed class PeerReconnectSupervisorTests
                 }
             }
 
-            return PeerSessionAttemptOutcome.PermanentRejection;
+            return RejectedAsUntrusted();
         }
     }
 

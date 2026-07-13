@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using Flowspan.Domain;
 
@@ -54,6 +55,15 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(trustStore);
         this.trustStore = trustStore;
+    }
+
+    public bool TryGetCurrentTrust(
+        DeviceId peerDeviceId,
+        [NotNullWhen(true)] out TrustRecord? trustRecord)
+    {
+        ThrowIfShuttingDown();
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        return trustStore.TryGet(peerDeviceId, out trustRecord);
     }
 
     public async ValueTask<TrustSessionRegistration?> TryRegisterAsync(
