@@ -95,7 +95,8 @@ means its linked evidence exists; it does not imply the entire product works.
     tamper, proven identity conflict, same-key re-pairing, persistence failure,
     cancellation, and cleanup faults have deterministic tests; one same-process
     real loopback test covers both endpoints. The 22-project gate and 268 tests
-    pass locally; hosted verification for this source state is pending. Desktop
+    pass locally and on Windows, macOS, and Ubuntu hosted runners for commit
+    `79dae12`; secret scan and CodeQL also pass for that commit. Desktop
     confirmation UI, production listener multiplexing, and physical two-person
     SAS evidence remain open.
   - _Requirements: R2, R9.2, R9.6_

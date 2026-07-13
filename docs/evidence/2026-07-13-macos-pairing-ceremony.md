@@ -72,8 +72,10 @@ Observed results:
 - The TCP connection stayed inside one process and one host. It does not prove a
   physical LAN path, firewall behavior, discovery-to-pairing composition, or
   production-listener protocol multiplexing.
-- No Windows or Linux network provider ran locally. Matching hosted CI is still
-  required for this exact source state.
+- No Windows or Linux network provider ran locally. Matching hosted CI for
+  commit `79dae12` is recorded in
+  [the hosted CI evidence](2026-07-13-hosted-ci.md); those jobs are still
+  loopback/contract evidence rather than physical-device networking.
 - The provisional cryptographic protocol has no independent security approval.
   Completion proofs reduce asymmetric acceptance on tamper but do not claim
   impossible atomic commitment across arbitrary permanent network partitions;
