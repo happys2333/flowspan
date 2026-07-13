@@ -61,8 +61,10 @@ Sources:
   a no-overwrite rename so exactly one protected identity wins.
 - macOS uses a narrow byte-oriented Security.framework Keychain adapter. It
   stores one generic-password item scoped by a stable Flowspan service/account;
-  the adapter is isolated behind a native boundary so contract tests do not
-  require Keychain access.
+  the item is `WhenUnlockedThisDeviceOnly`, and the adapter is isolated behind a
+  native boundary so contract tests do not require Keychain access. Native calls
+  build bounded CoreFoundation dictionaries with owned SafeHandles and return
+  structured status/recovery information without converting secrets to strings.
 - Linux invokes the standard `secret-tool` client for the freedesktop Secret
   Service, passes secret bytes through standard input rather than arguments, and
   captures output as clearable byte buffers. Missing `secret-tool`, missing

@@ -29,20 +29,21 @@ dotnet list Flowspan.slnx package --vulnerable --include-transitive
 
 Observed results:
 
-- locked restore: passed for 16 projects;
+- locked restore: passed for 18 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 135 passed, 0 failed, 0 skipped;
+- tests: 140 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
   - security: 32 passed;
   - platform contracts: 8 passed;
+  - macOS identity-store contracts/native smoke: 5 passed;
   - Windows identity-store contracts: 7 passed;
   - transport: 16 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
-- NuGet query: no known vulnerable package reported for any of the 16 projects.
+- NuGet query: no known vulnerable package reported for any of the 18 projects.
 
 The simulator receipt contained operation/correlation/device/Activity IDs,
 `workspace.note/v1`, a full descriptor digest, timestamp, and `none` failure
@@ -65,7 +66,8 @@ code. It did not contain the Activity text.
   test store, bounded/canonical identity payload round trips and hostile-shape
   rejection, shared platform-payload bridging, Windows atomic protected-file
   semantics through a fake protector, concurrent first-start convergence,
-  corrupt/cancel cleanup, non-Windows DPAPI rejection, conflict detection, and
+  corrupt/cancel cleanup, non-Windows DPAPI rejection, native macOS Keychain
+  create/reload/delete and concurrent-add behavior, conflict detection, and
   receipt redaction cases behave as asserted by the tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.
@@ -73,14 +75,15 @@ code. It did not contain the Activity text.
 ## What this does not prove
 
 - Windows or Linux behavior on a physical Flowspan test machine. Hosted CI
-  evidence through commit `71d25c7` is recorded separately in
+  evidence through commit `43e981b` is recorded separately in
   `2026-07-13-hosted-ci.md`.
 - Actual Windows CurrentUser DPAPI execution; this macOS run exercised the
   production adapter's explicit platform rejection and fake-protector contract
   only.
-- Physical LAN discovery, the interactive pairing wire/UI ceremony, credential
-  stores, multi-peer listener operation, independent security review, native
-  permissions, capture, input, protected surfaces, Remote Window, UI,
+- Physical LAN discovery, the interactive pairing wire/UI ceremony, Linux Secret
+  Service, untested Keychain/DPAPI profile states, multi-peer listener operation,
+  independent security review, native permissions, capture, input, protected
+  surfaces, Remote Window, UI,
   accessibility, packaging, signing, or update behavior.
 - Resistance to an independent security review, fuzzing, or real hostile peers.
 

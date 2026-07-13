@@ -3,6 +3,7 @@
     <Project Path="src/Flowspan.Application/Flowspan.Application.csproj" />
     <Project Path="src/Flowspan.Diagnostics/Flowspan.Diagnostics.csproj" />
     <Project Path="src/Flowspan.Domain/Flowspan.Domain.csproj" />
+    <Project Path="src/Flowspan.Platform.MacOS/Flowspan.Platform.MacOS.csproj" />
     <Project Path="src/Flowspan.Platform/Flowspan.Platform.csproj" />
     <Project Path="src/Flowspan.Platform.Windows/Flowspan.Platform.Windows.csproj" />
     <Project Path="src/Flowspan.Protocol/Flowspan.Protocol.csproj" />
@@ -13,6 +14,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Flowspan.Domain.Tests/Flowspan.Domain.Tests.csproj" />
     <Project Path="tests/Flowspan.Integration.Tests/Flowspan.Integration.Tests.csproj" />
+    <Project Path="tests/Flowspan.Platform.MacOS.Tests/Flowspan.Platform.MacOS.Tests.csproj" />
     <Project Path="tests/Flowspan.Platform.Tests/Flowspan.Platform.Tests.csproj" />
     <Project Path="tests/Flowspan.Platform.Windows.Tests/Flowspan.Platform.Windows.Tests.csproj" />
     <Project Path="tests/Flowspan.Protocol.Tests/Flowspan.Protocol.Tests.csproj" />

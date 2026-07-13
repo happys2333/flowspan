@@ -84,8 +84,9 @@ means its linked evidence exists; it does not imply the entire product works.
   Secret Service adapters with marked degraded-mode behavior.
   - ADR 0005 selects byte-oriented platform mechanisms and rejects silent
     plaintext fallback. The shared bounded payload bridge and Windows
-    CurrentUser-DPAPI/atomic-file adapter are implemented with contract tests;
-    its Windows-hosted result plus macOS/Linux adapters remain open.
+    CurrentUser-DPAPI/atomic-file adapter are implemented and pass hosted
+    Windows native smoke. The macOS Security.framework adapter passes local
+    native and contract tests; its hosted result plus Linux remain open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection
