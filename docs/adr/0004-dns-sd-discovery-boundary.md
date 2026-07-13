@@ -1,6 +1,7 @@
 # ADR 0004: DNS-SD discovery boundary and signed short-lived offers
 
-- Status: Accepted boundary; production library/adapter selection deferred
+- Status: Accepted; provisional browse adapter selected, publication and
+  physical validation open
 - Date: 2026-07-13
 
 ## Context
@@ -33,10 +34,44 @@ browse API, but its published package age is a maintenance/supply-chain risk.
 Combining separate browse and native advertise implementations would increase
 complexity. Writing an RFC 6762/6763 stack is out of scope and security-prone.
 
+### Follow-up adapter spike
+
+The deferred adapter spike inspected the exact `Makaretu.Dns.Multicast` 0.27.0
+source tag (`b9f2f8158052568a19d09536179ceaf5cae9b23e`) and package on
+2026-07-13. It opens IPv4 and IPv6 multicast clients, advertises and browses
+through `ServiceDiscovery`, and subscribes to .NET network-address changes. Its
+interface reconciliation recreates sockets only when network-interface IDs
+change, so an address change on the same interface is not a sufficient
+production lifecycle guarantee by itself.
+
+The package targets .NET Standard 2.0 and resolves on .NET 10, but was published
+in 2019. Its locked graph includes old `Common.Logging`, `IPNetwork2`,
+`Makaretu.Dns`, `SimpleBase`, and `Tmds.LibC` versions. NuGet reported no known
+vulnerability on the query date, but several newer transitive versions exist.
+The nupkg contains neither a license expression nor a license file; the exact
+source tag contains an MIT license. This provenance gap remains part of release
+license review.
+
+Thin native adapters avoid the managed raw-DNS parser but create three distinct
+lifecycles:
+
+| Platform | Native surface | Cost/risk |
+| --- | --- | --- |
+| Windows | `DnsServiceBrowse`/`DnsServiceRegister` in `dnsapi.dll` | Windows 10 desktop API, callback/PInvoke ownership and cancellation |
+| macOS | `DNSServiceBrowse`/`DNSServiceRegister` in `dns_sd.h` | daemon socket/dispatch integration and native callback ownership |
+| Linux | Avahi client API | separate daemon availability, poll integration, and an explicit unavailable mode |
+
+Sources include Microsoft Learn's `DnsServiceBrowse` and `DnsServiceRegister`
+requirements, Apple's open-source `dns_sd.h`, and Avahi's client browser example.
+The cross-platform managed adapter is smaller for the first browser slice; the
+native option remains the replacement path if physical reliability or package
+review fails.
+
 ## Decision
 
-- Define production discovery behind `IPeerDiscovery`/adapter boundaries in the
-  transport layer.
+- Keep DNS-SD behind `IDnsSdServiceBrowser` and
+  `IPeerConnectionCandidateSource`; isolate the third-party package in
+  `Flowspan.Transport.Mdns` so the core and tests do not depend on its types.
 - Use DNS-SD service type `_flowspan._tcp.local`.
 - Advertise only a short-lived signed offer: device ID/name, identity
   fingerprint, protocol versions, TCP port, issue/expiry time, and random nonce.
@@ -44,28 +79,40 @@ complexity. Writing an RFC 6762/6763 stack is out of scope and security-prone.
 - Discovery does not grant trust. A paired peer verifies the offer with its
   stored identity key; an unpaired peer verifies after the candidate connection
   presents its key, then completes SAS pairing.
-- Implement and test canonical offer/signature/deduplication/expiry behavior now
-  with an in-memory directory.
-- Do not add an mDNS NuGet package until a network-interface churn and dual-stack
-  spike compares Makaretu against thin native DNS-SD adapters on all three OSes.
+- Use pinned `Makaretu.Dns.Multicast` 0.27.0 provisionally for the production
+  browser. Recreate the entire package stack on every outer BCL address-change
+  event instead of relying only on the package's interface-ID reconciliation.
+- Treat every packet and TXT property as untrusted. A bounded resolution cache
+  accepts at most 256 records per batch, 128 instances, 32 addresses per host,
+  and 16 TXT properties. It produces candidates only after SRV, TXT, and A/AAAA
+  data agree with the signed offer and the current trusted identity.
+- Keep DNS-SD publication, physical dual-stack/interface churn, sleep/wake, VPN,
+  and two-device evidence open. A failed physical matrix or unresolved package
+  provenance/maintenance review triggers replacement by native adapters.
 
 ## TXT/connection split
 
-DNS-SD TXT records should remain small. The record carries a format version,
-device ID, fingerprint, protocol range, nonce, expiry, and signature. If the
-full signed offer exceeds the tested packet budget, TXT carries an offer digest
-and token; the complete offer is fetched over the advertised TCP candidate
-channel before pairing/authentication. Either form is covered by the same
-signature and never trusted without identity verification.
+DNS-SD TXT records remain small and individually bounded. The implemented v1
+form serializes the signed offer into a canonical payload of at most 768 bytes,
+Base64-encodes it, and splits it into at most five `fsN` properties. Every full
+`key=value` string is at most the DNS character-string limit of 255 bytes;
+`txtvers=1` and a canonical chunk count make missing, duplicate, reordered-name,
+and non-canonical payloads rejectable. The payload contains device ID/name,
+fingerprint, signed port, protocol range, nonce, issue/expiry times, and
+signature—never Activity content, capabilities, or trust state.
 
 ## Consequences
 
 - The simulator can prove discovery expiry, tamper rejection, identity binding,
   deduplication, and reconnect timing without multicast access.
+- Portable tests prove split SRV/TXT/address resolution, dual-stack candidate
+  rotation, hostile TXT and record-count limits, same-key rename, removal/TTL,
+  stack-restart cleanup, and injected bind/restart failures. They do not prove a
+  packet crossed a physical interface.
 - Real zero-config acceptance remains open until an adapter passes Windows,
   macOS, Linux, IPv4/IPv6, VPN/multiple-interface, sleep/wake, and network-change
   tests.
 - macOS/iOS multicast entitlement notes in Zeroconf documentation are relevant
   to packaging research even though mobile is not v1 scope.
-- The selected library, if any, needs a dependency/license/vulnerability ADR
-  update and locked version.
+- The provisional package is locked and audited, but final license/provenance
+  and maintenance acceptance remain open.

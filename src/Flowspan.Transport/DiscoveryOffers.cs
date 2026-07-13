@@ -164,6 +164,124 @@ public sealed class SignedDiscoveryOffer
 
     public byte[] ExportSignature() => (byte[])signature.Clone();
 
+    internal static SignedDiscoveryOffer ImportUntrusted(
+        DeviceId deviceId,
+        string displayName,
+        string identityFingerprint,
+        int port,
+        IEnumerable<ProtocolVersion> protocolVersions,
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt,
+        ReadOnlySpan<byte> nonce,
+        ReadOnlySpan<byte> signature)
+    {
+        ArgumentNullException.ThrowIfNull(deviceId);
+        ArgumentNullException.ThrowIfNull(displayName);
+        ArgumentNullException.ThrowIfNull(identityFingerprint);
+        ArgumentNullException.ThrowIfNull(protocolVersions);
+        string normalizedName = displayName.Trim().Normalize(NormalizationForm.FormC);
+        if (!StringComparer.Ordinal.Equals(displayName, normalizedName)
+            || normalizedName.Length is < 1 or > 80
+            || normalizedName.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "A discovery display name must be canonical and contain 1 to 80 non-control characters.",
+                nameof(displayName));
+        }
+
+        byte[] fingerprint;
+        try
+        {
+            fingerprint = Convert.FromHexString(identityFingerprint);
+        }
+        catch (FormatException exception)
+        {
+            throw new ArgumentException(
+                "A discovery identity fingerprint must be canonical SHA-256 hex.",
+                nameof(identityFingerprint),
+                exception);
+        }
+
+        if (fingerprint.Length != SHA256.HashSizeInBytes
+            || !StringComparer.Ordinal.Equals(
+                identityFingerprint,
+                identityFingerprint.ToUpperInvariant()))
+        {
+            throw new ArgumentException(
+                "A discovery identity fingerprint must be canonical SHA-256 hex.",
+                nameof(identityFingerprint));
+        }
+
+        CryptographicOperations.ZeroMemory(fingerprint);
+
+        if (port is < 1 or > ushort.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(port));
+        }
+
+        ImmutableArray<ProtocolVersion> suppliedVersions = protocolVersions
+            .ToImmutableArray();
+        ImmutableArray<ProtocolVersion> versions = suppliedVersions
+            .Distinct()
+            .Order()
+            .ToImmutableArray();
+        if (versions.IsDefaultOrEmpty
+            || versions.Length > 16
+            || !suppliedVersions.SequenceEqual(versions)
+            || versions.Any(static version => version.Major < 1 || version.Minor < 0))
+        {
+            throw new ArgumentException(
+                "An imported discovery offer must contain 1 to 16 canonical protocol versions.",
+                nameof(protocolVersions));
+        }
+
+        if (expiresAt <= issuedAt || expiresAt - issuedAt > MaximumLifetime)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(expiresAt),
+                "A discovery offer expiry must follow issue time by at most the maximum lifetime.");
+        }
+
+        if (nonce.Length != NonceLength)
+        {
+            throw new ArgumentException(
+                $"A discovery nonce must contain exactly {NonceLength} bytes.",
+                nameof(nonce));
+        }
+
+        if (signature.Length != 64)
+        {
+            throw new ArgumentException(
+                "A discovery signature must be one P-256 P1363 value.",
+                nameof(signature));
+        }
+
+        byte[] nonceBytes = nonce.ToArray();
+        byte[] encoded = EncodeUnsigned(
+            deviceId,
+            normalizedName,
+            identityFingerprint,
+            checked((ushort)port),
+            versions,
+            issuedAt,
+            expiresAt,
+            nonceBytes);
+        byte[] hash = SHA256.HashData(encoded);
+        string digest = Convert.ToHexString(hash);
+        CryptographicOperations.ZeroMemory(hash);
+        return new SignedDiscoveryOffer(
+            deviceId,
+            normalizedName,
+            identityFingerprint,
+            checked((ushort)port),
+            versions,
+            issuedAt,
+            expiresAt,
+            nonceBytes,
+            digest,
+            signature.ToArray());
+    }
+
     private static byte[] EncodeUnsigned(
         DeviceId deviceId,
         string displayName,

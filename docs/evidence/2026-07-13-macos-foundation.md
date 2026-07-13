@@ -29,10 +29,10 @@ dotnet list Flowspan.slnx package --vulnerable --include-transitive
 
 Observed results:
 
-- locked restore: passed for 20 projects;
+- locked restore: passed for 22 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 207 passed, 0 failed, 0 skipped;
+- tests: 226 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
@@ -41,10 +41,11 @@ Observed results:
   - Linux identity/trust-store contracts/platform guards: 15 passed;
   - macOS identity/trust-store contracts/native smoke: 10 passed;
   - Windows identity/trust-store contracts/platform guards: 12 passed;
-  - transport: 41 passed;
+  - transport: 51 passed;
+  - isolated mDNS/DNS-SD browser adapter: 9 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
-- NuGet query: no known vulnerable package reported for any of the 20 projects.
+- NuGet query: no known vulnerable package reported for any of the 22 projects.
 
 The simulator receipt contained operation/correlation/device/Activity IDs,
 `workspace.note/v1`, a full descriptor digest, timestamp, and `none` failure
@@ -73,6 +74,11 @@ code. It did not contain the Activity text.
   loopback authenticated-session composition, post-handshake registration race
   rejection, active peer-revoke/capability-downgrade handler draining, and
   authenticated disconnect classification,
+  bounded canonical DNS-SD TXT chunking/decoding, randomized hostile TXT
+  containment, current-trust candidate construction, dual-stack candidate
+  rotation, unsafe-address rejection, split SRV/TXT/A/AAAA resolution,
+  package-record translation, bounded discovery caches, full mDNS stack restart
+  on injected network changes, and bind/factory/subscriber fault isolation,
   atomic identity provisioning/restart/deletion with an explicitly degraded
   test store, bounded/canonical identity payload round trips and hostile-shape
   rejection, shared platform-payload bridging, Windows atomic protected-file
@@ -110,7 +116,7 @@ code. It did not contain the Activity text.
   separately, while Linux still lacks a live Secret Service round trip.
 - Physical LAN discovery or network-interface churn, the interactive pairing
   wire/UI ceremony, Linux Secret Service, untested Keychain/DPAPI profile states,
-  production DNS-SD candidate resolution, multi-peer listener operation,
+  live DNS-SD browse/publication, multi-peer listener operation,
   independent security review, native permissions, capture, input, protected
   surfaces, Remote Window, UI,
   accessibility, packaging, signing, or update behavior.

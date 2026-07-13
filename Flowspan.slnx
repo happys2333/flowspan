@@ -11,6 +11,7 @@
     <Project Path="src/Flowspan.Security/Flowspan.Security.csproj" />
     <Project Path="src/Flowspan.Simulator/Flowspan.Simulator.csproj" />
     <Project Path="src/Flowspan.Transport/Flowspan.Transport.csproj" />
+    <Project Path="src/Flowspan.Transport.Mdns/Flowspan.Transport.Mdns.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Flowspan.Domain.Tests/Flowspan.Domain.Tests.csproj" />
@@ -22,5 +23,6 @@
     <Project Path="tests/Flowspan.Protocol.Tests/Flowspan.Protocol.Tests.csproj" />
     <Project Path="tests/Flowspan.Security.Tests/Flowspan.Security.Tests.csproj" />
     <Project Path="tests/Flowspan.Transport.Tests/Flowspan.Transport.Tests.csproj" />
+    <Project Path="tests/Flowspan.Transport.Mdns.Tests/Flowspan.Transport.Mdns.Tests.csproj" />
   </Folder>
 </Solution>

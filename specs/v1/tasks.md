@@ -120,13 +120,21 @@ means its linked evidence exists; it does not imply the entire product works.
 
 - [x] 5.1 Spike DNS-SD implementation choices and record dependency/security
   decision.
+  - Makaretu 0.27.0 is provisionally selected behind an isolated browser
+    adapter after comparison with Windows DNSAPI, macOS `dns_sd`, and Linux
+    Avahi lifecycles. Its age, transitive graph, physical reliability, and
+    package-license provenance remain explicit release risks.
   - _Requirements: R2.1, R8.1, R12_
 - [-] 5.2 Implement signed minimal discovery offers and direct framed TCP
   transport.
   - Signed, short-lived canonical offers, identity-change detection, expiry,
     replay rejection, deterministic in-memory discovery, direct TCP connection,
-    bounded framing, and secure control upgrade are implemented; DNS-SD and
-    multi-peer listener orchestration remain open.
+    bounded framing, and secure control upgrade are implemented. The bounded
+    DNS-SD TXT codec, split-record cache, provisional production browser, and
+    current-trust candidate source are implemented; DNS-SD publication,
+    multi-peer listener orchestration, and physical multicast evidence remain
+    open. The local 22-project gate passes 226 tests; cross-platform hosted
+    evidence for this commit remains pending.
   - _Requirements: R2.1, R8.1, R9.1_
 - [-] 5.3 Implement bounded reconnect/backoff and reauthentication across network
   changes and restarts.
@@ -139,8 +147,10 @@ means its linked evidence exists; it does not imply the entire product works.
     Windows, macOS, and Ubuntu CI. A verified-candidate source boundary now
     composes current trust/capability checks, a fresh authenticated TCP handshake,
     post-handshake coordinator registration, active revoke/downgrade draining,
-    and structured permanent stop reasons. A production DNS-SD candidate source,
-    sleep/wake, peer-restart, and physical interface-churn evidence remain open.
+    and structured permanent stop reasons. The production DNS-SD browser now
+    feeds the candidate source and recreates its isolated mDNS stack on outer
+    address-change events. Publishing, sleep/wake, peer-restart, and physical
+    interface-churn evidence remain open.
     The composed slice passes 207 tests plus secret scan and CodeQL on hosted
     Windows, macOS, and Ubuntu runners at `fc39d6e`.
   - _Requirements: R8.2_

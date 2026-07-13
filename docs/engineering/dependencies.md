@@ -11,12 +11,23 @@ transitive license report remain mandatory under the v1 release criteria.
 
 | Package | Version | License | Purpose | Decision evidence |
 | --- | --- | --- | --- | --- |
+| `Makaretu.Dns.Multicast` | 0.27.0 | MIT source tag; nupkg metadata undeclared | Isolated provisional mDNS/DNS-SD browser | [ADR 0004](../adr/0004-dns-sd-discovery-boundary.md) |
 | `System.Security.Cryptography.ProtectedData` | 10.0.9 | MIT | Windows CurrentUser DPAPI byte API | [ADR 0005](../adr/0005-platform-secret-storage.md) |
 
 The package is published by Microsoft from
 [`dotnet/runtime`](https://github.com/dotnet/runtime). It is referenced only by
 `Flowspan.Platform.Windows`; other platforms do not receive a plaintext or
 portable fallback.
+
+`Makaretu.Dns.Multicast` is referenced only by `Flowspan.Transport.Mdns`; no
+third-party DNS type crosses the adapter boundary. Its locked graph currently
+includes `Common.Logging` 3.4.1, `Common.Logging.Core` 3.4.1, `IPNetwork2`
+2.1.2, `Makaretu.Dns` 2.0.1, `SimpleBase` 1.3.1, `Tmds.LibC` 0.2.0, and .NET
+Standard compatibility packages. NuGet reported no known vulnerability on
+2026-07-13, but several transitive versions are old and the nupkg omits license
+metadata. Physical network validation, provenance resolution, and the final
+license report remain release gates; the narrow adapter is the replacement
+seam.
 
 ## Test infrastructure
 

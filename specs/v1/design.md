@@ -56,6 +56,7 @@ domain entities.
 | `Flowspan.Application` | Handoff/move/swap/mirror use cases, authorization, journaling, recovery |
 | `Flowspan.Security` | device identity, pairing transcript, key derivation, encrypted frames, trust store ports |
 | `Flowspan.Transport` | framed connections, LAN discovery ports, reconnection/backoff |
+| `Flowspan.Transport.Mdns` | isolated provisional Makaretu DNS-SD browser adapter |
 | `Flowspan.Platform` | portable contracts and capability/degradation model |
 | `Flowspan.Platform.Windows` | Windows-specific capture, input, protected-surface, credential-store implementations |
 | `Flowspan.Platform.MacOS` | macOS-specific implementations and permission probes |
@@ -176,11 +177,15 @@ highest common major/minor feature set. See
 
 ## 6. Discovery, transport, and reconnection
 
-`IPeerDiscovery` produces signed, short-lived peer offers containing device ID,
-display name, protocol range, connection endpoint, nonce, and identity-key
-fingerprint. No Activity names or capabilities are advertised. The production
-LAN implementation will use an interoperable mDNS/DNS-SD service record after
-the discovery spike; tests use an in-memory discovery bus.
+The discovery boundary produces signed, short-lived peer offers containing
+device ID, display name, protocol range, connection endpoint, nonce, and
+identity-key fingerprint. No Activity names or capabilities are advertised.
+`DnsSdDiscoveryOfferTxtCodec` carries the canonical bounded offer through
+`_flowspan._tcp.local`; `DnsSdPeerConnectionCandidateSource` combines current
+trust, the signed port, and concrete A/AAAA addresses. The provisional
+`Flowspan.Transport.Mdns` browser isolates Makaretu record types and rebuilds
+its stack on outer network-address changes. DNS-SD publishing and physical LAN
+validation remain open.
 
 `IPeerTransport` exposes ordered duplex byte streams. Direct TCP is the initial
 transport. A length-prefixed frame reader provides partial-read, size, timeout,
@@ -224,7 +229,10 @@ or local shutdown cancels the handler and disposes the connection; a later
 supervisor iteration performs a new discovery/trust lookup and handshake. Tests
 use signed candidates and real loopback TCP for the success path while faulting
 the ports at the trust, registration, handler, and cancellation boundaries.
-This slice still does not publish or resolve DNS-SD records.
+That reconnect-composition slice did not publish or resolve DNS-SD records. The
+subsequent browser slice resolves bounded SRV/TXT/A/AAAA observations into the
+same candidate source, but still does not publish Flowspan services or prove
+physical multicast behavior.
 
 ## 7. Identity, pairing, and encryption
 
@@ -326,7 +334,8 @@ Full layers and CI evidence are defined in `docs/testing/test-strategy.md` and
 These do not alter the approved product direction and will be resolved by
 spikes/ADRs:
 
-- DNS-SD library versus a small platform abstraction over native responders;
+- DNS-SD publisher lifecycle and the physical-test trigger for replacing the
+  provisional managed browser with native adapters;
 - persistence format after the simulator slice;
 - Avalonia version and packaging/signing pipeline;
 - per-platform Remote Window codec and capture implementation;

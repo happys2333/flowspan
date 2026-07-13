@@ -89,6 +89,10 @@ implementation convenience.
   checks with a real loopback authenticated TCP session and revoke/downgrade
   draining. The CI maintenance slice verifies immutable Node 24 Action pins.
   Neither is physical-LAN evidence.
+- [2026-07-13 macOS DNS-SD browser](../evidence/2026-07-13-macos-dns-sd-browser.md):
+  226 local tests cover the bounded TXT/candidate core and isolated provisional
+  browser adapter, including dual-stack, split-record, cache-limit, restart, and
+  injected failure contracts. No multicast socket or physical peer was used.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product

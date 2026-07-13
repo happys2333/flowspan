@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Flowspan production mDNS/DNS-SD transport adapter.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Makaretu.Dns.Multicast" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Transport/Flowspan.Transport.csproj" />
+  </ItemGroup>
+</Project>
