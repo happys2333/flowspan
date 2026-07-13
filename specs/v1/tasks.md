@@ -62,12 +62,19 @@ means its linked evidence exists; it does not imply the entire product works.
 
 - [-] 4.1 Freeze identity, pairing transcript, SAS, ECDH/HKDF/AEAD, nonce, and key
   rotation formats in a reviewed ADR with test vectors.
+  - Identity, pairing, authenticated-handshake, KDF, and encrypted-frame v1
+    formats are recorded and exercised; key rotation, additional golden vectors,
+    and independent review remain open.
   - _Requirements: R1.1–R1.2, R2, R9.1_
 - [-] 4.2 Implement identity/secret-store ports, pairing state machine, trust
   records, capability grants, revocation, and identity-change handling.
   - _Requirements: R2, R9.2, R9.6_
 - [-] 4.3 Implement encrypted framed sessions and negative tests for tamper,
   replay, downgrade, expiry, and key substitution.
+  - Directional AEAD frames and a four-message authenticated ephemeral TCP
+    handshake are implemented with tamper, replay, downgrade, expiry, key
+    substitution, and hostile-length tests; explicit Finished/rekey and broader
+    hostile-peer testing remain open.
   - _Requirements: R8.3, R9.1_
 - [ ] 4.4 Implement Windows Credential Manager/DPAPI, macOS Keychain, and Linux
   Secret Service adapters with marked degraded-mode behavior.
@@ -81,8 +88,9 @@ means its linked evidence exists; it does not imply the entire product works.
 - [-] 5.2 Implement signed minimal discovery offers and direct framed TCP
   transport.
   - Signed, short-lived canonical offers, identity-change detection, expiry,
-    replay rejection, and deterministic in-memory discovery are implemented;
-    DNS-SD and direct TCP adapters remain open.
+    replay rejection, deterministic in-memory discovery, direct TCP connection,
+    bounded framing, and secure control upgrade are implemented; DNS-SD and
+    multi-peer listener orchestration remain open.
   - _Requirements: R2.1, R8.1, R9.1_
 - [-] 5.3 Implement bounded reconnect/backoff and reauthentication across network
   changes and restarts.

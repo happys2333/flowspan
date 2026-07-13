@@ -24,25 +24,16 @@ public sealed class EphemeralKeyAgreement : IDisposable
     public byte[] DeriveRawSecret(ReadOnlySpan<byte> peerSubjectPublicKeyInfo)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        if (peerSubjectPublicKeyInfo.IsEmpty || peerSubjectPublicKeyInfo.Length > 1024)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(peerSubjectPublicKeyInfo),
-                "An ephemeral ECDH SPKI must contain 1 to 1024 bytes.");
-        }
-
-        using ECDiffieHellman peer = ECDiffieHellman.Create();
-        peer.ImportSubjectPublicKeyInfo(peerSubjectPublicKeyInfo, out int bytesRead);
-        ECParameters parameters = peer.ExportParameters(includePrivateParameters: false);
-        if (bytesRead != peerSubjectPublicKeyInfo.Length
-            || peer.KeySize != 256
-            || parameters.Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
-        {
-            throw new CryptographicException(
-                "The ephemeral agreement key must be exactly one P-256 SPKI value.");
-        }
+        using ECDiffieHellman peer = ImportSubjectPublicKeyInfo(
+            peerSubjectPublicKeyInfo);
 
         return keyAgreement.DeriveRawSecretAgreement(peer.PublicKey);
+    }
+
+    internal static void ValidateSubjectPublicKeyInfo(
+        ReadOnlySpan<byte> subjectPublicKeyInfo)
+    {
+        using ECDiffieHellman _ = ImportSubjectPublicKeyInfo(subjectPublicKeyInfo);
     }
 
     public void Dispose()
@@ -54,6 +45,38 @@ public sealed class EphemeralKeyAgreement : IDisposable
 
         keyAgreement.Dispose();
         disposed = true;
+    }
+
+    private static ECDiffieHellman ImportSubjectPublicKeyInfo(
+        ReadOnlySpan<byte> subjectPublicKeyInfo)
+    {
+        if (subjectPublicKeyInfo.IsEmpty || subjectPublicKeyInfo.Length > 1024)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(subjectPublicKeyInfo),
+                "An ephemeral ECDH SPKI must contain 1 to 1024 bytes.");
+        }
+
+        ECDiffieHellman peer = ECDiffieHellman.Create();
+        try
+        {
+            peer.ImportSubjectPublicKeyInfo(subjectPublicKeyInfo, out int bytesRead);
+            ECParameters parameters = peer.ExportParameters(includePrivateParameters: false);
+            if (bytesRead != subjectPublicKeyInfo.Length
+                || peer.KeySize != 256
+                || parameters.Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
+            {
+                throw new CryptographicException(
+                    "The ephemeral agreement key must be exactly one P-256 SPKI value.");
+            }
+
+            return peer;
+        }
+        catch
+        {
+            peer.Dispose();
+            throw;
+        }
     }
 }
 

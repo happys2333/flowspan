@@ -246,7 +246,7 @@ public static class PairingVerifier
         ArgumentNullException.ThrowIfNull(capabilitiesGrantedToResponder);
         ArgumentNullException.ThrowIfNull(capabilitiesGrantedToInitiator);
 
-        if (now > expiresAt)
+        if (now >= expiresAt)
         {
             return Failure(PairingFailure.Timeout);
         }

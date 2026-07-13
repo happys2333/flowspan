@@ -32,13 +32,13 @@ Observed results:
 - locked restore: passed for 14 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 109 passed, 0 failed, 0 skipped;
+- tests: 121 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
-  - security: 18 passed;
+  - security: 25 passed;
   - platform contracts: 8 passed;
-- transport: 11 passed;
+  - transport: 16 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
 - NuGet query: no known vulnerable package reported for any of the 14 projects.
@@ -57,22 +57,28 @@ code. It did not contain the Activity text.
   emergency stop, provisional identity/pairing/HKDF/AEAD primitives, trust
   identity-change/revocation behavior, fail-closed platform protection/input
   policy, signed discovery expiry/deduplication/identity-change behavior,
-  bounded reconnect backoff, conflict detection, and receipt redaction cases
-  behave as asserted by the tests.
+  canonical authenticated-handshake encoding, downgrade/key-substitution
+  rejection, bounded handshake timeout, direct loopback TCP secure upgrade,
+  authenticated control identity/version binding, bounded reconnect backoff,
+  conflict detection, and receipt redaction cases behave as asserted by the
+  tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.
 
 ## What this does not prove
 
 - Windows or Linux compilation/runtime behavior on a physical Flowspan test
-  machine. Hosted CI evidence for commit `f6bcaf3` is recorded separately in
-  `2026-07-13-hosted-ci.md`.
-- Physical LAN discovery, pairing, authenticated encryption, credential stores,
-  native permissions, capture, input, protected surfaces, Remote Window, UI,
+  machine. Hosted CI evidence for commits `f6bcaf3` and `adb1811` is recorded
+  separately in `2026-07-13-hosted-ci.md`.
+- Physical LAN discovery, the interactive pairing wire/UI ceremony, credential
+  stores, multi-peer listener operation, independent security review, native
+  permissions, capture, input, protected surfaces, Remote Window, UI,
   accessibility, packaging, signing, or update behavior.
 - Resistance to an independent security review, fuzzing, or real hostile peers.
 
-The local security tests exercise the macOS .NET crypto provider but do not
-constitute a reviewed, authenticated production handshake.
+The local security and loopback tests exercise the macOS .NET crypto/network
+providers and the provisional authenticated handshake format. They do not
+constitute an independent security review or physical-device interoperability
+evidence.
 
 Those remain unchecked in `docs/release/v1-release-criteria.md`.

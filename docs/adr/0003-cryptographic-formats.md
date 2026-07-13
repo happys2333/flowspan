@@ -97,10 +97,74 @@ confirmations must bind the same transcript hash and be `accepted = 1`.
 ## Secure-session derivation v1
 
 The authenticated handshake carries a fresh P-256 ECDH SPKI and 32-byte random
-nonce for each role. Its transcript reuses length-delimited, role-fixed encoding
-and is signed by both paired identities. The exact handshake message exchange is
-still pending implementation; no session may be production-enabled before it is
-added to this ADR and downgrade tests exist.
+nonce for each role. Its transcript uses length-delimited, role-fixed encoding
+and is signed by both paired identities. A reconnect is attempted only against
+an existing trust record; the claimed DeviceId and identity fingerprint must
+match that record before the connection can be upgraded.
+
+Handshake transcript:
+
+```text
+bytes "FLOWSPAN-HANDSHAKE-V1"
+u32(selected protocol major), u32(selected protocol minor)
+hello(initiator)
+hello(responder)
+
+hello :=
+  u8(role: 1 initiator, 2 responder)
+  bytes(device UUID in lowercase D text)
+  bytes(identity fingerprint in uppercase hexadecimal)
+  u32(supported protocol version count, 1..16)
+  repeated u32(protocol major), u32(protocol minor)
+  bytes(ephemeral P-256 SPKI DER, at most 1024 bytes)
+  bytes(random nonce, exactly 32 bytes)
+```
+
+Version lists are deduplicated and sorted before encoding. The selected version
+is the highest exact version offered by both peers. Both the offered lists and
+the selected version are covered by the transcript signature, so rewriting an
+offer or forcing a lower selection invalidates authentication.
+
+The unencrypted handshake wire message is limited to 4096 bytes and begins with
+`FSH1`. A hello message is:
+
+```text
+4 bytes magic "FSH1"
+u8(kind = 1), u8(role)
+bytes(device UUID text), bytes(identity fingerprint)
+u32(version count), repeated u32(major), u32(minor)
+bytes(ephemeral SPKI), bytes(32-byte nonce)
+```
+
+An authentication message is:
+
+```text
+4 bytes magic "FSH1"
+u8(kind = 2), u8(role)
+bytes(transcript hash, exactly 32 bytes)
+bytes(P1363 identity signature, exactly 64 bytes)
+```
+
+Each `bytes` field is prefixed with an unsigned 32-bit big-endian length. The
+four messages on a fresh direct TCP connection are ordered:
+
+1. initiator hello;
+2. responder hello;
+3. initiator authentication;
+4. responder authentication, sent only after the responder validates the
+   initiator's trust binding and signature.
+
+Every handshake wire message is itself prefixed by a signed 32-bit big-endian
+TCP frame length bounded to 1..4096. Either parse, identity, version, signature,
+or cancellation failure closes the candidate socket. After both sides validate
+the peer authentication, the same socket is upgraded to encrypted control
+frames. The first encrypted control message also provides key possession
+confirmation; there is not yet a separate encrypted Finished message.
+The transport applies a 10-second default handshake timeout after TCP accept or
+connect; callers may reduce it or increase it to at most two minutes.
+The authenticated connection rejects every outbound or inbound control message
+whose sender DeviceId or protocol version differs from the identities and
+version bound by this transcript.
 
 Given the raw ECDH secret and authenticated handshake transcript hash:
 
@@ -155,6 +219,9 @@ rotation.
 - Two independent ECDH instances derive identical session material.
 - Pairing transcript determinism, role binding, SAS equality, dual-confirmation,
   rejection, and identity-key substitution tests.
+- Authenticated-handshake transcript/wire round trip, highest-common-version,
+  identity substitution, altered-version signature, and direct TCP loopback
+  tests.
 - AEAD round trip, independent directional keys, tamper, replay, sequence gap,
   wrong session/direction, malformed length, and maximum-size tests.
 - Windows/macOS/Linux CI execution, followed by real-machine credential-store
@@ -162,10 +229,12 @@ rotation.
 
 ## Known gaps and release blockers
 
-- The authenticated ephemeral handshake exchange is not yet implemented.
 - No platform credential-store adapter exists.
 - No key rotation/rekey protocol exists.
 - No independent security review has approved these formats.
 - In-memory identities are test/simulator infrastructure only.
+- Pairing-ceremony wire orchestration, multi-peer listener trust lookup,
+  revocation-driven active session shutdown, and an explicit encrypted Finished
+  exchange are not yet implemented.
 
 All gaps above remain v1 security release blockers.

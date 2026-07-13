@@ -107,7 +107,7 @@ public sealed class PairingTests
             PairingConfirmation.Create(identities.Responder, transcript, accepted: true),
             CapabilityGrant.None,
             CapabilityGrant.None,
-            Now.AddMinutes(2),
+            Now.AddMinutes(1),
             Now.AddMinutes(1));
 
         Assert.Equal(PairingFailure.Rejected, rejection.Failure);
