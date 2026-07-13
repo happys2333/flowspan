@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Portable platform capability and safety contracts for Flowspan.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Domain/Flowspan.Domain.csproj" />
+  </ItemGroup>
+</Project>

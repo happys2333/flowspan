@@ -29,17 +29,18 @@ dotnet list Flowspan.slnx package --vulnerable --include-transitive
 
 Observed results:
 
-- locked restore: passed for 10 projects;
+- locked restore: passed for 12 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 90 passed, 0 failed, 0 skipped;
+- tests: 98 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
   - security: 18 passed;
+  - platform contracts: 8 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
-- NuGet query: no known vulnerable package reported for any of the 10 projects.
+- NuGet query: no known vulnerable package reported for any of the 12 projects.
 
 The simulator receipt contained operation/correlation/device/Activity IDs,
 `workspace.note/v1`, a full descriptor digest, timestamp, and `none` failure
@@ -53,8 +54,9 @@ code. It did not contain the Activity text.
   move ordering/recovery, deterministic delivery faults, sequential/concurrent
   idempotency, swap prepare/abort/commit recovery, mirror driver lease epochs,
   emergency stop, provisional identity/pairing/HKDF/AEAD primitives, trust
-  identity-change/revocation behavior, conflict detection, and receipt redaction
-  cases behave as asserted by the committed tests.
+  identity-change/revocation behavior, fail-closed platform protection/input
+  policy, conflict detection, and receipt redaction cases behave as asserted by
+  the committed tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.
 

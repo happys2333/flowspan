@@ -56,6 +56,7 @@ docs/testing/             evidence model and test/CI matrix
 docs/release/             criteria that gate any v1-complete claim
 src/Flowspan.Domain/      platform-independent Activity and operation model
 src/Flowspan.Application/ handoff use case, authorization, journal, adapter ports
+src/Flowspan.Platform/    capability, protection-state, and input-safety contracts
 src/Flowspan.Protocol/    protocol version negotiation primitives
 src/Flowspan.Security/    provisional identity, pairing, trust, and AEAD primitives
 src/Flowspan.Diagnostics/ redacted receipt serialization

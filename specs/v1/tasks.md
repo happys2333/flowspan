@@ -91,7 +91,7 @@ means its linked evidence exists; it does not imply the entire product works.
 
 - [-] 6.1 Implement mirror lifecycle and monotonic expiring driver leases.
   - _Requirements: R6.1–R6.5_
-- [ ] 6.2 Implement platform protection-state, capture, input, and emergency-stop
+- [-] 6.2 Implement platform protection-state, capture, input, and emergency-stop
   contracts plus deterministic fakes.
   - _Requirements: R9.3–R9.4_
 - [ ] 6.3 Implement Windows capture/input/protected-surface adapters and native
