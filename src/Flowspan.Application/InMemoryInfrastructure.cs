@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using Flowspan.Domain;
 
@@ -6,22 +5,38 @@ namespace Flowspan.Application;
 
 public sealed class InMemoryActivityCatalog : IActivityCatalog
 {
-    private readonly ConcurrentDictionary<ActivityId, ActivityInstance> activities = new();
+    private readonly Dictionary<ActivityId, ActivityInstance> activities = [];
+    private readonly Lock gate = new();
 
-    public int Count => activities.Count;
+    public int Count
+    {
+        get
+        {
+            lock (gate)
+            {
+                return activities.Count;
+            }
+        }
+    }
 
     public bool TryGet(
         ActivityId activityId,
         [NotNullWhen(true)] out ActivityInstance? activity)
     {
         ArgumentNullException.ThrowIfNull(activityId);
-        return activities.TryGetValue(activityId, out activity);
+        lock (gate)
+        {
+            return activities.TryGetValue(activityId, out activity);
+        }
     }
 
     public bool TryAdd(ActivityInstance activity)
     {
         ArgumentNullException.ThrowIfNull(activity);
-        return activities.TryAdd(activity.Descriptor.Id, activity);
+        lock (gate)
+        {
+            return activities.TryAdd(activity.Descriptor.Id, activity);
+        }
     }
 
     public bool TryUpdate(ActivityInstance expected, ActivityInstance replacement)
@@ -35,7 +50,37 @@ public sealed class InMemoryActivityCatalog : IActivityCatalog
                 nameof(replacement));
         }
 
-        return activities.TryUpdate(expected.Descriptor.Id, replacement, expected);
+        lock (gate)
+        {
+            if (!activities.TryGetValue(expected.Descriptor.Id, out ActivityInstance? current)
+                || current != expected)
+            {
+                return false;
+            }
+
+            activities[expected.Descriptor.Id] = replacement;
+            return true;
+        }
+    }
+
+    public bool TrySwapReplace(ActivityInstance expected, ActivityInstance replacement)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(replacement);
+        lock (gate)
+        {
+            if (!activities.TryGetValue(expected.Descriptor.Id, out ActivityInstance? current)
+                || current != expected
+                || (expected.Descriptor.Id != replacement.Descriptor.Id
+                    && activities.ContainsKey(replacement.Descriptor.Id)))
+            {
+                return false;
+            }
+
+            activities.Remove(expected.Descriptor.Id);
+            activities.Add(replacement.Descriptor.Id, replacement);
+            return true;
+        }
     }
 }
 

@@ -32,10 +32,10 @@ Observed results:
 - locked restore: passed for 8 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 51 passed, 0 failed, 0 skipped;
-  - domain: 19 passed;
+- tests: 72 passed, 0 failed, 0 skipped;
+  - domain: 33 passed;
   - protocol: 17 passed;
-  - integration: 15 passed;
+  - integration: 22 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
 - NuGet query: no known vulnerable package reported for any of the 8 projects.
@@ -50,7 +50,8 @@ code. It did not contain the Activity text.
 - The current domain validation, capability denial, protocol negotiation,
   bounded/canonical control codec, framed partial reads, semantic handoff,
   move ordering/recovery, deterministic delivery faults, sequential/concurrent
-  idempotency, conflict detection, and receipt redaction cases behave as
+  idempotency, swap prepare/abort/commit recovery, mirror driver lease epochs,
+  emergency stop, conflict detection, and receipt redaction cases behave as
   asserted by the committed tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.

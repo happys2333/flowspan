@@ -35,6 +35,10 @@ public enum FailureCode
     PeerUnavailable,
     AcknowledgementLost,
     SourceCleanupFailed,
+    RevisionConflict,
+    ReservationConflict,
+    ReservationExpired,
+    DecisionConflict,
     InternalFailure,
 }
 

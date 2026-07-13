@@ -137,9 +137,12 @@ Swap uses a coordinator plus durable endpoint journals:
 4. send commit with the decision digest to both endpoints;
 5. retry until both acknowledge or recovery reads the decision record.
 
-An endpoint never commits without a valid reservation and authenticated commit
-decision. A prepared reservation expires to abort unless the endpoint has seen
-a durable commit decision. This is deliberately closer to a small two-phase
+An endpoint never commits without a matching reservation and authenticated
+commit decision created no later than the reservation deadline. Passing the
+deadline forbids a new commit decision but does not let a prepared endpoint
+guess `abort`: recovery must obtain the durable commit/abort decision. A timely
+commit decision remains applicable if delivery arrives later. This blocking
+trade-off preserves atomicity and is deliberately closer to a small two-phase
 commit protocol than two independent moves.
 
 ### Mirror and driver lease

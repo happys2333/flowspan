@@ -51,7 +51,7 @@ means its linked evidence exists; it does not imply the entire product works.
 - [-] 3.2 Implement move/replace ordering, undo capsule metadata, and idempotent
   operation journal.
   - _Requirements: R4, R11.2_
-- [ ] 3.3 Implement atomic swap prepare/reserve/decision/commit/recovery state
+- [-] 3.3 Implement atomic swap prepare/reserve/decision/commit/recovery state
   machines.
   - _Requirements: R5_
 - [-] 3.4 Add generated transition/property cases and deterministic drop,
@@ -89,7 +89,7 @@ means its linked evidence exists; it does not imply the entire product works.
 
 ## 6. Mirror, driver, and protection
 
-- [ ] 6.1 Implement mirror lifecycle and monotonic expiring driver leases.
+- [-] 6.1 Implement mirror lifecycle and monotonic expiring driver leases.
   - _Requirements: R6.1–R6.5_
 - [ ] 6.2 Implement platform protection-state, capture, input, and emergency-stop
   contracts plus deterministic fakes.

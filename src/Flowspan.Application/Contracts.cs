@@ -76,6 +76,8 @@ public interface IActivityCatalog
     public bool TryAdd(ActivityInstance activity);
 
     public bool TryUpdate(ActivityInstance expected, ActivityInstance replacement);
+
+    public bool TrySwapReplace(ActivityInstance expected, ActivityInstance replacement);
 }
 
 public interface IOperationJournal
