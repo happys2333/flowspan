@@ -107,8 +107,9 @@ means its linked evidence exists; it does not imply the entire product works.
     DPAPI trust context and atomic protected-file replace with cross-platform
     contracts and passes hosted native create/restart/update/revoke plus domain
     separation. Linux identity/trust payload adapters and bounded process
-    contracts are implemented; live unlocked desktop Secret Service evidence
-    remains open.
+    contracts are implemented; Ubuntu CI accepts trust output within its larger
+    bounded envelope and rejects over-limit output, while live unlocked desktop
+    Secret Service evidence remains open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection
@@ -125,8 +126,13 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R2.1, R8.1, R9.1_
 - [-] 5.3 Implement bounded reconnect/backoff and reauthentication across network
   changes and restarts.
-  - Bounded deterministic exponential backoff is implemented; connection
-    supervision, network-change handling, and reauthentication remain open.
+  - Bounded deterministic exponential backoff and a serialized peer-session
+    supervisor are implemented. The supervisor distinguishes transient failure,
+    authenticated-session end, and permanent rejection; network changes cancel
+    and drain the old boundary operation, coalesce bursts, reset backoff, and
+    start no overlapping attempt. A BCL network-address-change adapter and real
+    cancellable delay are present. Concrete DNS-SD/session composition,
+    sleep/wake, peer-restart, and physical interface-churn evidence remain open.
   - _Requirements: R8.2_
 - [ ] 5.4 Run physical two-device LAN tests and preserve evidence.
   - _Requirements: R2, R8, R12.5_

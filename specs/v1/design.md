@@ -188,6 +188,25 @@ and cancellation handling. Reconnect uses bounded exponential backoff with
 jitter supplied by an injectable source; trust is reauthenticated and active
 capabilities are not assumed to survive a new secure session.
 
+The R8.2 supervision slice keeps network observation and authenticated-session
+creation behind narrow ports. `INetworkChangeSource` has a production adapter
+over .NET's cross-platform network-address-change notification, while
+`IAuthenticatedPeerSessionAttempt` represents exactly one fresh connection plus
+authenticated session lifetime. An attempt reports transient connection failure,
+authenticated-session end, or a permanent identity/policy/version rejection;
+unexpected exceptions remain visible rather than being silently retried.
+
+`PeerReconnectSupervisor` is a single serialized loop. A network change cancels
+the current attempt or delay, coalesces event bursts, resets failure backoff, and
+starts a fresh authenticated attempt only after the old attempt has drained.
+Transient failures use bounded exponential backoff; an authenticated session
+that later disconnects resets the failure count; permanent rejection ends the
+loop. Caller cancellation cancels and awaits the active boundary operation and
+removes the network-change subscription. Deterministic tests inject the attempt,
+delay, jitter, and change source. Hosted tests prove this lifecycle contract,
+not that a runner emitted or received a real DNS-SD record or survived physical
+interface churn.
+
 ## 7. Identity, pairing, and encryption
 
 Each device owns a long-lived P-256 ECDSA identity key stored via an

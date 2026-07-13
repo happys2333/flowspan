@@ -51,7 +51,7 @@ rather than grant it.
 | --- | --- | --- | --- |
 | T01 | Spoofed discovery offer | Signed short-lived offer, minimal metadata, identity fingerprint, never trust discovery alone | forged/expired offer tests |
 | T02 | Pairing MITM | Transcript-bound identity signatures, matching SAS on both endpoints, explicit dual confirmation, timeout | known-answer and altered-transcript tests |
-| T03 | Peer impersonation after pairing | Authenticate every secure-session transcript; block identity-key changes | key-substitution integration test |
+| T03 | Peer impersonation after pairing | Authenticate every secure-session transcript; block identity-key changes; every supervised reconnect is a fresh authenticated attempt and permanent rejection outranks network-change retry | key-substitution and reconnect-race integration tests |
 | T04 | Replay/duplicate command | Session epoch, message/operation IDs, TTL, request digest, durable idempotency journal | property/fault tests |
 | T05 | Capability escalation | Deny by default; typed independent capabilities; authorize at use, not only connect | permission matrix tests |
 | T06 | Remote input after authority loss | Monotonic driver lease epochs, short expiry, local enforcement, emergency-stop epoch bump | lease model/property tests |
@@ -61,7 +61,7 @@ rather than grant it.
 | T10 | Secret leakage in logs | structured allowlist logging, redaction before sinks, no payloads/raw input/private keys | redaction canary tests |
 | T11 | Journal tampering/rollback | restricted storage, authenticated records or database integrity, monotonic revisions, recovery conflict state | persistence tamper tests |
 | T12 | Compromised dependency/update | lock files, dependency review, hashes/signatures, SBOM, signed artifacts and update metadata | CI supply-chain checks |
-| T13 | Resource exhaustion | per-peer rate, concurrency and size limits; bounded queues; cancellation and backpressure | load/fault tests |
+| T13 | Resource exhaustion | per-peer rate, concurrency and size limits; bounded queues; serialized reconnect loop with bounded backoff and coalesced network-change events; cancellation and backpressure | load/fault/reconnect-churn tests |
 | T14 | Invisible monitoring | foreground sharing indicator on every participant, no unattended defaults, audit receipt, immediate local stop | UI accessibility/e2e tests |
 | T15 | Downgrade to unsafe fallback | authenticated feature negotiation; name degraded mode; explicit capability and confirmation | downgrade tests |
 | T16 | Future relay reads content | application-layer E2E encryption independent of byte-forwarding relay | relay-as-attacker integration test |
