@@ -26,6 +26,7 @@ public sealed class InMemoryTrustStoreTests
             substituted,
             CapabilityGrant.Of(Capability.MirrorDrive)));
 
+        Assert.Equal(SecretStoreProtection.DegradedTestOnly, store.Protection);
         Assert.Equal(TrustRegistrationResult.Added, added);
         Assert.Equal(TrustRegistrationResult.IdentityChanged, changed);
         Assert.True(store.TryGet(PeerId, out TrustRecord? retained));

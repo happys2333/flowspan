@@ -15,6 +15,9 @@ public sealed class InMemoryTrustStore
     private readonly Lock gate = new();
     private readonly Dictionary<DeviceId, TrustRecord> trustRecords = [];
 
+    public SecretStoreProtection Protection { get; } =
+        SecretStoreProtection.DegradedTestOnly;
+
     public TrustRegistrationResult Register(TrustRecord trustRecord)
     {
         ArgumentNullException.ThrowIfNull(trustRecord);

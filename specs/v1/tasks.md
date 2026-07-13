@@ -68,6 +68,9 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R1.1–R1.2, R2, R9.1_
 - [-] 4.2 Implement identity/secret-store ports, pairing state machine, trust
   records, capability grants, revocation, and identity-change handling.
+  - The identity-store port, atomic load-or-create lifecycle, deletion, and
+    explicitly degraded in-memory store are implemented; persistent trust and
+    revocation-driven session shutdown remain open.
   - _Requirements: R2, R9.2, R9.6_
 - [-] 4.3 Implement encrypted framed sessions and negative tests for tamper,
   replay, downgrade, expiry, and key substitution.
@@ -76,8 +79,10 @@ means its linked evidence exists; it does not imply the entire product works.
     substitution, and hostile-length tests; explicit Finished/rekey and broader
     hostile-peer testing remain open.
   - _Requirements: R8.3, R9.1_
-- [ ] 4.4 Implement Windows Credential Manager/DPAPI, macOS Keychain, and Linux
+- [-] 4.4 Implement Windows Credential Manager/DPAPI, macOS Keychain, and Linux
   Secret Service adapters with marked degraded-mode behavior.
+  - ADR 0005 selects byte-oriented platform mechanisms and rejects silent
+    plaintext fallback; native adapters and evidence remain open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection
