@@ -96,9 +96,16 @@ means its linked evidence exists; it does not imply the entire product works.
     cancellation, and cleanup faults have deterministic tests; one same-process
     real loopback test covers both endpoints. The 22-project gate and 268 tests
     pass locally and on Windows, macOS, and Ubuntu hosted runners for commit
-    `79dae12`; secret scan and CodeQL also pass for that commit. Desktop
-    confirmation UI, production listener multiplexing, and physical two-person
-    SAS evidence remain open.
+    `79dae12`; secret scan and CodeQL also pass for that commit. One bounded
+    production listener now classifies only `FSP1`/hello or `FSH1`/hello,
+    transfers the pre-read frame to one decoder, separates pairing/session/total
+    capacity, and serializes pairing Trust registration with revoke and session
+    admission through one coordinator. Same-port loopback tests pair, close, and
+    reauthenticate a new connection; pending prompts, hostile selectors,
+    capacity, injected selection timeout, cancellation, and fatal accept drain
+    are covered. The 22-project gate and 287 tests pass locally; hosted evidence
+    for this listener source state is pending. Desktop confirmation UI and
+    physical two-person SAS evidence remain open.
   - _Requirements: R2, R9.2, R9.6_
 - [-] 4.3 Implement encrypted framed sessions and negative tests for tamper,
   replay, downgrade, expiry, and key substitution.

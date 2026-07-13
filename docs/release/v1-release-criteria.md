@@ -76,14 +76,18 @@ implementation convenience.
 ## Current evidence
 
 - [2026-07-13 macOS headless foundation](../evidence/2026-07-13-macos-foundation.md):
-  locked restore, format verification, warning-free Release build, 268 unit,
+  locked restore, format verification, warning-free Release build, 287 unit,
   integration, security, and platform-contract tests, simulator, and NuGet
   vulnerability query passed locally.
 - [2026-07-13 macOS headless pairing ceremony](../evidence/2026-07-13-macos-pairing-ceremony.md):
   bounded canonical/hostile wire tests, transcript and completion proof,
   rejection/deadline/tamper/identity/persistence/cleanup negatives, and a full
   two-store loopback TCP ceremony passed. The confirmation UI, human SAS check,
-  production listener composition, and physical-device evidence remain open.
+  and physical-device evidence remain open.
+- [2026-07-13 macOS unified TCP listener](../evidence/2026-07-13-macos-unified-listener.md):
+  one port pairs and then authenticates a new connection; strict family
+  selection, capacity isolation, coordinator-serialized Trust registration,
+  deadline, cancellation, and fatal-accept contracts passed on loopback.
 - [2026-07-13 macOS authenticated inbound listener](../evidence/2026-07-13-macos-inbound-listener.md):
   one real loopback port authenticated two different trusted peers; unknown-peer,
   key-substitution, capability, concurrency/backpressure, handler-failure,
@@ -94,7 +98,7 @@ implementation convenience.
   trust create/restart/update/revoke smoke passed with disposable Keychain items.
 - [2026-07-13 hosted CI foundation](../evidence/2026-07-13-hosted-ci.md):
   locked restore, format, build, tests, simulator, secret scan, and CodeQL passed
-  on committed slices through `657c9dd` using Windows, macOS, and Ubuntu hosted
+  on committed slices through `79dae12` using Windows, macOS, and Ubuntu hosted
   runners. The authenticated reconnect slice composes current trust/capability
   checks with a real loopback authenticated TCP session and revoke/downgrade
   draining. The CI maintenance slice verifies immutable Node 24 Action pins,

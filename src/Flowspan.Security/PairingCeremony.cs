@@ -106,20 +106,20 @@ public sealed class PairingCeremony
     private readonly IPairingDecisionSource decisions;
     private readonly PairingCeremonyProfile profile;
     private readonly TimeProvider timeProvider;
-    private readonly ITrustStore trustStore;
+    private readonly IPairingTrustAuthority trustAuthority;
 
     public PairingCeremony(
         PairingCeremonyProfile profile,
         IPairingDecisionSource decisions,
-        ITrustStore trustStore,
+        IPairingTrustAuthority trustAuthority,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(decisions);
-        ArgumentNullException.ThrowIfNull(trustStore);
+        ArgumentNullException.ThrowIfNull(trustAuthority);
         this.profile = profile;
         this.decisions = decisions;
-        this.trustStore = trustStore;
+        this.trustAuthority = trustAuthority;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -341,7 +341,7 @@ public sealed class PairingCeremony
             TrustRecord localTrust = localRole == SecureSessionRole.Initiator
                 ? outcome.InitiatorTrust!
                 : outcome.ResponderTrust!;
-            TrustRegistrationResult registration = await trustStore.RegisterAsync(
+            TrustRegistrationResult registration = await trustAuthority.RegisterAsync(
                 localTrust,
                 stop.Token).ConfigureAwait(false);
             if (registration == TrustRegistrationResult.IdentityChanged)
@@ -435,7 +435,7 @@ public sealed class PairingCeremony
     }
 
     private bool HasIdentityChanged(PublicDeviceIdentity peerIdentity) =>
-        trustStore.TryGet(peerIdentity.DeviceId, out TrustRecord? existingTrust)
+        trustAuthority.TryGet(peerIdentity.DeviceId, out TrustRecord? existingTrust)
         && !existingTrust.PeerIdentity.HasSameKey(peerIdentity);
 
     private async ValueTask<ConfirmationExchange> ExchangeConfirmationsAsync(

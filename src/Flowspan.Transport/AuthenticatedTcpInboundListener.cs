@@ -294,7 +294,13 @@ public sealed class AuthenticatedTcpInboundListener
     {
         try
         {
-            await RunAcceptedAsync(accepted, cancellationToken).ConfigureAwait(false);
+            await RunAcceptedAsync(
+                accepted,
+                trustSessions,
+                profile,
+                handler,
+                PublishFailure,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -302,10 +308,19 @@ public sealed class AuthenticatedTcpInboundListener
         }
     }
 
-    private async Task RunAcceptedAsync(
+    internal static async Task RunAcceptedAsync(
         IAcceptedAuthenticatedControlSession accepted,
+        TrustSessionCoordinator trustSessions,
+        AuthenticatedInboundSessionProfile profile,
+        IAuthenticatedControlSessionHandler handler,
+        Action<InboundSessionFailure> publishFailure,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(accepted);
+        ArgumentNullException.ThrowIfNull(trustSessions);
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(handler);
+        ArgumentNullException.ThrowIfNull(publishFailure);
         DeviceId peerDeviceId = accepted.PeerIdentity.DeviceId;
         try
         {
@@ -316,7 +331,7 @@ public sealed class AuthenticatedTcpInboundListener
                         out TrustRecord? currentTrust)
                     || !currentTrust.PeerIdentity.HasSameKey(accepted.PeerIdentity))
                 {
-                    PublishFailure(new InboundSessionFailure(
+                    publishFailure(new InboundSessionFailure(
                         InboundSessionFailureStage.Authentication,
                         peerDeviceId,
                         new UnauthorizedAccessException(
@@ -340,7 +355,7 @@ public sealed class AuthenticatedTcpInboundListener
                 }
                 catch (Exception exception)
                 {
-                    PublishFailure(new InboundSessionFailure(
+                    publishFailure(new InboundSessionFailure(
                         InboundSessionFailureStage.Authorization,
                         peerDeviceId,
                         exception));
@@ -349,7 +364,7 @@ public sealed class AuthenticatedTcpInboundListener
 
                 if (registration is null)
                 {
-                    PublishFailure(new InboundSessionFailure(
+                    publishFailure(new InboundSessionFailure(
                         InboundSessionFailureStage.Authorization,
                         peerDeviceId,
                         new UnauthorizedAccessException(
@@ -374,7 +389,7 @@ public sealed class AuthenticatedTcpInboundListener
                     }
                     catch (Exception exception)
                     {
-                        PublishFailure(new InboundSessionFailure(
+                        publishFailure(new InboundSessionFailure(
                             InboundSessionFailureStage.Handler,
                             peerDeviceId,
                             exception));
@@ -384,7 +399,7 @@ public sealed class AuthenticatedTcpInboundListener
         }
         catch (Exception exception)
         {
-            PublishFailure(new InboundSessionFailure(
+            publishFailure(new InboundSessionFailure(
                 InboundSessionFailureStage.Shutdown,
                 peerDeviceId,
                 exception));

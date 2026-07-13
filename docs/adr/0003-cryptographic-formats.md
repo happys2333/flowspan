@@ -151,6 +151,14 @@ The one-shot pairing channel closes on every outcome and cannot be upgraded into
 an operation channel. A successful pair reconnects through the separately
 authenticated ephemeral-session handshake before carrying any Activity data.
 
+One published listener may accept both protocol families. It classifies only
+the first length-bounded hello envelope: `FSP1`, kind 1 selects pairing, while
+`FSH1`, kind 1 selects the authenticated-session handshake. Any other magic,
+kind, truncated envelope, oversized frame, or selection timeout closes that
+connection. The pre-read frame is transferred to exactly one selected decoder
+and is never interpreted twice. Pairing and authenticated sessions have separate
+capacity limits within a hard maximum of 128 active inbound connections.
+
 ## Secure-session derivation v1
 
 The authenticated handshake carries a fresh P-256 ECDH SPKI and 32-byte random
@@ -286,6 +294,9 @@ rotation.
   rejection, identity-key substitution, canonical wire golden fixture, seeded
   hostile decoding, completion-proof tamper, deadline, and direct TCP loopback
   tests.
+- Initial-family golden/hostile selection plus same-port pair/close/authenticated
+  reconnect, pairing/session capacity, selection-deadline, cancellation, and
+  fatal-accept drain tests.
 - Authenticated-handshake transcript/wire round trip, highest-common-version,
   claimed-ID/key substitution, altered-version signature, direct TCP loopback,
   and two-current-peer shared-listener tests.
@@ -298,9 +309,8 @@ rotation.
 
 - No key rotation/rekey protocol exists.
 - No independent security review has approved these formats.
-- Desktop pairing UI, production-listener protocol multiplexing, physical
-  two-device SAS evidence, and an explicit encrypted Finished exchange are not
-  yet implemented.
+- Desktop pairing UI, physical two-device SAS evidence, and an explicit
+  encrypted Finished exchange are not yet implemented.
 - The platform credential-store adapters remain provisional and do not yet have
   the complete real-machine Windows/macOS/Linux acceptance evidence.
 - In-memory identities are test/simulator infrastructure only, and the listener

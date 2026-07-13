@@ -3,23 +3,26 @@ using Flowspan.Domain;
 
 namespace Flowspan.Security;
 
-public interface ITrustStore
+public interface IPairingTrustAuthority
 {
-    public SecretStoreProtection Protection { get; }
-
-    public bool Allows(DeviceId peerDeviceId, Capability capability);
-
     public ValueTask<TrustRegistrationResult> RegisterAsync(
         TrustRecord trustRecord,
-        CancellationToken cancellationToken = default);
-
-    public ValueTask<bool> RevokeAsync(
-        DeviceId peerDeviceId,
         CancellationToken cancellationToken = default);
 
     public bool TryGet(
         DeviceId peerDeviceId,
         [NotNullWhen(true)] out TrustRecord? trustRecord);
+}
+
+public interface ITrustStore : IPairingTrustAuthority
+{
+    public SecretStoreProtection Protection { get; }
+
+    public bool Allows(DeviceId peerDeviceId, Capability capability);
+
+    public ValueTask<bool> RevokeAsync(
+        DeviceId peerDeviceId,
+        CancellationToken cancellationToken = default);
 
     public ValueTask<bool> TryUpdateCapabilitiesAsync(
         DeviceId peerDeviceId,

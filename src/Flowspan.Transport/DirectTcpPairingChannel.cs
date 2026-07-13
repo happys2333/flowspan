@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using Flowspan.Security;
 
 namespace Flowspan.Transport;
@@ -7,9 +8,15 @@ namespace Flowspan.Transport;
 public sealed class DirectTcpPairingChannel : IPairingMessageChannel
 {
     private readonly DirectTcpPeerConnection connection;
+    private byte[]? initialMessage;
 
-    private DirectTcpPairingChannel(DirectTcpPeerConnection connection) =>
+    private DirectTcpPairingChannel(
+        DirectTcpPeerConnection connection,
+        byte[]? initialMessage = null)
+    {
         this.connection = connection;
+        this.initialMessage = initialMessage;
+    }
 
     public IPEndPoint LocalEndPoint => connection.LocalEndPoint;
 
@@ -27,11 +34,37 @@ public sealed class DirectTcpPairingChannel : IPairingMessageChannel
         await DirectTcpPeerConnection.ConnectAsync(remoteEndPoint, cancellationToken)
             .ConfigureAwait(false));
 
-    public ValueTask DisposeAsync() => connection.DisposeAsync();
+    public ValueTask DisposeAsync()
+    {
+        byte[]? unconsumed = Interlocked.Exchange(ref initialMessage, null);
+        if (unconsumed is not null)
+        {
+            CryptographicOperations.ZeroMemory(unconsumed);
+        }
+
+        return connection.DisposeAsync();
+    }
 
     public ValueTask<byte[]> ReceiveAsync(
-        CancellationToken cancellationToken = default) =>
-        connection.ReceiveHandshakeAsync(cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        byte[]? prefetched = Interlocked.Exchange(ref initialMessage, null);
+        if (prefetched is null)
+        {
+            return connection.ReceiveHandshakeAsync(cancellationToken);
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(prefetched);
+        }
+        catch
+        {
+            CryptographicOperations.ZeroMemory(prefetched);
+            throw;
+        }
+    }
 
     public ValueTask SendAsync(
         ReadOnlyMemory<byte> message,
@@ -45,5 +78,19 @@ public sealed class DirectTcpPairingChannel : IPairingMessageChannel
         }
 
         return connection.SendHandshakeAsync(message, cancellationToken);
+    }
+
+    internal static DirectTcpPairingChannel FromAcceptedConnection(
+        DirectTcpPeerConnection connection,
+        byte[] initialMessage)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(initialMessage);
+        if (initialMessage.Length is < 1 or > PairingWireCodec.MaximumMessageBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialMessage));
+        }
+
+        return new DirectTcpPairingChannel(connection, initialMessage);
     }
 }

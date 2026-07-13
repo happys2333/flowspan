@@ -4,7 +4,7 @@ Classification: **Local**, **loopback integration**, and **simulated/contract**
 
 Branch: `codex/v1-foundation`
 
-Source state: this document's repository revision
+Verified source commit: `79dae126e25d7b0472340dbe9159c3a0b8326c15`
 
 ## Environment
 
@@ -70,8 +70,9 @@ Observed results:
   human SAS comparison, accessibility flow, or accidental-approval behavior was
   exercised.
 - The TCP connection stayed inside one process and one host. It does not prove a
-  physical LAN path, firewall behavior, discovery-to-pairing composition, or
-  production-listener protocol multiplexing.
+  physical LAN path, firewall behavior, or discovery-to-pairing composition.
+  Same-port listener multiplexing was implemented and classified separately in
+  [the unified-listener evidence](2026-07-13-macos-unified-listener.md).
 - No Windows or Linux network provider ran locally. Matching hosted CI for
   commit `79dae12` is recorded in
   [the hosted CI evidence](2026-07-13-hosted-ci.md); those jobs are still

@@ -41,7 +41,7 @@ public sealed class TrustSessionRegistration : IAsyncDisposable
     }
 }
 
-public sealed class TrustSessionCoordinator : IAsyncDisposable
+public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAuthority
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<Guid, TrackedSession> sessions = [];
@@ -64,6 +64,30 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable
         ThrowIfShuttingDown();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         return trustStore.TryGet(peerDeviceId, out trustRecord);
+    }
+
+    public bool TryGet(
+        DeviceId peerDeviceId,
+        [NotNullWhen(true)] out TrustRecord? trustRecord) =>
+        TryGetCurrentTrust(peerDeviceId, out trustRecord);
+
+    public async ValueTask<TrustRegistrationResult> RegisterAsync(
+        TrustRecord trustRecord,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfShuttingDown();
+        ArgumentNullException.ThrowIfNull(trustRecord);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfShuttingDown();
+            return await trustStore.RegisterAsync(trustRecord, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     public async ValueTask<TrustSessionRegistration?> TryRegisterAsync(

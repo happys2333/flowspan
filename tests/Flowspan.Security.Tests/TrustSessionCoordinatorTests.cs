@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Flowspan.Domain;
 using Flowspan.Security;
 
@@ -196,6 +197,30 @@ public sealed class TrustSessionCoordinatorTests
                 new RecordingRevocableSession()));
     }
 
+    [Fact]
+    public async Task PairingRegistrationIsSerializedBeforeConcurrentRevocation()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var trustStore = new BlockingRegistrationTrustStore();
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+        var record = new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.MirrorView));
+
+        Task<TrustRegistrationResult> registration =
+            coordinator.RegisterAsync(record).AsTask();
+        await trustStore.RegistrationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Task<bool> revocation = coordinator.RevokePeerAsync(PeerId).AsTask();
+
+        Assert.False(revocation.IsCompleted);
+        trustStore.AllowRegistration.TrySetResult();
+
+        Assert.Equal(TrustRegistrationResult.Added, await registration);
+        Assert.True(await revocation);
+        Assert.False(coordinator.TryGet(PeerId, out _));
+    }
+
     private sealed class BlockingRevocableSession : IRevocablePeerSession
     {
         private readonly TaskCompletionSource allowStop = new(
@@ -250,5 +275,51 @@ public sealed class TrustSessionCoordinatorTests
             SawPersistedRevocation = TrustStorePayloadCodec.Decode(payload).Count == 0;
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class BlockingRegistrationTrustStore : ITrustStore
+    {
+        private readonly InMemoryTrustStore inner = new();
+
+        public TaskCompletionSource AllowRegistration { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource RegistrationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public SecretStoreProtection Protection => inner.Protection;
+
+        public bool Allows(DeviceId peerDeviceId, Capability capability) =>
+            inner.Allows(peerDeviceId, capability);
+
+        public async ValueTask<TrustRegistrationResult> RegisterAsync(
+            TrustRecord trustRecord,
+            CancellationToken cancellationToken = default)
+        {
+            RegistrationStarted.TrySetResult();
+            await AllowRegistration.Task.WaitAsync(cancellationToken);
+            return await inner.RegisterAsync(trustRecord, cancellationToken);
+        }
+
+        public ValueTask<bool> RevokeAsync(
+            DeviceId peerDeviceId,
+            CancellationToken cancellationToken = default) =>
+            inner.RevokeAsync(peerDeviceId, cancellationToken);
+
+        public bool TryGet(
+            DeviceId peerDeviceId,
+            [NotNullWhen(true)] out TrustRecord? trustRecord) =>
+            inner.TryGet(peerDeviceId, out trustRecord);
+
+        public ValueTask<bool> TryUpdateCapabilitiesAsync(
+            DeviceId peerDeviceId,
+            string expectedFingerprint,
+            CapabilityGrant capabilities,
+            CancellationToken cancellationToken = default) =>
+            inner.TryUpdateCapabilitiesAsync(
+                peerDeviceId,
+                expectedFingerprint,
+                capabilities,
+                cancellationToken);
     }
 }

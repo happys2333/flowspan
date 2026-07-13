@@ -70,6 +70,15 @@ through two independent trust stores. The decision ports simulate user choices;
 these tests do not prove that two people compared SAS values or that a desktop UI
 is safe and accessible.
 
+Unified-listener tests classify only `FSP1`/hello and `FSH1`/hello as valid first
+frames, reject truncated, wrong-kind, unknown, and hostile selectors, and prove
+exclusive ownership of the pre-read frame. Real loopback coverage pairs and then
+reconnects through the authenticated branch on the same published port. A
+blocked pairing decision must not block an already trusted peer; pairing/session
+overload is isolated, profiles enforce the hard total bound, and cancellation
+must drain both branches. These remain same-host transport and decision-double
+tests.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance;

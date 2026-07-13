@@ -200,6 +200,52 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
         DirectTcpPeerConnection connection = await DirectTcpPeerConnection.AcceptAsync(
             listener,
             cancellationToken).ConfigureAwait(false);
+        return await AcceptAnyTrustedConnectionAsync(
+            connection,
+            initialHello: null,
+            localIdentity,
+            trustSessions,
+            supportedVersions,
+            handshakeTimeout,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static ValueTask<AuthenticatedTcpControlConnection>
+        AcceptAnyTrustedAsync(
+            DirectTcpPeerConnection connection,
+            byte[] initialHello,
+            DeviceIdentity localIdentity,
+            TrustSessionCoordinator trustSessions,
+            IEnumerable<ProtocolVersion> supportedVersions,
+            TimeSpan handshakeTimeout,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(initialHello);
+        ArgumentNullException.ThrowIfNull(localIdentity);
+        ArgumentNullException.ThrowIfNull(trustSessions);
+        ArgumentNullException.ThrowIfNull(supportedVersions);
+        ValidateHandshakeTimeout(handshakeTimeout);
+        return AcceptAnyTrustedConnectionAsync(
+            connection,
+            initialHello,
+            localIdentity,
+            trustSessions,
+            supportedVersions,
+            handshakeTimeout,
+            cancellationToken);
+    }
+
+    private static async ValueTask<AuthenticatedTcpControlConnection>
+        AcceptAnyTrustedConnectionAsync(
+            DirectTcpPeerConnection connection,
+            byte[]? initialHello,
+            DeviceIdentity localIdentity,
+            TrustSessionCoordinator trustSessions,
+            IEnumerable<ProtocolVersion> supportedVersions,
+            TimeSpan handshakeTimeout,
+            CancellationToken cancellationToken)
+    {
         try
         {
             using CancellationTokenSource handshakeCancellation =
@@ -208,6 +254,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             {
                 return await AuthenticateResolvedResponderAsync(
                     connection,
+                    initialHello,
                     localIdentity,
                     trustSessions,
                     supportedVersions,
@@ -354,14 +401,16 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
     private static async ValueTask<AuthenticatedTcpControlConnection>
         AuthenticateResolvedResponderAsync(
             DirectTcpPeerConnection connection,
+            byte[]? initialHello,
             DeviceIdentity localIdentity,
             TrustSessionCoordinator trustSessions,
             IEnumerable<ProtocolVersion> supportedVersions,
             CancellationToken cancellationToken)
     {
         using EphemeralKeyAgreement agreement = EphemeralKeyAgreement.Generate();
-        byte[] message = await connection.ReceiveHandshakeAsync(cancellationToken)
-            .ConfigureAwait(false);
+        byte[] message = initialHello
+            ?? await connection.ReceiveHandshakeAsync(cancellationToken)
+                .ConfigureAwait(false);
         SessionHandshakeHello peerHello;
         TrustRecord trustedPeer;
         try

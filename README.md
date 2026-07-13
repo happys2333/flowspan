@@ -24,6 +24,8 @@ installation. The repository currently includes:
   primitives with negative tests;
 - a bounded headless pairing ceremony with transcript proof, matching-SAS
   decision ports, signed completion proof, and direct-TCP loopback coverage;
+- one bounded TCP listener that explicitly routes pairing or authenticated
+  session hellos, then requires a new authenticated connection after pairing;
 - bounded signed DNS-SD offers, an isolated provisional browser/publisher, and
   trusted-candidate/reconnect contracts;
 - a bounded authenticated TCP listener that can route multiple currently

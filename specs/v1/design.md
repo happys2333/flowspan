@@ -294,10 +294,26 @@ remains visible rather than being reported as a successful pairing.
 The first transport slice exposes an explicit direct-TCP pairing channel. It is
 one-shot and is closed on every outcome; no Activity or control message can reuse
 the unauthenticated pairing socket. A successful pair must reconnect and complete
-the normal authenticated ephemeral handshake against persisted trust. This slice
-does not yet multiplex pairing and authenticated sessions on the production
-listener, supply the desktop confirmation UI, or prove a human compared SAS
-values on two physical devices; those remain composition and acceptance work.
+the normal authenticated ephemeral handshake against persisted trust.
+
+The production listener-composition slice keeps one published TCP endpoint and
+makes the first bounded hello an explicit protocol-family selector: only canonical
+pairing hello envelopes (`FSP1`, kind 1) and authenticated-session hello
+envelopes (`FSH1`, kind 1) are routed. Wrong kinds, unknown magic, oversized
+frames, and selection timeout close only that connection. The selector consumes
+the first frame once and transfers it with exclusive connection ownership to the
+chosen decoder, preventing cross-protocol replay or a second interpretation.
+Pairing and authenticated sessions have independent concurrency limits inside a
+hard total-connection limit, so a pending confirmation prompt does not serialize
+all trusted peers. Pairing always closes its socket; success therefore requires a
+new connection through the authenticated branch before Activity traffic.
+Listener cancellation or fatal accept failure cancels and awaits both kinds of
+in-flight work. Pairing Trust registration is serialized through the same
+`TrustSessionCoordinator` gate as revocation, capability mutation, and session
+admission, so listener composition cannot bind pairing and authentication to
+different authorities or re-add trust across a concurrent revoke. Desktop
+confirmation UI and physical two-person SAS evidence remain separate composition
+and acceptance work.
 
 Each connection performs ephemeral P-256 ECDH, authenticates its transcript
 with the paired identity keys, derives directional AES-256-GCM keys using

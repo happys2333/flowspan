@@ -32,16 +32,16 @@ Observed results:
 - locked restore: passed for 22 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 268 passed, 0 failed, 0 skipped;
+- tests: 287 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
-  - security: 71 passed;
+  - security: 82 passed;
   - platform contracts: 8 passed;
   - Linux identity/trust-store contracts/platform guards: 15 passed;
   - macOS identity/trust-store contracts/native smoke: 10 passed;
   - Windows identity/trust-store contracts/platform guards: 12 passed;
-  - transport: 66 passed;
+  - transport: 74 passed;
   - isolated mDNS/DNS-SD browser/publisher adapter: 14 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
@@ -63,7 +63,10 @@ code. It did not contain the Activity text.
   hostile pairing decode containment, transcript proof before matching-SAS
   confirmation, completion-proof gating before Trust registration, deterministic
   reject/deadline/tamper/identity-conflict/persistence/cleanup behavior, complete
-  two-store pairing over one real loopback TCP connection, trust
+  two-store pairing over one real loopback TCP connection, strict initial
+  `FSP1`/`FSH1` hello-family selection, same-port pair/close/authenticated
+  reconnect, independent pairing/session/total capacity, serialized pairing
+  registration/revocation, selection timeout and fatal-accept draining, trust
   identity-change/revocation behavior, fail-closed platform protection/input
   policy, signed discovery expiry/deduplication/identity-change behavior,
   canonical authenticated-handshake encoding, downgrade/key-substitution
