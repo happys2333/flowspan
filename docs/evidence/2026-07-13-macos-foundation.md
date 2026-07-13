@@ -29,16 +29,17 @@ dotnet list Flowspan.slnx package --vulnerable --include-transitive
 
 Observed results:
 
-- locked restore: passed for 8 projects;
+- locked restore: passed for 10 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 72 passed, 0 failed, 0 skipped;
+- tests: 90 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
+  - security: 18 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
-- NuGet query: no known vulnerable package reported for any of the 8 projects.
+- NuGet query: no known vulnerable package reported for any of the 10 projects.
 
 The simulator receipt contained operation/correlation/device/Activity IDs,
 `workspace.note/v1`, a full descriptor digest, timestamp, and `none` failure
@@ -51,8 +52,9 @@ code. It did not contain the Activity text.
   bounded/canonical control codec, framed partial reads, semantic handoff,
   move ordering/recovery, deterministic delivery faults, sequential/concurrent
   idempotency, swap prepare/abort/commit recovery, mirror driver lease epochs,
-  emergency stop, conflict detection, and receipt redaction cases behave as
-  asserted by the committed tests.
+  emergency stop, provisional identity/pairing/HKDF/AEAD primitives, trust
+  identity-change/revocation behavior, conflict detection, and receipt redaction
+  cases behave as asserted by the committed tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.
 
@@ -64,5 +66,8 @@ code. It did not contain the Activity text.
   native permissions, capture, input, protected surfaces, Remote Window, UI,
   accessibility, packaging, signing, or update behavior.
 - Resistance to an independent security review, fuzzing, or real hostile peers.
+
+The local security tests exercise the macOS .NET crypto provider but do not
+constitute a reviewed, authenticated production handshake.
 
 Those remain unchecked in `docs/release/v1-release-criteria.md`.

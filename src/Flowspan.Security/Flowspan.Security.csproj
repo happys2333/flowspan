@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Flowspan identity, pairing, and encrypted-session primitives.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Domain/Flowspan.Domain.csproj" />
+    <ProjectReference Include="../Flowspan.Protocol/Flowspan.Protocol.csproj" />
+  </ItemGroup>
+</Project>

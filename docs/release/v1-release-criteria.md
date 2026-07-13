@@ -76,7 +76,7 @@ implementation convenience.
 ## Current evidence
 
 - [2026-07-13 macOS headless foundation](../evidence/2026-07-13-macos-foundation.md):
-  locked restore, format verification, warning-free Release build, 72 portable
+  locked restore, format verification, warning-free Release build, 90 portable
   tests, simulator, and NuGet vulnerability query passed locally.
 
 This is foundation evidence only. GitHub CI has not yet executed these new

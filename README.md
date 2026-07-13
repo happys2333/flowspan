@@ -20,6 +20,8 @@ installation. The repository currently includes:
 - a deterministic two-node semantic handoff simulator;
 - capability denial, descriptor validation, idempotent retry, operation-ID
   conflict, protocol negotiation, and diagnostic-redaction tests;
+- provisional, review-gated identity, pairing, trust, HKDF, and encrypted-frame
+  primitives with negative tests;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet include production pairing/encryption, LAN discovery, native
@@ -55,6 +57,7 @@ docs/release/             criteria that gate any v1-complete claim
 src/Flowspan.Domain/      platform-independent Activity and operation model
 src/Flowspan.Application/ handoff use case, authorization, journal, adapter ports
 src/Flowspan.Protocol/    protocol version negotiation primitives
+src/Flowspan.Security/    provisional identity, pairing, trust, and AEAD primitives
 src/Flowspan.Diagnostics/ redacted receipt serialization
 src/Flowspan.Simulator/   runnable deterministic two-node scenario
 tests/                    domain, protocol, and integration tests
