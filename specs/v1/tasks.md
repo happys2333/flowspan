@@ -103,9 +103,10 @@ means its linked evidence exists; it does not imply the entire product works.
     admission through one coordinator. Same-port loopback tests pair, close, and
     reauthenticate a new connection; pending prompts, hostile selectors,
     capacity, injected selection timeout, cancellation, and fatal accept drain
-    are covered. The 22-project gate and 287 tests pass locally; hosted evidence
-    for this listener source state is pending. Desktop confirmation UI and
-    physical two-person SAS evidence remain open.
+    are covered. The 22-project gate and 287 tests pass locally and on Windows,
+    macOS, and Ubuntu hosted runners at `8e2a410`; secret scan and CodeQL pass for
+    the same commit. Desktop confirmation UI and physical two-person SAS evidence
+    remain open.
   - _Requirements: R2, R9.2, R9.6_
 - [-] 4.3 Implement encrypted framed sessions and negative tests for tamper,
   replay, downgrade, expiry, and key substitution.

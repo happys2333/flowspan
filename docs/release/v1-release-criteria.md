@@ -98,7 +98,7 @@ implementation convenience.
   trust create/restart/update/revoke smoke passed with disposable Keychain items.
 - [2026-07-13 hosted CI foundation](../evidence/2026-07-13-hosted-ci.md):
   locked restore, format, build, tests, simulator, secret scan, and CodeQL passed
-  on committed slices through `79dae12` using Windows, macOS, and Ubuntu hosted
+  on committed slices through `8e2a410` using Windows, macOS, and Ubuntu hosted
   runners. The authenticated reconnect slice composes current trust/capability
   checks with a real loopback authenticated TCP session and revoke/downgrade
   draining. The CI maintenance slice verifies immutable Node 24 Action pins,

@@ -70,8 +70,10 @@ Observed results:
 - Pairing decisions and session handlers were deterministic test doubles. No
   desktop prompt, human SAS comparison, accessibility behavior, accidental
   approval prevention, or sharing indicator was exercised.
-- No Windows or Linux network provider ran locally. Hosted CI is required for
-  this exact source state before cross-platform contract evidence is recorded.
+- No Windows or Linux network provider ran locally. Matching hosted CI for
+  commit `8e2a410` is recorded in
+  [the hosted CI evidence](2026-07-13-hosted-ci.md); those jobs remain
+  loopback/contract rather than physical-device evidence.
 - The provisional selector, pairing, and authenticated-handshake formats have
   not received independent cryptographic or protocol review.
 - A same-port listener does not by itself prove physical DNS-SD publication,
