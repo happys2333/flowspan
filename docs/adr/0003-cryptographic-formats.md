@@ -94,6 +94,63 @@ u8(accepted: 0 or 1)
 It is signed with the confirming identity using the same P1363 format. Both
 confirmations must bind the same transcript hash and be `accepted = 1`.
 
+After verifying both accepted confirmations, each endpoint signs a distinct
+completion payload so an acceptance cannot be replayed as proof that the peer's
+acceptance was verified:
+
+```text
+bytes "FLOWSPAN-PAIR-COMPLETE-V1"
+bytes(transcript hash, exactly 32)
+bytes(completing DeviceId in lowercase D text)
+```
+
+The initiator completion proof is sent and verified before the responder sends
+its proof. Local Trust registration is not attempted until the endpoint has
+verified the peer completion proof.
+
+## Pairing wire envelope v1
+
+Every pairing message is prefixed on direct TCP by a signed 32-bit big-endian
+length limited to 1..4096 bytes. The message body begins with `FSP1` and one
+kind byte:
+
+```text
+hello(kind = 1) :=
+  u8(role)
+  bytes(device UUID), bytes(display name), bytes(identity SPKI)
+  bytes(32-byte nonce)
+  u32(version count), repeated u32(major), u32(minor)
+
+transcript-signature(kind = 2) :=
+  bytes(signing DeviceId)
+  bytes(transcript hash, exactly 32)
+  bytes(P1363 identity signature, exactly 64)
+
+confirmation(kind = 3) :=
+  bytes(confirming DeviceId)
+  u8(accepted: 0 or 1)
+  bytes(transcript hash, exactly 32)
+  bytes(P1363 confirmation signature, exactly 64)
+
+completion-proof(kind = 4) :=
+  bytes(completing DeviceId)
+  bytes(transcript hash, exactly 32)
+  bytes(P1363 completion signature, exactly 64)
+```
+
+Roles are `1 = initiator` and `2 = responder`. Versions are unique and strictly
+increasing on wire. The ordered exchange is initiator hello, responder hello,
+initiator transcript signature, responder transcript signature, followed by one
+signed confirmation from each side. Confirmation sends and receives may overlap
+so rejection can cancel a pending peer prompt. The initiator completion proof
+then precedes the responder proof. The whole ceremony has a two-minute default
+and ten-minute hard maximum. Trust registration occurs only after both
+confirmations and both completion proofs verify; capability grants are chosen
+and stored locally rather than carried as remote authority on this wire.
+The one-shot pairing channel closes on every outcome and cannot be upgraded into
+an operation channel. A successful pair reconnects through the separately
+authenticated ephemeral-session handshake before carrying any Activity data.
+
 ## Secure-session derivation v1
 
 The authenticated handshake carries a fresh P-256 ECDH SPKI and 32-byte random
@@ -226,7 +283,9 @@ rotation.
 - Generated identity sign/verify plus altered transcript/signature negatives.
 - Two independent ECDH instances derive identical session material.
 - Pairing transcript determinism, role binding, SAS equality, dual-confirmation,
-  rejection, and identity-key substitution tests.
+  rejection, identity-key substitution, canonical wire golden fixture, seeded
+  hostile decoding, completion-proof tamper, deadline, and direct TCP loopback
+  tests.
 - Authenticated-handshake transcript/wire round trip, highest-common-version,
   claimed-ID/key substitution, altered-version signature, direct TCP loopback,
   and two-current-peer shared-listener tests.
@@ -239,8 +298,9 @@ rotation.
 
 - No key rotation/rekey protocol exists.
 - No independent security review has approved these formats.
-- Interactive pairing-ceremony wire/UI orchestration and an explicit encrypted
-  Finished exchange are not yet implemented.
+- Desktop pairing UI, production-listener protocol multiplexing, physical
+  two-device SAS evidence, and an explicit encrypted Finished exchange are not
+  yet implemented.
 - The platform credential-store adapters remain provisional and do not yet have
   the complete real-machine Windows/macOS/Linux acceptance evidence.
 - In-memory identities are test/simulator infrastructure only, and the listener

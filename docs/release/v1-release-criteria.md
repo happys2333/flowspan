@@ -76,9 +76,14 @@ implementation convenience.
 ## Current evidence
 
 - [2026-07-13 macOS headless foundation](../evidence/2026-07-13-macos-foundation.md):
-  locked restore, format verification, warning-free Release build, 246 unit,
+  locked restore, format verification, warning-free Release build, 268 unit,
   integration, security, and platform-contract tests, simulator, and NuGet
   vulnerability query passed locally.
+- [2026-07-13 macOS headless pairing ceremony](../evidence/2026-07-13-macos-pairing-ceremony.md):
+  bounded canonical/hostile wire tests, transcript and completion proof,
+  rejection/deadline/tamper/identity/persistence/cleanup negatives, and a full
+  two-store loopback TCP ceremony passed. The confirmation UI, human SAS check,
+  production listener composition, and physical-device evidence remain open.
 - [2026-07-13 macOS authenticated inbound listener](../evidence/2026-07-13-macos-inbound-listener.md):
   one real loopback port authenticated two different trusted peers; unknown-peer,
   key-substitution, capability, concurrency/backpressure, handler-failure,

@@ -67,7 +67,8 @@ means its linked evidence exists; it does not imply the entire product works.
 - [-] 4.1 Freeze identity, pairing transcript, SAS, ECDH/HKDF/AEAD, nonce, and key
   rotation formats in a reviewed ADR with test vectors.
   - Identity, pairing, authenticated-handshake, KDF, and encrypted-frame v1
-    formats are recorded and exercised; key rotation, additional golden vectors,
+    formats are recorded and exercised. The canonical pairing hello now has a
+    committed golden hash; key rotation, additional cryptographic golden vectors,
     and independent review remain open.
   - _Requirements: R1.1–R1.2, R2, R9.1_
 - [-] 4.2 Implement identity/secret-store ports, pairing state machine, trust
@@ -87,7 +88,16 @@ means its linked evidence exists; it does not imply the entire product works.
     registered session before returning, reject concurrent new sessions, and
     surface aggregate stop failures without skipping another session. Awaited
     coordinator shutdown also blocks admission and stops all remaining
-    registered sessions.
+    registered sessions. A bounded `FSP1` ceremony now composes direct TCP,
+    version negotiation, transcript proof before prompting, matching-SAS decision
+    ports, dual signed confirmation, distinct completion proofs, local capability
+    grants, a whole-ceremony deadline, and Trust registration. Reject, timeout,
+    tamper, proven identity conflict, same-key re-pairing, persistence failure,
+    cancellation, and cleanup faults have deterministic tests; one same-process
+    real loopback test covers both endpoints. The 22-project gate and 268 tests
+    pass locally; hosted verification for this source state is pending. Desktop
+    confirmation UI, production listener multiplexing, and physical two-person
+    SAS evidence remain open.
   - _Requirements: R2, R9.2, R9.6_
 - [-] 4.3 Implement encrypted framed sessions and negative tests for tamper,
   replay, downgrade, expiry, and key substitution.

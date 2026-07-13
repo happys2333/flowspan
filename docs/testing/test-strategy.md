@@ -59,6 +59,17 @@ ordering deterministic. These tests prove the bounded listener contract only;
 they do not prove physical two-device networking, firewall behavior, or remote
 interface reachability.
 
+Pairing tests freeze a canonical `FSP1` hello fixture and run a seeded hostile
+corpus through every bounded decoder. Deterministic in-memory ceremonies cover
+highest-common-version selection, matching SAS requests, directional local
+grants, peer rejection canceling a pending prompt, network and prompt deadlines,
+transcript-signature/confirmation/completion tamper, verified identity conflict,
+same-key re-pairing, trust-save failure, caller cancellation, and simultaneous
+protocol/cleanup failure. A real loopback TCP test carries the complete ceremony
+through two independent trust stores. The decision ports simulate user choices;
+these tests do not prove that two people compared SAS values or that a desktop UI
+is safe and accessible.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance;

@@ -32,6 +32,10 @@ public sealed class PairingParty
     public byte[] ExportNonce() => (byte[])nonce.Clone();
 
     internal ReadOnlySpan<byte> Nonce => nonce;
+
+    internal bool MatchesIdentity(PublicDeviceIdentity identity) =>
+        Identity.DeviceId == identity.DeviceId
+        && Identity.HasSameKey(identity);
 }
 
 public sealed class PairingTranscript
@@ -120,8 +124,7 @@ public sealed class PairingTranscript
     public byte[] Sign(DeviceIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        if (identity.DeviceId != Initiator.Identity.DeviceId
-            && identity.DeviceId != Responder.Identity.DeviceId)
+        if (!IncludesIdentity(identity.PublicIdentity))
         {
             throw new InvalidOperationException(
                 "Only a party in the pairing transcript can sign it.");
@@ -130,6 +133,14 @@ public sealed class PairingTranscript
         return identity.SignHash(hash);
     }
 
+    internal bool VerifySignature(
+        PublicDeviceIdentity identity,
+        ReadOnlySpan<byte> signature) =>
+        IncludesIdentity(identity) && identity.VerifyHash(hash, signature);
+
+    internal bool IncludesIdentity(PublicDeviceIdentity identity) =>
+        Initiator.MatchesIdentity(identity) || Responder.MatchesIdentity(identity);
+
     private static void WriteParty(PairingBuffer writer, byte role, PairingParty party)
     {
         writer.WriteByte(role);
@@ -137,6 +148,85 @@ public sealed class PairingTranscript
         writer.WriteUtf8(party.Identity.DisplayName);
         writer.WriteBytes(party.Identity.ExportSubjectPublicKeyInfo());
         writer.WriteBytes(party.Nonce);
+    }
+}
+
+public sealed class PairingTranscriptSignature
+{
+    public const int SignatureLength = 64;
+    private readonly byte[] signature;
+    private readonly byte[] transcriptHash;
+
+    private PairingTranscriptSignature(
+        DeviceId deviceId,
+        byte[] transcriptHash,
+        byte[] signature)
+    {
+        DeviceId = deviceId;
+        this.transcriptHash = transcriptHash;
+        this.signature = signature;
+    }
+
+    public DeviceId DeviceId { get; }
+
+    public static PairingTranscriptSignature Create(
+        PairingTranscript transcript,
+        DeviceIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(transcript);
+        ArgumentNullException.ThrowIfNull(identity);
+        return new PairingTranscriptSignature(
+            identity.DeviceId,
+            transcript.ExportHash(),
+            transcript.Sign(identity));
+    }
+
+    public byte[] ExportSignature() => (byte[])signature.Clone();
+
+    public byte[] ExportTranscriptHash() => (byte[])transcriptHash.Clone();
+
+    internal ReadOnlySpan<byte> Signature => signature;
+
+    internal ReadOnlySpan<byte> TranscriptHash => transcriptHash;
+
+    internal static PairingTranscriptSignature Import(
+        DeviceId deviceId,
+        ReadOnlySpan<byte> transcriptHash,
+        ReadOnlySpan<byte> signature)
+    {
+        ArgumentNullException.ThrowIfNull(deviceId);
+        if (transcriptHash.Length != SHA256.HashSizeInBytes
+            || signature.Length != SignatureLength)
+        {
+            throw new InvalidDataException(
+                "The pairing transcript hash or signature length is invalid.");
+        }
+
+        return new PairingTranscriptSignature(
+            deviceId,
+            transcriptHash.ToArray(),
+            signature.ToArray());
+    }
+
+    internal bool Verify(
+        PairingTranscript transcript,
+        PublicDeviceIdentity expectedIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(transcript);
+        ArgumentNullException.ThrowIfNull(expectedIdentity);
+        byte[] expectedHash = transcript.ExportHash();
+        try
+        {
+            return DeviceId == expectedIdentity.DeviceId
+                && CryptographicOperations.FixedTimeEquals(
+                    transcriptHash,
+                    expectedHash)
+                && transcript.VerifySignature(expectedIdentity, signature);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(expectedHash);
+        }
     }
 }
 
@@ -161,6 +251,10 @@ public sealed class PairingConfirmation
     public DeviceId DeviceId { get; }
 
     public bool Accepted { get; }
+
+    public byte[] ExportSignature() => (byte[])signature.Clone();
+
+    public byte[] ExportTranscriptHash() => (byte[])transcriptHash.Clone();
 
     public static PairingConfirmation Create(
         DeviceIdentity identity,
@@ -193,6 +287,31 @@ public sealed class PairingConfirmation
         return valid;
     }
 
+    internal ReadOnlySpan<byte> Signature => signature;
+
+    internal ReadOnlySpan<byte> TranscriptHash => transcriptHash;
+
+    internal static PairingConfirmation Import(
+        DeviceId deviceId,
+        bool accepted,
+        ReadOnlySpan<byte> transcriptHash,
+        ReadOnlySpan<byte> signature)
+    {
+        ArgumentNullException.ThrowIfNull(deviceId);
+        if (transcriptHash.Length != SHA256.HashSizeInBytes
+            || signature.Length != PairingTranscriptSignature.SignatureLength)
+        {
+            throw new InvalidDataException(
+                "The pairing confirmation hash or signature length is invalid.");
+        }
+
+        return new PairingConfirmation(
+            deviceId,
+            accepted,
+            transcriptHash.ToArray(),
+            signature.ToArray());
+    }
+
     private static byte[] ComputePayloadHash(
         DeviceId deviceId,
         ReadOnlySpan<byte> transcriptHash,
@@ -203,6 +322,115 @@ public sealed class PairingConfirmation
         writer.WriteBytes(transcriptHash);
         writer.WriteUtf8(deviceId.ToString());
         writer.WriteByte(accepted ? (byte)1 : (byte)0);
+        return SHA256.HashData(writer.ToArray());
+    }
+}
+
+public sealed class PairingCompletionProof
+{
+    private static readonly byte[] Context = Encoding.ASCII.GetBytes(
+        "FLOWSPAN-PAIR-COMPLETE-V1");
+    private readonly byte[] signature;
+    private readonly byte[] transcriptHash;
+
+    private PairingCompletionProof(
+        DeviceId deviceId,
+        byte[] transcriptHash,
+        byte[] signature)
+    {
+        DeviceId = deviceId;
+        this.transcriptHash = transcriptHash;
+        this.signature = signature;
+    }
+
+    public DeviceId DeviceId { get; }
+
+    public static PairingCompletionProof Create(
+        DeviceIdentity identity,
+        PairingTranscript transcript)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(transcript);
+        if (!transcript.IncludesIdentity(identity.PublicIdentity))
+        {
+            throw new InvalidOperationException(
+                "Only a party in the pairing transcript can complete it.");
+        }
+
+        byte[] transcriptHash = transcript.ExportHash();
+        byte[] payloadHash = ComputePayloadHash(identity.DeviceId, transcriptHash);
+        try
+        {
+            return new PairingCompletionProof(
+                identity.DeviceId,
+                transcriptHash,
+                identity.SignHash(payloadHash));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(payloadHash);
+        }
+    }
+
+    public byte[] ExportSignature() => (byte[])signature.Clone();
+
+    public byte[] ExportTranscriptHash() => (byte[])transcriptHash.Clone();
+
+    public bool Verify(
+        PublicDeviceIdentity identity,
+        PairingTranscript transcript)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(transcript);
+        byte[] expectedHash = transcript.ExportHash();
+        byte[] payloadHash = ComputePayloadHash(DeviceId, transcriptHash);
+        try
+        {
+            return identity.DeviceId == DeviceId
+                && transcript.IncludesIdentity(identity)
+                && CryptographicOperations.FixedTimeEquals(
+                    transcriptHash,
+                    expectedHash)
+                && identity.VerifyHash(payloadHash, signature);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(expectedHash);
+            CryptographicOperations.ZeroMemory(payloadHash);
+        }
+    }
+
+    internal ReadOnlySpan<byte> Signature => signature;
+
+    internal ReadOnlySpan<byte> TranscriptHash => transcriptHash;
+
+    internal static PairingCompletionProof Import(
+        DeviceId deviceId,
+        ReadOnlySpan<byte> transcriptHash,
+        ReadOnlySpan<byte> signature)
+    {
+        ArgumentNullException.ThrowIfNull(deviceId);
+        if (transcriptHash.Length != SHA256.HashSizeInBytes
+            || signature.Length != PairingTranscriptSignature.SignatureLength)
+        {
+            throw new InvalidDataException(
+                "The pairing completion hash or signature length is invalid.");
+        }
+
+        return new PairingCompletionProof(
+            deviceId,
+            transcriptHash.ToArray(),
+            signature.ToArray());
+    }
+
+    private static byte[] ComputePayloadHash(
+        DeviceId deviceId,
+        ReadOnlySpan<byte> transcriptHash)
+    {
+        var writer = new PairingBuffer();
+        writer.WriteRaw(Context);
+        writer.WriteBytes(transcriptHash);
+        writer.WriteUtf8(deviceId.ToString());
         return SHA256.HashData(writer.ToArray());
     }
 }
@@ -219,6 +447,10 @@ public enum PairingFailure
     Rejected,
     InvalidTranscriptSignature,
     InvalidConfirmation,
+    NoCommonProtocolVersion,
+    InvalidMessage,
+    IdentityChanged,
+    InvalidCompletionProof,
 }
 
 public sealed record PairingOutcome(

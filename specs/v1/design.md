@@ -269,6 +269,36 @@ channel, signs the transcript, and displays a short authentication string
 derived from the full transcript. Trust is persisted only after local
 confirmation on both endpoints.
 
+The headless pairing ceremony runs over an injected bounded message channel;
+direct TCP supplies one adapter while deterministic tests supply another. The
+initiator and responder exchange canonical `FSP1` hellos containing only role,
+public identity, a fresh 32-byte nonce, and 1–16 supported protocol versions.
+They select the highest common version, build the role-ordered transcript, and
+exchange transcript-hash signatures before either endpoint asks for user
+confirmation. A default two-minute whole-ceremony deadline may be configured up
+to ten minutes and covers network I/O, confirmation, and trust persistence.
+
+`IPairingDecisionSource` receives the peer identity, six-digit SAS, and expiry.
+Its local decision contains accept/reject plus the Capabilities this device will
+grant that peer; grants are local authority and are not advertised by the peer.
+Signed confirmations are exchanged concurrently so an early peer rejection can
+cancel a still-pending local prompt. After two valid acceptances, each side signs
+a distinct completion proof stating that it verified the peer's confirmation;
+the initiator proof precedes the responder proof. Only both valid completion
+proofs allow local `ITrustStore` registration. Reject, timeout, no common version,
+malformed or invalid signature/confirmation/completion, and an existing
+Device-ID/key conflict create no new local Trust Record. Same-key
+`AlreadyTrusted` is explicit and never silently updates grants. Storage failure
+remains visible rather than being reported as a successful pairing.
+
+The first transport slice exposes an explicit direct-TCP pairing channel. It is
+one-shot and is closed on every outcome; no Activity or control message can reuse
+the unauthenticated pairing socket. A successful pair must reconnect and complete
+the normal authenticated ephemeral handshake against persisted trust. This slice
+does not yet multiplex pairing and authenticated sessions on the production
+listener, supply the desktop confirmation UI, or prove a human compared SAS
+values on two physical devices; those remain composition and acceptance work.
+
 Each connection performs ephemeral P-256 ECDH, authenticates its transcript
 with the paired identity keys, derives directional AES-256-GCM keys using
 HKDF-SHA-256, and assigns monotonically increasing nonces. Headers needed for

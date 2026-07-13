@@ -32,16 +32,16 @@ Observed results:
 - locked restore: passed for 22 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 246 passed, 0 failed, 0 skipped;
+- tests: 268 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
-  - security: 50 passed;
+  - security: 71 passed;
   - platform contracts: 8 passed;
   - Linux identity/trust-store contracts/platform guards: 15 passed;
   - macOS identity/trust-store contracts/native smoke: 10 passed;
   - Windows identity/trust-store contracts/platform guards: 12 passed;
-  - transport: 65 passed;
+  - transport: 66 passed;
   - isolated mDNS/DNS-SD browser/publisher adapter: 14 passed;
 - simulator: protocol 1.0 negotiated, source preserved, target resumed, process
   exit code 0;
@@ -58,7 +58,12 @@ code. It did not contain the Activity text.
   bounded/canonical control codec, framed partial reads, semantic handoff,
   move ordering/recovery, deterministic delivery faults, sequential/concurrent
   idempotency, swap prepare/abort/commit recovery, mirror driver lease epochs,
-  emergency stop, provisional identity/pairing/HKDF/AEAD primitives, trust
+  emergency stop, provisional identity/pairing/HKDF/AEAD primitives, bounded
+  canonical pairing hello/signature/confirmation/completion messages, seeded
+  hostile pairing decode containment, transcript proof before matching-SAS
+  confirmation, completion-proof gating before Trust registration, deterministic
+  reject/deadline/tamper/identity-conflict/persistence/cleanup behavior, complete
+  two-store pairing over one real loopback TCP connection, trust
   identity-change/revocation behavior, fail-closed platform protection/input
   policy, signed discovery expiry/deduplication/identity-change behavior,
   canonical authenticated-handshake encoding, downgrade/key-substitution
@@ -122,8 +127,9 @@ code. It did not contain the Activity text.
 - Native Windows or Linux `ITrustPayloadStore` execution. The macOS trust test
   used a unique disposable Keychain item; Windows hosted evidence is recorded
   separately, while Linux still lacks a live Secret Service round trip.
-- Physical LAN discovery or network-interface churn, the interactive pairing
-  wire/UI ceremony, Linux Secret Service, untested Keychain/DPAPI profile states,
+- Physical LAN discovery or network-interface churn, desktop pairing UI or a
+  two-person SAS comparison, Linux Secret Service, untested Keychain/DPAPI
+  profile states,
   live DNS-SD browse/publication, remotely reachable multi-device listener
   behavior, independent security review, native permissions, capture, input,
   protected surfaces, Remote Window, UI,
