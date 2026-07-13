@@ -17,7 +17,7 @@ public sealed class TrustSessionCoordinatorTests
             identity.PublicIdentity,
             DateTimeOffset.UnixEpoch,
             CapabilityGrant.Of(Capability.MirrorView)));
-        var coordinator = new TrustSessionCoordinator(trustStore);
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
         var session = new RecordingRevocableSession();
         await using TrustSessionRegistration registration =
             await coordinator.TryRegisterAsync(
@@ -43,7 +43,7 @@ public sealed class TrustSessionCoordinatorTests
             identity.PublicIdentity,
             DateTimeOffset.UnixEpoch,
             CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive)));
-        var coordinator = new TrustSessionCoordinator(trustStore);
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
         var viewSession = new RecordingRevocableSession();
         var driveSession = new RecordingRevocableSession();
         await using TrustSessionRegistration viewRegistration =
@@ -86,7 +86,7 @@ public sealed class TrustSessionCoordinatorTests
             identity.PublicIdentity,
             DateTimeOffset.UnixEpoch,
             CapabilityGrant.Of(Capability.MirrorView)));
-        var coordinator = new TrustSessionCoordinator(trustStore);
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
         var failingSession = new RecordingRevocableSession(throwOnStop: true);
         var healthySession = new RecordingRevocableSession();
         await using TrustSessionRegistration first =
@@ -119,7 +119,7 @@ public sealed class TrustSessionCoordinatorTests
             identity.PublicIdentity,
             DateTimeOffset.UnixEpoch,
             CapabilityGrant.Of(Capability.MirrorView)));
-        var coordinator = new TrustSessionCoordinator(trustStore);
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
         var activeSession = new BlockingRevocableSession();
         await using TrustSessionRegistration registration =
             await coordinator.TryRegisterAsync(
@@ -138,6 +138,62 @@ public sealed class TrustSessionCoordinatorTests
 
         Assert.Null(rejected);
         Assert.True(await revocation);
+    }
+
+    [Fact]
+    public async Task PersistentRevocationCommitsBeforeSessionStopBegins()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var payloadStore = new TestTrustPayloadStore();
+        using PersistentTrustStore trustStore =
+            await PersistentTrustStore.OpenAsync(payloadStore);
+        await trustStore.RegisterAsync(new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.MirrorView)));
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+        var session = new PersistenceObservingSession(payloadStore);
+        await using TrustSessionRegistration registration =
+            await coordinator.TryRegisterAsync(
+                PeerId,
+                CapabilityGrant.Of(Capability.MirrorView),
+                session)
+            ?? throw new InvalidOperationException("Expected an authorized session.");
+
+        bool revoked = await coordinator.RevokePeerAsync(PeerId);
+
+        Assert.True(revoked);
+        Assert.True(session.SawPersistedRevocation);
+    }
+
+    [Fact]
+    public async Task LocalShutdownStopsSessionsAndMakesRegistrationDisposalSafe()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.MirrorView)));
+        var coordinator = new TrustSessionCoordinator(trustStore);
+        var session = new RecordingRevocableSession();
+        TrustSessionRegistration registration =
+            await coordinator.TryRegisterAsync(
+                PeerId,
+                CapabilityGrant.Of(Capability.MirrorView),
+                session)
+            ?? throw new InvalidOperationException("Expected an authorized session.");
+
+        await coordinator.DisposeAsync();
+        await registration.DisposeAsync();
+
+        Assert.Equal(1, session.StopCount);
+        Assert.Equal(TrustSessionStopReason.LocalShutdown, session.LastReason);
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () =>
+            await coordinator.TryRegisterAsync(
+                PeerId,
+                CapabilityGrant.Of(Capability.MirrorView),
+                new RecordingRevocableSession()));
     }
 
     private sealed class BlockingRevocableSession : IRevocablePeerSession
@@ -178,6 +234,20 @@ public sealed class TrustSessionCoordinatorTests
                 throw new IOException("Injected session stop failure.");
             }
 
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class PersistenceObservingSession(
+        TestTrustPayloadStore payloadStore) : IRevocablePeerSession
+    {
+        public bool SawPersistedRevocation { get; private set; }
+
+        public ValueTask StopAsync(TrustSessionStopReason reason)
+        {
+            byte[] payload = payloadStore.Snapshot()
+                ?? throw new InvalidOperationException("Expected a persisted snapshot.");
+            SawPersistedRevocation = TrustStorePayloadCodec.Decode(payload).Count == 0;
             return ValueTask.CompletedTask;
         }
     }

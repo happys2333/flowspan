@@ -222,9 +222,11 @@ one coordinator boundary. Revocation or capability downgrade first removes the
 trust/session eligibility under the same lock, then invokes every affected
 session stop outside the lock before returning. A stop failure is reported only
 after all affected sessions have received a stop request. This ordering prevents
-a concurrent session from being admitted with revoked authority. The current
-coordinator uses the in-memory trust store; the persistent trust repository must
-remain behind this boundary rather than exposing an independent mutation path.
+a concurrent session from being admitted with revoked authority. The coordinator
+accepts the `ITrustStore` authority; both the degraded in-memory store and the
+payload-backed persistent implementation stay behind this boundary rather than
+exposing an independent product mutation path. Local coordinator shutdown first
+blocks new admission, removes every registration, and awaits all session stops.
 
 Platform adapters continuously expose a `ProtectionState`. Unknown or stale
 protection state fails closed for capture and remote input. The global emergency
@@ -233,11 +235,14 @@ it does not depend on a healthy peer or UI event loop.
 
 ## 9. Persistence and diagnostics
 
-The initial store is a local, versioned JSON document written atomically behind
-repository interfaces. It is sufficient for simulator evidence and easy to
-inspect. Before storing real trust or Activity history, a persistence ADR will
-choose and migrate to an authenticated database or protected file format.
-Private keys never use this general store.
+ADR 0006 replaces the provisional plain-JSON trust plan with a bounded,
+canonical binary snapshot behind `ITrustStore` and `ITrustPayloadStore`. A
+mutation is published in memory only after the opaque platform-protected payload
+has been atomically replaced; corrupt or unsupported startup data fails closed.
+The core codec and repository are implemented, while Windows, macOS, and Linux
+trust-payload adapters remain explicit platform gates. Private keys never use
+this trust repository. Activity history and Scene persistence still require a
+separate format/migration decision before production use.
 
 Domain transitions emit structured events with stable event IDs and reason
 codes. Redaction happens before sinks receive fields. Receipts and diagnostics

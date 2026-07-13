@@ -70,11 +70,16 @@ means its linked evidence exists; it does not imply the entire product works.
   records, capability grants, revocation, and identity-change handling.
   - The identity-store port, atomic load-or-create lifecycle, deletion, and
     explicitly degraded in-memory store are implemented. The versioned 1 KiB
-    identity payload codec rejects hostile and non-canonical input; persistent
-    trust remains open. Peer revocation and capability downgrade atomically
+    identity payload codec rejects hostile and non-canonical input. ADR 0006,
+    `ITrustStore`, the 64-peer/64 KiB canonical trust codec, and an atomic
+    payload-backed persistent repository cover restart, corrupt input,
+    cancellation, concurrent mutation, and failed-save rollback. Native
+    `ITrustPayloadStore` adapters remain open. Peer revocation and capability
+    downgrade atomically
     remove session eligibility, stop every affected registered session before
     returning, reject concurrent new sessions, and surface aggregate stop
-    failures without skipping another session.
+    failures without skipping another session. Awaited coordinator shutdown also
+    blocks admission and stops all remaining registered sessions.
   - _Requirements: R2, R9.2, R9.6_
 - [-] 4.3 Implement encrypted framed sessions and negative tests for tamper,
   replay, downgrade, expiry, and key substitution.
@@ -92,7 +97,9 @@ means its linked evidence exists; it does not imply the entire product works.
     and hosted native/contract tests. The Linux secret-tool adapter has bounded
     process and fake contracts; Ubuntu hosted CI verifies missing-tool recovery,
     bounded output, cancellation, and process-tree termination. A live,
-    unlocked desktop Secret Service round trip remains open.
+    unlocked desktop Secret Service round trip remains open. The implemented
+    native stores currently persist device identity only; protected trust
+    payload replace adapters and their platform evidence remain open.
   - _Requirements: R9.6_
 
 ## 5. LAN discovery and reconnection

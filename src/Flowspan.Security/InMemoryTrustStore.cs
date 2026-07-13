@@ -10,7 +10,7 @@ public enum TrustRegistrationResult
     IdentityChanged,
 }
 
-public sealed class InMemoryTrustStore
+public sealed class InMemoryTrustStore : ITrustStore
 {
     private readonly Lock gate = new();
     private readonly Dictionary<DeviceId, TrustRecord> trustRecords = [];
@@ -35,6 +35,14 @@ public sealed class InMemoryTrustStore
             trustRecords.Add(trustRecord.PeerIdentity.DeviceId, trustRecord);
             return TrustRegistrationResult.Added;
         }
+    }
+
+    public ValueTask<TrustRegistrationResult> RegisterAsync(
+        TrustRecord trustRecord,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(Register(trustRecord));
     }
 
     public bool TryGet(
@@ -91,5 +99,26 @@ public sealed class InMemoryTrustStore
         {
             return trustRecords.Remove(peerDeviceId);
         }
+    }
+
+    public ValueTask<bool> RevokeAsync(
+        DeviceId peerDeviceId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(Revoke(peerDeviceId));
+    }
+
+    public ValueTask<bool> TryUpdateCapabilitiesAsync(
+        DeviceId peerDeviceId,
+        string expectedFingerprint,
+        CapabilityGrant capabilities,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(TryUpdateCapabilities(
+            peerDeviceId,
+            expectedFingerprint,
+            capabilities));
     }
 }

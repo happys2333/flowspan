@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Flowspan.Domain;
 
 namespace Flowspan.Security;
@@ -6,6 +7,7 @@ public enum TrustSessionStopReason
 {
     PeerRevoked,
     CapabilityRevoked,
+    LocalShutdown,
 }
 
 public interface IRevocablePeerSession
@@ -38,24 +40,29 @@ public sealed class TrustSessionRegistration : IAsyncDisposable
     }
 }
 
-public sealed class TrustSessionCoordinator
+public sealed class TrustSessionCoordinator : IAsyncDisposable
 {
-    private readonly Lock gate = new();
+    private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<Guid, TrackedSession> sessions = [];
-    private readonly InMemoryTrustStore trustStore;
+    private readonly ITrustStore trustStore;
+    private readonly TaskCompletionSource disposalCompleted = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+    private Exception? disposalFailure;
+    private int disposalState;
 
-    public TrustSessionCoordinator(InMemoryTrustStore trustStore)
+    public TrustSessionCoordinator(ITrustStore trustStore)
     {
         ArgumentNullException.ThrowIfNull(trustStore);
         this.trustStore = trustStore;
     }
 
-    public ValueTask<TrustSessionRegistration?> TryRegisterAsync(
+    public async ValueTask<TrustSessionRegistration?> TryRegisterAsync(
         DeviceId peerDeviceId,
         CapabilityGrant requiredCapabilities,
         IRevocablePeerSession session,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfShuttingDown();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         ArgumentNullException.ThrowIfNull(requiredCapabilities);
         ArgumentNullException.ThrowIfNull(session);
@@ -66,13 +73,14 @@ public sealed class TrustSessionCoordinator
                 nameof(requiredCapabilities));
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (gate)
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
+            ThrowIfShuttingDown();
             if (requiredCapabilities.Capabilities.Any(capability =>
                     !trustStore.Allows(peerDeviceId, capability)))
             {
-                return ValueTask.FromResult<TrustSessionRegistration?>(null);
+                return null;
             }
 
             Guid registrationId = Guid.NewGuid();
@@ -82,8 +90,11 @@ public sealed class TrustSessionCoordinator
                     peerDeviceId,
                     requiredCapabilities,
                     session));
-            return ValueTask.FromResult<TrustSessionRegistration?>(
-                new TrustSessionRegistration(this, registrationId));
+            return new TrustSessionRegistration(this, registrationId);
+        }
+        finally
+        {
+            gate.Release();
         }
     }
 
@@ -91,18 +102,25 @@ public sealed class TrustSessionCoordinator
         DeviceId peerDeviceId,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfShuttingDown();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         TrackedSession[] revokedSessions;
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (gate)
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (!trustStore.Revoke(peerDeviceId))
+            ThrowIfShuttingDown();
+            if (!await trustStore.RevokeAsync(peerDeviceId, cancellationToken)
+                    .ConfigureAwait(false))
             {
                 return false;
             }
 
             revokedSessions = RemoveSessions(static (tracked, peer) =>
                 tracked.PeerDeviceId == peer, peerDeviceId);
+        }
+        finally
+        {
+            gate.Release();
         }
 
         await StopAllAsync(
@@ -117,17 +135,20 @@ public sealed class TrustSessionCoordinator
         CapabilityGrant capabilities,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfShuttingDown();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedFingerprint);
         ArgumentNullException.ThrowIfNull(capabilities);
-        cancellationToken.ThrowIfCancellationRequested();
         TrackedSession[] unauthorizedSessions;
-        lock (gate)
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (!trustStore.TryUpdateCapabilities(
+            ThrowIfShuttingDown();
+            if (!await trustStore.TryUpdateCapabilitiesAsync(
                     peerDeviceId,
                     expectedFingerprint,
-                    capabilities))
+                    capabilities,
+                    cancellationToken).ConfigureAwait(false))
             {
                 return false;
             }
@@ -139,6 +160,10 @@ public sealed class TrustSessionCoordinator
                         !state.Capabilities.Allows(capability)),
                 (PeerDeviceId: peerDeviceId, Capabilities: capabilities));
         }
+        finally
+        {
+            gate.Release();
+        }
 
         await StopAllAsync(
             unauthorizedSessions,
@@ -146,14 +171,27 @@ public sealed class TrustSessionCoordinator
         return true;
     }
 
-    internal ValueTask UnregisterAsync(Guid registrationId)
+    internal async ValueTask UnregisterAsync(Guid registrationId)
     {
-        lock (gate)
+        if (Volatile.Read(ref disposalState) != 0)
         {
-            sessions.Remove(registrationId);
+            return;
         }
 
-        return ValueTask.CompletedTask;
+        await gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (Volatile.Read(ref disposalState) != 0)
+            {
+                return;
+            }
+
+            sessions.Remove(registrationId);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     private TrackedSession[] RemoveSessions<TState>(
@@ -211,6 +249,59 @@ public sealed class TrustSessionCoordinator
                 failures);
         }
     }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.CompareExchange(ref disposalState, 1, 0) != 0)
+        {
+            await disposalCompleted.Task.ConfigureAwait(false);
+            if (disposalFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(disposalFailure).Throw();
+            }
+
+            return;
+        }
+
+        Exception? failure = null;
+        try
+        {
+            TrackedSession[] activeSessions;
+            await gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                activeSessions = sessions.Values.ToArray();
+                sessions.Clear();
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            await StopAllAsync(activeSessions, TrustSessionStopReason.LocalShutdown)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+        finally
+        {
+            Volatile.Write(ref disposalState, 2);
+            disposalFailure = failure;
+            disposalCompleted.SetResult();
+        }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    private void ThrowIfShuttingDown() =>
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref disposalState) != 0,
+            this);
 
     private sealed record TrackedSession(
         DeviceId PeerDeviceId,

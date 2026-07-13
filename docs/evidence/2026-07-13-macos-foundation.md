@@ -32,11 +32,11 @@ Observed results:
 - locked restore: passed for 20 projects;
 - format verification: passed;
 - Release build: passed with 0 warnings and 0 errors;
-- tests: 152 passed, 0 failed, 0 skipped;
+- tests: 165 passed, 0 failed, 0 skipped;
   - domain: 33 passed;
   - protocol: 17 passed;
   - integration: 22 passed;
-  - security: 36 passed;
+  - security: 49 passed;
   - platform contracts: 8 passed;
   - Linux identity-store contracts/platform guards: 8 passed;
   - macOS identity-store contracts/native smoke: 5 passed;
@@ -71,8 +71,11 @@ code. It did not contain the Activity text.
   create/reload/delete and concurrent-add behavior, Linux secret-tool fake
   boundary Base64/stdin/atomic-lock/error contracts and non-Linux rejection,
   trust-revocation/capability-downgrade session shutdown ordering and failure
-  fan-out, conflict detection, and receipt redaction cases behave as asserted by
-  the tests.
+  fan-out, canonical bounded persistent-trust encoding/golden fixture, restart,
+  identity-change refusal, corrupt-open rejection, concurrent mutation,
+  cancellation, failed-save rollback, durable-revoke-before-stop ordering,
+  awaited local-shutdown session draining, conflict detection, and receipt
+  redaction cases behave as asserted by the tests.
 - The deterministic simulator can resume a portable note on a second in-memory
   node without removing it from the source.
 
@@ -87,6 +90,9 @@ code. It did not contain the Activity text.
 - Linux `secret-tool` process execution or a live desktop Secret Service; Linux
   conditional process-limit/cancellation tests did not execute on macOS. Hosted
   Ubuntu process-contract evidence is recorded separately.
+- Native Windows, macOS, or Linux `ITrustPayloadStore` execution. The persistent
+  trust repository used an in-memory protected-payload contract fake; no trust
+  record was written to a platform credential store by this run.
 - Physical LAN discovery, the interactive pairing wire/UI ceremony, Linux Secret
   Service, untested Keychain/DPAPI profile states, multi-peer listener operation,
   independent security review, native permissions, capture, input, protected
