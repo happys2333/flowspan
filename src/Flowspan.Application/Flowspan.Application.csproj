@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Flowspan application use cases and ports.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Domain/Flowspan.Domain.csproj" />
+  </ItemGroup>
+</Project>

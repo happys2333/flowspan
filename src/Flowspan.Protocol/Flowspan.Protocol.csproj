@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Version negotiation and wire-contract primitives for Flowspan.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Domain/Flowspan.Domain.csproj" />
+  </ItemGroup>
+</Project>

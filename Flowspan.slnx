@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Flowspan.Application/Flowspan.Application.csproj" />
+    <Project Path="src/Flowspan.Diagnostics/Flowspan.Diagnostics.csproj" />
+    <Project Path="src/Flowspan.Domain/Flowspan.Domain.csproj" />
+    <Project Path="src/Flowspan.Protocol/Flowspan.Protocol.csproj" />
+    <Project Path="src/Flowspan.Simulator/Flowspan.Simulator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Flowspan.Domain.Tests/Flowspan.Domain.Tests.csproj" />
+    <Project Path="tests/Flowspan.Integration.Tests/Flowspan.Integration.Tests.csproj" />
+    <Project Path="tests/Flowspan.Protocol.Tests/Flowspan.Protocol.Tests.csproj" />
+  </Folder>
+</Solution>

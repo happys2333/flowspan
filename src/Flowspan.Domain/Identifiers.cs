@@ -1,0 +1,65 @@
+namespace Flowspan.Domain;
+
+public sealed record DeviceId
+{
+    private DeviceId(Guid value) => Value = value;
+
+    public Guid Value { get; }
+
+    public static DeviceId From(Guid value) =>
+        value == Guid.Empty
+            ? throw new ArgumentException("A device ID cannot be empty.", nameof(value))
+            : new DeviceId(value);
+
+    public static DeviceId Parse(string value) => From(Guid.Parse(value));
+
+    public override string ToString() => Value.ToString("D");
+}
+
+public sealed record ActivityId
+{
+    private ActivityId(Guid value) => Value = value;
+
+    public Guid Value { get; }
+
+    public static ActivityId From(Guid value) =>
+        value == Guid.Empty
+            ? throw new ArgumentException("An Activity ID cannot be empty.", nameof(value))
+            : new ActivityId(value);
+
+    public static ActivityId Parse(string value) => From(Guid.Parse(value));
+
+    public override string ToString() => Value.ToString("D");
+}
+
+public sealed record OperationId
+{
+    private OperationId(Guid value) => Value = value;
+
+    public Guid Value { get; }
+
+    public static OperationId From(Guid value) =>
+        value == Guid.Empty
+            ? throw new ArgumentException("An operation ID cannot be empty.", nameof(value))
+            : new OperationId(value);
+
+    public static OperationId Parse(string value) => From(Guid.Parse(value));
+
+    public override string ToString() => Value.ToString("D");
+}
+
+public sealed record CorrelationId
+{
+    private CorrelationId(Guid value) => Value = value;
+
+    public Guid Value { get; }
+
+    public static CorrelationId From(Guid value) =>
+        value == Guid.Empty
+            ? throw new ArgumentException("A correlation ID cannot be empty.", nameof(value))
+            : new CorrelationId(value);
+
+    public static CorrelationId Parse(string value) => From(Guid.Parse(value));
+
+    public override string ToString() => Value.ToString("D");
+}

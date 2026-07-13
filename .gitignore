@@ -1,0 +1,19 @@
+# .NET build output
+**/bin/
+**/obj/
+TestResults/
+artifacts/
+
+# IDE and local state
+.idea/
+.vscode/
+.vs/
+*.user
+*.suo
+.DS_Store
+
+# Local diagnostics and secrets
+*.flowspan-diagnostics.zip
+*.pfx
+*.key
+*.pem

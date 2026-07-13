@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Flowspan's platform-independent Activity and operation model.</Description>
+  </PropertyGroup>
+</Project>

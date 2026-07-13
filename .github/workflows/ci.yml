@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+
+      - name: Restore locked dependencies
+        run: dotnet restore Flowspan.slnx --locked-mode
+
+      - name: Verify formatting
+        run: dotnet format Flowspan.slnx --verify-no-changes --no-restore
+
+      - name: Build with warnings as errors
+        run: dotnet build Flowspan.slnx --configuration Release --no-restore
+
+      - name: Run tests
+        run: >-
+          dotnet test Flowspan.slnx
+          --configuration Release
+          --no-build
+          --no-restore
+          --logger "trx;LogFilePrefix=${{ runner.os }}"
+          --results-directory TestResults
+
+      - name: Run deterministic simulator
+        run: >-
+          dotnet run
+          --project src/Flowspan.Simulator/Flowspan.Simulator.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ runner.os }}
+          path: TestResults
+          if-no-files-found: warn
+          retention-days: 14
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan committed content
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

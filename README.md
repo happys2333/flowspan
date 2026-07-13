@@ -1,2 +1,82 @@
-# flowspan
-A cross-platform continuity workspace for handing off, swapping, mirroring, and collaborating across Windows, macOS, and Linux.
+# Flowspan
+
+Flowspan is a local-first continuity workspace for handing off, moving,
+replacing, atomically swapping, mirroring, and grouping **Activities** across
+Windows, macOS, and Linux.
+
+An Activity is portable user intent plus context—not a screen and not an
+arbitrary process image. Flowspan prefers semantic resume through an adapter. If
+an application cannot provide it, the product may offer a clearly labelled
+Remote Window that keeps execution on the source device.
+
+## Project status
+
+Flowspan is at the **headless foundation** stage and is not ready for end-user
+installation. The repository currently includes:
+
+- approved v1 requirements, architecture, ADRs, domain glossary, threat model,
+  test strategy, task tracker, and release checklist;
+- a warning-free .NET 10 solution with an independent domain core;
+- a deterministic two-node semantic handoff simulator;
+- capability denial, descriptor validation, idempotent retry, operation-ID
+  conflict, protocol negotiation, and diagnostic-redaction tests;
+- Windows/macOS/Linux CI definitions.
+
+It does **not** yet include production pairing/encryption, LAN discovery, native
+capture/input, Remote Window media, desktop UI, packaging, or real-machine
+Windows/Linux evidence. See [the v1 task tracker](specs/v1/tasks.md) and
+[release criteria](docs/release/v1-release-criteria.md) for the honest status.
+
+## Run the current slice
+
+Install the SDK version selected by [`global.json`](global.json), then run:
+
+```sh
+dotnet restore Flowspan.slnx --locked-mode
+dotnet format Flowspan.slnx --verify-no-changes --no-restore
+dotnet build Flowspan.slnx --configuration Release --no-restore
+dotnet test Flowspan.slnx --configuration Release --no-build --no-restore
+dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
+  --configuration Release --no-build --no-restore
+```
+
+The simulator uses fixed device, operation, and clock values. A successful run
+prints protocol `1.0`, `Source preserved: True`, `Target resumed: True`, and a
+redacted operation receipt containing a descriptor digest but no Activity text.
+
+## Repository map
+
+```text
+specs/v1/                 requirements, design, and tracked implementation tasks
+docs/adr/                 architectural decisions and trade-offs
+docs/security/            threat model and security release blockers
+docs/testing/             evidence model and test/CI matrix
+docs/release/             criteria that gate any v1-complete claim
+src/Flowspan.Domain/      platform-independent Activity and operation model
+src/Flowspan.Application/ handoff use case, authorization, journal, adapter ports
+src/Flowspan.Protocol/    protocol version negotiation primitives
+src/Flowspan.Diagnostics/ redacted receipt serialization
+src/Flowspan.Simulator/   runnable deterministic two-node scenario
+tests/                    domain, protocol, and integration tests
+```
+
+Start with [v1 requirements](specs/v1/requirements.md), then read the
+[technical design](specs/v1/design.md) and
+[ubiquitous language](docs/glossary.md).
+
+## Safety boundary
+
+The current in-memory simulator does not provide production security. Real peer
+traffic must not be enabled until the pairing, authenticated key exchange,
+end-to-end encrypted framing, platform secret stores, authorization negatives,
+and security review gates in the threat model are implemented.
+
+Flowspan is a clean-room rewrite. See
+[clean-room engineering and provenance](docs/engineering/clean-room.md).
+
+## Contributing
+
+The engineering baseline is intentionally strict: nullable analysis, .NET
+analyzers, style checks, warnings as errors, locked packages, three-OS CI,
+CodeQL, and secret scanning. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before
+submitting changes.

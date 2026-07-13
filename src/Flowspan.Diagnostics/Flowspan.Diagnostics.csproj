@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Structured receipt collection and redaction for Flowspan.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Application/Flowspan.Application.csproj" />
+    <ProjectReference Include="../Flowspan.Domain/Flowspan.Domain.csproj" />
+  </ItemGroup>
+</Project>

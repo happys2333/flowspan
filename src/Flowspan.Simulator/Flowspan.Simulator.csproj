@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Deterministic local two-node Flowspan simulator.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Application/Flowspan.Application.csproj" />
+    <ProjectReference Include="../Flowspan.Diagnostics/Flowspan.Diagnostics.csproj" />
+    <ProjectReference Include="../Flowspan.Domain/Flowspan.Domain.csproj" />
+    <ProjectReference Include="../Flowspan.Protocol/Flowspan.Protocol.csproj" />
+  </ItemGroup>
+</Project>
