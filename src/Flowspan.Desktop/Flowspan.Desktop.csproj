@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <Description>Accessible cross-platform desktop composition root for Flowspan.</Description>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Flowspan.Platform.Linux/Flowspan.Platform.Linux.csproj" />
+    <ProjectReference Include="../Flowspan.Platform.MacOS/Flowspan.Platform.MacOS.csproj" />
+    <ProjectReference Include="../Flowspan.Platform.Windows/Flowspan.Platform.Windows.csproj" />
+    <ProjectReference Include="../Flowspan.Security/Flowspan.Security.csproj" />
+  </ItemGroup>
+</Project>

@@ -19,9 +19,12 @@ Requirements: `specs/v1/requirements.md`
 ## 2. Technology baseline
 
 Flowspan uses C# on .NET 10 LTS for the protocol, domain, services, platform
-adapters, test utilities, and desktop shell. The initial slice has no UI or
-native-framework dependency. A later desktop project may use Avalonia while
-depending only on application ports. See `docs/adr/0001-dotnet-single-language.md`.
+adapters, test utilities, and desktop shell. The headless core has no UI
+dependency. The outer desktop composition project uses pinned Avalonia 12.1.0;
+Avalonia types do not cross its boundary. See
+`docs/adr/0001-dotnet-single-language.md`,
+`docs/adr/0007-avalonia-desktop-shell.md`, and
+`specs/v1/desktop-ui-design.md`.
 
 Repository-wide settings pin nullable reference types, deterministic builds,
 warnings as errors, analyzers, and a formatting check. Production core projects
@@ -410,6 +413,6 @@ spikes/ADRs:
 - the physical-test trigger for replacing the provisional managed DNS-SD
   adapter with native adapters;
 - persistence format after the simulator slice;
-- Avalonia version and packaging/signing pipeline;
+- packaging/signing pipeline for the pinned Avalonia desktop shell;
 - per-platform Remote Window codec and capture implementation;
 - precise undo retention defaults and Activity descriptor size budgets.

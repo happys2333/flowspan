@@ -79,6 +79,16 @@ overload is isolated, profiles enforce the hard total bound, and cancellation
 must drain both branches. These remain same-host transport and decision-double
 tests.
 
+Desktop-shell tests keep the production XAML and view model behind Avalonia's
+headless platform while retaining the repository's xUnit v2 runner. They cover
+protected/degraded identity presentation, redacted startup failure, explicit
+sharing and stop availability, declared automation names, keyboard activation,
+and close-during-startup cancellation. Every CI OS also runs the executable's
+`--validate-composition` mode with an explicitly degraded in-memory identity;
+the output must name TEST MODE. That command proves composition and process exit,
+not a native window, platform credential store, screen reader, high-contrast
+theme, or real permission behavior.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance;
@@ -105,6 +115,10 @@ The SDK is installed from `global.json`; dependencies are locked and caches key
 on lock files. Tests use invariant culture/time zone unless testing localization.
 Native permission tests that hosted runners cannot grant are skipped only with a
 stable reason code and appear in the evidence summary—not as passes.
+
+The three `test-*` jobs also execute the desktop composition validator after the
+headless UI tests. Native window launch and accessibility remain manual/matching-
+machine gates even when all three validators pass.
 
 ## 5. Protocol compatibility policy
 

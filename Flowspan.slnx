@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Flowspan.Application/Flowspan.Application.csproj" />
+    <Project Path="src/Flowspan.Desktop/Flowspan.Desktop.csproj" />
     <Project Path="src/Flowspan.Diagnostics/Flowspan.Diagnostics.csproj" />
     <Project Path="src/Flowspan.Domain/Flowspan.Domain.csproj" />
     <Project Path="src/Flowspan.Platform.Linux/Flowspan.Platform.Linux.csproj" />
@@ -14,6 +15,7 @@
     <Project Path="src/Flowspan.Transport.Mdns/Flowspan.Transport.Mdns.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj" />
     <Project Path="tests/Flowspan.Domain.Tests/Flowspan.Domain.Tests.csproj" />
     <Project Path="tests/Flowspan.Integration.Tests/Flowspan.Integration.Tests.csproj" />
     <Project Path="tests/Flowspan.Platform.Linux.Tests/Flowspan.Platform.Linux.Tests.csproj" />

@@ -11,8 +11,8 @@ Remote Window that keeps execution on the source device.
 
 ## Project status
 
-Flowspan is at the **headless foundation** stage and is not ready for end-user
-installation. The repository currently includes:
+Flowspan is at the **foundation plus early desktop shell** stage and is not ready
+for end-user installation. The repository currently includes:
 
 - approved v1 requirements, architecture, ADRs, domain glossary, threat model,
   test strategy, task tracker, and release checklist;
@@ -30,12 +30,15 @@ installation. The repository currently includes:
   trusted-candidate/reconnect contracts;
 - a bounded authenticated TCP listener that can route multiple currently
   trusted peers through one port and drain revoked sessions;
+- a pinned Avalonia 12.1 desktop composition root that loads or creates the
+  protected local device identity, exposes truthful non-sharing/empty states,
+  and has headless keyboard and automation-metadata tests;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet include the pairing UI, physical-LAN discovery evidence,
-native capture/input, Remote Window media, desktop UI, packaging, or the
-complete real-machine Windows/macOS/Linux acceptance matrix. See [the v1 task
-tracker](specs/v1/tasks.md) and
+native capture/input, Remote Window media, complete desktop workflows, packaged
+native accessibility evidence, packaging, or the complete real-machine
+Windows/macOS/Linux acceptance matrix. See [the v1 task tracker](specs/v1/tasks.md) and
 [release criteria](docs/release/v1-release-criteria.md) for the honest status.
 
 ## Run the current slice
@@ -47,11 +50,16 @@ dotnet restore Flowspan.slnx --locked-mode
 dotnet format Flowspan.slnx --verify-no-changes --no-restore
 dotnet build Flowspan.slnx --configuration Release --no-restore
 dotnet test Flowspan.slnx --configuration Release --no-build --no-restore
+dotnet run --project src/Flowspan.Desktop/Flowspan.Desktop.csproj \
+  --configuration Release --no-build --no-restore -- \
+  --validate-composition
 dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
   --configuration Release --no-build --no-restore
 ```
 
-The simulator uses fixed device, operation, and clock values. A successful run
+Desktop validation uses an explicitly degraded in-memory identity, prints TEST
+MODE, and exits; it never substitutes for production platform storage. The
+simulator uses fixed device, operation, and clock values. A successful run
 prints protocol `1.0`, `Source preserved: True`, `Target resumed: True`, and a
 redacted operation receipt containing a descriptor digest but no Activity text.
 
@@ -69,6 +77,7 @@ src/Flowspan.Platform/    capability, protection-state, and input-safety contrac
 src/Flowspan.Protocol/    protocol version negotiation primitives
 src/Flowspan.Security/    provisional identity, pairing, trust, and AEAD primitives
 src/Flowspan.Diagnostics/ redacted receipt serialization
+src/Flowspan.Desktop/     Avalonia composition root and accessible local shell
 src/Flowspan.Transport*/  direct secure transport, discovery, and reconnect boundaries
 src/Flowspan.Simulator/   runnable deterministic two-node scenario
 tests/                    domain, protocol, and integration tests

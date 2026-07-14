@@ -1,0 +1,280 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Flowspan.Desktop"
+        x:Class="Flowspan.Desktop.MainWindow"
+        x:DataType="vm:WorkspaceShellViewModel"
+        x:Name="FlowspanMainWindow"
+        Title="Flowspan — Continuous workspace"
+        Width="1180"
+        Height="760"
+        MinWidth="900"
+        MinHeight="620"
+        Background="#161A1D"
+        Foreground="#F2EFE6"
+        FontFamily="Segoe UI Variable Text, Avenir Next, DejaVu Sans">
+  <Window.Resources>
+    <SolidColorBrush x:Key="GraphiteBrush" Color="#161A1D" />
+    <SolidColorBrush x:Key="SteelBrush" Color="#252B30" />
+    <SolidColorBrush x:Key="ChalkBrush" Color="#F2EFE6" />
+    <SolidColorBrush x:Key="SafetyAmberBrush" Color="#F5B700" />
+    <SolidColorBrush x:Key="SignalRedBrush" Color="#FF6B6B" />
+    <SolidColorBrush x:Key="CoolGrayBrush" Color="#AAB4BC" />
+  </Window.Resources>
+  <Window.Styles>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="FontFamily"
+              Value="Bahnschrift SemiCondensed, DIN Alternate, DejaVu Sans Condensed" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="FontFamily"
+              Value="Cascadia Mono, Menlo, DejaVu Sans Mono" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="1.2" />
+    </Style>
+    <Style Selector="TextBlock.secondary">
+      <Setter Property="Foreground" Value="{StaticResource CoolGrayBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="Padding" Value="18,10" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="ToggleButton">
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="Padding" Value="14,10" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+    </Style>
+    <Style Selector="Button:focus">
+      <Setter Property="BorderBrush" Value="{StaticResource SafetyAmberBrush}" />
+      <Setter Property="BorderThickness" Value="3" />
+    </Style>
+    <Style Selector="ToggleButton:focus">
+      <Setter Property="BorderBrush" Value="{StaticResource SafetyAmberBrush}" />
+      <Setter Property="BorderThickness" Value="3" />
+    </Style>
+  </Window.Styles>
+
+  <Grid x:Name="WorkspaceRoot"
+        ColumnDefinitions="252,*"
+        AutomationProperties.Name="Flowspan continuous workspace">
+    <Border Grid.Column="0"
+            Background="{StaticResource SteelBrush}"
+            BorderBrush="{StaticResource SafetyAmberBrush}"
+            BorderThickness="0,0,2,0"
+            Padding="24">
+      <Grid RowDefinitions="Auto,32,Auto,24,Auto,*,Auto">
+        <StackPanel Grid.Row="0" Spacing="4">
+          <TextBlock Classes="heading" FontSize="30" Text="FLOWSPAN" />
+          <TextBlock Classes="label"
+                     Foreground="{StaticResource SafetyAmberBrush}"
+                     Text="CONTINUITY CONTROL" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Spacing="10">
+          <TextBlock Classes="label" Text="LOCAL DEVICE" />
+          <TextBlock x:Name="LocalDeviceName"
+                     FontSize="20"
+                     FontWeight="SemiBold"
+                     Text="{Binding DeviceName}"
+                     TextWrapping="Wrap"
+                     AutomationProperties.Name="Local device name" />
+          <TextBlock Classes="secondary"
+                     Text="{Binding StartupStatus}"
+                     AutomationProperties.Name="Local identity status" />
+          <TextBlock Classes="secondary"
+                     FontSize="13"
+                     Text="{Binding StartupDescription}" />
+
+          <ToggleButton x:Name="IdentityDetailsToggle"
+                        Margin="0,8,0,0"
+                        Content="{Binding IdentityDetailsActionLabel}"
+                        Command="{Binding ToggleIdentityDetailsCommand}"
+                        AutomationProperties.Name="{Binding IdentityDetailsActionLabel}"
+                        AutomationProperties.HelpText="Show or hide the local Device ID and identity fingerprint." />
+
+          <Border IsVisible="{Binding IsIdentityDetailsVisible}"
+                  BorderBrush="{StaticResource CoolGrayBrush}"
+                  BorderThickness="1"
+                  Padding="12">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="label" Text="DEVICE ID" />
+              <SelectableTextBlock x:Name="DeviceIdValue"
+                                   FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                   FontSize="12"
+                                   Text="{Binding DeviceId}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Device ID" />
+              <TextBlock Classes="label" Text="IDENTITY FINGERPRINT" />
+              <SelectableTextBlock x:Name="FingerprintValue"
+                                   FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                   FontSize="12"
+                                   Text="{Binding Fingerprint}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Identity fingerprint" />
+            </StackPanel>
+          </Border>
+
+          <Border IsVisible="{Binding IsTestMode}"
+                  Background="{StaticResource SafetyAmberBrush}"
+                  Padding="10">
+            <TextBlock Foreground="{StaticResource GraphiteBrush}"
+                       FontWeight="Bold"
+                       Text="TEST MODE — identity is not persisted"
+                       TextWrapping="Wrap"
+                       AutomationProperties.Name="Test mode warning" />
+          </Border>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4"
+                    IsVisible="{Binding IsStartupBlocked}"
+                    Spacing="8"
+                    AutomationProperties.Name="Identity recovery">
+          <TextBlock Classes="label"
+                     Foreground="{StaticResource SignalRedBrush}"
+                     Text="RECOVERY REQUIRED" />
+          <TextBlock Classes="secondary" Text="{Binding RecoveryAction}" />
+          <Button x:Name="RetryIdentityButton"
+                  Content="Retry identity"
+                  Command="{Binding RetryIdentityCommand}"
+                  AutomationProperties.Name="Retry local identity" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="6" Spacing="4">
+          <TextBlock Classes="label" Text="LOCAL FIRST" />
+          <TextBlock Classes="secondary"
+                     FontSize="12"
+                     Text="No online account. No capture or input permission requested at launch." />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Column="1" RowDefinitions="Auto,*">
+      <Border Grid.Row="0"
+              Background="#1D2226"
+              BorderBrush="{StaticResource CoolGrayBrush}"
+              BorderThickness="0,0,0,1"
+              Padding="28,18">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Spacing="3">
+            <TextBlock Classes="label" Text="SHARING STATE" />
+            <TextBlock x:Name="SharingStatusText"
+                       Classes="heading"
+                       FontSize="22"
+                       Text="NOT SHARING"
+                       AutomationProperties.Name="Sharing state: Not sharing" />
+            <TextBlock Classes="secondary"
+                       Text="No peer can view or drive this device." />
+          </StackPanel>
+          <Button x:Name="EmergencyStopButton"
+                  Grid.Column="1"
+                  MinWidth="174"
+                  Background="{StaticResource SignalRedBrush}"
+                  BorderBrush="{StaticResource SignalRedBrush}"
+                  Foreground="{StaticResource GraphiteBrush}"
+                  FontWeight="Bold"
+                  Content="EMERGENCY STOP"
+                  IsEnabled="{Binding IsEmergencyStopAvailable}"
+                  AutomationProperties.Name="Emergency stop"
+                  AutomationProperties.HelpText="Unavailable while no sharing service is active in this build." />
+        </Grid>
+      </Border>
+
+      <ScrollViewer Grid.Row="1"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="34,30,34,40" Spacing="28">
+          <Grid ColumnDefinitions="7*,5*">
+            <StackPanel Grid.Column="0" Spacing="8">
+              <TextBlock Classes="heading"
+                         FontSize="42"
+                         Text="Continuous workspace" />
+              <TextBlock Classes="secondary"
+                         FontSize="17"
+                         MaxWidth="650"
+                         HorizontalAlignment="Left"
+                         Text="Continue intent and portable context across trusted computers. Unsupported application state remains on its source and is never described as migrated." />
+            </StackPanel>
+            <Border Grid.Column="1"
+                    BorderBrush="{StaticResource SafetyAmberBrush}"
+                    BorderThickness="3,0,0,0"
+                    Padding="18,4,0,4">
+              <StackPanel Spacing="4">
+                <TextBlock Classes="label" Text="STARTUP PROTECTION" />
+                <TextBlock FontWeight="SemiBold"
+                           Text="{Binding IdentityProtection}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Identity protection" />
+              </StackPanel>
+            </Border>
+          </Grid>
+
+          <Grid ColumnDefinitions="7*,5*">
+            <Border Grid.Column="0"
+                    Background="{StaticResource SteelBrush}"
+                    BorderBrush="{StaticResource CoolGrayBrush}"
+                    BorderThickness="1"
+                    Padding="26"
+                    Margin="0,0,12,0">
+              <StackPanel MinHeight="310" Spacing="22">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="label"
+                             Foreground="{StaticResource SafetyAmberBrush}"
+                             Text="PRIMARY WORKSPACE" />
+                  <TextBlock Classes="heading" FontSize="30" Text="Activities" />
+                </StackPanel>
+                <Border BorderBrush="{StaticResource CoolGrayBrush}"
+                        BorderThickness="0,1,0,0"
+                        Padding="0,22,0,0">
+                  <StackPanel Spacing="8">
+                    <TextBlock x:Name="ActivityEmptyState"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Text="No Activities are available yet."
+                               AutomationProperties.Name="Activities status: No Activities available" />
+                    <TextBlock Classes="secondary"
+                               Text="Activities appear when a supported app can describe resumable intent and context. Remote Window remains a separately labelled fallback." />
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1"
+                    Background="#20262A"
+                    BorderBrush="{StaticResource CoolGrayBrush}"
+                    BorderThickness="1"
+                    Padding="24"
+                    Margin="12,0,0,0">
+              <StackPanel MinHeight="310" Spacing="22">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="label" Text="LOCAL NETWORK" />
+                  <TextBlock Classes="heading" FontSize="27" Text="Trusted devices" />
+                </StackPanel>
+                <Border BorderBrush="{StaticResource CoolGrayBrush}"
+                        BorderThickness="0,1,0,0"
+                        Padding="0,22,0,0">
+                  <StackPanel Spacing="8">
+                    <TextBlock x:Name="DeviceEmptyState"
+                               FontSize="17"
+                               FontWeight="SemiBold"
+                               Text="No trusted device is connected."
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Trusted devices status: None connected" />
+                    <TextBlock Classes="secondary"
+                               Text="Pairing requires a matching short authentication string and confirmation on both devices." />
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+          </Grid>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </Grid>
+</Window>

@@ -11,6 +11,9 @@ transitive license report remain mandatory under the v1 release criteria.
 
 | Package | Version | License | Purpose | Decision evidence |
 | --- | --- | --- | --- | --- |
+| `Avalonia` | 12.1.0 | MIT | Desktop control, styling, binding, and XAML core | [ADR 0007](../adr/0007-avalonia-desktop-shell.md) |
+| `Avalonia.Desktop` | 12.1.0 | MIT | Windows, macOS, and Linux desktop backends | [ADR 0007](../adr/0007-avalonia-desktop-shell.md) |
+| `Avalonia.Themes.Fluent` | 12.1.0 | MIT | Maintained accessible control templates; Flowspan owns visual tokens | [ADR 0007](../adr/0007-avalonia-desktop-shell.md) |
 | `Makaretu.Dns.Multicast` | 0.27.0 | MIT source tag; nupkg metadata undeclared | Isolated provisional mDNS/DNS-SD browser and publisher | [ADR 0004](../adr/0004-dns-sd-discovery-boundary.md) |
 | `System.Security.Cryptography.ProtectedData` | 10.0.9 | MIT | Windows CurrentUser DPAPI byte API | [ADR 0005](../adr/0005-platform-secret-storage.md) |
 
@@ -33,6 +36,7 @@ seam.
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
+| `Avalonia.Headless` | 12.1.0 | MIT | In-memory desktop control tree and input tests |
 | `Microsoft.NET.Test.Sdk` | 17.14.1 | MIT | .NET test host and protocol |
 | `coverlet.collector` | 6.0.4 | MIT | coverage data collector |
 | `xunit` | 2.9.3 | Apache-2.0 | test framework |
@@ -41,6 +45,42 @@ seam.
 Transitive versions and content hashes are recorded in each
 `packages.lock.json`. This inventory is an engineering control, not the final
 release license artifact.
+
+The Avalonia family is confined to `Flowspan.Desktop` and
+`Flowspan.Desktop.Tests`. The test project deliberately uses the framework-neutral
+`Avalonia.Headless` package rather than `Avalonia.Headless.XUnit` 12.1.0 because
+the latter requires xUnit v3 extensibility while the repository test suite
+currently uses xUnit v2. `Avalonia.Headless` brings `Avalonia.Fonts.Inter`
+transitively for its in-memory test platform; Flowspan production styles neither
+reference nor ship that package intentionally.
+
+### Avalonia restored graph
+
+The 2026-07-13 locked `net10.0` graph contains:
+
+- Avalonia 12.1.0 platform packages: `FreeDesktop`, `FreeDesktop.AtSpi`,
+  `HarfBuzz`, `Native`, `Remote.Protocol`, `Skia`, `Win32`, and `X11`;
+- `Avalonia.BuildServices` 11.3.2, `MicroCom.Runtime` 0.11.6, and
+  `Tmds.DBus.Protocol` 0.94.1;
+- `HarfBuzzSharp` 8.3.1.3 plus Linux, macOS, WebAssembly, and Win32 native
+  packages;
+- `SkiaSharp` 3.119.4 plus Linux, macOS, WebAssembly, and Win32 native packages;
+- `Avalonia.Angle.Windows.Natives` 2.1.27548.20260419.
+
+NuGet declares MIT for the Avalonia, MicroCom, Tmds, HarfBuzzSharp, and
+SkiaSharp package families. The ANGLE native package does not publish an SPDX
+expression in the NuGet catalog, but its nupkg includes a redistribution license
+matching the license at repository commit
+`1c89805903c1482166356d3b950d474973180e61`; that provenance and binary notice
+must be reproduced and rechecked by the final release-license job rather than
+being inferred from the other Avalonia packages.
+
+Ten large/native archives reviewed during the initial restore total 266.71 MiB
+as NuGet download inputs. This is not the application artifact size: RID-specific
+publish must prove that unused Windows/Linux/WebAssembly assets are excluded.
+The downloaded archives used to seed the local restore were compared with the
+NuGet catalog SHA-512 values before use. Committed lock files remain the
+reproducible source of package identities and content hashes for CI.
 
 ## CI automation
 

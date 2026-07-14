@@ -205,6 +205,12 @@ means its linked evidence exists; it does not imply the entire product works.
 
 - [ ] 7.1 Record Avalonia dependency/version decision and create the accessible
   desktop composition root.
+  - Pin and audit the production and headless dependency family; record native
+    platform limits and test-evidence boundaries in ADR 0007.
+  - Implement protected local-identity startup, a truthful safety/empty state,
+    visible focus, programmatic names, and keyboard-operable identity details.
+  - Run the headless shell contract and degraded composition smoke on every CI
+    OS without claiming native screen-reader or real-machine launch evidence.
   - _Requirements: R10, R12_
 - [ ] 7.2 Implement unified device/Activity entry, progressive permission
   prompts, pairing, capability editing, and identity-change warnings.

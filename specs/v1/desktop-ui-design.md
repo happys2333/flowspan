@@ -1,0 +1,136 @@
+# Flowspan v1 Desktop UI Design
+
+Status: accepted implementation specification for task 7.1
+
+Requirements: R1.1, R1.4, R9.6, R10, R12
+
+## 1. Purpose statement
+
+Flowspan's desktop entry lets a person understand which device is local, which
+peers are trusted, which Activities can continue elsewhere, whether anything is
+being shared, and who holds driver authority. The interface is an honest control
+surface over incremental capabilities: unavailable pairing, capture, input, or
+remote-window behavior is named rather than represented as working.
+
+Task 7.1 proves a launchable, testable composition root, protected local identity
+startup, visible safety state, and accessible control structure. It does not
+claim completed pairing, physical-LAN discovery, sharing, native permission, or
+three-platform real-machine behavior.
+
+## 2. Aesthetic direction
+
+**Industrial/utilitarian.** The shell resembles a trustworthy operations desk:
+hard boundaries, compact labels, stable placement, visible state, and restrained
+motion. Decoration never competes with Activity state or safety controls. There
+are no decorative gradients, translucent glass cards, centered card stacks, or
+color-only statuses.
+
+## 3. Color palette
+
+| Token | Value | Use |
+| --- | --- | --- |
+| Graphite | `#161A1D` | window background and dark text on alert controls |
+| Steel | `#252B30` | navigation rail and working surfaces |
+| Chalk | `#F2EFE6` | primary text |
+| Safety amber | `#F5B700` | focus, warning, and current selection |
+| Signal red | `#FF6B6B` | emergency-stop surface |
+| Cool gray | `#AAB4BC` | secondary text, always paired with explicit labels |
+
+Measured sRGB contrast ratios include Chalk on Graphite at 15.23:1, Chalk on
+Steel at 12.45:1, Safety amber on Graphite at 9.72:1, Signal red on Graphite at
+6.31:1, and Cool gray on Steel at 6.79:1. Native high-contrast themes and real
+display behavior still require platform evidence.
+
+## 4. Typography
+
+- headings: `Bahnschrift SemiCondensed`, then `DIN Alternate`, then
+  `DejaVu Sans Condensed`;
+- body: `Segoe UI Variable Text`, then `Avenir Next`, then `DejaVu Sans`;
+- identifiers and diagnostics: `Cascadia Mono`, then `Menlo`, then
+  `DejaVu Sans Mono`.
+
+Every stack names maintained fonts normally present on at least one target and
+has a Linux-available final fallback. The design does not bundle or request
+Inter, Roboto, Arial, Helvetica, generic `system-ui`, or emoji glyphs as icons.
+Font presence, shaping, and fallback are verified on the real-machine matrix.
+
+## 5. Layout strategy
+
+At desktop width, a fixed local-identity and safety rail occupies the left side.
+The working plane uses an asymmetric 7:5 split: Activity continuity receives the
+larger region and trusted devices the smaller region. A separate safety band
+keeps the sharing label and emergency stop visually independent and early in the
+keyboard order.
+
+Below the compact breakpoint, regions flow vertically in semantic order:
+safety, local identity, Activities, then devices. Content wraps and scrolls
+instead of clipping. The initial minimum window is 900 by 620 device-independent
+pixels; acceptance also exercises increased text scale and a smaller logical
+viewport before declaring the layout robust.
+
+## 6. Information architecture
+
+1. **Safety band** — explicit `Not sharing`, `Sharing`, `Recovering`, or
+   `Protection blocked` text; current driver when relevant; emergency stop.
+2. **Local identity rail** — device display name, stable Device ID, identity
+   protection status, and an optional fingerprint disclosure.
+3. **Activity workspace** — resumable Activity list and selected-operation
+   preview; task 7.1 contains a truthful empty state only.
+4. **Trusted-device workspace** — connected/trusted peers, capabilities, and
+   warnings; task 7.1 contains a truthful empty state only.
+5. **Recovery surface** — bounded failure reason and actionable recovery text,
+   never exception details or secret-store payloads.
+
+## 7. Task 7.1 interaction states
+
+The shell begins in `Initializing identity` and asynchronously loads or creates
+the local identity through the matching protected store. Success shows the
+device name, stable ID, full fingerprint, and `Operating-system protected`.
+The fingerprint can be disclosed with one keyboard-operable toggle so a person
+can verify the complete value rather than trusting an ambiguous abbreviation.
+
+CI composition validation uses an explicitly injected in-memory store and must
+show `TEST MODE — identity is not persisted`. Production failure shows
+`Identity unavailable`, keeps network/sharing work disabled, and provides a
+sanitized recovery action. It must not create a plaintext fallback.
+
+Until the emergency-stop service is implemented, the safety band truthfully
+shows `Not sharing` and the stop control is present but unavailable with an
+accessible explanation. The control must be wired to the local fail-closed stop
+port before any production sharing path can become active.
+
+## 8. Accessibility and input contract
+
+- Controls have programmatic names; status values are represented in text and
+  not by color alone.
+- Visual order, reading order, and tab order agree. The identity disclosure is
+  the first enabled control in task 7.1; the safety action retains a stable
+  location.
+- Keyboard focus uses a three-device-independent-pixel Safety amber outline with
+  sufficient offset from control edges.
+- Interactive targets have a minimum height of 44 device-independent pixels.
+- Text may wrap and containers may grow; critical state is not placed in a
+  fixed-height clipping region.
+- Ambient animation is absent. Future motion must have a reduced-motion path.
+- Visible labels remain present even when automation names are supplied.
+- User-visible strings are centralized during task 7.4; adding a string directly
+  to a later view is not a license to postpone its externalization.
+
+Headless tests cover control-tree construction, bindings, programmatic names,
+keyboard activation, truthful states, and a non-secret startup failure. Native
+screen-reader, focus indication, scaling, contrast-mode, and reduced-motion
+checks remain real-machine acceptance work.
+
+## 9. Design self-audit
+
+- Forbidden palette search: no purple, violet, indigo, fuchsia, or blue-purple
+  gradient is part of the specification.
+- Forbidden font search: none of Inter, Roboto, Arial, Helvetica, `system-ui`, or
+  `-apple-system` is selected.
+- Icon search: task 7.1 uses text and structural rules, no emoji or icon-only
+  control.
+- Layout audit: the desktop layout is rail plus asymmetric 7:5 workspace, not a
+  centered card grid.
+- Scope audit: empty states and disabled actions describe missing capability;
+  they do not claim that pairing, sharing, or arbitrary application migration
+  works.

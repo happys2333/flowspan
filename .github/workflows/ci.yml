@@ -57,6 +57,16 @@ jobs:
           --logger "trx;LogFilePrefix=${{ runner.os }}"
           --results-directory TestResults
 
+      - name: Validate desktop composition in explicit test mode
+        run: >-
+          dotnet run
+          --project src/Flowspan.Desktop/Flowspan.Desktop.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+          --
+          --validate-composition
+
       - name: Run deterministic simulator
         run: >-
           dotnet run
