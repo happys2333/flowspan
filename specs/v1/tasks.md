@@ -218,9 +218,13 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R10, R12_
 - [-] 7.2 Implement unified device/Activity entry, progressive permission
   prompts, pairing, capability editing, and identity-change warnings.
-  - 7.2a: bridge one verified inbound SAS request to a least-privilege desktop
-    confirmation surface and prove accept/reject with a deterministic two-node
-    ceremony; do not expose discovery or native permissions as connected yet.
+  - 7.2a complete: bridge one verified inbound SAS request to a least-privilege
+    desktop confirmation surface and prove accept/reject with a deterministic
+    two-node ceremony; do not expose discovery or native permissions as
+    connected yet.
+    All 306 tests, secret scan, and CodeQL pass on hosted Windows, macOS, and
+    Ubuntu at `592ebc0`; run IDs and limits are recorded in
+    [desktop pairing evidence](../../docs/evidence/2026-07-14-desktop-pairing-confirmation.md).
   - Remaining: unpaired discovery/initiator composition, persistent trust list,
     capability editing/revocation, identity-change outcome warnings, and
     progressive permission education.
