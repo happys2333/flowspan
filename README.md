@@ -36,13 +36,17 @@ for end-user installation. The repository currently includes:
 - a least-privilege incoming pairing-confirmation bridge for already verified
   security-core requests, with explicit code comparison, zero-capability
   default, cancellation/stale-prompt protection, and two-node loopback tests;
+- an explicitly enabled desktop local-network lifetime that composes one
+  listener, minimized DNS-SD browse/advertise, transcript-bound outgoing
+  pairing, persistent Trust editing, and truthful per-peer trusted-reconnect
+  status while remaining `NOT SHARING`;
 - Windows/macOS/Linux CI definitions.
 
-It does **not** yet compose the production network listener/discovery into that
-pairing surface or provide trusted-device editing, physical-LAN discovery
-evidence, native capture/input, Remote Window media, complete desktop workflows,
-packaged native accessibility evidence, packaging, or the complete real-machine
-Windows/macOS/Linux acceptance matrix. See [the v1 task tracker](specs/v1/tasks.md) and
+It does **not** yet provide physical-LAN discovery evidence, progressive native
+permission flows, native capture/input, Remote Window media, complete Activity
+desktop workflows, packaged native accessibility evidence, packaging, or the
+complete real-machine Windows/macOS/Linux acceptance matrix. See
+[the v1 task tracker](specs/v1/tasks.md) and
 [release criteria](docs/release/v1-release-criteria.md) for the honest status.
 
 ## Run the current slice
@@ -93,10 +97,12 @@ Start with [v1 requirements](specs/v1/requirements.md), then read the
 
 ## Safety boundary
 
-The current in-memory simulator does not provide production security. Real peer
-traffic must not be enabled until the pairing, authenticated key exchange,
-end-to-end encrypted framing, platform secret stores, authorization negatives,
-and security review gates in the threat model are implemented.
+The current desktop composition can explicitly enable local pairing and an
+authenticated but idle control channel. It does not carry Activity payloads and
+must continue to say `NOT SHARING`. The in-memory simulator does not provide
+production security, and Activity/media/input traffic must not be enabled until
+its end-to-end framing, platform protection, authorization negatives, native
+evidence, and security-review gates are satisfied.
 
 Flowspan is a clean-room rewrite. See
 [clean-room engineering and provenance](docs/engineering/clean-room.md).

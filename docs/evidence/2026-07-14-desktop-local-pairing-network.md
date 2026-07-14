@@ -129,7 +129,8 @@ dispatcher task, leaving the session's task field null when `Dispose` reads it.
 The successful rerun above proved the lifecycle fix and that delivery head, but
 did not prove this upstream construction race had been eliminated. Flowspan's
 assembly-scoped-session remediation and its replacement hosted evidence are
-recorded in `2026-07-14-desktop-trusted-reconnect.md`.
+recorded in the
+[desktop trusted-reconnect evidence](2026-07-14-desktop-trusted-reconnect.md).
 
 ## What this proves
 

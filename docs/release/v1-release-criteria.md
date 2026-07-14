@@ -115,6 +115,17 @@ implementation convenience.
   secret scan, and CodeQL passed on hosted Windows, macOS, and Ubuntu for the
   fingerprint-conditional persistent Trust editor. Physical credential-store,
   active-session, native accessibility, and LAN behavior remain open.
+- [2026-07-14 desktop local pairing network](../evidence/2026-07-14-desktop-local-pairing-network.md):
+  explicit network enable composes the production listener, minimized DNS-SD,
+  transcript-bound outgoing pairing, authoritative Trust refresh, and bounded
+  lifecycle recovery. Same-host and hosted evidence is not physical-LAN or
+  two-person SAS evidence.
+- [2026-07-14 desktop trusted reconnect](../evidence/2026-07-14-desktop-trusted-reconnect.md):
+  383 tests, warning-free builds, explicit TEST MODE composition, simulator,
+  secret scan, and CodeQL passed on hosted Windows, macOS, and Ubuntu after an
+  Avalonia Headless-session race remediation. The production-composed
+  same-host loopback proves one authenticated idle channel and truthful status,
+  not physical-LAN, Activity, native-permission, or packaged-app behavior.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product
