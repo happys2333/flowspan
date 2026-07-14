@@ -103,7 +103,7 @@ public sealed class TrustSessionCoordinatorTests
                 healthySession)
             ?? throw new InvalidOperationException("Expected the second session.");
 
-        await Assert.ThrowsAsync<AggregateException>(async () =>
+        await Assert.ThrowsAsync<TrustSessionStopException>(async () =>
             await coordinator.RevokePeerAsync(PeerId));
 
         Assert.False(trustStore.TryGet(PeerId, out _));
@@ -221,6 +221,72 @@ public sealed class TrustSessionCoordinatorTests
         Assert.False(coordinator.TryGet(PeerId, out _));
     }
 
+    [Fact]
+    public async Task StaleSnapshotCannotRevokeReplacementIdentity()
+    {
+        using DeviceIdentity original = DeviceIdentity.Generate(PeerId, "Original desk");
+        using DeviceIdentity replacement = DeviceIdentity.Generate(
+            PeerId,
+            "Replacement desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            original.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+        TrustedPeerSnapshot stale = Assert.Single(coordinator.GetTrustedPeers());
+        Assert.True(await coordinator.RevokePeerAsync(PeerId));
+        Assert.Equal(
+            TrustRegistrationResult.Added,
+            await coordinator.RegisterAsync(new TrustRecord(
+                replacement.PublicIdentity,
+                DateTimeOffset.UnixEpoch.AddMinutes(1),
+                CapabilityGrant.Of(Capability.MirrorView))));
+
+        TrustMutationResult result = await coordinator.RevokePeerAsync(
+            PeerId,
+            stale.Fingerprint);
+
+        Assert.Equal(TrustMutationResult.IdentityChanged, result);
+        Assert.True(coordinator.TryGet(PeerId, out TrustRecord? retained));
+        Assert.Equal(
+            replacement.PublicIdentity.Fingerprint,
+            retained.PeerIdentity.Fingerprint);
+    }
+
+    [Fact]
+    public async Task StaleSnapshotCannotUpdateReplacementIdentityCapabilities()
+    {
+        using DeviceIdentity original = DeviceIdentity.Generate(PeerId, "Original desk");
+        using DeviceIdentity replacement = DeviceIdentity.Generate(
+            PeerId,
+            "Replacement desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            original.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+        TrustedPeerSnapshot stale = Assert.Single(coordinator.GetTrustedPeers());
+        Assert.True(await coordinator.RevokePeerAsync(PeerId));
+        Assert.Equal(
+            TrustRegistrationResult.Added,
+            await coordinator.RegisterAsync(new TrustRecord(
+                replacement.PublicIdentity,
+                DateTimeOffset.UnixEpoch.AddMinutes(1),
+                CapabilityGrant.Of(Capability.MirrorView))));
+
+        TrustMutationResult result = await coordinator.UpdateCapabilitiesAsync(
+            PeerId,
+            stale.Fingerprint,
+            CapabilityGrant.Of(Capability.ActivityOffer));
+
+        Assert.Equal(TrustMutationResult.IdentityChanged, result);
+        Assert.True(coordinator.TryGet(PeerId, out TrustRecord? retained));
+        Assert.True(retained.GrantedCapabilities.Allows(Capability.MirrorView));
+        Assert.False(retained.GrantedCapabilities.Allows(Capability.ActivityOffer));
+    }
+
     private sealed class BlockingRevocableSession : IRevocablePeerSession
     {
         private readonly TaskCompletionSource allowStop = new(
@@ -289,6 +355,9 @@ public sealed class TrustSessionCoordinatorTests
 
         public SecretStoreProtection Protection => inner.Protection;
 
+        public System.Collections.Immutable.ImmutableArray<TrustedPeerSnapshot>
+            GetSnapshot() => inner.GetSnapshot();
+
         public bool Allows(DeviceId peerDeviceId, Capability capability) =>
             inner.Allows(peerDeviceId, capability);
 
@@ -301,22 +370,26 @@ public sealed class TrustSessionCoordinatorTests
             return await inner.RegisterAsync(trustRecord, cancellationToken);
         }
 
-        public ValueTask<bool> RevokeAsync(
+        public ValueTask<TrustMutationResult> RevokeAsync(
             DeviceId peerDeviceId,
+            string expectedFingerprint,
             CancellationToken cancellationToken = default) =>
-            inner.RevokeAsync(peerDeviceId, cancellationToken);
+            inner.RevokeAsync(
+                peerDeviceId,
+                expectedFingerprint,
+                cancellationToken);
 
         public bool TryGet(
             DeviceId peerDeviceId,
             [NotNullWhen(true)] out TrustRecord? trustRecord) =>
             inner.TryGet(peerDeviceId, out trustRecord);
 
-        public ValueTask<bool> TryUpdateCapabilitiesAsync(
+        public ValueTask<TrustMutationResult> UpdateCapabilitiesAsync(
             DeviceId peerDeviceId,
             string expectedFingerprint,
             CapabilityGrant capabilities,
             CancellationToken cancellationToken = default) =>
-            inner.TryUpdateCapabilitiesAsync(
+            inner.UpdateCapabilitiesAsync(
                 peerDeviceId,
                 expectedFingerprint,
                 capabilities,

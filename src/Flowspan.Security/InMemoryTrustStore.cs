@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Flowspan.Domain;
 
@@ -66,7 +67,34 @@ public sealed class InMemoryTrustStore : ITrustStore
         }
     }
 
+    public ImmutableArray<TrustedPeerSnapshot> GetSnapshot()
+    {
+        lock (gate)
+        {
+            return trustRecords.Values
+                .OrderBy(
+                    static record => record.PeerIdentity.DeviceId.ToString(),
+                    StringComparer.Ordinal)
+                .Select(static record => new TrustedPeerSnapshot(
+                    record.PeerIdentity.DeviceId,
+                    record.PeerIdentity.DisplayName,
+                    record.PeerIdentity.Fingerprint,
+                    record.VerifiedAt,
+                    record.GrantedCapabilities))
+                .ToImmutableArray();
+        }
+    }
+
     public bool TryUpdateCapabilities(
+        DeviceId peerDeviceId,
+        string expectedFingerprint,
+        CapabilityGrant capabilities)
+        => UpdateCapabilities(
+            peerDeviceId,
+            expectedFingerprint,
+            capabilities) == TrustMutationResult.Applied;
+
+    private TrustMutationResult UpdateCapabilities(
         DeviceId peerDeviceId,
         string expectedFingerprint,
         CapabilityGrant capabilities)
@@ -76,19 +104,23 @@ public sealed class InMemoryTrustStore : ITrustStore
         ArgumentNullException.ThrowIfNull(capabilities);
         lock (gate)
         {
-            if (!trustRecords.TryGetValue(peerDeviceId, out TrustRecord? existing)
-                || !StringComparer.Ordinal.Equals(
+            if (!trustRecords.TryGetValue(peerDeviceId, out TrustRecord? existing))
+            {
+                return TrustMutationResult.PeerNotFound;
+            }
+
+            if (!StringComparer.Ordinal.Equals(
                     existing.PeerIdentity.Fingerprint,
                     expectedFingerprint))
             {
-                return false;
+                return TrustMutationResult.IdentityChanged;
             }
 
             trustRecords[peerDeviceId] = existing with
             {
                 GrantedCapabilities = capabilities,
             };
-            return true;
+            return TrustMutationResult.Applied;
         }
     }
 
@@ -101,22 +133,41 @@ public sealed class InMemoryTrustStore : ITrustStore
         }
     }
 
-    public ValueTask<bool> RevokeAsync(
+    public ValueTask<TrustMutationResult> RevokeAsync(
         DeviceId peerDeviceId,
+        string expectedFingerprint,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(Revoke(peerDeviceId));
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedFingerprint);
+        lock (gate)
+        {
+            if (!trustRecords.TryGetValue(peerDeviceId, out TrustRecord? existing))
+            {
+                return ValueTask.FromResult(TrustMutationResult.PeerNotFound);
+            }
+
+            if (!StringComparer.Ordinal.Equals(
+                    existing.PeerIdentity.Fingerprint,
+                    expectedFingerprint))
+            {
+                return ValueTask.FromResult(TrustMutationResult.IdentityChanged);
+            }
+
+            trustRecords.Remove(peerDeviceId);
+            return ValueTask.FromResult(TrustMutationResult.Applied);
+        }
     }
 
-    public ValueTask<bool> TryUpdateCapabilitiesAsync(
+    public ValueTask<TrustMutationResult> UpdateCapabilitiesAsync(
         DeviceId peerDeviceId,
         string expectedFingerprint,
         CapabilityGrant capabilities,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryUpdateCapabilities(
+        return ValueTask.FromResult(UpdateCapabilities(
             peerDeviceId,
             expectedFingerprint,
             capabilities));

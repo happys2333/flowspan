@@ -77,6 +77,41 @@ public sealed class InMemoryTrustStoreTests
         Assert.False(store.TryGet(PeerId, out _));
     }
 
+    [Fact]
+    public void TrustedPeerSnapshotIsCanonicalPointInTimeProjection()
+    {
+        using DeviceIdentity later = DeviceIdentity.Generate(
+            PeerId,
+            "Later desk");
+        using DeviceIdentity earlier = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Earlier desk");
+        var store = new InMemoryTrustStore();
+        store.Register(new TrustRecord(
+            later.PublicIdentity,
+            Now.AddMinutes(1),
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        store.Register(new TrustRecord(
+            earlier.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+
+        var snapshot = store.GetSnapshot();
+        store.TryUpdateCapabilities(
+            earlier.DeviceId,
+            earlier.PublicIdentity.Fingerprint,
+            CapabilityGrant.Of(Capability.MirrorView));
+
+        Assert.Equal(
+            [earlier.DeviceId, later.DeviceId],
+            snapshot.Select(static peer => peer.DeviceId));
+        Assert.Equal("Earlier desk", snapshot[0].DisplayName);
+        Assert.Equal(earlier.PublicIdentity.Fingerprint, snapshot[0].Fingerprint);
+        Assert.Equal(Now, snapshot[0].VerifiedAt);
+        Assert.True(snapshot[0].GrantedCapabilities.Allows(Capability.ActivityOffer));
+        Assert.False(snapshot[0].GrantedCapabilities.Allows(Capability.MirrorView));
+    }
+
     private static TrustRecord CreateRecord(
         DeviceIdentity identity,
         CapabilityGrant capabilities) => new(

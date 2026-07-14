@@ -15,7 +15,7 @@ public sealed class MainWindowAccessibilityTests
     [Fact]
     public async Task ShellDeclaresTextStatesAndSupportsKeyboardDisclosure()
     {
-        using var viewModel = new WorkspaceShellViewModel(
+        await using var viewModel = new WorkspaceShellViewModel(
             new ReadyStartup());
         await viewModel.InitializeAsync();
         using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
@@ -57,7 +57,7 @@ public sealed class MainWindowAccessibilityTests
             DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
             "Peer desk");
         using var source = new DesktopPairingDecisionSource();
-        using var viewModel = new WorkspaceShellViewModel(
+        await using var viewModel = new WorkspaceShellViewModel(
             new ReadyStartup(),
             source,
             InlineDesktopUiDispatcher.Instance);
@@ -107,6 +107,117 @@ public sealed class MainWindowAccessibilityTests
         PairingDecision decision = await pending.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(decision.Accepted);
         Assert.Empty(decision.CapabilitiesGrantedToPeer.Capabilities);
+    }
+
+    [Fact]
+    public async Task TrustedDeviceCapabilitiesAndRevokeAreKeyboardOperable()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            peer.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.None));
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            trustAuthority: new DesktopTrustAuthority(trustStore));
+        await viewModel.InitializeAsync();
+        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Show();
+            ListBox devices = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("TrustedDeviceList"));
+            CheckBox mirrorView = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("GrantMirrorViewCheckBox"));
+            Button save = Assert.IsType<Button>(
+                window.FindControl<Button>("SaveCapabilitiesButton"));
+            Button reviewRevoke = Assert.IsType<Button>(
+                window.FindControl<Button>("ReviewRevokeButton"));
+            Button confirmRevoke = Assert.IsType<Button>(
+                window.FindControl<Button>("ConfirmRevokeButton"));
+            TextBlock mutationStatus = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("TrustMutationStatusText"));
+
+            Assert.Single(devices.Items);
+            Assert.Equal(
+                "Allow peer to view mirrored Activities",
+                mirrorView.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Save peer capabilities",
+                save.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Review device revocation",
+                reviewRevoke.GetValue(AutomationProperties.NameProperty));
+            Assert.True(mirrorView.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(save.IsEnabled);
+            Assert.True(save.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(trustStore.Allows(peer.DeviceId, Capability.MirrorView));
+
+            Assert.True(reviewRevoke.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(confirmRevoke.IsVisible);
+            Assert.True(trustStore.TryGet(peer.DeviceId, out _));
+            Assert.True(confirmRevoke.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.False(trustStore.TryGet(peer.DeviceId, out _));
+            Assert.True(mutationStatus.IsVisible);
+            Assert.Equal("DEVICE REVOKED", mutationStatus.Text);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task TrustedDeviceSelectionUpdatesCapabilityDraftByKeyboard()
+    {
+        using DeviceIdentity first = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "First desk");
+        using DeviceIdentity second = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Second desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            first.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        trustStore.Register(new TrustRecord(
+            second.PublicIdentity,
+            DateTimeOffset.UnixEpoch.AddMinutes(1),
+            CapabilityGrant.Of(Capability.MirrorDrive)));
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            trustAuthority: new DesktopTrustAuthority(trustStore));
+        await viewModel.InitializeAsync();
+        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Show();
+            ListBox devices = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("TrustedDeviceList"));
+
+            Assert.Equal("First desk", viewModel.TrustedDevices.SelectedDevice?.DisplayName);
+            Assert.True(viewModel.TrustedDevices.GrantActivityOffer);
+            Assert.False(viewModel.TrustedDevices.GrantMirrorDrive);
+            Control firstItem = Assert.IsAssignableFrom<Control>(
+                devices.ContainerFromIndex(0));
+            Assert.True(firstItem.Focus());
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+
+            Assert.Equal("Second desk", viewModel.TrustedDevices.SelectedDevice?.DisplayName);
+            Assert.False(viewModel.TrustedDevices.GrantActivityOffer);
+            Assert.True(viewModel.TrustedDevices.GrantMirrorDrive);
+            window.Close();
+        }, CancellationToken.None);
     }
 
     private sealed class ReadyStartup : IDesktopIdentityStartup

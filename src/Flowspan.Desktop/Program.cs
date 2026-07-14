@@ -25,7 +25,7 @@ internal static class Program
 
     private static async Task<int> ValidateCompositionAsync()
     {
-        using WorkspaceShellViewModel viewModel =
+        await using WorkspaceShellViewModel viewModel =
             DesktopCompositionRoot.CreateValidation();
         await viewModel.InitializeAsync().ConfigureAwait(false);
 
@@ -34,7 +34,12 @@ internal static class Program
             && !viewModel.IsStartupBlocked
             && !viewModel.IsEmergencyStopAvailable
             && !viewModel.Pairing.HasPendingPrompt
+            && viewModel.TrustedDevices.IsTrustAvailable
+            && viewModel.TrustedDevices.IsEmpty
             && viewModel.IdentityProtection.Contains(
+                "TEST MODE",
+                StringComparison.Ordinal)
+            && viewModel.TrustedDevices.Protection.Contains(
                 "TEST MODE",
                 StringComparison.Ordinal);
 

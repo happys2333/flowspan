@@ -1,3 +1,6 @@
+using Flowspan.Domain;
+using Flowspan.Security;
+
 namespace Flowspan.Desktop.Tests;
 
 public sealed class WorkspaceShellViewModelTests
@@ -11,7 +14,7 @@ public sealed class WorkspaceShellViewModelTests
             new string('A', 64),
             "Operating-system protected",
             false));
-        using var viewModel = new WorkspaceShellViewModel(startup);
+        await using var viewModel = new WorkspaceShellViewModel(startup);
 
         await viewModel.InitializeAsync();
 
@@ -26,7 +29,7 @@ public sealed class WorkspaceShellViewModelTests
     [Fact]
     public async Task ToggleIdentityDetailsCommandChangesVisibleTextAndState()
     {
-        using var viewModel = CreateReadyViewModel();
+        await using var viewModel = CreateReadyViewModel();
         await viewModel.InitializeAsync();
 
         viewModel.ToggleIdentityDetailsCommand.Execute(null);
@@ -44,7 +47,7 @@ public sealed class WorkspaceShellViewModelTests
     public async Task InitializeAsyncBlocksWithoutLeakingStartupException()
     {
         const string canary = "CANARY_SECRET_STORE_DETAIL";
-        using var viewModel = new WorkspaceShellViewModel(
+        await using var viewModel = new WorkspaceShellViewModel(
             new StubStartup(new IOException(canary)));
 
         await viewModel.InitializeAsync();
@@ -65,8 +68,9 @@ public sealed class WorkspaceShellViewModelTests
         Task initialization = viewModel.InitializeAsync();
         await startup.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        viewModel.Dispose();
-        await initialization.WaitAsync(TimeSpan.FromSeconds(2));
+        Task disposing = viewModel.DisposeAsync().AsTask();
+        await Task.WhenAll(initialization, disposing)
+            .WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.True(startup.Disposed);
         Assert.False(startup.WasDisposedWhileInitializing);
@@ -76,7 +80,7 @@ public sealed class WorkspaceShellViewModelTests
     public async Task SecondInitializationRecoversAfterTransientFailure()
     {
         var startup = new RecoveringStartup();
-        using var viewModel = new WorkspaceShellViewModel(startup);
+        await using var viewModel = new WorkspaceShellViewModel(startup);
 
         await viewModel.InitializeAsync();
         Assert.True(viewModel.IsStartupBlocked);
@@ -86,6 +90,27 @@ public sealed class WorkspaceShellViewModelTests
         Assert.True(viewModel.IsIdentityAvailable);
         Assert.False(viewModel.IsStartupBlocked);
         Assert.Equal(2, startup.Attempts);
+    }
+
+    [Fact]
+    public async Task DisposeAsyncCancelsTrustMutationBeforeDisposingDependencies()
+    {
+        var startup = new TrackingStartup();
+        var authority = new BlockingTrustAuthority();
+        var viewModel = new WorkspaceShellViewModel(
+            startup,
+            trustAuthority: authority);
+        await viewModel.InitializeAsync();
+        viewModel.TrustedDevices.GrantActivityOffer = true;
+        Task saving = viewModel.TrustedDevices.SaveCapabilitiesAsync();
+        await authority.MutationStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = viewModel.DisposeAsync().AsTask();
+
+        await Task.WhenAll(saving, disposing).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(authority.Disposed);
+        Assert.False(authority.WasDisposedDuringMutation);
+        Assert.True(startup.Disposed);
     }
 
     private static WorkspaceShellViewModel CreateReadyViewModel() => new(
@@ -116,6 +141,95 @@ public sealed class WorkspaceShellViewModelTests
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class TrackingStartup : IDesktopIdentityStartup
+    {
+        public bool Disposed { get; private set; }
+
+        public ValueTask<LocalIdentitySnapshot> InitializeAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new LocalIdentitySnapshot(
+                "Desk",
+                "11111111-1111-1111-1111-111111111111",
+                new string('A', 64),
+                "Operating-system protected",
+                false));
+        }
+
+        public void Dispose() => Disposed = true;
+    }
+
+    private sealed class BlockingTrustAuthority : IDesktopTrustAuthority
+    {
+        private readonly DeviceId peerDeviceId =
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222");
+        private bool mutationActive;
+
+        public bool Disposed { get; private set; }
+
+        public TaskCompletionSource MutationStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool WasDisposedDuringMutation { get; private set; }
+
+        public ValueTask<DesktopTrustSnapshot> InitializeAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new DesktopTrustSnapshot(
+                SecretStoreProtection.OperatingSystemProtected,
+                [new TrustedPeerSnapshot(
+                    peerDeviceId,
+                    "Peer desk",
+                    new string('B', 64),
+                    DateTimeOffset.UnixEpoch,
+                    CapabilityGrant.None)]));
+        }
+
+        public async ValueTask<DesktopTrustMutationOutcome> UpdateCapabilitiesAsync(
+            DeviceId peerDeviceId,
+            string expectedFingerprint,
+            CapabilityGrant capabilities,
+            CancellationToken cancellationToken = default)
+        {
+            mutationActive = true;
+            MutationStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException(
+                    "The blocking Trust mutation unexpectedly completed.");
+            }
+            finally
+            {
+                mutationActive = false;
+            }
+        }
+
+        public ValueTask<DesktopTrustMutationOutcome> RevokeAsync(
+            DeviceId peerDeviceId,
+            string expectedFingerprint,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<DesktopTrustMutationOutcome>(
+                new NotSupportedException());
+
+        public ValueTask<TrustSessionRegistration?> TryRegisterSessionAsync(
+            DeviceId peerDeviceId,
+            CapabilityGrant requiredCapabilities,
+            IRevocablePeerSession session,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<TrustSessionRegistration?>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            WasDisposedDuringMutation = mutationActive;
+            Disposed = true;
+            return ValueTask.CompletedTask;
         }
     }
 

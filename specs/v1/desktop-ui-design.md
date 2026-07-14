@@ -167,3 +167,45 @@ an unpaired discovery list, initiating a connection to a selected candidate,
 persistent trusted-device enumeration, Capability editing/revocation, pairing
 outcome history, identity-change warnings, and progressive native permission
 education.
+
+## 11. Task 7.2b: persistent trusted-device authority
+
+The trusted-device workspace loads the protected Trust Store through the same
+coordinator that will admit and stop peer sessions. It lists immutable peer
+snapshots in stable Device ID order and distinguishes `No paired devices` from
+`Trust Store unavailable`; neither state claims that discovery or a production
+listener is running. Selecting a peer exposes its full display name, Device ID,
+fingerprint, verification time, and current independent Capability grants.
+
+The editor exposes all seven v1 grants with explicit labels:
+`activity.offer`, `activity.receive`, `activity.replace`, `mirror.view`,
+`mirror.drive`, `file.receive`, and `scene.apply`. Every option begins from the
+persisted grant. Changing a checkbox changes only an unsaved draft; `Save
+capabilities` sends the selected Device ID, the displayed fingerprint, and the
+complete grant to the coordinator. A stale fingerprint, missing peer, cancelled
+operation, protected-store failure, or session-stop failure is shown in text and
+followed by an authoritative list refresh. A Capability grant does not itself
+request capture or input permission and the UI says so.
+
+Revocation is a two-step destructive action. `Review revoke` reveals the exact
+peer and states that new operations will be rejected immediately and active
+sharing will be asked to stop. Only the separately focused `Revoke device`
+control performs the conditional coordinator mutation; `Cancel` returns without
+changing Trust. Revocation has no claimed undo. If Trust was durably removed but
+one or more session stop requests fail, the result must say that authorization
+is removed while shutdown confirmation failed, rather than reporting either a
+full failure or full success.
+
+The selected peer and draft are discarded when that fingerprint is no longer
+current. While a save or revoke is in progress, competing mutations are disabled
+but reading and emergency-stop placement remain stable. Headless tests cover
+stable ordering, exact grant round-trips, stale identity refusal, keyboard
+selection and editing, revoke confirmation, accessible names, truthful empty and
+failure states, and authoritative refresh. Native screen-reader behavior and
+physical active-session shutdown remain separate acceptance evidence.
+
+Window close is an asynchronous lifecycle boundary: it cancels pending Trust
+Store initialization or mutation, waits for the admitted operation to drain,
+then disposes the session coordinator, persistent repository, identity, and
+pairing prompt before allowing the window to close. The UI thread does not
+synchronously block on this cleanup.

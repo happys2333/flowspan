@@ -626,6 +626,9 @@ public sealed class PairingCeremonyTests
 
         public SecretStoreProtection Protection => inner.Protection;
 
+        public System.Collections.Immutable.ImmutableArray<TrustedPeerSnapshot>
+            GetSnapshot() => inner.GetSnapshot();
+
         public bool Allows(DeviceId peerDeviceId, Capability capability) =>
             inner.Allows(peerDeviceId, capability);
 
@@ -637,22 +640,26 @@ public sealed class PairingCeremonyTests
             throw new InvalidDataException("trust save failed");
         }
 
-        public ValueTask<bool> RevokeAsync(
+        public ValueTask<TrustMutationResult> RevokeAsync(
             DeviceId peerDeviceId,
+            string expectedFingerprint,
             CancellationToken cancellationToken = default) =>
-            inner.RevokeAsync(peerDeviceId, cancellationToken);
+            inner.RevokeAsync(
+                peerDeviceId,
+                expectedFingerprint,
+                cancellationToken);
 
         public bool TryGet(
             DeviceId peerDeviceId,
             [NotNullWhen(true)] out TrustRecord? trustRecord) =>
             inner.TryGet(peerDeviceId, out trustRecord);
 
-        public ValueTask<bool> TryUpdateCapabilitiesAsync(
+        public ValueTask<TrustMutationResult> UpdateCapabilitiesAsync(
             DeviceId peerDeviceId,
             string expectedFingerprint,
             CapabilityGrant capabilities,
             CancellationToken cancellationToken = default) =>
-            inner.TryUpdateCapabilitiesAsync(
+            inner.UpdateCapabilitiesAsync(
                 peerDeviceId,
                 expectedFingerprint,
                 capabilities,

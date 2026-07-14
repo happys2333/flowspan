@@ -5,6 +5,9 @@ namespace Flowspan.Desktop;
 
 public sealed partial class MainWindow : Window
 {
+    private bool closeAfterDisposal;
+    private bool disposalStarted;
+
     public MainWindow() => InitializeComponent();
 
     protected override async void OnOpened(EventArgs e)
@@ -16,14 +19,34 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    protected override void OnClosed(EventArgs e)
+    protected override async void OnClosing(WindowClosingEventArgs e)
     {
-        if (DataContext is IDisposable disposable)
+        base.OnClosing(e);
+        if (e.Cancel
+            || closeAfterDisposal
+            || DataContext is not IAsyncDisposable asyncDisposable)
         {
-            disposable.Dispose();
+            return;
         }
 
-        base.OnClosed(e);
+        e.Cancel = true;
+        if (disposalStarted)
+        {
+            return;
+        }
+
+        disposalStarted = true;
+        try
+        {
+            await asyncDisposable.DisposeAsync().ConfigureAwait(true);
+        }
+        catch
+        {
+            // Closing must continue after every resource was asked to stop.
+        }
+
+        closeAfterDisposal = true;
+        Close();
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);

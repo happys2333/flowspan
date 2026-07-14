@@ -225,9 +225,12 @@ means its linked evidence exists; it does not imply the entire product works.
     All 306 tests, secret scan, and CodeQL pass on hosted Windows, macOS, and
     Ubuntu at `592ebc0`; run IDs and limits are recorded in
     [desktop pairing evidence](../../docs/evidence/2026-07-14-desktop-pairing-confirmation.md).
-  - Remaining: unpaired discovery/initiator composition, persistent trust list,
-    capability editing/revocation, identity-change outcome warnings, and
-    progressive permission education.
+  - 7.2b in progress: expose immutable, stable Trust snapshots; condition every
+    desktop capability edit/revoke on the displayed fingerprint; route mutation
+    through `TrustSessionCoordinator`; refresh authoritatively; and provide the
+    accessible persistent-device editor and two-step revoke surface.
+  - Remaining after 7.2b: unpaired discovery/initiator composition,
+    identity-change outcome warnings, and progressive permission education.
   - _Requirements: R1, R2, R10_
 - [ ] 7.3 Implement operation preview, named degradation, persistent sharing
   indicator, recovery, receipt, and undo surfaces.

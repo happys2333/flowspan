@@ -351,6 +351,25 @@ payload-backed persistent implementation stay behind this boundary rather than
 exposing an independent product mutation path. Local coordinator shutdown first
 blocks new admission, removes every registration, and awaits all session stops.
 
+The desktop trust workspace reads an immutable, canonically Device-ID-ordered
+`TrustedPeerSnapshot` projection from this same authority. The projection
+contains only the peer ID, display name, identity fingerprint, verification
+time, and immutable Capability grant; it does not expose repository mutation or
+public-key bytes to presentation code. Desktop capability changes and peer
+revocation carry both the Device ID and the fingerprint shown to the user. The
+coordinator applies them only if that identity is still current, so a stale UI
+cannot change or remove a newly replaced identity. After every mutation attempt,
+the desktop refreshes from the authoritative snapshot rather than editing its
+local collection optimistically.
+
+Only the coordinator's typed post-commit `TrustSessionStopException` can map to
+an `AppliedWithSessionStopFailure` desktop result. Storage, codec, cancellation,
+and other aggregate failures remain failed mutations and cannot be inferred as
+success from a coincidentally matching snapshot. The persistent desktop
+authority serializes each complete open/read/mutate/register operation with
+disposal; closing rejects new work and waits for an operation already admitted
+to leave the authority before disposing its coordinator and repository.
+
 Platform adapters continuously expose a `ProtectionState`. Unknown or stale
 protection state fails closed for capture and remote input. The global emergency
 stop is implemented in the platform process as well as the application layer so

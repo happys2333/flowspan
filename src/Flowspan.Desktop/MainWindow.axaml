@@ -259,23 +259,169 @@
                     BorderThickness="1"
                     Padding="24"
                     Margin="12,0,0,0">
-              <StackPanel MinHeight="310" Spacing="22">
+              <StackPanel MinHeight="310" Spacing="16">
                 <StackPanel Spacing="4">
                   <TextBlock Classes="label" Text="LOCAL NETWORK" />
                   <TextBlock Classes="heading" FontSize="27" Text="Trusted devices" />
                 </StackPanel>
                 <Border BorderBrush="{StaticResource CoolGrayBrush}"
                         BorderThickness="0,1,0,0"
-                        Padding="0,22,0,0">
-                  <StackPanel Spacing="8">
-                    <TextBlock x:Name="DeviceEmptyState"
-                               FontSize="17"
+                        Padding="0,16,0,0">
+                  <StackPanel Spacing="10">
+                    <TextBlock FontSize="17"
                                FontWeight="SemiBold"
-                               Text="No trusted device is connected."
+                               Text="{Binding TrustedDevices.Status}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Trusted devices status: None connected" />
+                               AutomationProperties.Name="{Binding TrustedDevices.Status}" />
                     <TextBlock Classes="secondary"
-                               Text="Pairing requires a matching short authentication string and confirmation on both devices." />
+                               Text="{Binding TrustedDevices.StatusDescription}" />
+                    <TextBlock Classes="label"
+                               Foreground="{StaticResource SafetyAmberBrush}"
+                               Text="{Binding TrustedDevices.Protection}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Trust Store protection" />
+                    <TextBlock Classes="secondary"
+                               IsVisible="{Binding TrustedDevices.IsEmpty}"
+                               Text="{Binding TrustedDevices.RecoveryAction}" />
+
+                    <StackPanel IsVisible="{Binding TrustedDevices.IsTrustAvailable}"
+                                Spacing="12">
+                      <TextBlock x:Name="DeviceEmptyState"
+                                 IsVisible="{Binding TrustedDevices.IsEmpty}"
+                                 FontSize="15"
+                                 FontWeight="SemiBold"
+                                 Text="No paired device has a persisted Trust Record."
+                                 TextWrapping="Wrap"
+                                 AutomationProperties.Name="Trusted devices status: No paired devices" />
+
+                      <ListBox x:Name="TrustedDeviceList"
+                               ItemsSource="{Binding TrustedDevices.Devices}"
+                               SelectedItem="{Binding TrustedDevices.SelectedDevice, Mode=TwoWay}"
+                               MaxHeight="220"
+                               AutomationProperties.Name="Paired devices">
+                        <ListBox.ItemTemplate>
+                          <DataTemplate>
+                            <StackPanel Margin="8" Spacing="3">
+                              <TextBlock FontWeight="SemiBold"
+                                         Text="{Binding DisplayName}"
+                                         TextWrapping="Wrap" />
+                              <TextBlock Classes="secondary"
+                                         FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                         FontSize="11"
+                                         Text="{Binding DeviceId}"
+                                         TextWrapping="Wrap" />
+                              <TextBlock Classes="secondary"
+                                         FontSize="11"
+                                         Text="{Binding CapabilitySummary}"
+                                         TextWrapping="Wrap" />
+                            </StackPanel>
+                          </DataTemplate>
+                        </ListBox.ItemTemplate>
+                      </ListBox>
+
+                      <Border IsVisible="{Binding TrustedDevices.HasSelection}"
+                              IsEnabled="{Binding TrustedDevices.CanEditSelectedPeer}"
+                              BorderBrush="{StaticResource CoolGrayBrush}"
+                              BorderThickness="1"
+                              Padding="14">
+                        <StackPanel Spacing="10">
+                          <TextBlock Classes="label" Text="SELECTED TRUST RECORD" />
+                          <TextBlock FontWeight="SemiBold"
+                                     Text="{Binding TrustedDevices.SelectedDevice.DisplayName}"
+                                     TextWrapping="Wrap"
+                                     AutomationProperties.Name="Selected paired device" />
+                          <TextBlock Classes="label" Text="DEVICE ID" />
+                          <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                               FontSize="11"
+                                               Text="{Binding TrustedDevices.SelectedDevice.DeviceId}"
+                                               TextWrapping="Wrap"
+                                               AutomationProperties.Name="Selected peer Device ID" />
+                          <TextBlock Classes="label" Text="IDENTITY FINGERPRINT" />
+                          <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                               FontSize="11"
+                                               Text="{Binding TrustedDevices.SelectedDevice.Fingerprint}"
+                                               TextWrapping="Wrap"
+                                               AutomationProperties.Name="Selected peer identity fingerprint" />
+                          <TextBlock Classes="secondary"
+                                     FontSize="11"
+                                     Text="{Binding TrustedDevices.SelectedDevice.VerifiedAt, StringFormat='Verified {0}'}"
+                                     AutomationProperties.Name="Trust verification time" />
+
+                          <TextBlock Classes="label" Text="LOCAL CAPABILITY GRANT" />
+                          <TextBlock Classes="secondary"
+                                     FontSize="12"
+                                     Text="A grant permits a class of peer request. It does not start sharing or request an operating-system permission." />
+                          <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityOffer, Mode=TwoWay}"
+                                    Content="activity.offer — offer Activities"
+                                    AutomationProperties.Name="Allow peer to offer Activities" />
+                          <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityReceive, Mode=TwoWay}"
+                                    Content="activity.receive — receive Activities"
+                                    AutomationProperties.Name="Allow peer to receive Activities" />
+                          <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityReplace, Mode=TwoWay}"
+                                    Content="activity.replace — replace Activities"
+                                    AutomationProperties.Name="Allow peer to replace Activities" />
+                          <CheckBox x:Name="GrantMirrorViewCheckBox"
+                                    IsChecked="{Binding TrustedDevices.GrantMirrorView, Mode=TwoWay}"
+                                    Content="mirror.view — view mirrored Activities"
+                                    AutomationProperties.Name="Allow peer to view mirrored Activities" />
+                          <CheckBox IsChecked="{Binding TrustedDevices.GrantMirrorDrive, Mode=TwoWay}"
+                                    Content="mirror.drive — drive mirrored Activities"
+                                    AutomationProperties.Name="Allow peer to drive mirrored Activities" />
+                          <CheckBox IsChecked="{Binding TrustedDevices.GrantFileReceive, Mode=TwoWay}"
+                                    Content="file.receive — receive files"
+                                    AutomationProperties.Name="Allow peer to receive files" />
+                          <CheckBox IsChecked="{Binding TrustedDevices.GrantSceneApply, Mode=TwoWay}"
+                                    Content="scene.apply — apply Scenes"
+                                    AutomationProperties.Name="Allow peer to apply Scenes" />
+
+                          <Button x:Name="SaveCapabilitiesButton"
+                                  Content="SAVE CAPABILITIES"
+                                  Command="{Binding TrustedDevices.SaveCapabilitiesCommand}"
+                                  AutomationProperties.Name="Save peer capabilities" />
+
+                          <Button x:Name="ReviewRevokeButton"
+                                  Content="Review revoke"
+                                  Command="{Binding TrustedDevices.BeginRevokeCommand}"
+                                  AutomationProperties.Name="Review device revocation" />
+                          <Border IsVisible="{Binding TrustedDevices.IsRevokeConfirmationVisible}"
+                                  BorderBrush="{StaticResource SignalRedBrush}"
+                                  BorderThickness="2"
+                                  Padding="12"
+                                  AutomationProperties.Name="Device revocation confirmation">
+                            <StackPanel Spacing="10">
+                              <TextBlock Foreground="{StaticResource SignalRedBrush}"
+                                         FontWeight="SemiBold"
+                                         Text="{Binding TrustedDevices.RevokeConfirmation}"
+                                         TextWrapping="Wrap" />
+                              <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="Cancel"
+                                        Command="{Binding TrustedDevices.CancelRevokeCommand}"
+                                        AutomationProperties.Name="Cancel device revocation" />
+                                <Button x:Name="ConfirmRevokeButton"
+                                        Background="{StaticResource SignalRedBrush}"
+                                        BorderBrush="{StaticResource SignalRedBrush}"
+                                        Foreground="{StaticResource GraphiteBrush}"
+                                        Content="REVOKE DEVICE"
+                                        Command="{Binding TrustedDevices.ConfirmRevokeCommand}"
+                                        AutomationProperties.Name="Revoke paired device" />
+                              </StackPanel>
+                            </StackPanel>
+                          </Border>
+                        </StackPanel>
+                      </Border>
+
+                      <TextBlock x:Name="TrustMutationStatusText"
+                                 Classes="secondary"
+                                 Text="{Binding TrustedDevices.MutationStatus}"
+                                 TextWrapping="Wrap"
+                                 AutomationProperties.Name="Trust mutation result" />
+                      <TextBlock Classes="secondary"
+                                 FontSize="12"
+                                 Text="{Binding TrustedDevices.MutationDescription}"
+                                 TextWrapping="Wrap"
+                                 AutomationProperties.Name="Trust mutation details" />
+                    </StackPanel>
+
                     <TextBlock Classes="secondary"
                                FontSize="12"
                                Text="{Binding Pairing.Status}"

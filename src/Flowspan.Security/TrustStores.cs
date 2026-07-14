@@ -1,7 +1,22 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Flowspan.Domain;
 
 namespace Flowspan.Security;
+
+public sealed record TrustedPeerSnapshot(
+    DeviceId DeviceId,
+    string DisplayName,
+    string Fingerprint,
+    DateTimeOffset VerifiedAt,
+    CapabilityGrant GrantedCapabilities);
+
+public enum TrustMutationResult
+{
+    Applied,
+    PeerNotFound,
+    IdentityChanged,
+}
 
 public interface IPairingTrustAuthority
 {
@@ -18,13 +33,16 @@ public interface ITrustStore : IPairingTrustAuthority
 {
     public SecretStoreProtection Protection { get; }
 
+    public ImmutableArray<TrustedPeerSnapshot> GetSnapshot();
+
     public bool Allows(DeviceId peerDeviceId, Capability capability);
 
-    public ValueTask<bool> RevokeAsync(
+    public ValueTask<TrustMutationResult> RevokeAsync(
         DeviceId peerDeviceId,
+        string expectedFingerprint,
         CancellationToken cancellationToken = default);
 
-    public ValueTask<bool> TryUpdateCapabilitiesAsync(
+    public ValueTask<TrustMutationResult> UpdateCapabilitiesAsync(
         DeviceId peerDeviceId,
         string expectedFingerprint,
         CapabilityGrant capabilities,

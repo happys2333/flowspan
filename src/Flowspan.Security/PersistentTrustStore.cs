@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using Flowspan.Domain;
@@ -57,6 +58,25 @@ public sealed class PersistentTrustStore : ITrustStore, IDisposable
         }
     }
 
+    public ImmutableArray<TrustedPeerSnapshot> GetSnapshot()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        lock (snapshotGate)
+        {
+            return trustRecords.Values
+                .OrderBy(
+                    static record => record.PeerIdentity.DeviceId.ToString(),
+                    StringComparer.Ordinal)
+                .Select(static record => new TrustedPeerSnapshot(
+                    record.PeerIdentity.DeviceId,
+                    record.PeerIdentity.DisplayName,
+                    record.PeerIdentity.Fingerprint,
+                    record.VerifiedAt,
+                    record.GrantedCapabilities))
+                .ToImmutableArray();
+        }
+    }
+
     public async ValueTask<TrustRegistrationResult> RegisterAsync(
         TrustRecord trustRecord,
         CancellationToken cancellationToken = default)
@@ -85,23 +105,33 @@ public sealed class PersistentTrustStore : ITrustStore, IDisposable
         }
     }
 
-    public async ValueTask<bool> RevokeAsync(
+    public async ValueTask<TrustMutationResult> RevokeAsync(
         DeviceId peerDeviceId,
+        string expectedFingerprint,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(peerDeviceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedFingerprint);
         await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             Dictionary<DeviceId, TrustRecord> candidate = Snapshot();
-            if (!candidate.Remove(peerDeviceId))
+            if (!candidate.TryGetValue(peerDeviceId, out TrustRecord? existing))
             {
-                return false;
+                return TrustMutationResult.PeerNotFound;
             }
 
+            if (!StringComparer.Ordinal.Equals(
+                    existing.PeerIdentity.Fingerprint,
+                    expectedFingerprint))
+            {
+                return TrustMutationResult.IdentityChanged;
+            }
+
+            candidate.Remove(peerDeviceId);
             await CommitAsync(candidate, cancellationToken).ConfigureAwait(false);
-            return true;
+            return TrustMutationResult.Applied;
         }
         finally
         {
@@ -121,7 +151,7 @@ public sealed class PersistentTrustStore : ITrustStore, IDisposable
         }
     }
 
-    public async ValueTask<bool> TryUpdateCapabilitiesAsync(
+    public async ValueTask<TrustMutationResult> UpdateCapabilitiesAsync(
         DeviceId peerDeviceId,
         string expectedFingerprint,
         CapabilityGrant capabilities,
@@ -135,12 +165,16 @@ public sealed class PersistentTrustStore : ITrustStore, IDisposable
         try
         {
             Dictionary<DeviceId, TrustRecord> candidate = Snapshot();
-            if (!candidate.TryGetValue(peerDeviceId, out TrustRecord? existing)
-                || !StringComparer.Ordinal.Equals(
+            if (!candidate.TryGetValue(peerDeviceId, out TrustRecord? existing))
+            {
+                return TrustMutationResult.PeerNotFound;
+            }
+
+            if (!StringComparer.Ordinal.Equals(
                     existing.PeerIdentity.Fingerprint,
                     expectedFingerprint))
             {
-                return false;
+                return TrustMutationResult.IdentityChanged;
             }
 
             candidate[peerDeviceId] = existing with
@@ -148,7 +182,7 @@ public sealed class PersistentTrustStore : ITrustStore, IDisposable
                 GrantedCapabilities = capabilities,
             };
             await CommitAsync(candidate, cancellationToken).ConfigureAwait(false);
-            return true;
+            return TrustMutationResult.Applied;
         }
         finally
         {

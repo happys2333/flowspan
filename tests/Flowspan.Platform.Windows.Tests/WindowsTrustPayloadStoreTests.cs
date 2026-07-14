@@ -118,17 +118,23 @@ public sealed class WindowsTrustPayloadStoreTests
                     new WindowsTrustPayloadStore(path));
             Assert.True(restarted.Allows(PeerId, Capability.MirrorView));
 
-            Assert.True(await restarted.TryUpdateCapabilitiesAsync(
-                PeerId,
-                identity.PublicIdentity.Fingerprint,
-                CapabilityGrant.Of(Capability.MirrorDrive)));
+            Assert.Equal(
+                TrustMutationResult.Applied,
+                await restarted.UpdateCapabilitiesAsync(
+                    PeerId,
+                    identity.PublicIdentity.Fingerprint,
+                    CapabilityGrant.Of(Capability.MirrorDrive)));
             using PersistentTrustStore afterUpdate =
                 await PersistentTrustStore.OpenAsync(
                     new WindowsTrustPayloadStore(path));
             Assert.True(afterUpdate.Allows(PeerId, Capability.MirrorDrive));
             Assert.False(afterUpdate.Allows(PeerId, Capability.MirrorView));
 
-            Assert.True(await afterUpdate.RevokeAsync(PeerId));
+            Assert.Equal(
+                TrustMutationResult.Applied,
+                await afterUpdate.RevokeAsync(
+                    PeerId,
+                    identity.PublicIdentity.Fingerprint));
             using PersistentTrustStore afterRevoke =
                 await PersistentTrustStore.OpenAsync(
                     new WindowsTrustPayloadStore(path));

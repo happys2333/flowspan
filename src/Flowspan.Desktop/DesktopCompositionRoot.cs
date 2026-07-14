@@ -12,10 +12,12 @@ public static class DesktopCompositionRoot
     {
         string displayName = GetLocalDisplayName();
         IDeviceIdentityStore store = CreatePlatformIdentityStore();
+        ITrustPayloadStore trustStore = CreatePlatformTrustPayloadStore();
         return new WorkspaceShellViewModel(
             new DesktopIdentityStartup(store, displayName),
             new DesktopPairingDecisionSource(),
-            AvaloniaDesktopUiDispatcher.Instance);
+            AvaloniaDesktopUiDispatcher.Instance,
+            new PersistentDesktopTrustAuthority(trustStore));
     }
 
     public static WorkspaceShellViewModel CreateValidation() =>
@@ -23,7 +25,8 @@ public static class DesktopCompositionRoot
             new InMemoryDeviceIdentityStore(),
             "Flowspan CI validation device"),
             new DesktopPairingDecisionSource(),
-            InlineDesktopUiDispatcher.Instance);
+            InlineDesktopUiDispatcher.Instance,
+            new DesktopTrustAuthority(new InMemoryTrustStore()));
 
     private static IDeviceIdentityStore CreatePlatformIdentityStore()
     {
@@ -43,6 +46,26 @@ public static class DesktopCompositionRoot
         }
 
         return new UnsupportedDeviceIdentityStore();
+    }
+
+    private static ITrustPayloadStore CreatePlatformTrustPayloadStore()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return new WindowsTrustPayloadStore();
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return new MacOSTrustPayloadStore();
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            return new LinuxTrustPayloadStore();
+        }
+
+        return new UnsupportedTrustPayloadStore();
     }
 
     private static string GetLocalDisplayName()
@@ -71,6 +94,24 @@ public static class DesktopCompositionRoot
             DeviceIdentity identity,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException<bool>(CreateException());
+
+        private static PlatformNotSupportedException CreateException() =>
+            new("The desktop shell supports Windows, macOS, and Linux only.");
+    }
+
+    private sealed class UnsupportedTrustPayloadStore : ITrustPayloadStore
+    {
+        public SecretStoreProtection Protection =>
+            SecretStoreProtection.OperatingSystemProtected;
+
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<byte[]?>(CreateException());
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> payload,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(CreateException());
 
         private static PlatformNotSupportedException CreateException() =>
             new("The desktop shell supports Windows, macOS, and Linux only.");

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using Flowspan.Domain;
@@ -9,6 +10,13 @@ public enum TrustSessionStopReason
     PeerRevoked,
     CapabilityRevoked,
     LocalShutdown,
+}
+
+public sealed class TrustSessionStopException(
+    IEnumerable<Exception> failures) : AggregateException(
+        "One or more revoked peer sessions failed to stop.",
+        failures)
+{
 }
 
 public interface IRevocablePeerSession
@@ -70,6 +78,12 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         DeviceId peerDeviceId,
         [NotNullWhen(true)] out TrustRecord? trustRecord) =>
         TryGetCurrentTrust(peerDeviceId, out trustRecord);
+
+    public ImmutableArray<TrustedPeerSnapshot> GetTrustedPeers()
+    {
+        ThrowIfShuttingDown();
+        return trustStore.GetSnapshot();
+    }
 
     public async ValueTask<TrustRegistrationResult> RegisterAsync(
         TrustRecord trustRecord,
@@ -143,8 +157,12 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         try
         {
             ThrowIfShuttingDown();
-            if (!await trustStore.RevokeAsync(peerDeviceId, cancellationToken)
-                    .ConfigureAwait(false))
+            if (!trustStore.TryGet(peerDeviceId, out TrustRecord? current)
+                || await trustStore.RevokeAsync(
+                    peerDeviceId,
+                    current.PeerIdentity.Fingerprint,
+                    cancellationToken).ConfigureAwait(false)
+                    != TrustMutationResult.Applied)
             {
                 return false;
             }
@@ -163,7 +181,54 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         return true;
     }
 
+    public async ValueTask<TrustMutationResult> RevokePeerAsync(
+        DeviceId peerDeviceId,
+        string expectedFingerprint,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfShuttingDown();
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedFingerprint);
+        TrackedSession[] revokedSessions;
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfShuttingDown();
+            TrustMutationResult result = await trustStore.RevokeAsync(
+                peerDeviceId,
+                expectedFingerprint,
+                cancellationToken).ConfigureAwait(false);
+            if (result != TrustMutationResult.Applied)
+            {
+                return result;
+            }
+
+            revokedSessions = RemoveSessions(static (tracked, peer) =>
+                tracked.PeerDeviceId == peer, peerDeviceId);
+        }
+        finally
+        {
+            gate.Release();
+        }
+
+        await StopAllAsync(
+            revokedSessions,
+            TrustSessionStopReason.PeerRevoked).ConfigureAwait(false);
+        return TrustMutationResult.Applied;
+    }
+
     public async ValueTask<bool> TryUpdateCapabilitiesAsync(
+        DeviceId peerDeviceId,
+        string expectedFingerprint,
+        CapabilityGrant capabilities,
+        CancellationToken cancellationToken = default) =>
+        await UpdateCapabilitiesAsync(
+            peerDeviceId,
+            expectedFingerprint,
+            capabilities,
+            cancellationToken).ConfigureAwait(false) == TrustMutationResult.Applied;
+
+    public async ValueTask<TrustMutationResult> UpdateCapabilitiesAsync(
         DeviceId peerDeviceId,
         string expectedFingerprint,
         CapabilityGrant capabilities,
@@ -178,13 +243,14 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         try
         {
             ThrowIfShuttingDown();
-            if (!await trustStore.TryUpdateCapabilitiesAsync(
+            TrustMutationResult result = await trustStore.UpdateCapabilitiesAsync(
                     peerDeviceId,
                     expectedFingerprint,
                     capabilities,
-                    cancellationToken).ConfigureAwait(false))
+                    cancellationToken).ConfigureAwait(false);
+            if (result != TrustMutationResult.Applied)
             {
-                return false;
+                return result;
             }
 
             unauthorizedSessions = RemoveSessions(
@@ -202,7 +268,7 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         await StopAllAsync(
             unauthorizedSessions,
             TrustSessionStopReason.CapabilityRevoked).ConfigureAwait(false);
-        return true;
+        return TrustMutationResult.Applied;
     }
 
     internal async ValueTask UnregisterAsync(Guid registrationId)
@@ -278,9 +344,7 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
 
         if (failures.Count > 0)
         {
-            throw new AggregateException(
-                "One or more revoked peer sessions failed to stop.",
-                failures);
+            throw new TrustSessionStopException(failures);
         }
     }
 

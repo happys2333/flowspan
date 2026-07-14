@@ -1,11 +1,14 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Flowspan.Security;
 
 namespace Flowspan.Desktop;
 
-public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposable
+public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
+    private readonly TaskCompletionSource disposalCompleted = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly Lock lifecycleGate = new();
@@ -27,19 +30,24 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposabl
         "Flowspan is opening without requesting capture or input access.";
     private string startupStatus = "INITIALIZING IDENTITY";
     private int activeInitializations;
+    private Exception? disposalFailure;
+    private Exception? disposalInitiationFailure;
     private bool disposed;
-    private bool resourcesDisposed;
+    private bool resourcesDisposalStarted;
 
     public WorkspaceShellViewModel(
         IDesktopIdentityStartup startup,
         DesktopPairingDecisionSource? pairingDecisions = null,
-        IDesktopUiDispatcher? dispatcher = null)
+        IDesktopUiDispatcher? dispatcher = null,
+        IDesktopTrustAuthority? trustAuthority = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
         Pairing = new PairingPromptViewModel(
             pairingDecisions ?? new DesktopPairingDecisionSource(),
             dispatcher ?? InlineDesktopUiDispatcher.Instance);
+        TrustedDevices = new TrustedDevicesViewModel(
+            trustAuthority ?? new DesktopTrustAuthority(new InMemoryTrustStore()));
         toggleIdentityDetailsCommand = new RelayCommand(
             ToggleIdentityDetails,
             () => IsIdentityAvailable);
@@ -51,6 +59,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposabl
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public PairingPromptViewModel Pairing { get; }
+
+    public TrustedDevicesViewModel TrustedDevices { get; }
 
     public string DeviceId
     {
@@ -170,24 +180,39 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposabl
                     .WaitAsync(linkedCancellation.Token)
                     .ConfigureAwait(true);
                 enteredInitializationGate = true;
-                if (IsIdentityAvailable && !IsStartupBlocked)
+                if (IsIdentityAvailable
+                    && !IsStartupBlocked
+                    && TrustedDevices.IsTrustAvailable)
                 {
                     return;
                 }
 
                 IsInitializing = true;
-                IsStartupBlocked = false;
-                StartupStatus = "INITIALIZING IDENTITY";
-                StartupDescription =
-                    "Flowspan is opening without requesting capture or input access.";
-                RecoveryAction = string.Empty;
+                if (!IsIdentityAvailable || IsStartupBlocked)
+                {
+                    IsStartupBlocked = false;
+                    StartupStatus = "INITIALIZING IDENTITY";
+                    StartupDescription =
+                        "Flowspan is opening without requesting capture or input access.";
+                    RecoveryAction = string.Empty;
+                }
 
                 try
                 {
-                    LocalIdentitySnapshot snapshot = await startup
-                        .InitializeAsync(linkedCancellation.Token)
-                        .ConfigureAwait(true);
-                    ApplySnapshot(snapshot);
+                    if (!IsIdentityAvailable || IsStartupBlocked)
+                    {
+                        LocalIdentitySnapshot snapshot = await startup
+                            .InitializeAsync(linkedCancellation.Token)
+                            .ConfigureAwait(true);
+                        ApplySnapshot(snapshot);
+                    }
+
+                    if (IsIdentityAvailable)
+                    {
+                        await TrustedDevices
+                            .InitializeAsync(linkedCancellation.Token)
+                            .ConfigureAwait(true);
+                    }
                 }
                 catch (Exception exception)
                     when (exception is not OperationCanceledException)
@@ -218,24 +243,38 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposabl
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        bool disposeResources;
+        bool startResourceDisposal;
         lock (lifecycleGate)
         {
-            if (disposed)
+            if (!disposed)
             {
-                return;
+                disposed = true;
+                try
+                {
+                    lifetimeCancellation.Cancel();
+                }
+                catch (Exception exception)
+                {
+                    disposalInitiationFailure = exception;
+                }
             }
 
-            disposed = true;
-            lifetimeCancellation.Cancel();
-            disposeResources = activeInitializations == 0;
+            startResourceDisposal = TryStartResourceDisposal();
         }
 
-        if (disposeResources)
+        if (startResourceDisposal)
         {
-            DisposeResources();
+            _ = DisposeResourcesAsync();
+        }
+
+        await disposalCompleted.Task.ConfigureAwait(false);
+        if (disposalFailure is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                .Capture(disposalFailure)
+                .Throw();
         }
     }
 
@@ -248,36 +287,85 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposabl
         }
     }
 
-    private void DisposeResources()
+    private async Task DisposeResourcesAsync()
     {
-        lock (lifecycleGate)
+        var failures = new List<Exception>();
+        if (disposalInitiationFailure is not null)
         {
-            if (resourcesDisposed)
-            {
-                return;
-            }
-
-            resourcesDisposed = true;
+            failures.Add(disposalInitiationFailure);
         }
 
-        Pairing.Dispose();
-        startup.Dispose();
-        lifetimeCancellation.Dispose();
-        initializationGate.Dispose();
+        try
+        {
+            Pairing.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            await TrustedDevices.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            startup.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            lifetimeCancellation.Dispose();
+            initializationGate.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        disposalFailure = failures.Count switch
+        {
+            0 => null,
+            1 => failures[0],
+            _ => new AggregateException(
+                "One or more desktop resources failed to close.",
+                failures),
+        };
+        disposalCompleted.SetResult();
+    }
+
+    private bool TryStartResourceDisposal()
+    {
+        if (!disposed || activeInitializations != 0 || resourcesDisposalStarted)
+        {
+            return false;
+        }
+
+        resourcesDisposalStarted = true;
+        return true;
     }
 
     private void EndInitialization()
     {
-        bool disposeResources;
+        bool startResourceDisposal;
         lock (lifecycleGate)
         {
             activeInitializations--;
-            disposeResources = disposed && activeInitializations == 0;
+            startResourceDisposal = TryStartResourceDisposal();
         }
 
-        if (disposeResources)
+        if (startResourceDisposal)
         {
-            DisposeResources();
+            _ = DisposeResourcesAsync();
         }
     }
 

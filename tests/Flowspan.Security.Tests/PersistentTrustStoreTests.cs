@@ -22,19 +22,21 @@ public sealed class PersistentTrustStoreTests
             CapabilityGrant.Of(Capability.MirrorView)));
         using PersistentTrustStore afterRegister =
             await PersistentTrustStore.OpenAsync(payloadStore);
-        bool updated = await afterRegister.TryUpdateCapabilitiesAsync(
+        TrustMutationResult updated = await afterRegister.UpdateCapabilitiesAsync(
             PeerId,
             identity.PublicIdentity.Fingerprint,
             CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive));
         using PersistentTrustStore afterUpdate =
             await PersistentTrustStore.OpenAsync(payloadStore);
-        bool revoked = await afterUpdate.RevokeAsync(PeerId);
+        TrustMutationResult revoked = await afterUpdate.RevokeAsync(
+            PeerId,
+            identity.PublicIdentity.Fingerprint);
         using PersistentTrustStore afterRevoke =
             await PersistentTrustStore.OpenAsync(payloadStore);
 
         Assert.Equal(TrustRegistrationResult.Added, registered);
-        Assert.True(updated);
-        Assert.True(revoked);
+        Assert.Equal(TrustMutationResult.Applied, updated);
+        Assert.Equal(TrustMutationResult.Applied, revoked);
         Assert.False(afterRevoke.TryGet(PeerId, out _));
         Assert.Equal(3, payloadStore.SaveCount);
         Assert.Equal(
@@ -56,7 +58,7 @@ public sealed class PersistentTrustStoreTests
         payloadStore.FailNextSave = true;
 
         await Assert.ThrowsAsync<IOException>(async () =>
-            await store.TryUpdateCapabilitiesAsync(
+            await store.UpdateCapabilitiesAsync(
                 PeerId,
                 identity.PublicIdentity.Fingerprint,
                 CapabilityGrant.Of(Capability.MirrorDrive)));
@@ -142,6 +144,32 @@ public sealed class PersistentTrustStoreTests
 
         Assert.True(restarted.TryGet(first.DeviceId, out _));
         Assert.True(restarted.TryGet(second.DeviceId, out _));
+    }
+
+    [Fact]
+    public async Task ConditionalMutationsRejectStaleFingerprintWithoutSave()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var payloadStore = new TestTrustPayloadStore();
+        using PersistentTrustStore store =
+            await PersistentTrustStore.OpenAsync(payloadStore);
+        await store.RegisterAsync(CreateRecord(identity));
+
+        TrustMutationResult update = await store.UpdateCapabilitiesAsync(
+            PeerId,
+            new string('0', 64),
+            CapabilityGrant.Of(Capability.MirrorDrive));
+        TrustMutationResult revoke = await store.RevokeAsync(
+            PeerId,
+            new string('0', 64));
+
+        Assert.Equal(TrustMutationResult.IdentityChanged, update);
+        Assert.Equal(TrustMutationResult.IdentityChanged, revoke);
+        Assert.Equal(1, payloadStore.SaveCount);
+        Assert.True(store.TryGet(PeerId, out TrustRecord? retained));
+        Assert.Equal(
+            identity.PublicIdentity.Fingerprint,
+            retained.PeerIdentity.Fingerprint);
     }
 
     private static TrustRecord CreateRecord(DeviceIdentity identity) => new(
