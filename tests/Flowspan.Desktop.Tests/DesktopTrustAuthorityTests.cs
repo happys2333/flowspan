@@ -6,6 +6,32 @@ namespace Flowspan.Desktop.Tests;
 public sealed class DesktopTrustAuthorityTests
 {
     [Fact]
+    public async Task RuntimeBorrowsTheSameTrustSessionCoordinator()
+    {
+        await using var authority = new DesktopTrustAuthority(
+            new InMemoryTrustStore());
+
+        TrustSessionCoordinator first = authority.GetRuntimeCoordinator();
+        TrustSessionCoordinator second = authority.GetRuntimeCoordinator();
+
+        Assert.Same(first, second);
+        Assert.Empty(first.GetTrustedPeers());
+    }
+
+    [Fact]
+    public async Task PersistentRuntimeBorrowsOneLazilyOpenedCoordinator()
+    {
+        await using var authority = new PersistentDesktopTrustAuthority(
+            new MemoryTrustPayloadStore());
+
+        TrustSessionCoordinator first = await authority.GetRuntimeCoordinatorAsync();
+        TrustSessionCoordinator second = await authority.GetRuntimeCoordinatorAsync();
+
+        Assert.Same(first, second);
+        Assert.Empty(first.GetTrustedPeers());
+    }
+
+    [Fact]
     public async Task InitializeAsyncReadsProtectedTrustedPeerSnapshot()
     {
         using DeviceIdentity later = DeviceIdentity.Generate(

@@ -209,3 +209,52 @@ Store initialization or mutation, waits for the admitted operation to drain,
 then disposes the session coordinator, persistent repository, identity, and
 pairing prompt before allowing the window to close. The UI thread does not
 synchronously block on this cleanup.
+
+## 12. Task 7.2c: explicitly enabled local pairing network
+
+Flowspan does not open a listener, browse multicast DNS, or advertise merely
+because the shell launched. The owner first activates `Enable local pairing`.
+The action explains that Flowspan will become discoverable on the current local
+network and may cause the operating system or firewall to request local-network
+access. Identity and protected Trust must already be available. Enable, retry,
+and close are serialized and cancellable.
+
+After enable succeeds, the surface separately states that the local pairing
+listener is available and whether any candidates are currently observed. DNS-SD
+metadata for an unpaired candidate is always labelled `UNVERIFIED — PAIRING
+REQUIRED`; it is not a trusted device, connected session, or verified display
+name. The list shows the advertised name, Device ID, full advertised
+fingerprint, endpoint, and offer expiry. Self offers, malformed/expired offers,
+port disagreement, and unsafe addresses never appear.
+
+Selecting `Pair device` pins one candidate snapshot and permits only one
+outbound ceremony at a time. Before the existing desktop SAS prompt is opened,
+the peer identity authenticated by the pairing transcript must match the
+candidate's Device ID and advertised fingerprint and must verify the pinned
+signed offer within its lifetime. A mismatch rejects without showing a code or
+writing Trust. A candidate whose Device ID is already trusted with another key
+is shown as `IDENTITY CHANGED — BLOCKED`, retains the current Trust Record, and
+cannot start pairing. A current trusted identity is shown as already paired and
+is not offered as a new pairing action.
+
+Production enable owns one dual-stack TCP endpoint, the unified bounded inbound
+listener, one DNS-SD browser/publisher adapter, timed signed advertisement, and
+the unpaired-candidate projection. Incoming and outgoing ceremonies use the same
+protected local identity, desktop decision source, and Trust coordinator as the
+trusted-device editor. Successful pairing refreshes the authoritative trusted
+list. The current Activity layer is absent, so an authenticated control channel
+may remain idle but `NOT SHARING` stays truthful and no Activity capability is
+exercised.
+
+Network bind, browser, publication, pairing, and cleanup failures are sanitized
+into a bounded reason plus recovery action. Partial enable is unwound: an
+advertisement cannot remain published after the listener or browser failed, and
+window close cancels and awaits listener, advertisement, discovery, and pairing
+before disposing identity or Trust. If either background network loop exits
+after enable, the surface leaves `LOCAL PAIRING ENABLED`, clears the listener and
+candidate presentation, shows a fixed `LOCAL PAIRING UNAVAILABLE` recovery
+message without exception details, and enables retry only after the failed
+session has been detached. Headless and loopback tests prove state, binding,
+trust refresh, cancellation, cleanup, background-fault, and retry contracts.
+Physical multicast, firewall prompts, dual-machine SAS comparison, and native
+permission text remain separate evidence.

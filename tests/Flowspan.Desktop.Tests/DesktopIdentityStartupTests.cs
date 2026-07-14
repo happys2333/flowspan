@@ -22,6 +22,22 @@ public sealed class DesktopIdentityStartupTests
     }
 
     [Fact]
+    public async Task RuntimeBorrowsTheSameIdentityInitializedForTheSnapshot()
+    {
+        using var startup = new DesktopIdentityStartup(
+            new InMemoryDeviceIdentityStore(),
+            "CI device");
+
+        LocalIdentitySnapshot snapshot = await startup.InitializeAsync();
+        DeviceIdentity first = await startup.GetRuntimeIdentityAsync();
+        DeviceIdentity second = await startup.GetRuntimeIdentityAsync();
+
+        Assert.Same(first, second);
+        Assert.Equal(snapshot.DeviceId, first.DeviceId.ToString());
+        Assert.Equal(snapshot.Fingerprint, first.PublicIdentity.Fingerprint);
+    }
+
+    [Fact]
     public void DescribeFailureRedactsExceptionDetails()
     {
         const string canary = "CANARY_PRIVATE_IDENTITY_PAYLOAD";

@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using Flowspan.Domain;
@@ -209,29 +208,6 @@ public sealed class DnsSdPeerConnectionCandidateSource :
         }
     }
 
-    private static bool IsUsablePeerAddress(IPAddress address)
-    {
-        if (address.Equals(IPAddress.Any)
-            || address.Equals(IPAddress.IPv6Any)
-            || address.Equals(IPAddress.Broadcast)
-            || IPAddress.IsLoopback(address)
-            || address.IsIPv6Multicast
-            || (address.AddressFamily == AddressFamily.InterNetworkV6
-                && address.IsIPv6LinkLocal
-                && address.ScopeId == 0))
-        {
-            return false;
-        }
-
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            byte first = address.GetAddressBytes()[0];
-            return first is < 224 or > 239;
-        }
-
-        return address.AddressFamily == AddressFamily.InterNetworkV6;
-    }
-
     private void OnServiceChanged(DnsSdServiceSnapshot snapshot)
     {
         if (Volatile.Read(ref disposed) != 0
@@ -272,7 +248,7 @@ public sealed class DnsSdPeerConnectionCandidateSource :
             .Select(static address => address.IsIPv4MappedToIPv6
                 ? address.MapToIPv4()
                 : address)
-            .Where(IsUsablePeerAddress)
+            .Where(PeerConnectionAddressPolicy.IsUsable)
             .Distinct()
             .Select(address => VerifiedPeerConnectionCandidate.Create(
                 new IPEndPoint(address, snapshot.Port),

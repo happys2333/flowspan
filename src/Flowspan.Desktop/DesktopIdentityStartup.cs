@@ -45,16 +45,14 @@ public sealed class DesktopIdentityStartup : IDesktopIdentityStartup
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            identity ??= await DeviceIdentityProvisioner.LoadOrCreateAsync(
-                store,
-                displayName,
-                cancellationToken).ConfigureAwait(false);
+            DeviceIdentity current = await GetOrCreateCoreAsync(cancellationToken)
+                .ConfigureAwait(false);
 
             bool isTestMode = store.Protection == SecretStoreProtection.DegradedTestOnly;
             return new LocalIdentitySnapshot(
-                identity.DisplayName,
-                identity.DeviceId.ToString(),
-                identity.PublicIdentity.Fingerprint,
+                current.DisplayName,
+                current.DeviceId.ToString(),
+                current.PublicIdentity.Fingerprint,
                 isTestMode
                     ? "TEST MODE — identity is not persisted"
                     : "Operating-system protected",
@@ -64,6 +62,32 @@ public sealed class DesktopIdentityStartup : IDesktopIdentityStartup
         {
             initializationGate.Release();
         }
+    }
+
+    internal async ValueTask<DeviceIdentity> GetRuntimeIdentityAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        await initializationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            return await GetOrCreateCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            initializationGate.Release();
+        }
+    }
+
+    private async ValueTask<DeviceIdentity> GetOrCreateCoreAsync(
+        CancellationToken cancellationToken)
+    {
+        identity ??= await DeviceIdentityProvisioner.LoadOrCreateAsync(
+            store,
+            displayName,
+            cancellationToken).ConfigureAwait(false);
+        return identity;
     }
 
     public void Dispose()

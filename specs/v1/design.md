@@ -319,6 +319,39 @@ bridges this decision port to a least-privilege desktop SAS confirmation surface
 and proves it with two loopback nodes. Production listener/discovery composition
 and physical two-person SAS evidence remain separate work.
 
+The desktop network-entry slice makes that composition explicitly user enabled.
+It opens one dual-stack listener before signing its advertised port, then owns a
+single browser/publisher, refresh loop, unified inbound listener, and outbound
+pairing initiator under one cancellable lifetime. These components borrow the
+already loaded `DeviceIdentity` and `TrustSessionCoordinator`; shutdown drains
+the network lifetime before either authority is disposed.
+
+The listener and advertisement loops are supervised as one session failure
+domain after startup. Either loop ending unexpectedly atomically marks the
+session faulted, cancels the shared lifetime, and stops the bound socket. The
+desktop runtime removes that session before publishing a sanitized retryable
+fault and drains withdrawal, browser disposal, the listener, and any admitted
+pairing. This prevents an enabled UI from outliving its network loops; retry
+always creates a new endpoint, DNS-SD adapter, and signed advertisement.
+
+An unpaired DNS-SD record is structurally bounded but not cryptographically
+verified because the public identity key is not advertised. Presentation and
+domain types therefore call it an `UnverifiedPairingCandidate`. An initiating
+ceremony wraps the normal decision source with a discovery-binding decision
+source. That wrapper compares the transcript-authenticated peer Device ID and
+fingerprint with the pinned offer and verifies the offer signature and lifetime
+using the authenticated public key before it allows the SAS prompt. This is the
+only transition from unverified discovery metadata to a pairing decision.
+Already-trusted Device IDs with another fingerprint are blocked as identity
+changes and never enter re-pairing.
+
+The unverified-candidate projection rejects self, malformed, expired,
+future-skewed, port-inconsistent, non-concrete, loopback, and multicast input.
+Service removal deletes its candidates immediately. Each read drops expired
+offers, reloads Trust classification, and returns an immutable total order by
+Device ID, address family and bytes, port, service instance, and offer digest;
+browser callback or dictionary insertion order is never presentation state.
+
 Each connection performs ephemeral P-256 ECDH, authenticates its transcript
 with the paired identity keys, derives directional AES-256-GCM keys using
 HKDF-SHA-256, and assigns monotonically increasing nonces. Headers needed for

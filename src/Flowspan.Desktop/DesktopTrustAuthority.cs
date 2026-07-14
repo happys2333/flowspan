@@ -78,6 +78,14 @@ public sealed class DesktopTrustAuthority : IDesktopTrustAuthority
             coordinator.GetTrustedPeers()));
     }
 
+    internal TrustSessionCoordinator GetRuntimeCoordinator()
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref disposed) != 0,
+            this);
+        return coordinator;
+    }
+
     public async ValueTask<DesktopTrustMutationOutcome> UpdateCapabilitiesAsync(
         DeviceId peerDeviceId,
         string expectedFingerprint,
@@ -213,6 +221,12 @@ public sealed class PersistentDesktopTrustAuthority : IDesktopTrustAuthority
     public ValueTask<DesktopTrustSnapshot> InitializeAsync(
         CancellationToken cancellationToken = default) => ExecuteAsync(
             static (current, token) => current.InitializeAsync(token),
+            cancellationToken);
+
+    internal ValueTask<TrustSessionCoordinator> GetRuntimeCoordinatorAsync(
+        CancellationToken cancellationToken = default) => ExecuteAsync(
+            static (current, _) => ValueTask.FromResult(
+                current.GetRuntimeCoordinator()),
             cancellationToken);
 
     public ValueTask<DesktopTrustMutationOutcome> UpdateCapabilitiesAsync(

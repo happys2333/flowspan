@@ -14,5 +14,7 @@
     <ProjectReference Include="../Flowspan.Platform.MacOS/Flowspan.Platform.MacOS.csproj" />
     <ProjectReference Include="../Flowspan.Platform.Windows/Flowspan.Platform.Windows.csproj" />
     <ProjectReference Include="../Flowspan.Security/Flowspan.Security.csproj" />
+    <ProjectReference Include="../Flowspan.Transport/Flowspan.Transport.csproj" />
+    <ProjectReference Include="../Flowspan.Transport.Mdns/Flowspan.Transport.Mdns.csproj" />
   </ItemGroup>
 </Project>

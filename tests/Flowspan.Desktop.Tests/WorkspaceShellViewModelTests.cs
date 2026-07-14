@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using Flowspan.Domain;
 using Flowspan.Security;
+using Flowspan.Transport;
 
 namespace Flowspan.Desktop.Tests;
 
@@ -111,6 +113,25 @@ public sealed class WorkspaceShellViewModelTests
         Assert.True(authority.Disposed);
         Assert.False(authority.WasDisposedDuringMutation);
         Assert.True(startup.Disposed);
+    }
+
+    [Fact]
+    public async Task DisposeStopsLocalPairingBeforeTrustAndIdentity()
+    {
+        var order = new List<string>();
+        var startup = new OrderedStartup(order);
+        var authority = new OrderedTrustAuthority(order);
+        var runtime = new DesktopLocalPairingRuntime(
+            new OrderedNetworkFactory(order));
+        var viewModel = new WorkspaceShellViewModel(
+            startup,
+            trustAuthority: authority,
+            localPairingRuntime: runtime);
+        await runtime.EnableAsync();
+
+        await viewModel.DisposeAsync();
+
+        Assert.Equal(["network", "trust", "identity"], order);
     }
 
     private static WorkspaceShellViewModel CreateReadyViewModel() => new(
@@ -264,6 +285,89 @@ public sealed class WorkspaceShellViewModelTests
         {
             WasDisposedWhileInitializing = initializing;
             Disposed = true;
+        }
+    }
+
+    private sealed class OrderedStartup(List<string> order) : IDesktopIdentityStartup
+    {
+        public ValueTask<LocalIdentitySnapshot> InitializeAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<LocalIdentitySnapshot>(new NotSupportedException());
+
+        public void Dispose() => order.Add("identity");
+    }
+
+    private sealed class OrderedTrustAuthority(List<string> order) :
+        IDesktopTrustAuthority
+    {
+        public ValueTask<DesktopTrustSnapshot> InitializeAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new DesktopTrustSnapshot(
+                SecretStoreProtection.OperatingSystemProtected,
+                []));
+
+        public ValueTask<DesktopTrustMutationOutcome> UpdateCapabilitiesAsync(
+            DeviceId peerDeviceId,
+            string expectedFingerprint,
+            CapabilityGrant capabilities,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<DesktopTrustMutationOutcome>(
+                new NotSupportedException());
+
+        public ValueTask<DesktopTrustMutationOutcome> RevokeAsync(
+            DeviceId peerDeviceId,
+            string expectedFingerprint,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<DesktopTrustMutationOutcome>(
+                new NotSupportedException());
+
+        public ValueTask<TrustSessionRegistration?> TryRegisterSessionAsync(
+            DeviceId peerDeviceId,
+            CapabilityGrant requiredCapabilities,
+            IRevocablePeerSession session,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<TrustSessionRegistration?>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            order.Add("trust");
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class OrderedNetworkFactory(List<string> order) :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(
+                new OrderedNetworkSession(order));
+    }
+
+    private sealed class OrderedNetworkSession(List<string> order) :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            order.Add("network");
+            return ValueTask.CompletedTask;
         }
     }
 

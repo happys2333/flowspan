@@ -13,11 +13,20 @@ public static class DesktopCompositionRoot
         string displayName = GetLocalDisplayName();
         IDeviceIdentityStore store = CreatePlatformIdentityStore();
         ITrustPayloadStore trustStore = CreatePlatformTrustPayloadStore();
+        var identityStartup = new DesktopIdentityStartup(store, displayName);
+        var pairingDecisions = new DesktopPairingDecisionSource();
+        var trustAuthority = new PersistentDesktopTrustAuthority(trustStore);
+        var localPairingRuntime = new DesktopLocalPairingRuntime(
+            new SystemDesktopLocalPairingNetworkFactory(
+                identityStartup,
+                trustAuthority,
+                pairingDecisions));
         return new WorkspaceShellViewModel(
-            new DesktopIdentityStartup(store, displayName),
-            new DesktopPairingDecisionSource(),
+            identityStartup,
+            pairingDecisions,
             AvaloniaDesktopUiDispatcher.Instance,
-            new PersistentDesktopTrustAuthority(trustStore));
+            trustAuthority,
+            localPairingRuntime);
     }
 
     public static WorkspaceShellViewModel CreateValidation() =>

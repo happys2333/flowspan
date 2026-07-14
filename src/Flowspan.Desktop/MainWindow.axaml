@@ -223,6 +223,126 @@
             </Border>
           </Grid>
 
+          <Border Background="#20262A"
+                  BorderBrush="{StaticResource SafetyAmberBrush}"
+                  BorderThickness="2"
+                  Padding="26"
+                  AutomationProperties.Name="Local pairing network">
+            <Grid ColumnDefinitions="5*,7*">
+              <StackPanel Grid.Column="0" Margin="0,0,26,0" Spacing="12">
+                <TextBlock Classes="label"
+                           Foreground="{StaticResource SafetyAmberBrush}"
+                           Text="LOCAL PAIRING" />
+                <TextBlock Classes="heading"
+                           FontSize="27"
+                           Text="{Binding LocalPairing.Status}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="{Binding LocalPairing.Status}" />
+                <TextBlock Classes="secondary"
+                           Text="{Binding LocalPairing.StatusDescription}" />
+                <TextBlock Classes="secondary"
+                           FontSize="12"
+                           Text="{Binding LocalPairing.PermissionEducation}" />
+                <TextBlock Classes="label"
+                           Text="{Binding LocalPairing.ListenerStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Local pairing listener status" />
+                <TextBlock Foreground="{StaticResource SignalRedBrush}"
+                           Text="{Binding LocalPairing.RecoveryAction}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Local pairing recovery action" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Button x:Name="EnableLocalPairingButton"
+                          Content="ENABLE LOCAL PAIRING"
+                          Command="{Binding LocalPairing.EnableCommand}"
+                          AutomationProperties.Name="Enable local pairing"
+                          AutomationProperties.HelpText="Makes this device discoverable on the current local network and may trigger an operating-system or firewall permission prompt." />
+                  <Button x:Name="DisableLocalPairingButton"
+                          Content="Disable"
+                          Command="{Binding LocalPairing.DisableCommand}"
+                          AutomationProperties.Name="Disable local pairing" />
+                </StackPanel>
+              </StackPanel>
+
+              <StackPanel Grid.Column="1" Spacing="12">
+                <TextBlock Classes="label" Text="OBSERVED CANDIDATES" />
+                <TextBlock Classes="secondary"
+                           FontSize="12"
+                           Text="Discovery metadata is unverified until the connected identity verifies the signed offer and both users compare the SAS." />
+                <ListBox x:Name="LocalPairingCandidateList"
+                         ItemsSource="{Binding LocalPairing.Candidates}"
+                         SelectedItem="{Binding LocalPairing.SelectedCandidate, Mode=TwoWay}"
+                         MaxHeight="210"
+                         AutomationProperties.Name="Discovered local pairing candidates">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:LocalPairingCandidateItemViewModel">
+                      <Grid Margin="8" ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="3">
+                          <TextBlock FontWeight="SemiBold"
+                                     Text="{Binding DisplayName}"
+                                     TextWrapping="Wrap" />
+                          <TextBlock Classes="secondary"
+                                     FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                     FontSize="11"
+                                     Text="{Binding DeviceId}"
+                                     TextWrapping="Wrap" />
+                          <TextBlock Classes="secondary"
+                                     FontSize="11"
+                                     Text="{Binding EndPoint}" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="1"
+                                   Margin="16,0,0,0"
+                                   Foreground="{StaticResource SafetyAmberBrush}"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding Status}"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="210" />
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Border IsVisible="{Binding LocalPairing.HasSelection}"
+                        BorderBrush="{StaticResource CoolGrayBrush}"
+                        BorderThickness="1"
+                        Padding="14"
+                        AutomationProperties.Name="Selected local pairing candidate">
+                  <StackPanel Spacing="8">
+                    <TextBlock Classes="label" Text="SELECTED DISCOVERY RECORD" />
+                    <TextBlock FontWeight="SemiBold"
+                               Text="{Binding LocalPairing.SelectedCandidate.Status}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Classes="label" Text="IDENTITY FINGERPRINT" />
+                    <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                         FontSize="11"
+                                         Text="{Binding LocalPairing.SelectedCandidate.Fingerprint}"
+                                         TextWrapping="Wrap"
+                                         AutomationProperties.Name="Advertised unverified identity fingerprint" />
+                    <TextBlock Classes="secondary"
+                               FontSize="11"
+                               Text="{Binding LocalPairing.SelectedCandidate.ExpiresAt, StringFormat='Offer expires {0}'}" />
+                  </StackPanel>
+                </Border>
+
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Button x:Name="PairDiscoveredDeviceButton"
+                          Content="PAIR DEVICE"
+                          Command="{Binding LocalPairing.PairDeviceCommand}"
+                          AutomationProperties.Name="Pair selected local device"
+                          AutomationProperties.HelpText="Available only for an unverified candidate that is not blocked by an existing Trust Record." />
+                  <Button x:Name="CancelOutboundPairingButton"
+                          Content="Cancel pairing"
+                          Command="{Binding LocalPairing.CancelPairingCommand}"
+                          AutomationProperties.Name="Cancel outbound pairing" />
+                </StackPanel>
+                <TextBlock Classes="secondary"
+                           Text="{Binding LocalPairing.PairingStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Outbound pairing result" />
+              </StackPanel>
+            </Grid>
+          </Border>
+
           <Grid ColumnDefinitions="7*,5*">
             <Border Grid.Column="0"
                     Background="{StaticResource SteelBrush}"

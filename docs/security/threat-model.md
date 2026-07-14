@@ -66,6 +66,20 @@ rather than grant it.
 | T15 | Downgrade to unsafe fallback | authenticated feature negotiation; name degraded mode; explicit capability and confirmation | downgrade tests |
 | T16 | Future relay reads content | application-layer E2E encryption independent of byte-forwarding relay | relay-as-attacker integration test |
 
+### 5.1 Task 7.2c local-pairing evidence
+
+| Threat | Implemented evidence boundary | Remaining evidence |
+| --- | --- | --- |
+| T01 | `DnsSdUnverifiedPairingCandidateSourceTests` cover malformed/expired/future-skewed/self/unsafe candidates, port-bound projection, removal, immutable canonical ordering, and authoritative Trust reclassification. `DnsSdPeerAdvertisementServiceTests` cover signed refresh and withdrawal. Discovery remains explicitly labelled unverified. | Physical multicast discovery and withdrawal on representative LANs; hosted matrix for the delivery commit. |
+| T02 | `DiscoveryBoundPairingDecisionSourceTests` prove that SAS delegation occurs only after the transcript-authenticated Device ID and fingerprint match the pinned candidate and its signed offer verifies with that authenticated key within its lifetime. Mismatch and non-pairable Trust states reject before the desktop prompt. | Physical two-person, two-device SAS comparison and native accessibility observation. |
+| T03 | `DesktopPairingIntegrationTests` substitute a different key under the advertised Device ID and prove the initiator sees no SAS while both Trust stores remain empty. Matching-key inbound and outbound ceremonies share the production runtime identity and Trust coordinator. | Broader trusted-reconnect identity-change outcome UI remains in task 7.2 after 7.2c. |
+| T13 | `DesktopLocalPairingRuntimeTests` prove explicit enable, one serialized outbound pairing, cancellation/drain on close, partial-start cleanup, and injected post-enable advertisement failure that cancels the listener, withdraws, releases socket/browser resources, changes to a retryable fault, and starts a fresh session on retry. | Load/physical network churn evidence and the release-level resource gates remain open. |
+
+These tests are deterministic contract and same-host loopback evidence. They do
+not claim Windows, macOS, or Linux physical DNS-SD, firewall, or dual-machine
+success. Hosted CI, secret scan, and CodeQL evidence must be attached to the
+exact implementation commit before task 7.2c is complete.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

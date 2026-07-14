@@ -232,8 +232,23 @@ means its linked evidence exists; it does not imply the entire product works.
     tests, secret scan, and CodeQL pass on hosted Windows, macOS, and Ubuntu at
     `f6bbbf0`; run IDs and limits are recorded in
     [desktop Trust evidence](../../docs/evidence/2026-07-14-desktop-trust-management.md).
-  - Remaining after 7.2b: unpaired discovery/initiator composition,
-    identity-change outcome warnings, and progressive permission education.
+  - 7.2c in progress: explicitly enable one production listener plus minimized
+    DNS-SD browse/advertise lifetime; list only clearly unverified candidates;
+    bind a selected signed offer to the transcript-authenticated pairing
+    identity before showing SAS; refresh Trust after an outgoing ceremony; and
+    unwind partial startup or close safely.
+    The implementation now also supervises listener and advertisement loops as
+    one failure domain: an unexpected post-enable exit cancels its peer loop,
+    withdraws discovery, releases the socket/browser, changes the UI to a
+    sanitized retryable fault, and cannot leave an enabled-looking dead
+    session. Candidate removal, canonical ordering, dynamic Trust
+    reclassification, identity-substitution rejection without SAS, inbound and
+    outbound Trust refresh, in-flight close, and background-fault retry have
+    deterministic contract or loopback tests. Local delivery gates must pass
+    again and the resulting commit still requires hosted Windows/macOS/Ubuntu
+    CI, secret scan, and CodeQL evidence before 7.2c can be marked complete.
+  - Remaining after 7.2c: trusted reconnect status, broader identity-change
+    outcome warnings, and progressive native permission education.
   - _Requirements: R1, R2, R10_
 - [ ] 7.3 Implement operation preview, named degradation, persistent sharing
   indicator, recovery, receipt, and undo surfaces.

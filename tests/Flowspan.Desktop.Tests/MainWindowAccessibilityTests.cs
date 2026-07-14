@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -7,6 +8,7 @@ using Avalonia.Input.Raw;
 using Flowspan.Domain;
 using Flowspan.Protocol;
 using Flowspan.Security;
+using Flowspan.Transport;
 
 namespace Flowspan.Desktop.Tests;
 
@@ -220,6 +222,55 @@ public sealed class MainWindowAccessibilityTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task LocalPairingEnableAndCandidateActionsAreKeyboardReachable()
+    {
+        var runtime = new DesktopLocalPairingRuntime(
+            new AccessibilityNetworkFactory());
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            trustAuthority: new DesktopTrustAuthority(new InMemoryTrustStore()),
+            localPairingRuntime: runtime);
+        await viewModel.InitializeAsync();
+        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Show();
+            Button enable = Assert.IsType<Button>(
+                window.FindControl<Button>("EnableLocalPairingButton"));
+            ListBox candidates = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("LocalPairingCandidateList"));
+            Button pair = Assert.IsType<Button>(
+                window.FindControl<Button>("PairDiscoveredDeviceButton"));
+            Button cancel = Assert.IsType<Button>(
+                window.FindControl<Button>("CancelOutboundPairingButton"));
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
+
+            Assert.Equal(
+                "Enable local pairing",
+                enable.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Discovered local pairing candidates",
+                candidates.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Pair selected local device",
+                pair.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Cancel outbound pairing",
+                cancel.GetValue(AutomationProperties.NameProperty));
+            Assert.True(enable.IsEnabled);
+            Assert.True(enable.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.True(viewModel.LocalPairing.IsEnabled);
+            Assert.Equal("NOT SHARING", sharing.Text);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
     private sealed class ReadyStartup : IDesktopIdentityStartup
     {
         public ValueTask<LocalIdentitySnapshot> InitializeAsync(
@@ -237,5 +288,36 @@ public sealed class MainWindowAccessibilityTests
         public void Dispose()
         {
         }
+    }
+
+    private sealed class AccessibilityNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(
+                new AccessibilityNetworkSession());
+    }
+
+    private sealed class AccessibilityNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

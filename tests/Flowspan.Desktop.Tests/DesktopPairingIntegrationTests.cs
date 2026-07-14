@@ -128,6 +128,69 @@ public sealed class DesktopPairingIntegrationTests
         Assert.Null(responderDecisions.CurrentPrompt);
     }
 
+    [Fact]
+    public async Task DiscoveryIdentityMismatchSkipsInitiatorPromptAndLeavesTrustEmpty()
+    {
+        using DeviceIdentity initiatorIdentity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Initiator");
+        using DeviceIdentity responderIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Responder");
+        using DeviceIdentity substitutedAdvertisement = DeviceIdentity.Generate(
+            responderIdentity.DeviceId,
+            "Responder");
+        var initiatorTrust = new InMemoryTrustStore();
+        var responderTrust = new InMemoryTrustStore();
+        using var initiatorDecisions = new DesktopPairingDecisionSource();
+        using var responderDecisions = new DesktopPairingDecisionSource();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        SignedDiscoveryOffer offer = SignedDiscoveryOffer.Create(
+            substitutedAdvertisement,
+            4747,
+            [Version],
+            now,
+            TimeSpan.FromSeconds(30),
+            Enumerable.Repeat((byte)0x42, SignedDiscoveryOffer.NonceLength).ToArray());
+        var boundDecisions = new DiscoveryBoundPairingDecisionSource(
+            new UnverifiedPairingCandidate(
+                "responder._flowspan._tcp.local",
+                offer,
+                new IPEndPoint(IPAddress.Loopback, offer.Port),
+                PairingCandidateTrustState.UnverifiedPairingRequired),
+            initiatorDecisions);
+        (DirectTcpPairingChannel initiatorChannel,
+            DirectTcpPairingChannel responderChannel) = await ConnectPairingChannelsAsync();
+        var profile = new PairingCeremonyProfile([Version]);
+
+        Task<PairingCeremonyResult> initiatorRun = new PairingCeremony(
+            profile,
+            boundDecisions,
+            initiatorTrust).RunInitiatorAsync(
+                initiatorChannel,
+                initiatorIdentity).AsTask();
+        Task<PairingCeremonyResult> responderRun = new PairingCeremony(
+            profile,
+            responderDecisions,
+            responderTrust).RunResponderAsync(
+                responderChannel,
+                responderIdentity).AsTask();
+
+        PairingCeremonyResult[] results = await Task.WhenAll(
+            initiatorRun,
+            responderRun).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.All(results, static result =>
+        {
+            Assert.False(result.Succeeded);
+            Assert.Equal(PairingFailure.Rejected, result.Failure);
+        });
+        Assert.Null(initiatorDecisions.CurrentPrompt);
+        Assert.Null(responderDecisions.CurrentPrompt);
+        Assert.False(initiatorTrust.TryGet(responderIdentity.DeviceId, out _));
+        Assert.False(responderTrust.TryGet(initiatorIdentity.DeviceId, out _));
+    }
+
     private static async Task<(
         DirectTcpPairingChannel Initiator,
         DirectTcpPairingChannel Responder)> ConnectPairingChannelsAsync()

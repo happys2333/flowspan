@@ -12,6 +12,7 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly Lock lifecycleGate = new();
+    private readonly bool localPairingAvailable;
     private readonly IDesktopIdentityStartup startup;
     private readonly RelayCommand toggleIdentityDetailsCommand;
     private readonly AsyncRelayCommand retryIdentityCommand;
@@ -39,15 +40,24 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         IDesktopIdentityStartup startup,
         DesktopPairingDecisionSource? pairingDecisions = null,
         IDesktopUiDispatcher? dispatcher = null,
-        IDesktopTrustAuthority? trustAuthority = null)
+        IDesktopTrustAuthority? trustAuthority = null,
+        DesktopLocalPairingRuntime? localPairingRuntime = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
+        localPairingAvailable = localPairingRuntime is not null;
+        IDesktopUiDispatcher effectiveDispatcher =
+            dispatcher ?? InlineDesktopUiDispatcher.Instance;
         Pairing = new PairingPromptViewModel(
             pairingDecisions ?? new DesktopPairingDecisionSource(),
-            dispatcher ?? InlineDesktopUiDispatcher.Instance);
+            effectiveDispatcher);
         TrustedDevices = new TrustedDevicesViewModel(
             trustAuthority ?? new DesktopTrustAuthority(new InMemoryTrustStore()));
+        LocalPairing = new LocalPairingViewModel(
+            localPairingRuntime ?? new DesktopLocalPairingRuntime(
+                UnavailableLocalPairingNetworkFactory.Instance),
+            effectiveDispatcher,
+            TrustedDevices.InitializeAsync);
         toggleIdentityDetailsCommand = new RelayCommand(
             ToggleIdentityDetails,
             () => IsIdentityAvailable);
@@ -59,6 +69,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public PairingPromptViewModel Pairing { get; }
+
+    public LocalPairingViewModel LocalPairing { get; }
 
     public TrustedDevicesViewModel TrustedDevices { get; }
 
@@ -212,6 +224,9 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
                         await TrustedDevices
                             .InitializeAsync(linkedCancellation.Token)
                             .ConfigureAwait(true);
+                        LocalPairing.SetPrerequisitesAvailable(
+                            localPairingAvailable
+                            && TrustedDevices.IsTrustAvailable);
                     }
                 }
                 catch (Exception exception)
@@ -293,6 +308,15 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         if (disposalInitiationFailure is not null)
         {
             failures.Add(disposalInitiationFailure);
+        }
+
+        try
+        {
+            await LocalPairing.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
         }
 
         try
@@ -392,6 +416,7 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         IsIdentityDetailsVisible = false;
         IsStartupBlocked = true;
         IsTestMode = false;
+        LocalPairing.SetPrerequisitesAvailable(false);
         DeviceId = "Unavailable";
         Fingerprint = "Unavailable";
         IdentityProtection = failure.ReasonCode;
@@ -422,5 +447,17 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         return true;
+    }
+
+    private sealed class UnavailableLocalPairingNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public static UnavailableLocalPairingNetworkFactory Instance { get; } = new();
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<IDesktopLocalPairingNetworkSession>(
+                new PlatformNotSupportedException(
+                    "A production local-pairing runtime was not configured."));
     }
 }

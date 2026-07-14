@@ -28,6 +28,7 @@ screens or arbitrary process migration.
 | **Driver Lease** | A short-lived, monotonic authority token whose expiry or revocation stops remote input. | Input session |
 | **Capability** | A narrow permission granted to a paired peer for one class of action. | Trust, access |
 | **Pairing** | An interactive ceremony that verifies device identities and creates initial Capability grants. | Login, connection |
+| **Unverified Pairing Candidate** | A structurally valid, short-lived LAN discovery observation that may be selected for Pairing but has no authenticated identity or authority until the pairing transcript binds and verifies its signed offer. | Trusted device, connected device, verified peer |
 | **Trust Record** | A local binding from a peer identity key to its name, verification state, and granted Capabilities. | Account, session |
 | **Identity Claim** | An unauthenticated Device ID or fingerprint carried before handshake proof and usable only to locate candidate trust. | Authenticated identity |
 | **Sensitive Surface** | A window, secure-input state, protected content, or policy label that must block or blank capture or input. | Private window |
@@ -57,6 +58,10 @@ screens or arbitrary process migration.
   **Handoff** never removes the source.
 - A **Mirror** has at most one effective **Driver Lease** at a time.
 - A **Trust Record** may grant zero or more independent **Capabilities**.
+- An **Unverified Pairing Candidate** can open a Pairing attempt but cannot
+  become a **Trust Record**, show a SAS prompt, or authorize a **Capability**
+  until its Device ID, fingerprint, signature, and lifetime match the
+  transcript-authenticated peer.
 - An **Identity Claim** selects candidate trust but cannot establish identity or
   authorize a **Capability** without key and transcript verification.
 - An **Activity Group** contains one or more ordered **Activities**; a **Scene**
