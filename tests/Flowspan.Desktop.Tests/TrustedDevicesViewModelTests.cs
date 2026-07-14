@@ -51,8 +51,14 @@ public sealed class TrustedDevicesViewModelTests
             peer.PublicIdentity,
             DateTimeOffset.UnixEpoch,
             CapabilityGrant.None));
+        int connectionReconciles = 0;
         await using var viewModel = new TrustedDevicesViewModel(
-            new DesktopTrustAuthority(trustStore));
+            new DesktopTrustAuthority(trustStore),
+            _ =>
+            {
+                connectionReconciles++;
+                return Task.CompletedTask;
+            });
         await viewModel.InitializeAsync();
 
         viewModel.GrantActivityOffer = true;
@@ -72,6 +78,7 @@ public sealed class TrustedDevicesViewModelTests
         Assert.Equal(
             Enum.GetValues<Capability>().Order(),
             updated.GrantedCapabilities.Capabilities.Order());
+        Assert.Equal(1, connectionReconciles);
     }
 
     [Fact]

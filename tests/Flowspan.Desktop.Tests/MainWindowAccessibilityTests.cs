@@ -261,6 +261,10 @@ public sealed class MainWindowAccessibilityTests
                 window.FindControl<Button>("EnableLocalPairingButton"));
             ListBox candidates = Assert.IsType<ListBox>(
                 window.FindControl<ListBox>("LocalPairingCandidateList"));
+            ListBox trustedConnections = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("TrustedPeerConnectionList"));
+            TextBlock identityWarning = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("TrustedPeerIdentityWarningSummary"));
             Button pair = Assert.IsType<Button>(
                 window.FindControl<Button>("PairDiscoveredDeviceButton"));
             Button cancel = Assert.IsType<Button>(
@@ -275,6 +279,9 @@ public sealed class MainWindowAccessibilityTests
                 "Discovered local pairing candidates",
                 candidates.GetValue(AutomationProperties.NameProperty));
             Assert.Equal(
+                "Trusted peer local connection status",
+                trustedConnections.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
                 "Pair selected local device",
                 pair.GetValue(AutomationProperties.NameProperty));
             Assert.Equal(
@@ -285,6 +292,12 @@ public sealed class MainWindowAccessibilityTests
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
 
             Assert.True(viewModel.LocalPairing.IsEnabled);
+            Assert.Single(trustedConnections.Items);
+            Assert.True(identityWarning.IsVisible);
+            Assert.Contains("IDENTITY CLAIM BLOCKED", identityWarning.Text);
+            Assert.Equal(
+                "Trusted peer identity warning",
+                identityWarning.GetValue(AutomationProperties.NameProperty));
             Assert.Equal("NOT SHARING", sharing.Text);
             window.Close();
         }, CancellationToken.None);
@@ -331,6 +344,19 @@ public sealed class MainWindowAccessibilityTests
         public int ListeningPort => 4747;
 
         public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ImmutableArray<DesktopTrustedPeerConnectionSnapshot>
+            GetTrustedPeerConnections() =>
+        [
+            new(
+                DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+                "Peer desk",
+                "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                DesktopTrustedPeerConnectionState.AuthenticatedIdle,
+                null,
+                null,
+                "SHA256:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
+        ];
 
         public ValueTask<PairingCeremonyResult> PairAsync(
             UnverifiedPairingCandidate candidate,

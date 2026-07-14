@@ -250,7 +250,14 @@ means its linked evidence exists; it does not imply the entire product works.
     [desktop local-pairing evidence](../../docs/evidence/2026-07-14-desktop-local-pairing-network.md).
   - Remaining after 7.2c: trusted reconnect status, broader identity-change
     outcome warnings, and progressive native permission education.
-  - _Requirements: R1, R2, R10_
+  - 7.2d in progress: compose trusted reconnect into the explicitly enabled
+    desktop network lifetime; elect one Device-ID-ordered connector; project
+    per-peer waiting/authenticating/authenticated-idle/retrying/blocked states;
+    latch conflicting-fingerprint and authenticated identity-change warnings;
+    and drain supervisors on Trust, network, or window lifecycle changes. This
+    slice must retain `NOT SHARING`, must not auto-repair Trust, and requires
+    deterministic plus same-host loopback evidence before it is complete.
+  - _Requirements: R1, R2, R8, R10_
 - [ ] 7.3 Implement operation preview, named degradation, persistent sharing
   indicator, recovery, receipt, and undo surfaces.
   - _Requirements: R3, R4, R5, R6, R10, R11_

@@ -65,6 +65,10 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
 
     public ObservableCollection<LocalPairingCandidateItemViewModel> Candidates { get; } = [];
 
+    public ObservableCollection<TrustedPeerConnectionItemViewModel>
+        TrustedPeerConnections
+    { get; } = [];
+
     public ICommand CancelPairingCommand => cancelPairingCommand;
 
     public ICommand DisableCommand => disableCommand;
@@ -72,6 +76,11 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     public ICommand EnableCommand => enableCommand;
 
     public bool HasSelection => SelectedCandidate is not null;
+
+    public bool HasIdentityWarnings =>
+        TrustedPeerConnections.Any(static connection => connection.HasIdentityWarning);
+
+    public bool HasTrustedPeerConnections => TrustedPeerConnections.Count > 0;
 
     public bool IsEnabled
     {
@@ -202,6 +211,9 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         RecoveryAction = string.Empty;
         Candidates.Clear();
         SelectedCandidate = null;
+        TrustedPeerConnections.Clear();
+        OnPropertyChanged(nameof(HasTrustedPeerConnections));
+        OnPropertyChanged(nameof(HasIdentityWarnings));
     }
 
     public async Task PairSelectedAsync(
@@ -378,6 +390,17 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         {
             Candidates.Add(new LocalPairingCandidateItemViewModel(candidate));
         }
+
+        TrustedPeerConnections.Clear();
+        foreach (DesktopTrustedPeerConnectionSnapshot connection in
+                 runtime.GetTrustedPeerConnections())
+        {
+            TrustedPeerConnections.Add(
+                new TrustedPeerConnectionItemViewModel(connection));
+        }
+
+        OnPropertyChanged(nameof(HasTrustedPeerConnections));
+        OnPropertyChanged(nameof(HasIdentityWarnings));
     }
 
     private bool SetProperty<T>(
@@ -394,6 +417,42 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         return true;
     }
+
+    private void OnPropertyChanged(string propertyName) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+}
+
+public sealed class TrustedPeerConnectionItemViewModel
+{
+    internal TrustedPeerConnectionItemViewModel(
+        DesktopTrustedPeerConnectionSnapshot snapshot)
+    {
+        DeviceId = snapshot.DeviceId.ToString();
+        DisplayName = snapshot.DisplayName;
+        ExpectedFingerprint = snapshot.ExpectedFingerprint;
+        ConflictingFingerprint = snapshot.ConflictingFingerprint
+            ?? "Unavailable from authentication";
+        HasIdentityWarning = snapshot.HasIdentityWarning;
+        IdentityWarning = snapshot.IdentityWarning;
+        Status = snapshot.StatusLabel;
+        StatusDescription = snapshot.StatusDescription;
+    }
+
+    public string ConflictingFingerprint { get; }
+
+    public string DeviceId { get; }
+
+    public string DisplayName { get; }
+
+    public string ExpectedFingerprint { get; }
+
+    public bool HasIdentityWarning { get; }
+
+    public string IdentityWarning { get; }
+
+    public string Status { get; }
+
+    public string StatusDescription { get; }
 }
 
 public sealed class LocalPairingCandidateItemViewModel

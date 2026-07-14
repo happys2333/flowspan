@@ -80,6 +80,18 @@ not claim Windows, macOS, or Linux physical DNS-SD, firewall, or dual-machine
 success. Hosted CI, secret scan, and CodeQL evidence must be attached to the
 exact implementation commit before task 7.2c is complete.
 
+### 5.2 Task 7.2d trusted-reconnect evidence plan
+
+| Threat | Required implementation evidence | Evidence that remains physical |
+| --- | --- | --- |
+| T03 | A current-key signed offer is reconstructed only from protected Trust and verified before connect; a conflicting advertised fingerprint is excluded from candidate lookup and latched beside the expected fingerprint; a handshake-level identity change becomes a permanent warning without changing Trust. | Two physical devices changing/replacing an identity key, plus native notification and assistive-technology observation. |
+| T05 | Only a locally granted `activity.offer` channel is eligible; capability downgrade/revoke persists first, drains registered handlers, and reconciles the per-peer worker; an idle authenticated channel is never called sharing. | Physical active-session shutdown across sleep/wake and credential-store failure. |
+| T13 | Device-ID ownership permits one active connector per pair; candidate changes wake waiting retries without overlapping attempts; disable, background-network fault, and close cancel and drain all workers and handlers. | Representative Wi-Fi/Ethernet interface churn, multicast loss, firewall prompts, and peer restart on Windows, macOS, and Linux. |
+
+The implementation and hosted matrix evidence must be attached to the exact
+7.2d delivery commit. Contract and loopback results do not prove physical DNS-SD
+or cross-machine behavior.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

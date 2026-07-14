@@ -98,6 +98,21 @@ absent before both decisions, each side persists only its local selected grant,
 and one rejection leaves both stores empty. These tests do not make the
 production desktop start its listener or prove a human compared two devices.
 
+The task 7.2d trusted-reconnect tests keep the user-triggered network lifetime
+outside the transport primitives. Deterministic coordinator doubles cover
+Device-ID connector election, current Trust ordering, waiting/authenticating/
+authenticated-idle/retry/permanent states, capability upgrade and downgrade,
+revoke, cancellation/drain, conflicting-fingerprint latching, sanitized worker
+failure, and the rule that discovery refresh cannot interrupt an active
+authenticated channel. Candidate-source tests reconstruct the public key only
+from current Trust and require the signed offer to verify before returning an
+endpoint. A same-process loopback test composes the production reconnect
+supervisor, authenticated connector, listener, both Trust coordinators, and both
+idle handlers; both peers must say `AUTHENTICATED — IDLE / NOT SHARING`. Headless
+tests verify the per-peer and warning text/automation surface. These results do
+not prove physical DNS-SD, firewall behavior, sleep/wake, interface churn,
+native notifications, or two-machine identity replacement.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance;

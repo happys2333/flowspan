@@ -69,6 +69,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             .ConfigureAwait(false);
         TcpListener? listener = null;
         DnsSdUnverifiedPairingCandidateSource? candidates = null;
+        DesktopTrustedPeerConnectionCoordinator? trustedConnections = null;
         SystemDesktopLocalPairingNetworkSession? session = null;
         try
         {
@@ -84,6 +85,17 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 identity.DeviceId,
                 trust,
                 dns.Browser);
+            var trustedCandidateSource = new DesktopTrustedPeerCandidateSource(
+                trust,
+                candidates.GetSnapshot);
+            trustedConnections = new DesktopTrustedPeerConnectionCoordinator(
+                identity.DeviceId,
+                trust,
+                candidates.GetSnapshot,
+                new SystemDesktopPeerReconnectLoopFactory(
+                    identity,
+                    trust,
+                    trustedCandidateSource));
             IPEndPoint boundEndPoint = listener.LocalEndpoint as IPEndPoint
                 ?? throw new InvalidOperationException(
                     "The local pairing listener did not expose an IP endpoint.");
@@ -98,7 +110,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 pairingDecisions,
                 trust,
                 new FlowspanTcpInboundProfile(sessionProfile),
-                IdleAuthenticatedControlSessionHandler.Instance);
+                trustedConnections.SessionHandler);
             var advertisement = new DnsSdPeerAdvertisementService(
                 identity,
                 boundEndPoint.Port,
@@ -114,6 +126,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 inbound,
                 identity,
                 trust,
+                trustedConnections,
                 pairingDecisions,
                 new PairingCeremonyProfile(versions),
                 boundEndPoint.Port);
@@ -133,6 +146,11 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 }
                 else
                 {
+                    if (trustedConnections is not null)
+                    {
+                        await trustedConnections.DisposeAsync().ConfigureAwait(false);
+                    }
+
                     candidates?.Dispose();
                     listener?.Stop();
                 }
@@ -168,21 +186,6 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         return new DesktopDnsSdTransport(adapter, adapter);
     }
 
-    private sealed class IdleAuthenticatedControlSessionHandler :
-        IAuthenticatedControlSessionHandler
-    {
-        public static IdleAuthenticatedControlSessionHandler Instance { get; } = new();
-
-        public async ValueTask RunAsync(
-            AuthenticatedTcpControlConnection connection,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(connection);
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
-                .ConfigureAwait(false);
-        }
-    }
-
     private sealed class SystemDesktopLocalPairingNetworkSession :
         IDesktopLocalPairingNetworkSession
     {
@@ -196,6 +199,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         private readonly SemaphoreSlim pairingGate = new(1, 1);
         private readonly TcpListener socket;
         private readonly TrustSessionCoordinator trust;
+        private readonly DesktopTrustedPeerConnectionCoordinator trustedConnections;
         private Task? advertisementTask;
         private Task? inboundTask;
         private Task? supervisionTask;
@@ -209,6 +213,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             FlowspanTcpInboundListener inbound,
             DeviceIdentity localIdentity,
             TrustSessionCoordinator trust,
+            DesktopTrustedPeerConnectionCoordinator trustedConnections,
             DesktopPairingDecisionSource pairingDecisions,
             PairingCeremonyProfile pairingProfile,
             int listeningPort)
@@ -219,11 +224,13 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             this.inbound = inbound;
             this.localIdentity = localIdentity;
             this.trust = trust;
+            this.trustedConnections = trustedConnections;
             this.pairingDecisions = pairingDecisions;
             this.pairingProfile = pairingProfile;
             ListeningPort = listeningPort;
             candidates.SnapshotChanged += OnChanged;
             inbound.PairingCompleted += OnPairingCompleted;
+            trustedConnections.Changed += OnTrustedConnectionsChanged;
         }
 
         public event Action? Changed;
@@ -240,6 +247,20 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             return candidates.GetSnapshot();
+        }
+
+        public ImmutableArray<DesktopTrustedPeerConnectionSnapshot>
+            GetTrustedPeerConnections()
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+            return trustedConnections.GetSnapshot();
+        }
+
+        public ValueTask RefreshTrustedPeersAsync(
+            CancellationToken cancellationToken = default)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+            return trustedConnections.RefreshTrustAsync(cancellationToken);
         }
 
         public async ValueTask<PairingCeremonyResult> PairAsync(
@@ -275,6 +296,9 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     linked.Token).ConfigureAwait(false);
                 if (result.Succeeded)
                 {
+                    await trustedConnections.RefreshTrustAsync(linked.Token)
+                        .ConfigureAwait(false);
+                    PublishTrustChanged();
                     PublishChanged();
                 }
 
@@ -294,6 +318,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 .RunAsync(lifetimeCancellation.Token).AsTask();
             ThrowIfLoopEndedDuringStart(inboundTask);
             ThrowIfLoopEndedDuringStart(advertisementTask);
+            trustedConnections.Start();
             supervisionTask = SuperviseLoopsAsync(inboundTask, advertisementTask);
         }
 
@@ -308,6 +333,15 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             try
             {
                 lifetimeCancellation.Cancel();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            try
+            {
+                trustedConnections.Cancel();
             }
             catch (Exception exception)
             {
@@ -339,6 +373,16 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             await CaptureLoopFailureAsync(supervisionTask, failures).ConfigureAwait(false);
             candidates.SnapshotChanged -= OnChanged;
             inbound.PairingCompleted -= OnPairingCompleted;
+            trustedConnections.Changed -= OnTrustedConnectionsChanged;
+            try
+            {
+                await trustedConnections.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
             try
             {
                 candidates.Dispose();
@@ -391,7 +435,13 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             }
         }
 
-        private void OnChanged() => PublishChanged();
+        private void OnChanged()
+        {
+            trustedConnections.NotifyCandidatesChanged();
+            PublishChanged();
+        }
+
+        private void OnTrustedConnectionsChanged() => PublishChanged();
 
         private async Task SuperviseLoopsAsync(Task inboundLoop, Task advertisementLoop)
         {
@@ -414,6 +464,15 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
 
             try
             {
+                trustedConnections.Cancel();
+            }
+            catch
+            {
+                // Fault notification and disposal still need to proceed.
+            }
+
+            try
+            {
                 socket.Stop();
             }
             catch
@@ -428,6 +487,23 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         {
             if (completed.Result.Succeeded)
             {
+                try
+                {
+                    trustedConnections.RefreshTrustAsync(lifetimeCancellation.Token)
+                        .AsTask()
+                        .GetAwaiter()
+                        .GetResult();
+                }
+                catch (OperationCanceledException)
+                    when (lifetimeCancellation.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch
+                {
+                    // Trust is already durable; the next explicit refresh can reconcile status.
+                }
+
                 PublishTrustChanged();
                 PublishChanged();
             }

@@ -265,6 +265,78 @@
               </StackPanel>
 
               <StackPanel Grid.Column="1" Spacing="12">
+                <TextBlock Classes="label" Text="TRUSTED PEER CHANNELS" />
+                <TextBlock Classes="secondary"
+                           FontSize="12"
+                           Text="Per-peer state for the explicitly enabled local network. Authenticated idle is not sharing." />
+                <TextBlock Classes="secondary"
+                           IsVisible="{Binding !LocalPairing.HasTrustedPeerConnections}"
+                           Text="No current Trust Record has a local connection status." />
+                <TextBlock x:Name="TrustedPeerIdentityWarningSummary"
+                           IsVisible="{Binding LocalPairing.HasIdentityWarnings}"
+                           Foreground="{StaticResource SignalRedBrush}"
+                           FontWeight="SemiBold"
+                           Text="IDENTITY CLAIM BLOCKED — review the expected and conflicting fingerprints below. Trust was preserved."
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Trusted peer identity warning" />
+                <ListBox x:Name="TrustedPeerConnectionList"
+                         IsVisible="{Binding LocalPairing.HasTrustedPeerConnections}"
+                         ItemsSource="{Binding LocalPairing.TrustedPeerConnections}"
+                         MaxHeight="240"
+                         AutomationProperties.Name="Trusted peer local connection status">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TrustedPeerConnectionItemViewModel">
+                      <Border Margin="4"
+                              BorderBrush="{StaticResource CoolGrayBrush}"
+                              BorderThickness="1"
+                              Padding="10">
+                        <StackPanel Spacing="4">
+                          <TextBlock FontWeight="SemiBold"
+                                     Text="{Binding DisplayName}"
+                                     TextWrapping="Wrap" />
+                          <TextBlock Classes="secondary"
+                                     FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                     FontSize="11"
+                                     Text="{Binding DeviceId}"
+                                     TextWrapping="Wrap" />
+                          <TextBlock Foreground="{StaticResource SafetyAmberBrush}"
+                                     FontWeight="SemiBold"
+                                     Text="{Binding Status}"
+                                     TextWrapping="Wrap" />
+                          <TextBlock Classes="secondary"
+                                     FontSize="11"
+                                     Text="{Binding StatusDescription}"
+                                     TextWrapping="Wrap" />
+                          <Border IsVisible="{Binding HasIdentityWarning}"
+                                  BorderBrush="{StaticResource SignalRedBrush}"
+                                  BorderThickness="2"
+                                  Padding="9"
+                                  AutomationProperties.Name="Blocked trusted peer identity claim">
+                            <StackPanel Spacing="4">
+                              <TextBlock Foreground="{StaticResource SignalRedBrush}"
+                                         FontWeight="SemiBold"
+                                         Text="{Binding IdentityWarning}"
+                                         TextWrapping="Wrap" />
+                              <TextBlock Classes="label" Text="TRUSTED FINGERPRINT" />
+                              <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                   FontSize="10"
+                                                   Text="{Binding ExpectedFingerprint}"
+                                                   TextWrapping="Wrap"
+                                                   AutomationProperties.Name="Expected trusted peer fingerprint" />
+                              <TextBlock Classes="label" Text="CONFLICTING ADVERTISED FINGERPRINT" />
+                              <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                   FontSize="10"
+                                                   Text="{Binding ConflictingFingerprint}"
+                                                   TextWrapping="Wrap"
+                                                   AutomationProperties.Name="Conflicting advertised peer fingerprint" />
+                            </StackPanel>
+                          </Border>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+
                 <TextBlock Classes="label" Text="OBSERVED CANDIDATES" />
                 <TextBlock Classes="secondary"
                            FontSize="12"

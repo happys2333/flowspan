@@ -52,7 +52,12 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             pairingDecisions ?? new DesktopPairingDecisionSource(),
             effectiveDispatcher);
         TrustedDevices = new TrustedDevicesViewModel(
-            trustAuthority ?? new DesktopTrustAuthority(new InMemoryTrustStore()));
+            trustAuthority ?? new DesktopTrustAuthority(new InMemoryTrustStore()),
+            localPairingRuntime is null
+                ? null
+                : token => localPairingRuntime
+                    .RefreshTrustedPeersAsync(token)
+                    .AsTask());
         LocalPairing = new LocalPairingViewModel(
             localPairingRuntime ?? new DesktopLocalPairingRuntime(
                 UnavailableLocalPairingNetworkFactory.Instance),

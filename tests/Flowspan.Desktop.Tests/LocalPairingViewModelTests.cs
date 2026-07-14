@@ -68,6 +68,43 @@ public sealed class LocalPairingViewModelTests
     }
 
     [Fact]
+    public async Task TrustedReconnectProjectionKeepsIdleAndIdentityWarningTruthful()
+    {
+        var peerDeviceId = DeviceId.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        const string expected =
+            "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const string conflicting =
+            "SHA256:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+        var connection = new DesktopTrustedPeerConnectionSnapshot(
+            peerDeviceId,
+            "Peer desk",
+            expected,
+            DesktopTrustedPeerConnectionState.AuthenticatedIdle,
+            null,
+            null,
+            conflicting);
+        var runtime = new DesktopLocalPairingRuntime(
+            new RecordingNetworkFactory(connections: [connection]));
+        await using var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+
+        await viewModel.EnableAsync();
+
+        TrustedPeerConnectionItemViewModel item =
+            Assert.Single(viewModel.TrustedPeerConnections);
+        Assert.Equal("AUTHENTICATED — IDLE / NOT SHARING", item.Status);
+        Assert.True(item.HasIdentityWarning);
+        Assert.Equal(expected, item.ExpectedFingerprint);
+        Assert.Equal(conflicting, item.ConflictingFingerprint);
+        Assert.Contains("discovery alone", item.IdentityWarning);
+        Assert.True(viewModel.HasTrustedPeerConnections);
+        Assert.True(viewModel.HasIdentityWarnings);
+    }
+
+    [Fact]
     public async Task SuccessfulPairingRefreshesAuthoritativeTrustedDevices()
     {
         using DeviceIdentity peer = DeviceIdentity.Generate(
@@ -312,7 +349,8 @@ public sealed class LocalPairingViewModelTests
 
     private sealed class RecordingNetworkFactory(
         ImmutableArray<UnverifiedPairingCandidate> candidates = default,
-        PairingCeremonyResult? pairingResult = null) :
+        PairingCeremonyResult? pairingResult = null,
+        ImmutableArray<DesktopTrustedPeerConnectionSnapshot> connections = default) :
         IDesktopLocalPairingNetworkFactory
     {
         public StubNetworkSession? LastSession { get; private set; }
@@ -326,7 +364,8 @@ public sealed class LocalPairingViewModelTests
             StartCount++;
             LastSession = new StubNetworkSession(
                 candidates.IsDefault ? [] : candidates,
-                pairingResult);
+                pairingResult,
+                connections.IsDefault ? [] : connections);
             return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(LastSession);
         }
     }
@@ -420,7 +459,8 @@ public sealed class LocalPairingViewModelTests
 
     private sealed class StubNetworkSession(
         ImmutableArray<UnverifiedPairingCandidate> candidates,
-        PairingCeremonyResult? pairingResult) :
+        PairingCeremonyResult? pairingResult,
+        ImmutableArray<DesktopTrustedPeerConnectionSnapshot> connections) :
         IDesktopLocalPairingNetworkSession
     {
         public UnverifiedPairingCandidate? LastCandidate { get; private set; }
@@ -440,6 +480,9 @@ public sealed class LocalPairingViewModelTests
         public int ListeningPort => 4747;
 
         public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => candidates;
+
+        public ImmutableArray<DesktopTrustedPeerConnectionSnapshot>
+            GetTrustedPeerConnections() => connections;
 
         public ValueTask<PairingCeremonyResult> PairAsync(
             UnverifiedPairingCandidate candidate,

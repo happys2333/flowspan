@@ -69,7 +69,9 @@ interfaces.
 - R2.4: When either side rejects or times out the pairing ceremony, neither side
   shall gain a trust record or Activity capability.
 - R2.5: When a trusted peer reconnects with a different identity key, Flowspan
-  shall block the connection and surface an identity-change warning.
+  shall block the connection, preserve the current Trust Record, and surface an
+  identity-change warning that distinguishes the trusted fingerprint from the
+  conflicting or unavailable observed fingerprint.
 - R2.6: When the owner revokes a peer or capability, new operations requiring
   that trust shall be rejected immediately and active sharing shall stop.
 
@@ -144,6 +146,8 @@ interfaces.
   connect them without an Internet service.
 - R8.2: When the network changes or a peer restarts, Flowspan shall reconnect
   with bounded exponential backoff and restore only still-valid capabilities.
+  The user-visible state shall distinguish waiting for a peer, authenticating,
+  authenticated but idle, retrying, and a permanent security or policy block.
 - R8.3: When protocol versions differ, peers shall negotiate a mutually supported
   version or reject the session with a structured compatibility error.
 - R8.4: When messages are duplicated, delayed, reordered within an allowed
@@ -151,6 +155,10 @@ interfaces.
   preserve its safety invariants.
 - R8.5: Internet discovery and relay shall be represented by replaceable
   interfaces but are not v1 release requirements.
+- R8.6: Launching Flowspan shall not implicitly open a LAN listener, browser, or
+  advertisement. Trusted-session reconnect shall run only inside an explicitly
+  enabled local-network lifetime and shall cancel and drain when that lifetime
+  ends.
 
 ### R9 — Security and privacy controls
 

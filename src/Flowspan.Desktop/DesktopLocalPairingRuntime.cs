@@ -41,9 +41,15 @@ internal interface IDesktopLocalPairingNetworkSession : IAsyncDisposable
 
     public ImmutableArray<UnverifiedPairingCandidate> GetCandidates();
 
+    public ImmutableArray<DesktopTrustedPeerConnectionSnapshot>
+        GetTrustedPeerConnections() => [];
+
     public ValueTask<PairingCeremonyResult> PairAsync(
         UnverifiedPairingCandidate candidate,
         CancellationToken cancellationToken = default);
+
+    public ValueTask RefreshTrustedPeersAsync(
+        CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 }
 
 public sealed class DesktopLocalPairingRuntime : IAsyncDisposable
@@ -142,6 +148,23 @@ public sealed class DesktopLocalPairingRuntime : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         return session?.GetCandidates() ?? [];
+    }
+
+    public ImmutableArray<DesktopTrustedPeerConnectionSnapshot>
+        GetTrustedPeerConnections()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        return session?.GetTrustedPeerConnections() ?? [];
+    }
+
+    public ValueTask RefreshTrustedPeersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        IDesktopLocalPairingNetworkSession? current = session;
+        return current is null
+            ? ValueTask.CompletedTask
+            : current.RefreshTrustedPeersAsync(cancellationToken);
     }
 
     public async ValueTask DisableAsync()

@@ -258,3 +258,48 @@ session has been detached. Headless and loopback tests prove state, binding,
 trust refresh, cancellation, cleanup, background-fault, and retry contracts.
 Physical multicast, firewall prompts, dual-machine SAS comparison, and native
 permission text remain separate evidence.
+
+## 13. Task 7.2d: trusted reconnect status and identity warnings
+
+Trusted reconnect extends the explicitly enabled local-network surface; it is
+not a new launch-time background service. When local pairing is off, every
+listener, browser, advertisement, reconnect supervisor, and idle authenticated
+handler is absent. Enable starts them as one owned lifetime, while Disable,
+network failure, or window close cancels and awaits all of them before protected
+identity or Trust is disposed.
+
+The local-network surface lists one status for every current Trust Record. It
+uses `WAITING FOR TRUSTED PEER`, `WAITING FOR INBOUND AUTHENTICATION`,
+`AUTHENTICATING`, `AUTHENTICATED — IDLE / NOT SHARING`, `RETRYING LOCALLY`, or a
+specific permanent policy/security block. It never shortens an authenticated
+idle channel to `Connected`, and the persistent top-level `NOT SHARING`
+indicator remains unchanged. A peer without the local `activity.offer` grant is
+shown as policy-ineligible rather than repeatedly contacted. Saving a relevant
+grant reconciles supervisors; revocation or downgrade first changes Trust and
+drains authority through `TrustSessionCoordinator`, then removes or stops the
+reconnect projection.
+
+For a permitted pair, the lexicographically smaller Device ID initiates and the
+other waits on the shared inbound listener. Either direction updates the same
+per-peer authenticated-idle presentation. Candidate arrival wakes only a
+waiting/retrying connector; periodic offer refresh or a conflicting record does
+not cancel an already authenticated current-key channel.
+
+Any observed discovery record that claims a trusted Device ID with another
+fingerprint creates a high-prominence `IDENTITY CLAIM BLOCKED` warning. It shows
+the protected Trust fingerprint, the conflicting advertised fingerprint, and
+explains that the record was rejected before connection and is not proof that
+the trusted peer changed keys. The warning remains latched until local
+networking is disabled so a short-lived record cannot disappear before review.
+If authenticated handshake evidence reports an identity change without a safe
+fingerprint, the warning explicitly says the observed fingerprint is
+unavailable. No warning action mutates Trust; re-pairing or identity replacement
+requires a later explicit design.
+
+Deterministic tests cover connector ownership, all state projections, signed
+current-key candidate binding, conflicting-record latching, retry wake-up,
+capability reconcile, revoke/disable/close drain, inbound/outbound idle status,
+sanitized permanent failures, and keyboard/screen-reader text contracts.
+Same-host loopback can prove the encrypted idle channel composition. Physical
+sleep/wake, interface churn, firewall behavior, multicast, and two-machine
+identity-change observation remain real-machine acceptance evidence.

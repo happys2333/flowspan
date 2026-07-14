@@ -264,6 +264,36 @@ same candidate source and publish minimized signed offers through the isolated
 adapter. These are lifecycle and contract tests; they do not prove physical
 multicast behavior.
 
+The desktop 7.2d composition owns trusted reconnect only while the owner has
+explicitly enabled the same local-network lifetime used for pairing. For each
+trusted peer whose local `activity.offer` grant permits the currently idle
+control channel, the lexicographically smaller Device ID is the sole active
+connector and the other endpoint waits on the shared authenticated listener.
+This deterministic ownership prevents two healthy peers from maintaining
+duplicate symmetric idle connections. Discovery changes wake a waiting retry
+loop but do not tear down an already authenticated session merely because an
+unverified conflicting advertisement appeared. ADR 0008 records the election,
+authorization boundary, alternatives, and revisit triggers.
+
+The desktop reconnect projection is per Trust Record, not a global Connected
+flag. Candidate lookup reconstructs the peer public identity only from the
+current Trust Record and verifies the signed, unexpired offer before TCP is
+opened. It projects waiting, authenticating, authenticated-idle, bounded retry,
+and permanent rejection. `AUTHENTICATED — IDLE / NOT SHARING` means only that a
+fresh encrypted control channel passed identity and capability registration;
+the Activity layer remains absent. Revocation, capability downgrade, local
+network disable, and window close cancel and drain the corresponding supervisor
+or registered handler before its owners are disposed.
+
+A DNS-SD record that claims a trusted Device ID with a different fingerprint is
+never supplied to the connector. The desktop latches a prominent warning for
+the current explicitly enabled network lifetime, shows the trusted fingerprint
+beside the conflicting advertised fingerprint, and says that discovery alone
+does not prove possession of the conflicting key. A transcript authentication
+failure that resolves to `CandidateIdentityChanged` is also a permanent warning
+even when no safe observed fingerprint is available. Trust is never replaced or
+repaired automatically.
+
 ## 7. Identity, pairing, and encryption
 
 Each device owns a long-lived P-256 ECDSA identity key stored via an

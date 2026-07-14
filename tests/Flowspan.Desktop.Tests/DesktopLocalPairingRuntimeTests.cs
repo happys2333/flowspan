@@ -24,6 +24,10 @@ public sealed class DesktopLocalPairingRuntimeTests
         Assert.Equal(DesktopLocalPairingStatus.Enabled, runtime.Status);
         Assert.True(runtime.IsEnabled);
         Assert.Equal(4747, runtime.ListeningPort);
+
+        await runtime.RefreshTrustedPeersAsync();
+        Assert.Equal(1, Assert.IsType<StubNetworkSession>(factory.LastSession)
+            .TrustRefreshCount);
     }
 
     [Fact]
@@ -137,6 +141,43 @@ public sealed class DesktopLocalPairingRuntimeTests
         {
             rebound.Stop();
         }
+    }
+
+    [Fact]
+    public async Task TrustedPeerWaitingWorkerIsOwnedAndDrainedByNetworkSession()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Desk");
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            peer.PublicIdentity,
+            DateTimeOffset.UtcNow,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        await using var trust = new TrustSessionCoordinator(trustStore);
+        using var decisions = new DesktopPairingDecisionSource();
+        var dns = new RecordingDnsSdTransport();
+        var factory = new SystemDesktopLocalPairingNetworkFactory(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust),
+            decisions,
+            () => new TcpListener(IPAddress.Loopback, 0),
+            () => new DesktopDnsSdTransport(dns, dns));
+
+        IDesktopLocalPairingNetworkSession session = await factory.StartAsync();
+        await WaitUntilAsync(
+            () => session.GetTrustedPeerConnections() is [var status]
+                && status.State is DesktopTrustedPeerConnectionState.WaitingForPeer
+                    or DesktopTrustedPeerConnectionState.Retrying,
+            TimeSpan.FromSeconds(2));
+
+        await session.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(1, dns.WithdrawCount);
+        Assert.Equal(1, dns.DisposeCount);
     }
 
     [Fact]
@@ -491,6 +532,8 @@ public sealed class DesktopLocalPairingRuntimeTests
 
         public bool IsFaulted { get; private set; }
 
+        public int TrustRefreshCount { get; private set; }
+
         public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
 
         public ValueTask<PairingCeremonyResult> PairAsync(
@@ -498,6 +541,14 @@ public sealed class DesktopLocalPairingRuntimeTests
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException<PairingCeremonyResult>(
                 new NotSupportedException());
+
+        public ValueTask RefreshTrustedPeersAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TrustRefreshCount++;
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask DisposeAsync()
         {

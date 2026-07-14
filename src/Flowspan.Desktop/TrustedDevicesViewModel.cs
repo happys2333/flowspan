@@ -56,6 +56,7 @@ public sealed class TrustedDeviceItemViewModel
 public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
     private readonly IDesktopTrustAuthority authority;
+    private readonly Func<CancellationToken, Task> reconcileConnections;
     private readonly RelayCommand beginRevokeCommand;
     private readonly RelayCommand cancelRevokeCommand;
     private readonly AsyncRelayCommand confirmRevokeCommand;
@@ -84,10 +85,14 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         "Flowspan is loading paired devices from protected local storage.";
     private int disposed;
 
-    public TrustedDevicesViewModel(IDesktopTrustAuthority authority)
+    public TrustedDevicesViewModel(
+        IDesktopTrustAuthority authority,
+        Func<CancellationToken, Task>? reconcileConnections = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
         this.authority = authority;
+        this.reconcileConnections = reconcileConnections
+            ?? (_ => Task.CompletedTask);
         beginRevokeCommand = new RelayCommand(BeginRevoke, CanBeginRevoke);
         cancelRevokeCommand = new RelayCommand(
             CancelRevoke,
@@ -386,6 +391,7 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
                 "No change was applied because the Trust Record no longer exists.",
             _ => string.Empty,
         };
+        await ReconcileConnectionsAsync(cancellationToken).ConfigureAwait(true);
     }
 
     public void BeginRevoke()
@@ -481,6 +487,7 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
                 "The Trust Record had already been removed.",
             _ => string.Empty,
         };
+        await ReconcileConnectionsAsync(cancellationToken).ConfigureAwait(true);
     }
 
     public async ValueTask DisposeAsync()
@@ -555,6 +562,26 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         GrantFileReceive = capabilities.Allows(Capability.FileReceive);
         GrantSceneApply = capabilities.Allows(Capability.SceneApply);
         OnPropertyChanged(nameof(HasUnsavedChanges));
+    }
+
+    private async Task ReconcileConnectionsAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await reconcileConnections(cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            MutationDescription = string.IsNullOrEmpty(MutationDescription)
+                ? "Trust is authoritative, but local reconnect status could not refresh. Disable and retry local networking."
+                : MutationDescription
+                    + " Local reconnect status could not refresh; disable and retry local networking.";
+        }
     }
 
     private void ApplySnapshot(
