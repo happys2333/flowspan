@@ -203,7 +203,7 @@ means its linked evidence exists; it does not imply the entire product works.
 
 ## 7. Desktop experience
 
-- [ ] 7.1 Record Avalonia dependency/version decision and create the accessible
+- [x] 7.1 Record Avalonia dependency/version decision and create the accessible
   desktop composition root.
   - Pin and audit the production and headless dependency family; record native
     platform limits and test-evidence boundaries in ADR 0007.
@@ -211,6 +211,10 @@ means its linked evidence exists; it does not imply the entire product works.
     visible focus, programmatic names, and keyboard-operable identity details.
   - Run the headless shell contract and degraded composition smoke on every CI
     OS without claiming native screen-reader or real-machine launch evidence.
+  - Avalonia 12.1, protected identity startup, the headless shell contracts, and
+    explicit TEST MODE validation pass with all 295 tests on hosted Windows,
+    macOS, and Ubuntu at `3439e2d`; limits and run IDs are recorded in
+    [desktop composition evidence](../../docs/evidence/2026-07-14-desktop-composition.md).
   - _Requirements: R10, R12_
 - [ ] 7.2 Implement unified device/Activity entry, progressive permission
   prompts, pairing, capability editing, and identity-change warnings.
