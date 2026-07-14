@@ -39,7 +39,8 @@ for end-user installation. The repository currently includes:
 - an explicitly enabled desktop local-network lifetime that composes one
   listener, minimized DNS-SD browse/advertise, transcript-bound outgoing
   pairing, persistent Trust editing, and truthful per-peer trusted-reconnect
-  status while remaining `NOT SHARING`;
+  status while remaining `NOT SHARING`; starting that lifetime requires an
+  acknowledged Windows/macOS/Linux-specific privacy preflight;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native

@@ -259,12 +259,17 @@ means its linked evidence exists; it does not imply the entire product works.
     `0dd5a1a`; the original Ubuntu Headless dependency race, remediation, run
     IDs, commands, suite counts, and physical-evidence limits are recorded in
     [desktop trusted-reconnect evidence](../../docs/evidence/2026-07-14-desktop-trusted-reconnect.md).
-  - 7.2e in progress: require an acknowledged, platform-specific local-network
+  - 7.2e complete: require an acknowledged, platform-specific local-network
     permission preflight before the currently implemented explicit network
     lifetime. Review/cancel must open no socket; guidance must name minimized
     LAN-visible metadata, likely OS/firewall behavior, and revocation on
-    Windows, macOS, and Linux. Feature-use capture/input prompts and matching
-    real-machine permission/accessibility evidence remain separate.
+    Windows, macOS, and Linux. All 389 tests, secret scan, and CodeQL pass on
+    hosted Windows, macOS, and Ubuntu at `c44a364`; commands, run IDs, suite
+    counts, stress repetitions, and native-evidence limits are recorded in
+    [desktop local-network permission evidence](../../docs/evidence/2026-07-14-desktop-local-network-permission-preflight.md).
+  - Remaining for parent 7.2: feature-use screen-capture and
+    accessibility/remote-input permission flows, aligned with platform tasks
+    6.3–6.5, plus matching real-machine permission/accessibility evidence.
   - _Requirements: R1, R2, R8, R10_
 - [ ] 7.3 Implement operation preview, named degradation, persistent sharing
   indicator, recovery, receipt, and undo surfaces.

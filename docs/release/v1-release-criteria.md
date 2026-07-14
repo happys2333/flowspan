@@ -126,6 +126,12 @@ implementation convenience.
   Avalonia Headless-session race remediation. The production-composed
   same-host loopback proves one authenticated idle channel and truthful status,
   not physical-LAN, Activity, native-permission, or packaged-app behavior.
+- [2026-07-14 desktop local-network permission preflight](../evidence/2026-07-14-desktop-local-network-permission-preflight.md):
+  389 tests, warning-free builds, explicit TEST MODE composition, simulator,
+  secret scan, and CodeQL passed on hosted Windows, macOS, and Ubuntu. The
+  acknowledged platform-specific education boundary starts no networking on
+  review/cancel; it is not native prompt, firewall, revocation, screen-capture,
+  remote-input, or physical-LAN evidence.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product
