@@ -21,10 +21,13 @@ public sealed class MainWindowAccessibilityTests
             new ReadyStartup());
         await viewModel.InitializeAsync();
         using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         await session.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
             window.Show();
 
             ToggleButton toggle = Assert.IsType<ToggleButton>(
@@ -50,6 +53,7 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal("Hide identity details", toggle.Content);
             window.Close();
         }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -71,10 +75,13 @@ public sealed class MainWindowAccessibilityTests
                 "123456",
                 DateTimeOffset.UtcNow.AddMinutes(1))).AsTask();
         using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         await session.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
             window.Show();
             CheckBox confirmation = Assert.IsType<CheckBox>(
                 window.FindControl<CheckBox>("PairingCodeConfirmation"));
@@ -105,6 +112,7 @@ public sealed class MainWindowAccessibilityTests
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
             window.Close();
         }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         PairingDecision decision = await pending.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(decision.Accepted);
@@ -127,10 +135,13 @@ public sealed class MainWindowAccessibilityTests
             trustAuthority: new DesktopTrustAuthority(trustStore));
         await viewModel.InitializeAsync();
         using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         await session.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
             window.Show();
             ListBox devices = Assert.IsType<ListBox>(
                 window.FindControl<ListBox>("TrustedDeviceList"));
@@ -173,6 +184,7 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal("DEVICE REVOKED", mutationStatus.Text);
             window.Close();
         }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -198,10 +210,13 @@ public sealed class MainWindowAccessibilityTests
             trustAuthority: new DesktopTrustAuthority(trustStore));
         await viewModel.InitializeAsync();
         using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         await session.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
             window.Show();
             ListBox devices = Assert.IsType<ListBox>(
                 window.FindControl<ListBox>("TrustedDeviceList"));
@@ -220,6 +235,7 @@ public sealed class MainWindowAccessibilityTests
             Assert.True(viewModel.TrustedDevices.GrantMirrorDrive);
             window.Close();
         }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -233,10 +249,13 @@ public sealed class MainWindowAccessibilityTests
             localPairingRuntime: runtime);
         await viewModel.InitializeAsync();
         using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         await session.Dispatch(() =>
         {
             var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
             window.Show();
             Button enable = Assert.IsType<Button>(
                 window.FindControl<Button>("EnableLocalPairingButton"));
@@ -269,6 +288,7 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal("NOT SHARING", sharing.Text);
             window.Close();
         }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     private sealed class ReadyStartup : IDesktopIdentityStartup
