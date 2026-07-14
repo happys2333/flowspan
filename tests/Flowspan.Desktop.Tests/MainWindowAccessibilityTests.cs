@@ -14,13 +14,21 @@ namespace Flowspan.Desktop.Tests;
 
 public sealed class MainWindowAccessibilityTests
 {
+    // Avalonia 12.1.0 StartNew can publish a session before its dispatcher Task
+    // is assigned, making per-test Dispose intermittently throw. The official
+    // assembly cache keeps only the session dispatcher process-scoped; the
+    // assembly attribute still rebuilds and disposes the app per Dispatch.
+    private static HeadlessUnitTestSession HeadlessSession =>
+        HeadlessUnitTestSession.GetOrStartForAssembly(
+            typeof(MainWindowAccessibilityTests).Assembly);
+
     [Fact]
     public async Task ShellDeclaresTextStatesAndSupportsKeyboardDisclosure()
     {
         await using var viewModel = new WorkspaceShellViewModel(
             new ReadyStartup());
         await viewModel.InitializeAsync();
-        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        HeadlessUnitTestSession session = HeadlessSession;
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -74,7 +82,7 @@ public sealed class MainWindowAccessibilityTests
                 new ProtocolVersion(1, 0),
                 "123456",
                 DateTimeOffset.UtcNow.AddMinutes(1))).AsTask();
-        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        HeadlessUnitTestSession session = HeadlessSession;
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -134,7 +142,7 @@ public sealed class MainWindowAccessibilityTests
             new ReadyStartup(),
             trustAuthority: new DesktopTrustAuthority(trustStore));
         await viewModel.InitializeAsync();
-        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        HeadlessUnitTestSession session = HeadlessSession;
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -209,7 +217,7 @@ public sealed class MainWindowAccessibilityTests
             new ReadyStartup(),
             trustAuthority: new DesktopTrustAuthority(trustStore));
         await viewModel.InitializeAsync();
-        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        HeadlessUnitTestSession session = HeadlessSession;
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -248,7 +256,7 @@ public sealed class MainWindowAccessibilityTests
             trustAuthority: new DesktopTrustAuthority(new InMemoryTrustStore()),
             localPairingRuntime: runtime);
         await viewModel.InitializeAsync();
-        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+        HeadlessUnitTestSession session = HeadlessSession;
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 

@@ -97,8 +97,8 @@ desktop test with a `NullReferenceException` in
 `Avalonia.Headless.HeadlessUnitTestSession.Dispose`. The checked test called
 the production window's intentionally asynchronous `Close()` path and then
 disposed its headless session without waiting for the window's `Closed` event.
-The new local-pairing shutdown work made the pre-existing test-lifetime race
-observable; the product close path itself did not fail.
+Waiting for `Closed` fixed that real test-lifecycle gap; the product close path
+itself did not fail.
 
 Commit `697e87fe8f2320f7d7ed1cb1b1a5019be59f43f2` changed all five headless window
 tests to wait for actual asynchronous window closure before releasing their
@@ -120,6 +120,16 @@ validation, simulator, and artifact upload. Revalidation CodeQL run
 and its `Analyze C#` job (`87076960951`) also completed successfully. Both runs
 were created at `2026-07-14T11:53:30Z`; CI completed at
 `2026-07-14T11:56:25Z`, and CodeQL completed at `2026-07-14T11:56:35Z`.
+
+A later task 7.2d Ubuntu run reproduced the same disposal exception with the
+`Closed` wait present. Inspection of the exact Avalonia 12.1.0 source then
+identified an independent race in `HeadlessUnitTestSession.StartNew`: its
+worker can publish the session before the outer assignment stores the
+dispatcher task, leaving the session's task field null when `Dispose` reads it.
+The successful rerun above proved the lifecycle fix and that delivery head, but
+did not prove this upstream construction race had been eliminated. Flowspan's
+assembly-scoped-session remediation and its replacement hosted evidence are
+recorded in `2026-07-14-desktop-trusted-reconnect.md`.
 
 ## What this proves
 

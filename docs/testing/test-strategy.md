@@ -89,6 +89,17 @@ the output must name TEST MODE. That command proves composition and process exit
 not a native window, platform credential store, screen reader, high-contrast
 theme, or real permission behavior.
 
+Avalonia 12.1.0's `HeadlessUnitTestSession.StartNew` can publish a session
+before assigning the dispatcher task stored by that session. Per-test session
+disposal can therefore throw a `NullReferenceException` even after the test has
+observed the production window's `Closed` event. Flowspan uses Avalonia's
+assembly-cached headless session and explicitly declares `PerTest` application
+and Dispatcher isolation: only the session dispatcher is process-scoped, while
+each `Dispatch` creates and disposes a fresh application and Dispatcher scope.
+Window tests still wait for the real production `Closed` event. Repeated local
+runs and the hosted OS matrix are required because a single passing process
+cannot disprove the upstream construction race.
+
 The task 7.2a desktop pairing tests call the same `IPairingDecisionSource` port
 as the security ceremony. Unit tests cover one-visible-prompt enforcement,
 explicit zero-capability defaults, code-comparison gating, cancellation,
