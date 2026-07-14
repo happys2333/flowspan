@@ -11,9 +11,11 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
 {
     private readonly IDesktopUiDispatcher dispatcher;
     private readonly RelayCommand cancelPairingCommand;
+    private readonly RelayCommand cancelPermissionReviewCommand;
     private readonly AsyncRelayCommand disableCommand;
     private readonly AsyncRelayCommand enableCommand;
     private readonly AsyncRelayCommand pairDeviceCommand;
+    private readonly RelayCommand reviewPermissionCommand;
     private readonly Func<CancellationToken, Task> refreshTrust;
     private readonly DesktopLocalPairingRuntime runtime;
     private readonly CancellationTokenSource lifetimeCancellation = new();
@@ -21,8 +23,11 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     private readonly Lock pairingLifetimeGate = new();
     private readonly SemaphoreSlim trustRefreshGate = new(1, 1);
     private CancellationTokenSource? activePairingCancellation;
+    private bool hasAcknowledgedPermissionReview;
     private bool isEnabled;
+    private bool isEnabling;
     private bool isPairing;
+    private bool isPermissionReviewVisible;
     private string pairingStatus = string.Empty;
     private string recoveryAction = string.Empty;
     private bool prerequisitesAvailable;
@@ -36,18 +41,36 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     public LocalPairingViewModel(
         DesktopLocalPairingRuntime runtime,
         IDesktopUiDispatcher dispatcher,
-        Func<CancellationToken, Task>? refreshTrust = null)
+        Func<CancellationToken, Task>? refreshTrust = null,
+        DesktopLocalNetworkPermissionGuide? permissionGuide = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(dispatcher);
         this.runtime = runtime;
         this.dispatcher = dispatcher;
         this.refreshTrust = refreshTrust ?? (_ => Task.CompletedTask);
+        PermissionGuide = permissionGuide
+            ?? DesktopLocalNetworkPermissionGuide.ForCurrentPlatform();
         runtime.Changed += OnRuntimeChanged;
         runtime.TrustChanged += OnRuntimeTrustChanged;
+        reviewPermissionCommand = new RelayCommand(
+            OpenPermissionReview,
+            () => prerequisitesAvailable
+                && !IsEnabled
+                && !IsEnabling
+                && !IsPairing
+                && !IsPermissionReviewVisible);
+        cancelPermissionReviewCommand = new RelayCommand(
+            CancelPermissionReview,
+            () => IsPermissionReviewVisible && !IsEnabling && !IsEnabled);
         enableCommand = new AsyncRelayCommand(
             () => EnableAsync(),
-            () => prerequisitesAvailable && !IsEnabled && !IsPairing);
+            () => prerequisitesAvailable
+                && IsPermissionReviewVisible
+                && HasAcknowledgedPermissionReview
+                && !IsEnabled
+                && !IsEnabling
+                && !IsPairing);
         disableCommand = new AsyncRelayCommand(
             DisableAsync,
             () => IsEnabled && !IsPairing);
@@ -71,6 +94,8 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
 
     public ICommand CancelPairingCommand => cancelPairingCommand;
 
+    public ICommand CancelPermissionReviewCommand => cancelPermissionReviewCommand;
+
     public ICommand DisableCommand => disableCommand;
 
     public ICommand EnableCommand => enableCommand;
@@ -80,6 +105,18 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     public bool HasIdentityWarnings =>
         TrustedPeerConnections.Any(static connection => connection.HasIdentityWarning);
 
+    public bool HasAcknowledgedPermissionReview
+    {
+        get => hasAcknowledgedPermissionReview;
+        set
+        {
+            if (SetProperty(ref hasAcknowledgedPermissionReview, value))
+            {
+                NotifyCommandStates();
+            }
+        }
+    }
+
     public bool HasTrustedPeerConnections => TrustedPeerConnections.Count > 0;
 
     public bool IsEnabled
@@ -88,6 +125,19 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         private set
         {
             if (SetProperty(ref isEnabled, value))
+            {
+                OnPropertyChanged(nameof(IsPermissionReviewActionVisible));
+                NotifyCommandStates();
+            }
+        }
+    }
+
+    public bool IsEnabling
+    {
+        get => isEnabling;
+        private set
+        {
+            if (SetProperty(ref isEnabling, value))
             {
                 NotifyCommandStates();
             }
@@ -106,15 +156,39 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         }
     }
 
+    public bool IsPermissionReviewVisible
+    {
+        get => isPermissionReviewVisible;
+        private set
+        {
+            if (SetProperty(ref isPermissionReviewVisible, value))
+            {
+                OnPropertyChanged(nameof(IsPermissionReviewActionVisible));
+                NotifyCommandStates();
+            }
+        }
+    }
+
+    public bool IsPermissionReviewActionVisible =>
+        !IsPermissionReviewVisible && !IsEnabled;
+
     public string ListenerStatus
     {
         get => listenerStatus;
         private set => SetProperty(ref listenerStatus, value);
     }
 
-    public string PermissionEducation { get; } =
-        "Enable only when you want this device discoverable on the current local network. "
-        + "The operating system or firewall may request local-network access.";
+    public string PermissionDataExposure => PermissionGuide.DataExposure;
+
+    public string PermissionEducation => PermissionGuide.Purpose;
+
+    public DesktopLocalNetworkPermissionGuide PermissionGuide { get; }
+
+    public string PermissionPlatformName => PermissionGuide.PlatformName;
+
+    public string PermissionPromptExpectation => PermissionGuide.PromptExpectation;
+
+    public string PermissionRevocationAction => PermissionGuide.RevocationAction;
 
     public string PairingStatus
     {
@@ -129,6 +203,8 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     }
 
     public ICommand PairDeviceCommand => pairDeviceCommand;
+
+    public ICommand ReviewPermissionCommand => reviewPermissionCommand;
 
     public LocalPairingCandidateItemViewModel? SelectedCandidate
     {
@@ -160,11 +236,15 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     public async Task EnableAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
-        if (!prerequisitesAvailable)
+        if (!prerequisitesAvailable
+            || !IsPermissionReviewVisible
+            || !HasAcknowledgedPermissionReview
+            || IsEnabling)
         {
             return;
         }
 
+        IsEnabling = true;
         Status = "ENABLING LOCAL PAIRING";
         StatusDescription =
             "Opening one local listener and starting minimized discovery.";
@@ -176,6 +256,7 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         try
         {
             await runtime.EnableAsync(linkedCancellation.Token).ConfigureAwait(true);
+            IsPermissionReviewVisible = false;
             RefreshFromRuntime();
         }
         catch (OperationCanceledException)
@@ -197,6 +278,10 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
             ListenerStatus = "Listener inactive";
             NotifyCommandStates();
         }
+        finally
+        {
+            IsEnabling = false;
+        }
     }
 
     public async Task DisableAsync()
@@ -209,6 +294,8 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
             "No listener, discovery browser, or advertisement is active.";
         ListenerStatus = "Listener inactive";
         RecoveryAction = string.Empty;
+        IsPermissionReviewVisible = false;
+        HasAcknowledgedPermissionReview = false;
         Candidates.Clear();
         SelectedCandidate = null;
         TrustedPeerConnections.Clear();
@@ -294,6 +381,12 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         prerequisitesAvailable = available;
+        if (!available && !IsEnabled)
+        {
+            IsPermissionReviewVisible = false;
+            HasAcknowledgedPermissionReview = false;
+        }
+
         NotifyCommandStates();
     }
 
@@ -353,6 +446,8 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
 
     private void NotifyCommandStates()
     {
+        reviewPermissionCommand.NotifyCanExecuteChanged();
+        cancelPermissionReviewCommand.NotifyCanExecuteChanged();
         enableCommand.NotifyCanExecuteChanged();
         disableCommand.NotifyCanExecuteChanged();
         pairDeviceCommand.NotifyCanExecuteChanged();
@@ -382,6 +477,7 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
             RecoveryAction =
                 "Check the local firewall or network permission, then retry.";
             ListenerStatus = "Listener inactive";
+            IsPermissionReviewVisible = true;
         }
 
         Candidates.Clear();
@@ -420,6 +516,19 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
 
     private void OnPropertyChanged(string propertyName) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    private void OpenPermissionReview()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        IsPermissionReviewVisible = true;
+    }
+
+    private void CancelPermissionReview()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        HasAcknowledgedPermissionReview = false;
+        IsPermissionReviewVisible = false;
+    }
 }
 
 public sealed class TrustedPeerConnectionItemViewModel

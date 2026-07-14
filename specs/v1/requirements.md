@@ -184,15 +184,20 @@ interfaces.
 
 - R10.1: When no privileged capability is used, Flowspan shall not request that
   permission during first launch.
-- R10.2: Before requesting screen capture, accessibility/input, or similar
-  privilege, Flowspan shall explain the feature, the data exposed, and how to
-  revoke it.
+- R10.2: Before requesting local-network, screen-capture,
+  accessibility/input, or a similar privilege, Flowspan shall explain the
+  feature, the data exposed, and how to revoke it.
 - R10.3: Every destructive or privacy-relevant degradation shall be named in the
   confirmation surface and operation receipt.
 - R10.4: Core flows shall be keyboard operable, expose accessible names and
   state, avoid color-only status, and respect reduced-motion and text scaling.
 - R10.5: User-visible strings shall be externalizable even though v1 ships only
   one maintained language.
+- R10.6: Before starting an explicitly enabled local-network lifetime, Flowspan
+  shall show platform-specific prompt expectations, enumerate the discovery
+  metadata visible on the LAN, provide a platform-appropriate revocation path,
+  and require affirmative acknowledgement. Opening or canceling that review
+  shall not start a listener, browser, advertisement, or reconnect worker.
 
 ### R11 — Undo, audit, and diagnostics
 

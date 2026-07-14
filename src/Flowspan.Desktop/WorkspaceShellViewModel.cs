@@ -41,7 +41,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         DesktopPairingDecisionSource? pairingDecisions = null,
         IDesktopUiDispatcher? dispatcher = null,
         IDesktopTrustAuthority? trustAuthority = null,
-        DesktopLocalPairingRuntime? localPairingRuntime = null)
+        DesktopLocalPairingRuntime? localPairingRuntime = null,
+        DesktopLocalNetworkPermissionGuide? localNetworkPermissionGuide = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
@@ -62,7 +63,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             localPairingRuntime ?? new DesktopLocalPairingRuntime(
                 UnavailableLocalPairingNetworkFactory.Instance),
             effectiveDispatcher,
-            TrustedDevices.InitializeAsync);
+            TrustedDevices.InitializeAsync,
+            localNetworkPermissionGuide);
         toggleIdentityDetailsCommand = new RelayCommand(
             ToggleIdentityDetails,
             () => IsIdentityAvailable);

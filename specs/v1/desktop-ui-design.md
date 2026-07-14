@@ -1,8 +1,8 @@
 # Flowspan v1 Desktop UI Design
 
-Status: accepted implementation specification for task 7.1
+Status: accepted evolving implementation specification for desktop tasks 7.1–7.2e
 
-Requirements: R1.1, R1.4, R9.6, R10, R12
+Requirements: R1, R2, R8, R9.6, R10, R12
 
 ## 1. Purpose statement
 
@@ -303,3 +303,30 @@ sanitized permanent failures, and keyboard/screen-reader text contracts.
 Same-host loopback can prove the encrypted idle channel composition. Physical
 sleep/wake, interface churn, firewall behavior, multicast, and two-machine
 identity-change observation remain real-machine acceptance evidence.
+
+## 14. Task 7.2e: platform-specific local-network permission preflight
+
+`LOCAL PAIRING OFF` offers `REVIEW LOCAL NETWORK ACCESS`; it does not directly
+start networking. The review names the current platform, explains why Flowspan
+needs LAN access, enumerates the minimized signed discovery fields visible to
+other devices on that LAN, states that Activity content and Capability grants
+are not advertised, describes the prompt/firewall behavior a user may see, and
+gives the matching revocation path. Windows names private-network firewall
+access, macOS names Privacy & Security > Local Network, and Linux explicitly
+states that firewall/sandbox controls vary by desktop and distribution.
+
+Opening or canceling the review must leave the listener, browser,
+advertisement, and trusted-reconnect workers absent. `ENABLE ON LOCAL NETWORK`
+stays disabled until the owner checks an explicit acknowledgement. A successful
+enable hides the preflight while preserving `NOT SHARING`; explicit Disable
+clears the acknowledgement so a new network lifetime requires a new review.
+An enable or background failure reopens the already acknowledged review beside
+the recovery action, allowing a bounded retry without pretending permission
+was granted. Startup, review, and cancellation never probe or request
+screen-capture or remote-input privileges.
+
+Unit tests cover all three platform guides, the no-side-effect review/cancel
+boundary, command gating, retry, Disable reset, and disposal during enable. A
+Headless test must prove keyboard access and declared automation names. Hosted
+matrix results prove selection and UI contracts only; real prompts, firewall
+state, settings navigation, and revocation remain matching-machine evidence.

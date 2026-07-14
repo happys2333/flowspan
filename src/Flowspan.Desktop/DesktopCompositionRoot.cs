@@ -26,7 +26,8 @@ public static class DesktopCompositionRoot
             pairingDecisions,
             AvaloniaDesktopUiDispatcher.Instance,
             trustAuthority,
-            localPairingRuntime);
+            localPairingRuntime,
+            DesktopLocalNetworkPermissionGuide.ForCurrentPlatform());
     }
 
     public static WorkspaceShellViewModel CreateValidation() =>

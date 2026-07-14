@@ -471,6 +471,16 @@ Platform calls are thin adapters. Contract tests run everywhere; native tests
 are tagged and executed only on the matching CI runner or documented manual
 hardware environment.
 
+The first progressive-permission slice is the local-network preflight because
+that is the first currently implemented feature that can trigger an operating-
+system or firewall decision. A pure platform-family selector supplies bounded
+Windows, macOS, or Linux guidance; it never probes or requests permission.
+Review and cancel are side-effect free. Only an affirmative acknowledgement can
+call the existing explicitly enabled network runtime, and Disable returns the
+surface to a state that requires a new review. Screen-capture and remote-input
+permission requests remain separate feature-use slices; their absence is named
+rather than represented as granted.
+
 ## 11. Verification
 
 The deterministic simulator supplies fake clock, IDs, transport, adapters,

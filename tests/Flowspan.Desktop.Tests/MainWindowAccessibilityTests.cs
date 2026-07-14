@@ -254,7 +254,10 @@ public sealed class MainWindowAccessibilityTests
         await using var viewModel = new WorkspaceShellViewModel(
             new ReadyStartup(),
             trustAuthority: new DesktopTrustAuthority(new InMemoryTrustStore()),
-            localPairingRuntime: runtime);
+            localPairingRuntime: runtime,
+            localNetworkPermissionGuide:
+                DesktopLocalNetworkPermissionGuide.ForPlatform(
+                    DesktopPlatformFamily.MacOS));
         await viewModel.InitializeAsync();
         HeadlessUnitTestSession session = HeadlessSession;
         var closed = new TaskCompletionSource(
@@ -265,8 +268,18 @@ public sealed class MainWindowAccessibilityTests
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
             window.Show();
+            Button review = Assert.IsType<Button>(
+                window.FindControl<Button>("ReviewLocalNetworkAccessButton"));
             Button enable = Assert.IsType<Button>(
                 window.FindControl<Button>("EnableLocalPairingButton"));
+            CheckBox acknowledgement = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("LocalNetworkPermissionAcknowledgement"));
+            TextBlock dataExposure = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("LocalNetworkDataExposureText"));
+            TextBlock promptExpectation = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("LocalNetworkPromptExpectationText"));
+            TextBlock revocation = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("LocalNetworkRevocationText"));
             ListBox candidates = Assert.IsType<ListBox>(
                 window.FindControl<ListBox>("LocalPairingCandidateList"));
             ListBox trustedConnections = Assert.IsType<ListBox>(
@@ -281,7 +294,10 @@ public sealed class MainWindowAccessibilityTests
                 window.FindControl<TextBlock>("SharingStatusText"));
 
             Assert.Equal(
-                "Enable local pairing",
+                "Review local network access",
+                review.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Enable local network after permission review",
                 enable.GetValue(AutomationProperties.NameProperty));
             Assert.Equal(
                 "Discovered local pairing candidates",
@@ -295,6 +311,22 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "Cancel outbound pairing",
                 cancel.GetValue(AutomationProperties.NameProperty));
+            Assert.True(review.IsEnabled);
+            Assert.True(review.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.False(viewModel.LocalPairing.IsEnabled);
+            Assert.True(viewModel.LocalPairing.IsPermissionReviewVisible);
+            Assert.Contains("Activity content", dataExposure.Text);
+            Assert.Contains("Local Network", promptExpectation.Text);
+            Assert.Contains("System Settings", revocation.Text);
+            Assert.Equal(
+                "Acknowledge local network exposure",
+                acknowledgement.GetValue(AutomationProperties.NameProperty));
+            Assert.True(acknowledgement.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.True(viewModel.LocalPairing.HasAcknowledgedPermissionReview);
             Assert.True(enable.IsEnabled);
             Assert.True(enable.Focus());
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);

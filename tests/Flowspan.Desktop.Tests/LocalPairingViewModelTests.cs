@@ -10,7 +10,7 @@ namespace Flowspan.Desktop.Tests;
 public sealed class LocalPairingViewModelTests
 {
     [Fact]
-    public async Task ExplicitEnableStartsNetworkAndKeepsSharingClaimInactive()
+    public async Task ReviewAndAcknowledgementAreRequiredBeforeNetworkStarts()
     {
         var factory = new RecordingNetworkFactory();
         var runtime = new DesktopLocalPairingRuntime(factory);
@@ -22,6 +22,19 @@ public sealed class LocalPairingViewModelTests
         Assert.Equal("LOCAL PAIRING OFF", viewModel.Status);
         Assert.Contains("local network", viewModel.PermissionEducation);
         Assert.Equal(0, factory.StartCount);
+        Assert.True(viewModel.ReviewPermissionCommand.CanExecute(null));
+        Assert.False(viewModel.EnableCommand.CanExecute(null));
+
+        await viewModel.EnableAsync();
+        Assert.Equal(0, factory.StartCount);
+
+        viewModel.ReviewPermissionCommand.Execute(null);
+
+        Assert.True(viewModel.IsPermissionReviewVisible);
+        Assert.False(viewModel.EnableCommand.CanExecute(null));
+        Assert.Equal(0, factory.StartCount);
+        viewModel.HasAcknowledgedPermissionReview = true;
+        Assert.True(viewModel.EnableCommand.CanExecute(null));
 
         await viewModel.EnableAsync();
 
@@ -30,6 +43,85 @@ public sealed class LocalPairingViewModelTests
         Assert.Equal("LOCAL PAIRING ENABLED", viewModel.Status);
         Assert.Contains("NOT SHARING", viewModel.StatusDescription);
         Assert.Equal("Listening on local TCP port 4747", viewModel.ListenerStatus);
+        Assert.False(viewModel.IsPermissionReviewVisible);
+    }
+
+    [Theory]
+    [InlineData(DesktopPlatformFamily.Windows, "Windows", "private networks", "Windows Security")]
+    [InlineData(DesktopPlatformFamily.MacOS, "macOS", "Local Network", "System Settings")]
+    [InlineData(DesktopPlatformFamily.Linux, "Linux", "firewall", "distribution")]
+    public void PlatformGuideNamesExposurePromptAndRevocation(
+        DesktopPlatformFamily platform,
+        string platformName,
+        string promptFragment,
+        string revocationFragment)
+    {
+        DesktopLocalNetworkPermissionGuide guide =
+            DesktopLocalNetworkPermissionGuide.ForPlatform(platform);
+
+        Assert.Equal(platform, guide.Platform);
+        Assert.Equal(platformName, guide.PlatformName);
+        Assert.Contains("Device ID", guide.DataExposure);
+        Assert.Contains("identity fingerprint", guide.DataExposure);
+        Assert.Contains("Activity content", guide.DataExposure);
+        Assert.Contains(promptFragment, guide.PromptExpectation);
+        Assert.Contains(revocationFragment, guide.RevocationAction);
+    }
+
+    [Fact]
+    public void CurrentPlatformGuideMatchesTheHostedOperatingSystem()
+    {
+        DesktopPlatformFamily expected = OperatingSystem.IsWindows()
+            ? DesktopPlatformFamily.Windows
+            : OperatingSystem.IsMacOS()
+                ? DesktopPlatformFamily.MacOS
+                : OperatingSystem.IsLinux()
+                    ? DesktopPlatformFamily.Linux
+                    : throw new PlatformNotSupportedException();
+
+        Assert.Equal(
+            expected,
+            DesktopLocalNetworkPermissionGuide.ForCurrentPlatform().Platform);
+    }
+
+    [Fact]
+    public async Task CancelingPermissionReviewClearsAcknowledgementWithoutNetworking()
+    {
+        var factory = new RecordingNetworkFactory();
+        await using var viewModel = new LocalPairingViewModel(
+            new DesktopLocalPairingRuntime(factory),
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+        viewModel.ReviewPermissionCommand.Execute(null);
+        viewModel.HasAcknowledgedPermissionReview = true;
+
+        viewModel.CancelPermissionReviewCommand.Execute(null);
+
+        Assert.False(viewModel.IsPermissionReviewVisible);
+        Assert.False(viewModel.HasAcknowledgedPermissionReview);
+        Assert.Equal(0, factory.StartCount);
+        Assert.True(viewModel.ReviewPermissionCommand.CanExecute(null));
+        Assert.False(viewModel.EnableCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task DisableRequiresFreshReviewForTheNextNetworkLifetime()
+    {
+        var factory = new RecordingNetworkFactory();
+        await using var viewModel = new LocalPairingViewModel(
+            new DesktopLocalPairingRuntime(factory),
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+
+        await viewModel.DisableAsync();
+
+        Assert.False(viewModel.IsEnabled);
+        Assert.False(viewModel.IsPermissionReviewVisible);
+        Assert.False(viewModel.HasAcknowledgedPermissionReview);
+        Assert.True(viewModel.ReviewPermissionCommand.CanExecute(null));
+        Assert.False(viewModel.EnableCommand.CanExecute(null));
+        Assert.Equal(1, factory.StartCount);
     }
 
     [Fact]
@@ -56,7 +148,7 @@ public sealed class LocalPairingViewModelTests
             InlineDesktopUiDispatcher.Instance);
         viewModel.SetPrerequisitesAvailable(true);
 
-        await viewModel.EnableAsync();
+        await ReviewAndEnableAsync(viewModel);
 
         LocalPairingCandidateItemViewModel first = viewModel.Candidates[0];
         LocalPairingCandidateItemViewModel second = viewModel.Candidates[1];
@@ -91,7 +183,7 @@ public sealed class LocalPairingViewModelTests
             InlineDesktopUiDispatcher.Instance);
         viewModel.SetPrerequisitesAvailable(true);
 
-        await viewModel.EnableAsync();
+        await ReviewAndEnableAsync(viewModel);
 
         TrustedPeerConnectionItemViewModel item =
             Assert.Single(viewModel.TrustedPeerConnections);
@@ -132,7 +224,7 @@ public sealed class LocalPairingViewModelTests
                 return Task.CompletedTask;
             });
         viewModel.SetPrerequisitesAvailable(true);
-        await viewModel.EnableAsync();
+        await ReviewAndEnableAsync(viewModel);
         viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
 
         await viewModel.PairSelectedAsync();
@@ -168,10 +260,16 @@ public sealed class LocalPairingViewModelTests
             runtime,
             InlineDesktopUiDispatcher.Instance);
 
+        Assert.False(viewModel.ReviewPermissionCommand.CanExecute(null));
         Assert.False(viewModel.EnableCommand.CanExecute(null));
         viewModel.SetPrerequisitesAvailable(true);
+        Assert.True(viewModel.ReviewPermissionCommand.CanExecute(null));
+        Assert.False(viewModel.EnableCommand.CanExecute(null));
+        viewModel.ReviewPermissionCommand.Execute(null);
+        viewModel.HasAcknowledgedPermissionReview = true;
         Assert.True(viewModel.EnableCommand.CanExecute(null));
         await viewModel.EnableAsync();
+        Assert.False(viewModel.ReviewPermissionCommand.CanExecute(null));
         Assert.False(viewModel.EnableCommand.CanExecute(null));
 
         viewModel.SelectedCandidate = viewModel.Candidates[1];
@@ -192,10 +290,12 @@ public sealed class LocalPairingViewModelTests
             InlineDesktopUiDispatcher.Instance);
         viewModel.SetPrerequisitesAvailable(true);
 
-        await viewModel.EnableAsync();
+        await ReviewAndEnableAsync(viewModel);
 
         Assert.Equal("LOCAL PAIRING UNAVAILABLE", viewModel.Status);
         Assert.False(viewModel.IsEnabled);
+        Assert.True(viewModel.IsPermissionReviewVisible);
+        Assert.True(viewModel.HasAcknowledgedPermissionReview);
         Assert.True(viewModel.EnableCommand.CanExecute(null));
         Assert.DoesNotContain(canary, viewModel.StatusDescription, StringComparison.Ordinal);
         Assert.DoesNotContain(canary, viewModel.RecoveryAction, StringComparison.Ordinal);
@@ -211,7 +311,7 @@ public sealed class LocalPairingViewModelTests
             runtime,
             InlineDesktopUiDispatcher.Instance);
         viewModel.SetPrerequisitesAvailable(true);
-        await viewModel.EnableAsync();
+        await ReviewAndEnableAsync(viewModel);
         StubNetworkSession first = Assert.IsType<StubNetworkSession>(
             factory.LastSession);
 
@@ -249,6 +349,8 @@ public sealed class LocalPairingViewModelTests
             runtime,
             InlineDesktopUiDispatcher.Instance);
         viewModel.SetPrerequisitesAvailable(true);
+        viewModel.ReviewPermissionCommand.Execute(null);
+        viewModel.HasAcknowledgedPermissionReview = true;
         Task enabling = viewModel.EnableAsync();
         await factory.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
@@ -274,7 +376,7 @@ public sealed class LocalPairingViewModelTests
             runtime,
             InlineDesktopUiDispatcher.Instance);
         viewModel.SetPrerequisitesAvailable(true);
-        await viewModel.EnableAsync();
+        await ReviewAndEnableAsync(viewModel);
         viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
         Task pairing = viewModel.PairSelectedAsync();
         await factory.Session.PairingStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -305,7 +407,7 @@ public sealed class LocalPairingViewModelTests
                 return Task.CompletedTask;
             });
         viewModel.SetPrerequisitesAvailable(true);
-        await viewModel.EnableAsync();
+        await ReviewAndEnableAsync(viewModel);
 
         factory.LastSession!.RaiseTrustChanged();
 
@@ -329,6 +431,13 @@ public sealed class LocalPairingViewModelTests
             offer,
             new IPEndPoint(IPAddress.Parse("192.168.50.20"), port),
             state);
+    }
+
+    private static async Task ReviewAndEnableAsync(LocalPairingViewModel viewModel)
+    {
+        viewModel.ReviewPermissionCommand.Execute(null);
+        viewModel.HasAcknowledgedPermissionReview = true;
+        await viewModel.EnableAsync();
     }
 
     private static async Task WaitUntilAsync(

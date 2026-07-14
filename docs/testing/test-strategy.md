@@ -124,6 +124,18 @@ tests verify the per-peer and warning text/automation surface. These results do
 not prove physical DNS-SD, firewall behavior, sleep/wake, interface churn,
 native notifications, or two-machine identity replacement.
 
+The task 7.2e permission-preflight tests treat the local-network runtime factory
+as the side-effect boundary. Windows, macOS, and Linux guide cases must name the
+exact minimized discovery exposure, a platform-specific prompt/firewall
+expectation, and a revocation route. View-model tests prove that direct enable,
+review, and cancel cannot cross the boundary before acknowledgement; Disable
+clears the acknowledgement; failure reopens the reviewed recovery surface; and
+dispose still cancels an admitted enable. A Headless keyboard test traverses
+review, acknowledgement, and enable while checking automation names and the
+persistent `NOT SHARING` state. These are selection, state, and UI contracts,
+not evidence that a native prompt appeared, permission changed, a firewall rule
+worked, or settings revocation succeeded.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance;

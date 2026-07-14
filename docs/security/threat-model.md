@@ -65,6 +65,7 @@ rather than grant it.
 | T14 | Invisible monitoring | foreground sharing indicator on every participant, no unattended defaults, audit receipt, immediate local stop | UI accessibility/e2e tests |
 | T15 | Downgrade to unsafe fallback | authenticated feature negotiation; name degraded mode; explicit capability and confirmation | downgrade tests |
 | T16 | Future relay reads content | application-layer E2E encryption independent of byte-forwarding relay | relay-as-attacker integration test |
+| T17 | Hidden or premature platform/network privilege | request no capture/input/network privilege at launch; require feature-scoped rationale, exposed-data disclosure, prompt expectation, revocation path, and affirmative acknowledgement before the privileged boundary; cancel remains side-effect free | platform-guide, command-gating, no-start review/cancel, disable-reset, and Headless keyboard tests plus native grant/deny/revoke evidence |
 
 ### 5.1 Task 7.2c local-pairing evidence
 
@@ -91,6 +92,19 @@ exact implementation commit before task 7.2c is complete.
 The implementation and hosted matrix evidence must be attached to the exact
 7.2d delivery commit. Contract and loopback results do not prove physical DNS-SD
 or cross-machine behavior.
+
+### 5.3 Task 7.2e local-network permission-preflight evidence plan
+
+| Threat | Required implementation evidence | Evidence that remains physical |
+| --- | --- | --- |
+| T01 | The preflight enumerates the signed fields visible on the LAN and explicitly excludes Activity content and Capability grants; its text is selected only from a closed Windows/macOS/Linux guide. | Packet capture on each supported OS proving the description matches the shipped advertisement. |
+| T14 | Review and cancel do not call the network runtime; enable stays gated on explicit acknowledgement; the global `NOT SHARING` state remains unchanged after enable. | Native screen-reader and visible-focus observation in a packaged window. |
+| T17 | Startup performs no privilege probe; each platform guide names likely prompt/firewall behavior and a revocation route; Disable clears acknowledgement so the next network lifetime requires a fresh review; fault retry remains visibly reviewed. | Real OS prompt grant, denial, settings revocation, firewall behavior, and recovery on Windows, macOS, and Linux. |
+
+The contract deliberately does not claim that static guidance is a native
+permission probe or that hosted runners changed firewall/privacy settings.
+Screen-capture and remote-input preflights remain tied to their later feature-use
+boundaries.
 
 ## 6. Security state machine rules
 

@@ -243,6 +243,63 @@
                 <TextBlock Classes="secondary"
                            FontSize="12"
                            Text="{Binding LocalPairing.PermissionEducation}" />
+                <Button x:Name="ReviewLocalNetworkAccessButton"
+                        IsVisible="{Binding LocalPairing.IsPermissionReviewActionVisible}"
+                        Content="REVIEW LOCAL NETWORK ACCESS"
+                        Command="{Binding LocalPairing.ReviewPermissionCommand}"
+                        AutomationProperties.Name="Review local network access"
+                        AutomationProperties.HelpText="Review what Flowspan exposes on the local network, possible platform prompts, and how to revoke access. Reviewing alone starts no networking." />
+                <Border IsVisible="{Binding LocalPairing.IsPermissionReviewVisible}"
+                        BorderBrush="{StaticResource SafetyAmberBrush}"
+                        BorderThickness="2"
+                        Padding="12"
+                        AutomationProperties.Name="Local network permission review">
+                  <StackPanel Spacing="8">
+                    <TextBlock Classes="label" Text="PERMISSION PREFLIGHT" />
+                    <TextBlock FontWeight="SemiBold"
+                               Text="{Binding LocalPairing.PermissionPlatformName}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Local network permission platform" />
+                    <TextBlock Classes="label" Text="DATA VISIBLE ON THIS LAN" />
+                    <TextBlock x:Name="LocalNetworkDataExposureText"
+                               Classes="secondary"
+                               FontSize="12"
+                               Text="{Binding LocalPairing.PermissionDataExposure}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Local network data exposure" />
+                    <TextBlock Classes="label" Text="WHAT THE PLATFORM MAY DO" />
+                    <TextBlock x:Name="LocalNetworkPromptExpectationText"
+                               Classes="secondary"
+                               FontSize="12"
+                               Text="{Binding LocalPairing.PermissionPromptExpectation}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Local network prompt expectation" />
+                    <TextBlock Classes="label" Text="HOW TO REVOKE" />
+                    <TextBlock x:Name="LocalNetworkRevocationText"
+                               Classes="secondary"
+                               FontSize="12"
+                               Text="{Binding LocalPairing.PermissionRevocationAction}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Local network revocation path" />
+                    <CheckBox x:Name="LocalNetworkPermissionAcknowledgement"
+                              IsChecked="{Binding LocalPairing.HasAcknowledgedPermissionReview, Mode=TwoWay}"
+                              AutomationProperties.Name="Acknowledge local network exposure">
+                      <TextBlock Text="I understand that this device becomes discoverable on the current local network."
+                                 TextWrapping="Wrap" />
+                    </CheckBox>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <Button x:Name="EnableLocalPairingButton"
+                              Content="ENABLE ON LOCAL NETWORK"
+                              Command="{Binding LocalPairing.EnableCommand}"
+                              AutomationProperties.Name="Enable local network after permission review"
+                              AutomationProperties.HelpText="Starts the listener, discovery, advertisement, and trusted reconnect lifetime after the permission preflight is acknowledged." />
+                      <Button x:Name="CancelLocalNetworkPermissionReviewButton"
+                              Content="Cancel"
+                              Command="{Binding LocalPairing.CancelPermissionReviewCommand}"
+                              AutomationProperties.Name="Cancel local network permission review" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
                 <TextBlock Classes="label"
                            Text="{Binding LocalPairing.ListenerStatus}"
                            TextWrapping="Wrap"
@@ -251,17 +308,10 @@
                            Text="{Binding LocalPairing.RecoveryAction}"
                            TextWrapping="Wrap"
                            AutomationProperties.Name="Local pairing recovery action" />
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <Button x:Name="EnableLocalPairingButton"
-                          Content="ENABLE LOCAL PAIRING"
-                          Command="{Binding LocalPairing.EnableCommand}"
-                          AutomationProperties.Name="Enable local pairing"
-                          AutomationProperties.HelpText="Makes this device discoverable on the current local network and may trigger an operating-system or firewall permission prompt." />
-                  <Button x:Name="DisableLocalPairingButton"
-                          Content="Disable"
-                          Command="{Binding LocalPairing.DisableCommand}"
-                          AutomationProperties.Name="Disable local pairing" />
-                </StackPanel>
+                <Button x:Name="DisableLocalPairingButton"
+                        Content="Disable"
+                        Command="{Binding LocalPairing.DisableCommand}"
+                        AutomationProperties.Name="Disable local pairing" />
               </StackPanel>
 
               <StackPanel Grid.Column="1" Spacing="12">
