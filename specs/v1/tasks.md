@@ -225,10 +225,13 @@ means its linked evidence exists; it does not imply the entire product works.
     All 306 tests, secret scan, and CodeQL pass on hosted Windows, macOS, and
     Ubuntu at `592ebc0`; run IDs and limits are recorded in
     [desktop pairing evidence](../../docs/evidence/2026-07-14-desktop-pairing-confirmation.md).
-  - 7.2b in progress: expose immutable, stable Trust snapshots; condition every
-    desktop capability edit/revoke on the displayed fingerprint; route mutation
-    through `TrustSessionCoordinator`; refresh authoritatively; and provide the
-    accessible persistent-device editor and two-step revoke surface.
+  - 7.2b complete: immutable, stable Trust snapshots; fingerprint-conditional
+    capability edit/revoke through `TrustSessionCoordinator`; authoritative
+    refresh; protected-store production composition; async close; and the
+    accessible persistent-device editor with two-step revoke all pass. All 330
+    tests, secret scan, and CodeQL pass on hosted Windows, macOS, and Ubuntu at
+    `f6bbbf0`; run IDs and limits are recorded in
+    [desktop Trust evidence](../../docs/evidence/2026-07-14-desktop-trust-management.md).
   - Remaining after 7.2b: unpaired discovery/initiator composition,
     identity-change outcome warnings, and progressive permission education.
   - _Requirements: R1, R2, R10_

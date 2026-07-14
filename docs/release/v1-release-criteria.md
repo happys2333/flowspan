@@ -110,6 +110,11 @@ implementation convenience.
   provisional browser/publisher adapter, including dual-stack, split-record,
   cache-limit, refresh, withdraw, restart/replay, and injected failure contracts.
   No multicast socket or physical peer was used.
+- [2026-07-14 desktop trusted-device management](../evidence/2026-07-14-desktop-trust-management.md):
+  330 tests, warning-free builds, explicit TEST MODE composition, simulator,
+  secret scan, and CodeQL passed on hosted Windows, macOS, and Ubuntu for the
+  fingerprint-conditional persistent Trust editor. Physical credential-store,
+  active-session, native accessibility, and LAN behavior remain open.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product
