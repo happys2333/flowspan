@@ -8,6 +8,9 @@ Branch: `codex/v1-foundation`
 Verified implementation commit:
 `e95b1b8023530aeba6e661c99d933c2266d01eb9`
 
+Latest verified delivery head:
+`697e87fe8f2320f7d7ed1cb1b1a5019be59f43f2`
+
 ## Local environment and commands
 
 ```text
@@ -83,6 +86,40 @@ Both runs were created at `2026-07-14T10:11:39Z`; CI completed at
 `2026-07-14T10:13:51Z`, and CodeQL completed at `2026-07-14T10:14:43Z`. Run,
 job, step, commit, timestamp, suite-count, validator-output, and simulator-output
 evidence was queried with `gh run view` on 2026-07-14.
+
+### Delivery-head revalidation and CI race correction
+
+The first evidence-document commit, `6dd38f33ecb49c2c5b8cb575274c8a7d7d1f7c9f`,
+did not pass its complete CI run. Run
+[29325387710](https://github.com/happys2333/flowspan/actions/runs/29325387710)
+passed Windows, macOS, and secret scan, but Ubuntu job `87060349671` failed one
+desktop test with a `NullReferenceException` in
+`Avalonia.Headless.HeadlessUnitTestSession.Dispose`. The checked test called
+the production window's intentionally asynchronous `Close()` path and then
+disposed its headless session without waiting for the window's `Closed` event.
+The new local-pairing shutdown work made the pre-existing test-lifetime race
+observable; the product close path itself did not fail.
+
+Commit `697e87fe8f2320f7d7ed1cb1b1a5019be59f43f2` changed all five headless window
+tests to wait for actual asynchronous window closure before releasing their
+test session. The originally failing test passed ten consecutive local runs,
+the affected class passed 5/5, and the complete local suite passed 371/371.
+
+Revalidation CI run
+[29330482945](https://github.com/happys2333/flowspan/actions/runs/29330482945)
+then completed successfully for that delivery head:
+
+- `Test (macos-latest)` (`87076960918`);
+- `Test (windows-latest)` (`87076960947`);
+- `Test (ubuntu-latest)` (`87076961685`);
+- `Secret scan` (`87076960910`).
+
+Every OS again passed the complete 371-test suite, explicit TEST MODE desktop
+validation, simulator, and artifact upload. Revalidation CodeQL run
+[29330482960](https://github.com/happys2333/flowspan/actions/runs/29330482960)
+and its `Analyze C#` job (`87076960951`) also completed successfully. Both runs
+were created at `2026-07-14T11:53:30Z`; CI completed at
+`2026-07-14T11:56:25Z`, and CodeQL completed at `2026-07-14T11:56:35Z`.
 
 ## What this proves
 
