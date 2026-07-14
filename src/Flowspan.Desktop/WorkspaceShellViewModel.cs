@@ -30,10 +30,16 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposabl
     private bool disposed;
     private bool resourcesDisposed;
 
-    public WorkspaceShellViewModel(IDesktopIdentityStartup startup)
+    public WorkspaceShellViewModel(
+        IDesktopIdentityStartup startup,
+        DesktopPairingDecisionSource? pairingDecisions = null,
+        IDesktopUiDispatcher? dispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
+        Pairing = new PairingPromptViewModel(
+            pairingDecisions ?? new DesktopPairingDecisionSource(),
+            dispatcher ?? InlineDesktopUiDispatcher.Instance);
         toggleIdentityDetailsCommand = new RelayCommand(
             ToggleIdentityDetails,
             () => IsIdentityAvailable);
@@ -43,6 +49,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposabl
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public PairingPromptViewModel Pairing { get; }
 
     public string DeviceId
     {
@@ -252,6 +260,7 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IDisposabl
             resourcesDisposed = true;
         }
 
+        Pairing.Dispose();
         startup.Dispose();
         lifetimeCancellation.Dispose();
         initializationGate.Dispose();

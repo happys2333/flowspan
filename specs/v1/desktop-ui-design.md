@@ -134,3 +134,36 @@ checks remain real-machine acceptance work.
 - Scope audit: empty states and disabled actions describe missing capability;
   they do not claim that pairing, sharing, or arbitrary application migration
   works.
+
+## 10. Task 7.2a: incoming pairing confirmation bridge
+
+The first task 7.2 slice connects the existing `IPairingDecisionSource` security
+port to a desktop confirmation surface. It handles an inbound ceremony only
+after the core has exchanged canonical hellos and verified the peer's transcript
+signature. Discovery remains untrusted and cannot produce this prompt by itself.
+
+The surface shows the peer's display name, Device ID, full identity fingerprint,
+six-digit short authentication string, protocol version, and expiry. The owner
+must explicitly confirm that the same code is visible on both devices before the
+accept action becomes available. The initial Capability grant is empty. The only
+grants exposed in this slice are `activity.offer` and `activity.receive`; neither
+requests capture, accessibility/input, or another operating-system privilege.
+
+Exactly one prompt may be active, matching the production listener's default
+pairing capacity. A second concurrent decision request is rejected rather than
+replacing the visible peer or borrowing its confirmation. Reject, peer
+cancellation, deadline, view disposal, or a stale command clears the prompt and
+cannot grant a Capability to a later request. Accept returns only the explicit
+local grant to the pairing ceremony; Trust is still written solely after the
+peer also accepts and both signed completion proofs verify.
+
+This slice is complete only when a deterministic two-node ceremony proves that
+both desktop decisions are required, the two sides may grant different local
+Capabilities, and rejection leaves both Trust Stores empty. Headless control
+tests must also prove keyboard operation and accessible names/state.
+
+The following task 7.2 work remains separate and must stay visibly unavailable:
+an unpaired discovery list, initiating a connection to a selected candidate,
+persistent trusted-device enumeration, Capability editing/revocation, pairing
+outcome history, identity-change warnings, and progressive native permission
+education.

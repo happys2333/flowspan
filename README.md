@@ -33,11 +33,15 @@ for end-user installation. The repository currently includes:
 - a pinned Avalonia 12.1 desktop composition root that loads or creates the
   protected local device identity, exposes truthful non-sharing/empty states,
   and has headless keyboard and automation-metadata tests;
+- a least-privilege incoming pairing-confirmation bridge for already verified
+  security-core requests, with explicit code comparison, zero-capability
+  default, cancellation/stale-prompt protection, and two-node loopback tests;
 - Windows/macOS/Linux CI definitions.
 
-It does **not** yet include the pairing UI, physical-LAN discovery evidence,
-native capture/input, Remote Window media, complete desktop workflows, packaged
-native accessibility evidence, packaging, or the complete real-machine
+It does **not** yet compose the production network listener/discovery into that
+pairing surface or provide trusted-device editing, physical-LAN discovery
+evidence, native capture/input, Remote Window media, complete desktop workflows,
+packaged native accessibility evidence, packaging, or the complete real-machine
 Windows/macOS/Linux acceptance matrix. See [the v1 task tracker](specs/v1/tasks.md) and
 [release criteria](docs/release/v1-release-criteria.md) for the honest status.
 

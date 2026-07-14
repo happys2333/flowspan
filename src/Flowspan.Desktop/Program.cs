@@ -33,6 +33,7 @@ internal static class Program
             && viewModel.IsTestMode
             && !viewModel.IsStartupBlocked
             && !viewModel.IsEmergencyStopAvailable
+            && !viewModel.Pairing.HasPendingPrompt
             && viewModel.IdentityProtection.Contains(
                 "TEST MODE",
                 StringComparison.Ordinal);

@@ -314,9 +314,10 @@ Listener cancellation or fatal accept failure cancels and awaits both kinds of
 in-flight work. Pairing Trust registration is serialized through the same
 `TrustSessionCoordinator` gate as revocation, capability mutation, and session
 admission, so listener composition cannot bind pairing and authentication to
-different authorities or re-add trust across a concurrent revoke. Desktop
-confirmation UI and physical two-person SAS evidence remain separate composition
-and acceptance work.
+different authorities or re-add trust across a concurrent revoke. Task 7.2a
+bridges this decision port to a least-privilege desktop SAS confirmation surface
+and proves it with two loopback nodes. Production listener/discovery composition
+and physical two-person SAS evidence remain separate work.
 
 Each connection performs ephemeral P-256 ECDH, authenticates its transcript
 with the paired identity keys, derives directional AES-256-GCM keys using

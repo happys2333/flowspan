@@ -216,8 +216,14 @@ means its linked evidence exists; it does not imply the entire product works.
     macOS, and Ubuntu at `3439e2d`; limits and run IDs are recorded in
     [desktop composition evidence](../../docs/evidence/2026-07-14-desktop-composition.md).
   - _Requirements: R10, R12_
-- [ ] 7.2 Implement unified device/Activity entry, progressive permission
+- [-] 7.2 Implement unified device/Activity entry, progressive permission
   prompts, pairing, capability editing, and identity-change warnings.
+  - 7.2a: bridge one verified inbound SAS request to a least-privilege desktop
+    confirmation surface and prove accept/reject with a deterministic two-node
+    ceremony; do not expose discovery or native permissions as connected yet.
+  - Remaining: unpaired discovery/initiator composition, persistent trust list,
+    capability editing/revocation, identity-change outcome warnings, and
+    progressive permission education.
   - _Requirements: R1, R2, R10_
 - [ ] 7.3 Implement operation preview, named degradation, persistent sharing
   indicator, recovery, receipt, and undo surfaces.

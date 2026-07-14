@@ -13,13 +13,17 @@ public static class DesktopCompositionRoot
         string displayName = GetLocalDisplayName();
         IDeviceIdentityStore store = CreatePlatformIdentityStore();
         return new WorkspaceShellViewModel(
-            new DesktopIdentityStartup(store, displayName));
+            new DesktopIdentityStartup(store, displayName),
+            new DesktopPairingDecisionSource(),
+            AvaloniaDesktopUiDispatcher.Instance);
     }
 
     public static WorkspaceShellViewModel CreateValidation() =>
         new(new DesktopIdentityStartup(
             new InMemoryDeviceIdentityStore(),
-            "Flowspan CI validation device"));
+            "Flowspan CI validation device"),
+            new DesktopPairingDecisionSource(),
+            InlineDesktopUiDispatcher.Instance);
 
     private static IDeviceIdentityStore CreatePlatformIdentityStore()
     {

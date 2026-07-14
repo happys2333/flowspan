@@ -89,6 +89,15 @@ the output must name TEST MODE. That command proves composition and process exit
 not a native window, platform credential store, screen reader, high-contrast
 theme, or real permission behavior.
 
+The task 7.2a desktop pairing tests call the same `IPairingDecisionSource` port
+as the security ceremony. Unit tests cover one-visible-prompt enforcement,
+explicit zero-capability defaults, code-comparison gating, cancellation,
+disposal, stale commands, and deliberately reordered UI callbacks. Integration
+tests run two complete ceremonies over a real loopback TCP connection: Trust is
+absent before both decisions, each side persists only its local selected grant,
+and one rejection leaves both stores empty. These tests do not make the
+production desktop start its listener or prove a human compared two devices.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance;

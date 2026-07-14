@@ -4,6 +4,9 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Flowspan.Domain;
+using Flowspan.Protocol;
+using Flowspan.Security;
 
 namespace Flowspan.Desktop.Tests;
 
@@ -45,6 +48,65 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal("Hide identity details", toggle.Content);
             window.Close();
         }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PairingConfirmationRequiresKeyboardCodeAcknowledgement()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        using var source = new DesktopPairingDecisionSource();
+        using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            source,
+            InlineDesktopUiDispatcher.Instance);
+        await viewModel.InitializeAsync();
+        Task<PairingDecision> pending = source.DecideAsync(
+            new PairingConfirmationRequest(
+                peer.PublicIdentity,
+                new ProtocolVersion(1, 0),
+                "123456",
+                DateTimeOffset.UtcNow.AddMinutes(1))).AsTask();
+        using HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(App));
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Show();
+            CheckBox confirmation = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("PairingCodeConfirmation"));
+            Button accept = Assert.IsType<Button>(
+                window.FindControl<Button>("AcceptPairingButton"));
+            Button reject = Assert.IsType<Button>(
+                window.FindControl<Button>("RejectPairingButton"));
+            TextBlock code = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("PairingCodeValue"));
+
+            Assert.Equal("123 456", code.Text);
+            Assert.Equal(
+                "I compared the pairing code on both devices",
+                confirmation.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Confirm pairing",
+                accept.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Reject pairing",
+                reject.GetValue(AutomationProperties.NameProperty));
+            Assert.False(accept.IsEnabled);
+            Assert.True(confirmation.Focus());
+
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.True(accept.IsEnabled);
+            Assert.True(accept.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            window.Close();
+        }, CancellationToken.None);
+
+        PairingDecision decision = await pending.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(decision.Accepted);
+        Assert.Empty(decision.CapabilitiesGrantedToPeer.Capabilities);
     }
 
     private sealed class ReadyStartup : IDesktopIdentityStartup
