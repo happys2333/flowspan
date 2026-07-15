@@ -121,6 +121,212 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task OutboundReplaceInventoryWaitsForExactlyBoundResult()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            PeerId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Now.AddSeconds(30));
+
+        ValueTask<ReplaceTargetInventoryDeliveryResult> querying =
+            session.QueryAsync(LocalId, query, CancellationToken.None);
+        ControlMessage request = await connection.ReadSentAsync();
+        ReplaceTargetSnapshot target = ReplaceTargetSnapshot.Create(
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            revision: 7,
+            new string('A', 64),
+            query.IncomingKind,
+            "Remote target",
+            "desktop");
+        ReplaceTargetInventoryResult expected =
+            ReplaceTargetInventoryResult.Success(
+                LocalId,
+                query,
+                Now.AddSeconds(1),
+                [target],
+                isTruncated: false);
+        connection.Receive(ActivityControlMessageCodec.CreateReplaceInventoryResult(
+            request.Version,
+            PeerId,
+            expected,
+            Now.AddSeconds(1)));
+
+        ReplaceTargetInventoryDeliveryResult delivered = await querying;
+
+        Assert.Equal(ActivityDeliveryStatus.Acknowledged, delivered.Status);
+        Assert.NotNull(delivered.Result);
+        Assert.Equal(expected.CorrelationId, delivered.Result.CorrelationId);
+        Assert.Equal(expected.RequestingDeviceId, delivered.Result.RequestingDeviceId);
+        Assert.Equal(expected.TargetDeviceId, delivered.Result.TargetDeviceId);
+        Assert.Equal(expected.IncomingKind, delivered.Result.IncomingKind);
+        Assert.Equal(expected.QueryDeadline, delivered.Result.QueryDeadline);
+        Assert.Equal(expected.CapturedAt, delivered.Result.CapturedAt);
+        Assert.Equal(expected.FailureCode, delivered.Result.FailureCode);
+        Assert.Equal(expected.IsTruncated, delivered.Result.IsTruncated);
+        Assert.Equal(expected.Targets.ToArray(), delivered.Result.Targets.ToArray());
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task PendingInventoryReservesCorrelationAcrossOperationTypes()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        CorrelationId correlationId =
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            correlationId,
+            PeerId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Now.AddSeconds(30));
+        ValueTask<ReplaceTargetInventoryDeliveryResult> querying =
+            session.QueryAsync(LocalId, query, CancellationToken.None);
+        _ = await connection.ReadSentAsync();
+        ActivityTransferOffer template = CreateOffer(LocalId, PeerId);
+        ActivityTransferOffer collision = ActivityTransferOffer.Create(
+            OperationKind.Handoff,
+            OperationContext.Create(
+                OperationId.From(Guid.NewGuid()),
+                correlationId,
+                Now.AddSeconds(30)),
+            template.Descriptor,
+            template.TargetPlacement);
+
+        ValueTask<ActivityDeliveryResult> colliding = session.SendAsync(
+            LocalId,
+            collision,
+            CancellationToken.None);
+        bool completedImmediately = colliding.IsCompleted;
+        stop.Cancel();
+        _ = await querying;
+        Exception? collisionFailure = await Record.ExceptionAsync(
+            () => colliding.AsTask());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+
+        Assert.True(completedImmediately);
+        Assert.IsType<InvalidOperationException>(collisionFailure);
+    }
+
+    [Fact]
+    public async Task PendingTransferReservesCorrelationAgainstReplace()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new RejectingReplacePeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        CorrelationId correlationId =
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        ActivityTransferOffer template = CreateOffer(LocalId, PeerId);
+        ActivityTransferOffer transfer = ActivityTransferOffer.Create(
+            OperationKind.Handoff,
+            OperationContext.Create(
+                OperationId.From(Guid.NewGuid()),
+                correlationId,
+                Now.AddSeconds(30)),
+            template.Descriptor,
+            template.TargetPlacement);
+        ValueTask<ActivityDeliveryResult> sending = session.SendAsync(
+            LocalId,
+            transfer,
+            CancellationToken.None);
+        _ = await connection.ReadSentAsync();
+        ReplaceActivityCommand replaceTemplate =
+            CreateReplaceCommand(LocalId, PeerId);
+        ReplaceActivityCommand collision = ReplaceActivityCommand.Create(
+            OperationContext.Create(
+                OperationId.From(Guid.NewGuid()),
+                correlationId,
+                Now.AddSeconds(30)),
+            replaceTemplate.TargetActivityId,
+            replaceTemplate.ExpectedTargetRevision,
+            replaceTemplate.ExpectedTargetDescriptorDigest,
+            replaceTemplate.IncomingDescriptor,
+            replaceTemplate.TargetPlacement,
+            replaceTemplate.UndoExpiresAt);
+
+        ValueTask<ReplaceDeliveryResult> colliding = session.SendAsync(
+            LocalId,
+            collision,
+            CancellationToken.None);
+        bool completedImmediately = colliding.IsCompleted;
+        stop.Cancel();
+        _ = await sending;
+        Exception? collisionFailure = await Record.ExceptionAsync(
+            () => colliding.AsTask());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+
+        Assert.True(completedImmediately);
+        Assert.IsType<InvalidOperationException>(collisionFailure);
+    }
+
+    [Fact]
+    public async Task PendingReplaceReservesCorrelationAgainstInventory()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new RejectingReplacePeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        CorrelationId correlationId =
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        ReplaceActivityCommand template = CreateReplaceCommand(LocalId, PeerId);
+        ReplaceActivityCommand replace = ReplaceActivityCommand.Create(
+            OperationContext.Create(
+                OperationId.From(Guid.NewGuid()),
+                correlationId,
+                Now.AddSeconds(30)),
+            template.TargetActivityId,
+            template.ExpectedTargetRevision,
+            template.ExpectedTargetDescriptorDigest,
+            template.IncomingDescriptor,
+            template.TargetPlacement,
+            template.UndoExpiresAt);
+        ValueTask<ReplaceDeliveryResult> sending = session.SendAsync(
+            LocalId,
+            replace,
+            CancellationToken.None);
+        _ = await connection.ReadSentAsync();
+        ReplaceTargetInventoryQuery collision = ReplaceTargetInventoryQuery.Create(
+            correlationId,
+            PeerId,
+            template.IncomingDescriptor.Kind,
+            Now.AddSeconds(30));
+
+        ValueTask<ReplaceTargetInventoryDeliveryResult> colliding =
+            session.QueryAsync(LocalId, collision, CancellationToken.None);
+        bool completedImmediately = colliding.IsCompleted;
+        stop.Cancel();
+        _ = await sending;
+        Exception? collisionFailure = await Record.ExceptionAsync(
+            () => colliding.AsTask());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+
+        Assert.True(completedImmediately);
+        Assert.IsType<InvalidOperationException>(collisionFailure);
+    }
+
+    [Fact]
     public async Task InboundTransferUsesAuthenticatedPeerAndReturnsReceipt()
     {
         var catalog = new InMemoryActivityCatalog();
@@ -245,6 +451,66 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task InboundReplaceInventoryUsesAuthenticatedPeerAndReturnsSnapshot()
+    {
+        var catalog = new InMemoryActivityCatalog();
+        ActivityDescriptor descriptor = ActivityDescriptor.Create(
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            ActivityKind.Parse("workspace.note/v1"),
+            LocalId,
+            "Target note",
+            JsonSerializer.Serialize(new { text = "target secret" }));
+        Assert.True(catalog.TryAdd(ActivityInstance.Active(
+            descriptor,
+            ActivityPlacement.On(LocalId, "desktop"),
+            revision: 7)));
+        var inventoryPeer = new ReplaceTargetInventoryEndpoint(
+            LocalId,
+            new FixedClock(Now),
+            catalog,
+            new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]));
+        inventoryPeer.SetPeerGrant(
+            PeerId,
+            CapabilityGrant.Of(Capability.ActivityReplace));
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            replacePeer: null,
+            replaceInventoryPeer: inventoryPeer,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            LocalId,
+            descriptor.Kind,
+            Now.AddSeconds(30));
+
+        connection.Receive(ActivityControlMessageCodec.CreateReplaceInventoryQuery(
+            new ProtocolVersion(1, 0),
+            PeerId,
+            query,
+            Now));
+        ControlMessage response = await connection.ReadSentAsync();
+        ReplaceTargetInventoryResult result =
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                response,
+                PeerId,
+                query);
+
+        Assert.True(result.IsSuccess);
+        ReplaceTargetSnapshot target = Assert.Single(result.Targets);
+        Assert.Equal(descriptor.Id, target.ActivityId);
+        Assert.DoesNotContain(
+            "target secret",
+            response.Body.GetRawText(),
+            StringComparison.Ordinal);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
     public async Task SessionEndMarksSentButUnacknowledgedTransferAsUncertain()
     {
         var connection = new FakeActivityControlConnection(LocalId, PeerId);
@@ -293,6 +559,66 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task SessionEndMarksSentButUnacknowledgedInventoryAsUncertain()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            PeerId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Now.AddSeconds(30));
+
+        ValueTask<ReplaceTargetInventoryDeliveryResult> querying =
+            session.QueryAsync(LocalId, query, CancellationToken.None);
+        _ = await connection.ReadSentAsync();
+        stop.Cancel();
+
+        ReplaceTargetInventoryDeliveryResult result = await querying;
+        Assert.Equal(ActivityDeliveryStatus.AcknowledgementLost, result.Status);
+        Assert.Null(result.Result);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task SessionStopDuringInventoryRegistrationCannotStrandPendingQuery()
+    {
+        var connection = new RegistrationRaceActivityControlConnection(
+            LocalId,
+            PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            PeerId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Now.AddSeconds(30));
+        Task<ReplaceTargetInventoryDeliveryResult> querying = Task.Run(async () =>
+            await session.QueryAsync(LocalId, query, CancellationToken.None));
+        await connection.ValidationReached.WaitAsync(TimeSpan.FromSeconds(1));
+
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+        connection.ReleaseValidation();
+        Exception? completionFailure = await Record.ExceptionAsync(
+            () => querying.WaitAsync(TimeSpan.FromMilliseconds(200)));
+        await session.DisposeAsync();
+        ReplaceTargetInventoryDeliveryResult result = await querying;
+
+        Assert.Null(completionFailure);
+        Assert.Equal(ActivityDeliveryStatus.NotDelivered, result.Status);
+    }
+
+    [Fact]
     public async Task UnsolicitedOrWrongCorrelationReceiptFaultsClosed()
     {
         var connection = new FakeActivityControlConnection(LocalId, PeerId);
@@ -335,6 +661,58 @@ public sealed class ActivityControlSessionTests
         Assert.Equal(
             ActivityDeliveryStatus.AcknowledgementLost,
             (await sending).Status);
+    }
+
+    [Fact]
+    public async Task UnsolicitedOrWrongCorrelationInventoryResultFaultsClosed()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ReplaceTargetInventoryQuery pendingQuery = ReplaceTargetInventoryQuery.Create(
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            PeerId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Now.AddSeconds(30));
+        ValueTask<ReplaceTargetInventoryDeliveryResult> querying =
+            session.QueryAsync(LocalId, pendingQuery, CancellationToken.None);
+        _ = await connection.ReadSentAsync();
+        ReplaceTargetInventoryQuery wrongQuery = ReplaceTargetInventoryQuery.Create(
+            CorrelationId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            PeerId,
+            pendingQuery.IncomingKind,
+            pendingQuery.Deadline);
+        ReplaceTargetInventoryResult unsolicited =
+            ReplaceTargetInventoryResult.Success(
+                LocalId,
+                wrongQuery,
+                Now,
+                [],
+                isTruncated: false);
+
+        connection.Receive(
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                new ProtocolVersion(1, 0),
+                PeerId,
+                unsolicited,
+                Now));
+
+        Exception? runFailure = await Record.ExceptionAsync(
+            () => run.WaitAsync(TimeSpan.FromSeconds(1)));
+        if (!run.IsCompleted)
+        {
+            stop.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+        }
+
+        Assert.IsType<InvalidDataException>(runFailure);
+        Assert.Equal(
+            ActivityDeliveryStatus.AcknowledgementLost,
+            (await querying).Status);
     }
 
     [Fact]
@@ -629,6 +1007,96 @@ public sealed class ActivityControlSessionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
     }
 
+    [Fact]
+    public async Task RealAuthenticatedLoopbackQueriesPayloadFreeReplaceInventory()
+    {
+        using DeviceIdentityFixture identities = new();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var listenerEndpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                identities.Target,
+                new TrustRecord(
+                    identities.Source.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(Capability.ActivityReplace)),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                listenerEndpoint,
+                identities.Source,
+                new TrustRecord(
+                    identities.Target.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(Capability.ActivityReceive)),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        var sourceCatalog = new InMemoryActivityCatalog();
+        var targetCatalog = new InMemoryActivityCatalog();
+        FlowspanNode source = CreateNode(
+            identities.Source.DeviceId,
+            "Source",
+            sourceCatalog);
+        FlowspanNode target = CreateNode(
+            identities.Target.DeviceId,
+            "Target",
+            targetCatalog);
+        ActivityDescriptor targetDescriptor = ActivityDescriptor.Create(
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            ActivityKind.Parse("workspace.note/v1"),
+            identities.Target.DeviceId,
+            "Remote target",
+            JsonSerializer.Serialize(new { text = "REMOTE-INVENTORY-PAYLOAD-CANARY" }));
+        Assert.True(targetCatalog.TryAdd(ActivityInstance.Active(
+            targetDescriptor,
+            ActivityPlacement.On(identities.Target.DeviceId, "desktop"),
+            revision: 7)));
+        var inventoryEndpoint = new ReplaceTargetInventoryEndpoint(
+            identities.Target.DeviceId,
+            new FixedClock(Now),
+            targetCatalog,
+            new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]));
+        inventoryEndpoint.SetPeerGrant(
+            identities.Source.DeviceId,
+            CapabilityGrant.Of(Capability.ActivityReplace));
+        await using var sourceHandler = new AuthenticatedActivitySessionHandler(
+            source,
+            new FixedTimeProvider(Now));
+        await using var targetHandler = new AuthenticatedActivitySessionHandler(
+            target,
+            replacePeer: null,
+            replaceInventoryPeer: inventoryEndpoint,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+        Assert.True(sourceHandler.TryGetReplaceInventoryChannel(
+            identities.Target.DeviceId,
+            out IReplaceTargetInventoryChannel? channel));
+        Assert.NotNull(channel);
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            identities.Target.DeviceId,
+            targetDescriptor.Kind,
+            Now.AddSeconds(30));
+
+        ReplaceTargetInventoryDeliveryResult delivered = await channel.QueryAsync(
+            identities.Source.DeviceId,
+            query,
+            CancellationToken.None);
+
+        Assert.Equal(ActivityDeliveryStatus.Acknowledged, delivered.Status);
+        Assert.True(delivered.Result?.IsSuccess);
+        Assert.Equal(
+            targetDescriptor.Id,
+            Assert.Single(delivered.Result!.Targets).ActivityId);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
+    }
+
     private static ActivityTransferOffer CreateOffer(
         DeviceId sourceId,
         DeviceId targetId)
@@ -761,6 +1229,45 @@ public sealed class ActivityControlSessionTests
             outgoing.Writer.TryWrite(message);
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class RegistrationRaceActivityControlConnection(
+        DeviceId localDeviceId,
+        DeviceId peerDeviceId) : IActivityControlConnection
+    {
+        private readonly TaskCompletionSource releaseValidation = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource validationReached = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public DeviceId LocalDeviceId { get; } = localDeviceId;
+
+        public DeviceId PeerDeviceId
+        {
+            get
+            {
+                validationReached.TrySetResult();
+                releaseValidation.Task.GetAwaiter().GetResult();
+                return peerDeviceId;
+            }
+        }
+
+        public ProtocolVersion ProtocolVersion { get; } = new(1, 0);
+
+        public Task ValidationReached => validationReached.Task;
+
+        public async ValueTask<ControlMessage> ReadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("An infinite delay unexpectedly completed.");
+        }
+
+        public void ReleaseValidation() => releaseValidation.TrySetResult();
+
+        public ValueTask SendAsync(
+            ControlMessage message,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 
     private sealed class DeviceIdentityFixture : IDisposable

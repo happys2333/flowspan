@@ -113,7 +113,8 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             var sessionProfile = new AuthenticatedInboundSessionProfile(
                 CapabilityGrant.Of(
                     Capability.ActivityOffer,
-                    Capability.ActivityReceive),
+                    Capability.ActivityReceive,
+                    Capability.ActivityReplace),
                 versions,
                 capabilityMatch: CapabilityRequirementMatch.Any);
             var inbound = new FlowspanTcpInboundListener(

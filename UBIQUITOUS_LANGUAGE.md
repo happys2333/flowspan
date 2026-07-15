@@ -16,6 +16,8 @@ screens or arbitrary process migration.
 | **Handoff** | An operation that resumes an Activity on another device while preserving the source. | Move |
 | **Move** | An operation that resumes an Activity elsewhere, then closes or suspends the source only after verified target acknowledgement; failed source cleanup is a committed duplicate warning, not a target rollback. | Handoff |
 | **Replace** | An operation that preserves eligible target state before installing an incoming Activity in its Placement. | Overwrite |
+| **Replace Target Inventory** | A purpose-scoped authenticated preview query that returns only bounded, eligible, same-kind, payload-free target choices for one incoming Activity kind. | Remote Activity browser, catalog sync |
+| **Replace Target Snapshot** | The target ID, revision, descriptor digest, kind, normal-sensitivity title, and Placement slot captured for preview and later stale-selection detection; it grants no mutation authority. | Backup, live handle |
 | **Undo Capsule** | A target-owned, expiring preservation of the exact pre-Replace semantic state plus bindings needed for one safe compensating undo. | Backup, rollback promise |
 | **Swap** | One atomic transaction that exchanges two Activity Placements or changes neither. | Two moves |
 | **Mirror** | An Activity presentation on multiple devices while authoritative execution remains on one host. | Copy, sync |
@@ -78,6 +80,11 @@ screens or arbitrary process migration.
 - A committed **Replace** has one target-owned **Undo Capsule**. Its payload
   never travels back to the source; only bound, payload-free availability
   metadata may appear in an authenticated result.
+- A **Replace Target Inventory** contains at most one canonical page of
+  **Replace Target Snapshots**. Sensitive, restricted, inactive, non-local,
+  different-kind, or unsupported Activities do not appear. A later **Replace**
+  must revalidate the chosen ID, revision, and descriptor digest before
+  destructive work.
 
 ## Example dialogue
 

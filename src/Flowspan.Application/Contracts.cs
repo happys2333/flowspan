@@ -133,6 +133,11 @@ public interface IActivityCatalog
     public bool TrySwapReplace(ActivityInstance expected, ActivityInstance replacement);
 }
 
+public interface IActivitySnapshotSource
+{
+    public IReadOnlyList<ActivityInstance> GetSnapshot();
+}
+
 public interface IOperationJournal
 {
     public ValueTask<JournalExecutionResult> ExecuteOnceAsync(

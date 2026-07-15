@@ -79,7 +79,7 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
             ? $"A transient local failure is using bounded retry ({delay.TotalSeconds:0.###} seconds)."
             : "A transient local failure is using bounded retry.",
         DesktopTrustedPeerConnectionState.CapabilityRequired =>
-            "This device will not open the idle control channel until activity.offer or activity.receive is granted locally.",
+            "This device will not open the idle control channel until activity.offer, activity.receive, or activity.replace is granted locally.",
         DesktopTrustedPeerConnectionState.PermanentlyBlocked =>
             "Automatic retry stopped. Trust was not changed.",
         DesktopTrustedPeerConnectionState.Unavailable =>
@@ -593,7 +593,8 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
 
     private static bool HasControlChannelCapability(TrustedPeerSnapshot peer) =>
         peer.GrantedCapabilities.Allows(Capability.ActivityOffer)
-        || peer.GrantedCapabilities.Allows(Capability.ActivityReceive);
+        || peer.GrantedCapabilities.Allows(Capability.ActivityReceive)
+        || peer.GrantedCapabilities.Allows(Capability.ActivityReplace);
 
     private bool IsLocalConnector(DeviceId peerDeviceId) =>
         StringComparer.Ordinal.Compare(
@@ -945,7 +946,8 @@ internal sealed class SystemDesktopPeerReconnectLoopFactory :
                 peer.DeviceId,
                 CapabilityGrant.Of(
                     Capability.ActivityOffer,
-                    Capability.ActivityReceive),
+                    Capability.ActivityReceive,
+                    Capability.ActivityReplace),
                 [new ProtocolVersion(1, 0)],
                 capabilityMatch: CapabilityRequirementMatch.Any);
             var attempt = new AuthenticatedTcpPeerSessionAttempt(

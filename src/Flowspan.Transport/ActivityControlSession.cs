@@ -24,6 +24,7 @@ internal interface IActivityControlConnection
 
 internal sealed class ActivityControlSession :
     IActivityChannel,
+    IReplaceTargetInventoryChannel,
     IReplaceChannel,
     IAsyncDisposable
 {
@@ -31,7 +32,11 @@ internal sealed class ActivityControlSession :
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly IActivityPeer localPeer;
     private readonly ConcurrentDictionary<CorrelationId, PendingTransfer> pending = new();
+    private readonly ConcurrentDictionary<CorrelationId, byte> pendingCorrelations = new();
+    private readonly ConcurrentDictionary<CorrelationId, PendingReplaceInventory>
+        pendingInventories = new();
     private readonly ConcurrentDictionary<CorrelationId, PendingReplace> pendingReplaces = new();
+    private readonly IReplaceTargetInventoryPeer? replaceInventoryPeer;
     private readonly IReplacePeer? replacePeer;
     private readonly TimeProvider timeProvider;
     private int disposed;
@@ -45,6 +50,7 @@ internal sealed class ActivityControlSession :
             connection,
             localPeer,
             null,
+            null,
             timeProvider)
     {
     }
@@ -53,6 +59,20 @@ internal sealed class ActivityControlSession :
         IActivityControlConnection connection,
         IActivityPeer localPeer,
         IReplacePeer? replacePeer,
+        TimeProvider? timeProvider = null) : this(
+            connection,
+            localPeer,
+            replacePeer,
+            null,
+            timeProvider)
+    {
+    }
+
+    public ActivityControlSession(
+        IActivityControlConnection connection,
+        IActivityPeer localPeer,
+        IReplacePeer? replacePeer,
+        IReplaceTargetInventoryPeer? replaceInventoryPeer,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(connection);
@@ -64,7 +84,6 @@ internal sealed class ActivityControlSession :
                 nameof(localPeer));
         }
 
-
         if (replacePeer is not null
             && connection.LocalDeviceId != replacePeer.DeviceId)
         {
@@ -73,9 +92,18 @@ internal sealed class ActivityControlSession :
                 nameof(replacePeer));
         }
 
+        if (replaceInventoryPeer is not null
+            && connection.LocalDeviceId != replaceInventoryPeer.DeviceId)
+        {
+            throw new ArgumentException(
+                "The Replace inventory peer must represent the authenticated local device.",
+                nameof(replaceInventoryPeer));
+        }
+
         this.connection = connection;
         this.localPeer = localPeer;
         this.replacePeer = replacePeer;
+        this.replaceInventoryPeer = replaceInventoryPeer;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -116,9 +144,16 @@ internal sealed class ActivityControlSession :
                         await HandleTransferAsync(message, linked.Token)
                             .ConfigureAwait(false);
                         break;
+                    case ControlMessageType.ActivityReplaceInventory:
+                        await HandleReplaceInventoryAsync(message, linked.Token)
+                            .ConfigureAwait(false);
+                        break;
                     case ControlMessageType.ActivityReplace:
                         await HandleReplaceAsync(message, linked.Token)
                             .ConfigureAwait(false);
+                        break;
+                    case ControlMessageType.ActivityReplaceInventoryResult:
+                        HandleReplaceInventoryResult(message);
                         break;
                     case ControlMessageType.ActivityReplaceResult:
                         HandleReplaceResult(message);
@@ -171,15 +206,22 @@ internal sealed class ActivityControlSession :
             offer.Descriptor.Id,
             offer.Descriptor.Kind,
             offer.Descriptor.DescriptorDigest);
+        ReserveCorrelation(offer.Context.CorrelationId);
         if (!pending.TryAdd(offer.Context.CorrelationId, transfer))
         {
+            ReleaseCorrelation(offer.Context.CorrelationId);
             throw new InvalidOperationException(
-                "An Activity transfer with this correlation ID is already pending.");
+                "The Activity transfer could not register its reserved correlation ID.");
         }
 
         bool sent = false;
         try
         {
+            if (Volatile.Read(ref stopped) != 0)
+            {
+                return ActivityDeliveryResult.NotDelivered;
+            }
+
             ControlMessage message = ActivityControlMessageCodec.CreateTransfer(
                 connection.ProtocolVersion,
                 connection.LocalDeviceId,
@@ -218,6 +260,7 @@ internal sealed class ActivityControlSession :
                     new KeyValuePair<CorrelationId, PendingTransfer>(
                         offer.Context.CorrelationId,
                         transfer));
+                ReleaseCorrelation(offer.Context.CorrelationId);
             }
         }
     }
@@ -248,16 +291,22 @@ internal sealed class ActivityControlSession :
         }
 
         var pendingReplace = new PendingReplace(command);
-        if (pending.ContainsKey(command.Context.CorrelationId)
-            || !pendingReplaces.TryAdd(command.Context.CorrelationId, pendingReplace))
+        ReserveCorrelation(command.Context.CorrelationId);
+        if (!pendingReplaces.TryAdd(command.Context.CorrelationId, pendingReplace))
         {
+            ReleaseCorrelation(command.Context.CorrelationId);
             throw new InvalidOperationException(
-                "An Activity operation with this correlation ID is already pending.");
+                "The Activity Replace could not register its reserved correlation ID.");
         }
 
         bool sent = false;
         try
         {
+            if (Volatile.Read(ref stopped) != 0)
+            {
+                return ReplaceDeliveryResult.NotDelivered;
+            }
+
             ControlMessage message = ActivityControlMessageCodec.CreateReplace(
                 connection.ProtocolVersion,
                 connection.LocalDeviceId,
@@ -295,6 +344,92 @@ internal sealed class ActivityControlSession :
                     new KeyValuePair<CorrelationId, PendingReplace>(
                         command.Context.CorrelationId,
                         pendingReplace));
+                ReleaseCorrelation(command.Context.CorrelationId);
+            }
+        }
+    }
+
+    public async ValueTask<ReplaceTargetInventoryDeliveryResult> QueryAsync(
+        DeviceId requestingDeviceId,
+        ReplaceTargetInventoryQuery query,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(query);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (Volatile.Read(ref running) == 0 || Volatile.Read(ref stopped) != 0)
+        {
+            return ReplaceTargetInventoryDeliveryResult.NotDelivered;
+        }
+
+        if (requestingDeviceId != connection.LocalDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A Replace inventory requester must match the authenticated local device.");
+        }
+
+        if (query.TargetDeviceId != TargetDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A Replace inventory query target must match the authenticated peer.");
+        }
+
+        var pendingInventory = new PendingReplaceInventory(query);
+        ReserveCorrelation(query.CorrelationId);
+        if (!pendingInventories.TryAdd(query.CorrelationId, pendingInventory))
+        {
+            ReleaseCorrelation(query.CorrelationId);
+            throw new InvalidOperationException(
+                "The Replace inventory could not register its reserved correlation ID.");
+        }
+
+        bool sent = false;
+        try
+        {
+            if (Volatile.Read(ref stopped) != 0)
+            {
+                return ReplaceTargetInventoryDeliveryResult.NotDelivered;
+            }
+
+            ControlMessage message =
+                ActivityControlMessageCodec.CreateReplaceInventoryQuery(
+                    connection.ProtocolVersion,
+                    connection.LocalDeviceId,
+                    query,
+                    timeProvider.GetUtcNow());
+            await connection.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            sent = true;
+            try
+            {
+                return await pendingInventory.Completion.Task
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Cancel();
+                throw;
+            }
+        }
+        catch (Exception exception) when (
+            !sent
+            && exception is IOException or SocketException or TimeoutException)
+        {
+            pendingInventories.TryRemove(
+                new KeyValuePair<CorrelationId, PendingReplaceInventory>(
+                    query.CorrelationId,
+                    pendingInventory));
+            return ReplaceTargetInventoryDeliveryResult.NotDelivered;
+        }
+        finally
+        {
+            if (!sent)
+            {
+                pendingInventories.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingReplaceInventory>(
+                        query.CorrelationId,
+                        pendingInventory));
+                ReleaseCorrelation(query.CorrelationId);
             }
         }
     }
@@ -370,6 +505,43 @@ internal sealed class ActivityControlSession :
         await connection.SendAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
+    private async ValueTask HandleReplaceInventoryAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        if (replaceInventoryPeer is null)
+        {
+            throw new InvalidDataException(
+                "The local Activity session does not expose Replace target inventory.");
+        }
+
+        ReplaceTargetInventoryQuery query =
+            ActivityControlMessageCodec.DecodeReplaceInventoryQuery(
+                message,
+                connection.LocalDeviceId);
+        ReplaceTargetInventoryResult result = await replaceInventoryPeer.QueryAsync(
+            connection.PeerDeviceId,
+            query,
+            cancellationToken).ConfigureAwait(false);
+        if (result.CorrelationId != query.CorrelationId
+            || result.RequestingDeviceId != connection.PeerDeviceId
+            || result.TargetDeviceId != connection.LocalDeviceId
+            || result.IncomingKind != query.IncomingKind
+            || result.QueryDeadline != query.Deadline)
+        {
+            throw new InvalidDataException(
+                "The local Replace inventory peer returned a result for another query.");
+        }
+
+        ControlMessage response =
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                connection.ProtocolVersion,
+                connection.LocalDeviceId,
+                result,
+                timeProvider.GetUtcNow());
+        await connection.SendAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
     private void HandleReceipt(ControlMessage message)
     {
         if (!pending.TryGetValue(
@@ -405,6 +577,7 @@ internal sealed class ActivityControlSession :
                 "The operation receipt raced with session shutdown.");
         }
 
+        ReleaseCorrelation(transfer.CorrelationId);
         transfer.Completion.TrySetResult(
             ActivityDeliveryResult.Acknowledged(receipt));
     }
@@ -437,8 +610,38 @@ internal sealed class ActivityControlSession :
                 "The Activity Replace result raced with session shutdown.");
         }
 
+        ReleaseCorrelation(pendingReplace.Command.Context.CorrelationId);
         pendingReplace.Completion.TrySetResult(
             ReplaceDeliveryResult.Acknowledged(result));
+    }
+
+    private void HandleReplaceInventoryResult(ControlMessage message)
+    {
+        if (!pendingInventories.TryGetValue(
+                message.CorrelationId,
+                out PendingReplaceInventory? pendingInventory))
+        {
+            throw new InvalidDataException(
+                "The Activity session received an unsolicited Replace inventory result.");
+        }
+
+        ReplaceTargetInventoryResult result =
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                message,
+                connection.LocalDeviceId,
+                pendingInventory.Query);
+        if (!pendingInventories.TryRemove(
+                new KeyValuePair<CorrelationId, PendingReplaceInventory>(
+                    pendingInventory.Query.CorrelationId,
+                    pendingInventory)))
+        {
+            throw new InvalidDataException(
+                "The Replace inventory result raced with session shutdown.");
+        }
+
+        ReleaseCorrelation(pendingInventory.Query.CorrelationId);
+        pendingInventory.Completion.TrySetResult(
+            ReplaceTargetInventoryDeliveryResult.Acknowledged(result));
     }
 
     private static void ValidateReplaceResult(
@@ -489,11 +692,11 @@ internal sealed class ActivityControlSession :
                         correlationId,
                         transfer)))
             {
+                ReleaseCorrelation(correlationId);
                 transfer.Completion.TrySetResult(
                     ActivityDeliveryResult.AcknowledgementLost);
             }
         }
-
 
         foreach ((CorrelationId correlationId, PendingReplace pendingReplace) in pendingReplaces)
         {
@@ -502,11 +705,38 @@ internal sealed class ActivityControlSession :
                         correlationId,
                         pendingReplace)))
             {
+                ReleaseCorrelation(correlationId);
                 pendingReplace.Completion.TrySetResult(
                     ReplaceDeliveryResult.AcknowledgementLost);
             }
         }
+
+        foreach ((CorrelationId correlationId, PendingReplaceInventory inventory)
+                 in pendingInventories)
+        {
+            if (pendingInventories.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingReplaceInventory>(
+                        correlationId,
+                        inventory)))
+            {
+                ReleaseCorrelation(correlationId);
+                inventory.Completion.TrySetResult(
+                    ReplaceTargetInventoryDeliveryResult.AcknowledgementLost);
+            }
+        }
     }
+
+    private void ReserveCorrelation(CorrelationId correlationId)
+    {
+        if (!pendingCorrelations.TryAdd(correlationId, 0))
+        {
+            throw new InvalidOperationException(
+                "An Activity operation with this correlation ID is already pending.");
+        }
+    }
+
+    private void ReleaseCorrelation(CorrelationId correlationId) =>
+        pendingCorrelations.TryRemove(correlationId, out _);
 
     private sealed class PendingTransfer(
         OperationId operationId,
@@ -539,6 +769,14 @@ internal sealed class ActivityControlSession :
         public TaskCompletionSource<ReplaceDeliveryResult> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
+
+    private sealed class PendingReplaceInventory(ReplaceTargetInventoryQuery query)
+    {
+        public ReplaceTargetInventoryQuery Query { get; } = query;
+
+        public TaskCompletionSource<ReplaceTargetInventoryDeliveryResult> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 }
 
 public sealed class AuthenticatedActivitySessionHandler :
@@ -548,19 +786,36 @@ public sealed class AuthenticatedActivitySessionHandler :
     private readonly ConcurrentDictionary<DeviceId, Registration> sessions = new();
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly IActivityPeer localPeer;
+    private readonly IReplaceTargetInventoryPeer? replaceInventoryPeer;
     private readonly IReplacePeer? replacePeer;
     private readonly TimeProvider timeProvider;
     private int disposed;
 
     public AuthenticatedActivitySessionHandler(
         IActivityPeer localPeer,
-        TimeProvider? timeProvider = null) : this(localPeer, null, timeProvider)
+        TimeProvider? timeProvider = null) : this(
+            localPeer,
+            null,
+            null,
+            timeProvider)
     {
     }
 
     public AuthenticatedActivitySessionHandler(
         IActivityPeer localPeer,
         IReplacePeer? replacePeer,
+        TimeProvider? timeProvider = null) : this(
+            localPeer,
+            replacePeer,
+            null,
+            timeProvider)
+    {
+    }
+
+    public AuthenticatedActivitySessionHandler(
+        IActivityPeer localPeer,
+        IReplacePeer? replacePeer,
+        IReplaceTargetInventoryPeer? replaceInventoryPeer,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(localPeer);
@@ -571,8 +826,17 @@ public sealed class AuthenticatedActivitySessionHandler :
                 nameof(replacePeer));
         }
 
+        if (replaceInventoryPeer is not null
+            && replaceInventoryPeer.DeviceId != localPeer.DeviceId)
+        {
+            throw new ArgumentException(
+                "The Activity and Replace inventory peers must represent the same local device.",
+                nameof(replaceInventoryPeer));
+        }
+
         this.localPeer = localPeer;
         this.replacePeer = replacePeer;
+        this.replaceInventoryPeer = replaceInventoryPeer;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -622,6 +886,22 @@ public sealed class AuthenticatedActivitySessionHandler :
         return false;
     }
 
+    public bool TryGetReplaceInventoryChannel(
+        DeviceId peerDeviceId,
+        out IReplaceTargetInventoryChannel? channel)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration))
+        {
+            channel = registration.Session;
+            return true;
+        }
+
+        channel = null;
+        return false;
+    }
+
     public async ValueTask RunAsync(
         AuthenticatedTcpControlConnection connection,
         CancellationToken cancellationToken = default)
@@ -633,6 +913,7 @@ public sealed class AuthenticatedActivitySessionHandler :
             adapter,
             localPeer,
             replacePeer,
+            replaceInventoryPeer,
             timeProvider);
         var registration = new Registration(session);
         if (!sessions.TryAdd(connection.PeerIdentity.DeviceId, registration))

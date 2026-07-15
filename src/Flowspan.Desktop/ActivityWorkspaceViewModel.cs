@@ -18,6 +18,41 @@ public sealed record DesktopActivityTargetSnapshot(
     DeviceId DeviceId,
     string DisplayName);
 
+public sealed record DesktopReplaceTargetSnapshot(
+    DeviceId DeviceId,
+    ActivityId ActivityId,
+    string Title,
+    string Kind,
+    long Revision,
+    string DescriptorDigest,
+    string PlacementSlot);
+
+public sealed record DesktopReplaceTargetInventoryResult(
+    FailureCode FailureCode,
+    bool IsTruncated,
+    DateTimeOffset? CapturedAt,
+    ImmutableArray<DesktopReplaceTargetSnapshot> Targets)
+{
+    public bool IsSuccess => FailureCode == FailureCode.None;
+
+    public static DesktopReplaceTargetInventoryResult Failed(
+        FailureCode failureCode)
+    {
+        if (failureCode == FailureCode.None)
+        {
+            throw new ArgumentException(
+                "A failed desktop Replace inventory must have a failure code.",
+                nameof(failureCode));
+        }
+
+        return new DesktopReplaceTargetInventoryResult(
+            failureCode,
+            false,
+            null,
+            []);
+    }
+}
+
 public interface IDesktopActivityService : IAsyncDisposable
 {
     public event Action? Changed;
@@ -48,6 +83,14 @@ public interface IDesktopActivityService : IAsyncDisposable
         ValueTask.FromException<OperationReceipt>(
             new PlatformNotSupportedException(
                 "Semantic Move is not configured by this Activity service."));
+
+    public ValueTask<DesktopReplaceTargetInventoryResult> GetReplaceTargetsAsync(
+        ActivityId incomingActivityId,
+        DeviceId targetDeviceId,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromException<DesktopReplaceTargetInventoryResult>(
+            new PlatformNotSupportedException(
+                "Replace target inventory is not configured by this Activity service."));
 }
 
 public sealed class ActivityWorkspaceViewModel :

@@ -182,6 +182,90 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         return receipt;
     }
 
+    public async ValueTask<DesktopReplaceTargetInventoryResult> GetReplaceTargetsAsync(
+        ActivityId incomingActivityId,
+        DeviceId targetDeviceId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(incomingActivityId);
+        ArgumentNullException.ThrowIfNull(targetDeviceId);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        FlowspanNode currentNode = node
+            ?? throw new InvalidOperationException(
+                "The Activity runtime is not initialized.");
+        if (!currentNode.TryGetActivity(
+                incomingActivityId,
+                out ActivityInstance? incoming)
+            || incoming.Lifecycle != ActivityLifecycle.Active)
+        {
+            return DesktopReplaceTargetInventoryResult.Failed(
+                FailureCode.ActivityNotFound);
+        }
+
+        TrustSessionCoordinator? currentTrust = trust;
+        if (currentTrust is null
+            || !currentTrust.TryGetCurrentTrust(
+                targetDeviceId,
+                out TrustRecord? record)
+            || !record.GrantedCapabilities.Allows(Capability.ActivityReceive))
+        {
+            return DesktopReplaceTargetInventoryResult.Failed(
+                FailureCode.CapabilityDenied);
+        }
+
+        if (handler is null
+            || !handler.TryGetReplaceInventoryChannel(
+                targetDeviceId,
+                out IReplaceTargetInventoryChannel? channel)
+            || channel is null)
+        {
+            return DesktopReplaceTargetInventoryResult.Failed(
+                FailureCode.PeerUnavailable);
+        }
+
+        var query = ReplaceTargetInventoryQuery.Create(
+            CorrelationId.From(Guid.NewGuid()),
+            targetDeviceId,
+            incoming.Descriptor.Kind,
+            timeProvider.GetUtcNow().Add(OperationLifetime));
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+        ReplaceTargetInventoryDeliveryResult delivered = await channel.QueryAsync(
+            currentNode.DeviceId,
+            query,
+            linked.Token).ConfigureAwait(false);
+        if (delivered.Status != ActivityDeliveryStatus.Acknowledged
+            || delivered.Result is not ReplaceTargetInventoryResult result)
+        {
+            return DesktopReplaceTargetInventoryResult.Failed(
+                delivered.Status == ActivityDeliveryStatus.AcknowledgementLost
+                    ? FailureCode.AcknowledgementLost
+                    : FailureCode.PeerUnavailable);
+        }
+
+        if (!result.IsSuccess)
+        {
+            return DesktopReplaceTargetInventoryResult.Failed(result.FailureCode);
+        }
+
+        return new DesktopReplaceTargetInventoryResult(
+            FailureCode.None,
+            result.IsTruncated,
+            result.CapturedAt,
+            result.Targets
+                .Select(target => new DesktopReplaceTargetSnapshot(
+                    targetDeviceId,
+                    target.ActivityId,
+                    target.Title,
+                    target.Kind.Value,
+                    target.Revision,
+                    target.DescriptorDigest,
+                    target.PlacementSlot))
+                .ToImmutableArray());
+    }
+
     public async ValueTask InitializeAsync(
         CancellationToken cancellationToken = default)
     {
@@ -204,20 +288,32 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             TrustSessionCoordinator coordinator = await getTrust(linked.Token)
                 .ConfigureAwait(false);
             var newCatalog = new InMemoryActivityCatalog();
+            var adapterRegistry = new ActivityAdapterRegistry(
+                [new WorkspaceNoteAdapter()]);
             var newNode = new FlowspanNode(
                 identity.DeviceId,
                 identity.DisplayName,
                 new TimeProviderClock(timeProvider),
                 newCatalog,
                 new InMemoryOperationJournal(),
-                new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]),
+                adapterRegistry,
                 NullReceiptSink.Instance);
             var authorizedPeer = new TrustBoundActivityPeer(
                 newNode,
                 coordinator,
                 PublishChanged);
+            var inventoryEndpoint = new ReplaceTargetInventoryEndpoint(
+                identity.DeviceId,
+                new TimeProviderClock(timeProvider),
+                newCatalog,
+                adapterRegistry);
+            var authorizedInventoryPeer = new TrustBoundReplaceInventoryPeer(
+                inventoryEndpoint,
+                coordinator);
             var newHandler = new AuthenticatedActivitySessionHandler(
                 authorizedPeer,
+                replacePeer: null,
+                authorizedInventoryPeer,
                 timeProvider);
             newHandler.Changed += OnHandlerChanged;
             catalog = newCatalog;
@@ -417,6 +513,30 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             }
 
             return receipt;
+        }
+    }
+
+    private sealed class TrustBoundReplaceInventoryPeer(
+        ReplaceTargetInventoryEndpoint endpoint,
+        TrustSessionCoordinator trust) : IReplaceTargetInventoryPeer
+    {
+        public DeviceId DeviceId => endpoint.DeviceId;
+
+        public ValueTask<ReplaceTargetInventoryResult> QueryAsync(
+            DeviceId requestingDeviceId,
+            ReplaceTargetInventoryQuery query,
+            CancellationToken cancellationToken)
+        {
+            CapabilityGrant grant = trust.TryGetCurrentTrust(
+                requestingDeviceId,
+                out TrustRecord? record)
+                ? record.GrantedCapabilities
+                : CapabilityGrant.None;
+            endpoint.SetPeerGrant(requestingDeviceId, grant);
+            return endpoint.QueryAsync(
+                requestingDeviceId,
+                query,
+                cancellationToken);
         }
     }
 }

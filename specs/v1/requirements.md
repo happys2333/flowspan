@@ -106,6 +106,17 @@ interfaces.
 - R4.6: When the target has acknowledged a move but source cleanup fails,
   Flowspan shall preserve the committed target, report a duplicate Activity as
   `CommittedWithWarning`, and shall not claim that the move completed cleanly.
+- R4.7: While a user prepares Replace, when an authenticated source with local
+  `activity.receive` requests target choices, the target shall require its
+  current peer-relative `activity.replace` grant and return only a bounded,
+  payload-free inventory of active, normal-sensitivity Activities that its
+  adapters can preserve for undo and whose kind matches the incoming Activity.
+  Each choice shall bind target ID, revision, descriptor digest, kind, title,
+  and placement slot; sensitive, restricted, closed, incompatible, unsupported,
+  and non-local Activities shall not be disclosed.
+- R4.8: When a target Activity changes after inventory capture, Replace shall
+  reject the stale ID/revision/descriptor-digest selection before capture,
+  resume, or target mutation and require the user to refresh the preview.
 
 ### R5 — Atomic swap
 

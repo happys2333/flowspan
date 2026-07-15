@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Flowspan.Application;
 using Flowspan.Domain;
 using Flowspan.Protocol;
@@ -87,6 +88,401 @@ public sealed class ActivityControlMessageCodecTests
                 SourceId,
                 offer,
                 Now));
+    }
+
+    [Fact]
+    public void ReplaceInventoryQueryRoundTripsPurposeAndDeadline()
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+
+        ControlMessage message =
+            ActivityControlMessageCodec.CreateReplaceInventoryQuery(
+                new ProtocolVersion(1, 0),
+                SourceId,
+                query,
+                Now);
+        ReplaceTargetInventoryQuery decoded =
+            ActivityControlMessageCodec.DecodeReplaceInventoryQuery(
+                message,
+                TargetId);
+
+        Assert.Equal(ControlMessageType.ActivityReplaceInventory, message.Type);
+        Assert.Equal(Context.CorrelationId, message.CorrelationId);
+        Assert.Equal(SourceId, message.SenderDeviceId);
+        Assert.Equal(query, decoded);
+    }
+
+    [Fact]
+    public void ReplaceInventoryQueryRejectsUnknownFields()
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ControlMessage valid =
+            ActivityControlMessageCodec.CreateReplaceInventoryQuery(
+                new ProtocolVersion(1, 0),
+                SourceId,
+                query,
+                Now);
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        body["unexpected"] = "must not be ignored";
+        ControlMessage forged = WithBody(valid, body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryQuery(
+                forged,
+                TargetId));
+    }
+
+    [Fact]
+    public void ReplaceInventoryQueryRejectsWrongTargetAndDeadlineOutsideEnvelope()
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ControlMessage valid =
+            ActivityControlMessageCodec.CreateReplaceInventoryQuery(
+                new ProtocolVersion(1, 0),
+                SourceId,
+                query,
+                Now);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryQuery(
+                valid,
+                SourceId));
+
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        body["deadline"] = query.Deadline.AddMilliseconds(1);
+        ControlMessage forged = WithBody(valid, body);
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryQuery(
+                forged,
+                TargetId));
+    }
+
+    [Fact]
+    public void ReplaceInventoryQueryCreationRejectsDeadlineBeyondEnvelopeLimit()
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Now.AddMilliseconds(ControlMessage.MaximumTimeToLiveMilliseconds + 1));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ActivityControlMessageCodec.CreateReplaceInventoryQuery(
+                new ProtocolVersion(1, 0),
+                SourceId,
+                query,
+                Now));
+    }
+
+    [Fact]
+    public void ReplaceInventoryResultRoundTripsBoundSnapshotsWithoutPayload()
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ReplaceTargetSnapshot target = ReplaceTargetSnapshot.Create(
+            TargetDescriptor.Id,
+            revision: 7,
+            TargetDescriptor.DescriptorDigest,
+            TargetDescriptor.Kind,
+            TargetDescriptor.Title,
+            "desktop-primary");
+        ReplaceTargetInventoryResult result = ReplaceTargetInventoryResult.Success(
+            SourceId,
+            query,
+            Now.AddSeconds(1),
+            [target],
+            isTruncated: false);
+
+        ControlMessage message =
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                new ProtocolVersion(1, 0),
+                TargetId,
+                result,
+                Now.AddSeconds(1));
+        ReplaceTargetInventoryResult decoded =
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                message,
+                SourceId,
+                query);
+
+        Assert.Equal(ControlMessageType.ActivityReplaceInventoryResult, message.Type);
+        Assert.Equal(SourceId, decoded.RequestingDeviceId);
+        Assert.Equal(TargetId, decoded.TargetDeviceId);
+        Assert.Equal(query.Deadline, decoded.QueryDeadline);
+        Assert.Equal(FailureCode.None, decoded.FailureCode);
+        Assert.False(decoded.IsTruncated);
+        Assert.Equal(target, Assert.Single(decoded.Targets));
+        Assert.DoesNotContain(
+            "preserve this target state",
+            message.Body.GetRawText(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            TargetDescriptor.PayloadDigest,
+            message.Body.GetRawText(),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("requestingDeviceId")]
+    [InlineData("targetDeviceId")]
+    [InlineData("incomingKind")]
+    [InlineData("queryDeadline")]
+    public void ReplaceInventoryResultRejectsForgedPurposeBinding(string field)
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ReplaceTargetInventoryResult result = ReplaceTargetInventoryResult.Success(
+            SourceId,
+            query,
+            Now,
+            [],
+            isTruncated: false);
+        ControlMessage valid =
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                new ProtocolVersion(1, 0),
+                TargetId,
+                result,
+                Now);
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        body[field] = field switch
+        {
+            "requestingDeviceId" or "targetDeviceId" =>
+                "33333333-3333-3333-3333-333333333333",
+            "incomingKind" => "workspace.other/v1",
+            "queryDeadline" => Now.AddSeconds(10),
+            _ => throw new InvalidOperationException("Unexpected test field."),
+        };
+        ControlMessage forged = WithBody(valid, body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                forged,
+                SourceId,
+                query));
+    }
+
+    [Fact]
+    public void ReplaceInventoryResultRejectsCaptureAfterAuthenticatedSentTime()
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ReplaceTargetInventoryResult result = ReplaceTargetInventoryResult.Success(
+            SourceId,
+            query,
+            Now,
+            [],
+            isTruncated: false);
+        ControlMessage valid =
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                new ProtocolVersion(1, 0),
+                TargetId,
+                result,
+                Now);
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        body["capturedAt"] = Now.AddSeconds(1);
+        ControlMessage forged = WithBody(valid, body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                forged,
+                SourceId,
+                query));
+    }
+
+    [Theory]
+    [InlineData("AAAA")]
+    [InlineData("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ")]
+    public void ReplaceInventoryResultRejectsMalformedDescriptorDigest(string digest)
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ReplaceTargetSnapshot target = ReplaceTargetSnapshot.Create(
+            TargetDescriptor.Id,
+            revision: 7,
+            TargetDescriptor.DescriptorDigest,
+            TargetDescriptor.Kind,
+            TargetDescriptor.Title,
+            "desktop-primary");
+        ReplaceTargetInventoryResult result = ReplaceTargetInventoryResult.Success(
+            SourceId,
+            query,
+            Now,
+            [target],
+            isTruncated: false);
+        ControlMessage valid =
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                new ProtocolVersion(1, 0),
+                TargetId,
+                result,
+                Now);
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        body["targets"]!.AsArray()[0]!.AsObject()["descriptorDigest"] = digest;
+        ControlMessage forged = WithBody(valid, body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                forged,
+                SourceId,
+                query));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReplaceInventoryResultRejectsUnknownFields(bool nestedTarget)
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ReplaceTargetSnapshot target = ReplaceTargetSnapshot.Create(
+            TargetDescriptor.Id,
+            revision: 7,
+            TargetDescriptor.DescriptorDigest,
+            TargetDescriptor.Kind,
+            TargetDescriptor.Title,
+            "desktop-primary");
+        ReplaceTargetInventoryResult result = ReplaceTargetInventoryResult.Success(
+            SourceId,
+            query,
+            Now,
+            [target],
+            isTruncated: false);
+        ControlMessage valid =
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                new ProtocolVersion(1, 0),
+                TargetId,
+                result,
+                Now);
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        JsonObject mutated = nestedTarget
+            ? body["targets"]!.AsArray()[0]!.AsObject()
+            : body;
+        mutated["unexpected"] = "must not be ignored";
+        ControlMessage forged = WithBody(valid, body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                forged,
+                SourceId,
+                query));
+    }
+
+    [Fact]
+    public void ReplaceInventoryResultRejectsOversizedTargetArrayBeforeProjection()
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ReplaceTargetSnapshot target = ReplaceTargetSnapshot.Create(
+            TargetDescriptor.Id,
+            revision: 7,
+            TargetDescriptor.DescriptorDigest,
+            TargetDescriptor.Kind,
+            TargetDescriptor.Title,
+            "desktop-primary");
+        ReplaceTargetInventoryResult result = ReplaceTargetInventoryResult.Success(
+            SourceId,
+            query,
+            Now,
+            [target],
+            isTruncated: false);
+        ControlMessage valid =
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                new ProtocolVersion(1, 0),
+                TargetId,
+                result,
+                Now);
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        JsonArray targets = body["targets"]!.AsArray();
+        JsonNode template = targets[0]!.DeepClone();
+        while (targets.Count <= ReplaceTargetInventoryResult.MaximumTargets)
+        {
+            targets.Add(template.DeepClone());
+        }
+
+        ControlMessage forged = WithBody(valid, body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                forged,
+                SourceId,
+                query));
+    }
+
+    [Theory]
+    [InlineData("target")]
+    [InlineData("truncation")]
+    public void RejectedReplaceInventoryCannotDiscloseTargets(string mutation)
+    {
+        ReplaceTargetInventoryQuery query = ReplaceTargetInventoryQuery.Create(
+            Context.CorrelationId,
+            TargetId,
+            ActivityKind.Parse("workspace.note/v1"),
+            Context.Deadline);
+        ReplaceTargetInventoryResult result = ReplaceTargetInventoryResult.Rejected(
+            SourceId,
+            query,
+            Now,
+            FailureCode.CapabilityDenied);
+        ControlMessage valid =
+            ActivityControlMessageCodec.CreateReplaceInventoryResult(
+                new ProtocolVersion(1, 0),
+                TargetId,
+                result,
+                Now);
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        if (mutation == "truncation")
+        {
+            body["isTruncated"] = true;
+        }
+        else
+        {
+            body["targets"]!.AsArray().Add(new JsonObject
+            {
+                ["activityId"] = TargetDescriptor.Id.ToString(),
+                ["descriptorDigest"] = TargetDescriptor.DescriptorDigest,
+                ["kind"] = TargetDescriptor.Kind.Value,
+                ["placementSlot"] = "desktop-primary",
+                ["revision"] = 7,
+                ["title"] = TargetDescriptor.Title,
+            });
+        }
+
+        ControlMessage forged = WithBody(valid, body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceInventoryResult(
+                forged,
+                SourceId,
+                query));
     }
 
     [Fact]
@@ -311,4 +707,16 @@ public sealed class ActivityControlMessageCodecTests
                 SourceId,
                 Context.CorrelationId));
     }
+
+    private static ControlMessage WithBody(
+        ControlMessage message,
+        JsonObject body) => ControlMessage.Create(
+        message.Version,
+        message.Type,
+        message.MessageId,
+        message.CorrelationId,
+        message.SenderDeviceId,
+        message.SentAt,
+        TimeSpan.FromMilliseconds(message.TimeToLiveMilliseconds),
+        body.ToJsonString());
 }

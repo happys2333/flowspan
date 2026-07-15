@@ -336,6 +336,11 @@ means its linked evidence exists; it does not imply the entire product works.
       process state, pending recovery without duplicate Adapter work, atomic
       failure ordering, expiry cleanup, and supported-platform storage
       contracts. Do not mark 7.3c complete until the desktop flow is composed.
+    - [ ] 7.3c.3 Add a purpose-scoped authenticated Replace target inventory.
+      Require source-side `activity.receive` and target-side
+      `activity.replace`; disclose only bounded, payload-free, normal-sensitivity
+      same-kind target snapshots; bind correlation/target/kind/deadline; and
+      preserve stale ID/revision/digest rejection before destructive work.
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

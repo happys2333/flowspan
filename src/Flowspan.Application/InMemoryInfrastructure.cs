@@ -3,7 +3,7 @@ using Flowspan.Domain;
 
 namespace Flowspan.Application;
 
-public sealed class InMemoryActivityCatalog : IActivityCatalog
+public sealed class InMemoryActivityCatalog : IActivityCatalog, IActivitySnapshotSource
 {
     private readonly Dictionary<ActivityId, ActivityInstance> activities = [];
     private readonly Lock gate = new();
@@ -30,6 +30,8 @@ public sealed class InMemoryActivityCatalog : IActivityCatalog
                 .ToArray();
         }
     }
+
+    public IReadOnlyList<ActivityInstance> GetSnapshot() => Snapshot();
 
     public bool TryGet(
         ActivityId activityId,

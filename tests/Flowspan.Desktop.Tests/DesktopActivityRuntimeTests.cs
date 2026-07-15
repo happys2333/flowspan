@@ -350,6 +350,118 @@ public sealed class DesktopActivityRuntimeTests
         await targetTrust.DisposeAsync();
     }
 
+    [Fact]
+    public async Task AuthenticatedRuntimesHonorCurrentReplaceGrantWithoutMutation()
+    {
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
+        var sourceStore = new InMemoryTrustStore();
+        sourceStore.Register(new TrustRecord(
+            targetIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        var targetStore = new InMemoryTrustStore();
+        targetStore.Register(new TrustRecord(
+            sourceIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReplace)));
+        var sourceTrust = new TrustSessionCoordinator(sourceStore);
+        var targetTrust = new TrustSessionCoordinator(targetStore);
+        await using var source = CreateRuntime(sourceIdentity, sourceTrust);
+        await using var target = CreateRuntime(targetIdentity, targetTrust);
+        await source.InitializeAsync();
+        await target.InitializeAsync();
+        DesktopActivitySnapshot incoming = source.CreateWorkspaceNote(
+            "Incoming note",
+            "incoming body",
+            ActivitySensitivity.Normal);
+        DesktopActivitySnapshot existing = target.CreateWorkspaceNote(
+            "Existing target",
+            "target body",
+            ActivitySensitivity.Normal);
+        AuthenticatedActivitySessionHandler sourceHandler =
+            await source.GetSessionHandlerAsync();
+        AuthenticatedActivitySessionHandler targetHandler =
+            await target.GetSessionHandlerAsync();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        using var stop = new CancellationTokenSource();
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+
+        DesktopReplaceTargetInventoryResult result =
+            await source.GetReplaceTargetsAsync(incoming.ActivityId, TargetId);
+
+        Assert.True(result.IsSuccess);
+        DesktopReplaceTargetSnapshot snapshot = Assert.Single(result.Targets);
+        Assert.Equal(existing.ActivityId, snapshot.ActivityId);
+        Assert.Equal("Existing target", snapshot.Title);
+        Assert.Equal(1, snapshot.Revision);
+        Assert.True(await targetTrust.TryUpdateCapabilitiesAsync(
+            SourceId,
+            sourceIdentity.PublicIdentity.Fingerprint,
+            CapabilityGrant.None));
+
+        DesktopReplaceTargetInventoryResult revoked =
+            await source.GetReplaceTargetsAsync(incoming.ActivityId, TargetId);
+
+        Assert.Equal(FailureCode.CapabilityDenied, revoked.FailureCode);
+        Assert.Empty(revoked.Targets);
+        Assert.Equal(existing, Assert.Single(target.GetActivities()));
+        Assert.Equal(incoming, Assert.Single(source.GetActivities()));
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
+        await sourceTrust.DisposeAsync();
+        await targetTrust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MissingReceiveGrantRejectsReplaceInventoryBeforeChannelLookup()
+    {
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
+        var sourceStore = new InMemoryTrustStore();
+        sourceStore.Register(new TrustRecord(
+            targetIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.None));
+        var sourceTrust = new TrustSessionCoordinator(sourceStore);
+        await using var source = CreateRuntime(sourceIdentity, sourceTrust);
+        await source.InitializeAsync();
+        DesktopActivitySnapshot incoming = source.CreateWorkspaceNote(
+            "Incoming note",
+            "incoming body",
+            ActivitySensitivity.Normal);
+
+        DesktopReplaceTargetInventoryResult result =
+            await source.GetReplaceTargetsAsync(incoming.ActivityId, TargetId);
+
+        Assert.Equal(FailureCode.CapabilityDenied, result.FailureCode);
+        Assert.Empty(result.Targets);
+        await sourceTrust.DisposeAsync();
+    }
+
     private static DesktopActivityRuntime CreateRuntime(
         DeviceIdentity identity,
         TrustSessionCoordinator trust) => new(

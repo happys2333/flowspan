@@ -173,19 +173,25 @@ The task 7.3c tracer keeps Replace separate from Activity transfer. Application
 tests require an exact target ID/revision/digest and prove capture or store
 failure blocks before incoming resume, successful Replace stores a 15-minute
 target-owned capsule, retries do not repeat capture/resume, and undo is
-expiry-aware, exact-current, idempotent, and single-consume. Protocol tests use
-strict `activity.replace` and `activity.replace.result` bodies, keep preserved
-target payload out of results, reject target-snapshot tampering, fault closed on
-forged capsule binding, classify lost acknowledgement as uncertain, and run one
-real encrypted loopback Replace. The durable-state follow-up writes pending
-before destructive work and terminal results afterward in the same bounded
-snapshot as capsules and consumption. Tests reconstruct the store and catalog
-to prove exact Replace/undo replay, persisted-pending recovery without duplicate
-Adapter calls, cleanup/store/digest/tag fault behavior, and concurrent retry.
-Platform contracts keep a random key in DPAPI, Keychain, or Secret Service and
-put descriptors only in an AES-256-GCM atomic file; local macOS also exercises a
-disposable real Keychain item. The desktop endpoint and controls remain
-deliberately uncomposed until remote target selection, destructive preview,
+expiry-aware, exact-current, idempotent, and single-consume. The query-only
+target-inventory slice filters sensitive, restricted, inactive, non-local,
+different-kind, and unsupported Activities; returns only strictly ordered
+payload-free snapshots; bounds a truncated page to 64; and rechecks source
+`activity.receive` plus target
+`activity.replace`, including same-session revocation. Strict query/result codec
+tests cover purpose/participant/deadline/capture binding, unknown fields,
+malformed digests, oversize arrays, and rejected-result non-disclosure. Session
+tests make Transfer, inventory, and Replace correlation IDs globally exclusive,
+fault closed on unsolicited results, classify lost acknowledgement as
+uncertain, and exercise a real encrypted loopback inventory. Destructive
+protocol tests retain target-snapshot/capsule tamper and encrypted-loopback
+coverage. The durable state tests reconstruct the store and catalog to prove
+exact Replace/undo replay, persisted-pending recovery without duplicate Adapter
+calls, cleanup/store/digest/tag fault behavior, and concurrent retry. Platform
+contracts keep a random key in DPAPI, Keychain, or Secret Service and put
+descriptors only in an AES-256-GCM atomic file; local macOS also exercises a
+disposable real Keychain item. Desktop composes only inventory discovery; the
+destructive peer and controls remain uncomposed until preview, confirmation,
 recovery, and visible local undo exist. Hosted runners and same-host evidence do
 not prove physical networking, native restoration, crash/power-loss behavior,
 or a shipped UI.
@@ -201,10 +207,13 @@ Core invariants are asserted after every event:
 6. unauthorized peers never observe descriptor content;
 7. a receipt cannot acknowledge another pending Activity or repeat descriptor
    payload;
-8. diagnostics contain no registered canary secret.
+8. diagnostics contain no registered canary secret;
 9. replace never resumes incoming work unless an exact target snapshot has a
    verified, stored, unexpired undo capsule; undo applies only to the exact
-   replacement and consumes the capsule once.
+   replacement and consumes the capsule once;
+10. Replace target inventory never discloses payload/origin or ineligible target
+    metadata, never exceeds one 64-item canonical page, and never authorizes
+    mutation without destructive ID/revision/digest revalidation.
 
 ## 4. CI matrix
 

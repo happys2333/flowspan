@@ -10,6 +10,283 @@ public static class ActivityControlMessageCodec
 {
     private static readonly TimeSpan ReceiptTimeToLive = TimeSpan.FromSeconds(30);
 
+    public static ControlMessage CreateReplaceInventoryQuery(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        ReplaceTargetInventoryQuery query,
+        DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(query);
+        TimeSpan untilDeadline = query.Deadline - sentAt;
+        if (untilDeadline <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sentAt),
+                "A Replace inventory query must be sent before its deadline.");
+        }
+
+        double ttlMilliseconds = Math.Ceiling(untilDeadline.TotalMilliseconds);
+        if (ttlMilliseconds > ControlMessage.MaximumTimeToLiveMilliseconds)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                "A Replace inventory deadline exceeds the control envelope lifetime limit.");
+        }
+
+        string body = JsonSerializer.Serialize(new
+        {
+            deadline = query.Deadline,
+            incomingKind = query.IncomingKind.Value,
+            targetDeviceId = query.TargetDeviceId.ToString(),
+        });
+        return ControlMessage.Create(
+            version,
+            ControlMessageType.ActivityReplaceInventory,
+            Guid.NewGuid(),
+            query.CorrelationId,
+            senderDeviceId,
+            sentAt,
+            TimeSpan.FromMilliseconds(ttlMilliseconds),
+            body);
+    }
+
+    public static ReplaceTargetInventoryQuery DecodeReplaceInventoryQuery(
+        ControlMessage message,
+        DeviceId expectedTargetDeviceId)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expectedTargetDeviceId);
+        if (message.Type != ControlMessageType.ActivityReplaceInventory)
+        {
+            throw new InvalidDataException(
+                "The control message is not a Replace inventory query.");
+        }
+
+        try
+        {
+            JsonElement root = message.Body;
+            RequireOnly(root, "deadline", "incomingKind", "targetDeviceId");
+            DateTimeOffset deadline = RequireDateTimeOffset(root, "deadline");
+            DateTimeOffset envelopeExpiry = message.SentAt.AddMilliseconds(
+                message.TimeToLiveMilliseconds);
+            if (deadline <= message.SentAt || deadline > envelopeExpiry)
+            {
+                throw new InvalidDataException(
+                    "The Replace inventory deadline is outside the authenticated envelope lifetime.");
+            }
+
+            DeviceId targetDeviceId = DeviceId.Parse(
+                RequireString(root, "targetDeviceId"));
+            if (targetDeviceId != expectedTargetDeviceId)
+            {
+                throw new InvalidDataException(
+                    "The Replace inventory query targets another device.");
+            }
+
+            return ReplaceTargetInventoryQuery.Create(
+                message.CorrelationId,
+                targetDeviceId,
+                ActivityKind.Parse(RequireString(root, "incomingKind")),
+                deadline);
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException
+            or FormatException
+            or JsonException
+            or OverflowException)
+        {
+            throw new InvalidDataException(
+                "The Replace inventory query body is malformed.",
+                exception);
+        }
+    }
+
+    public static ControlMessage CreateReplaceInventoryResult(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        ReplaceTargetInventoryResult result,
+        DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(result);
+        if (senderDeviceId != result.TargetDeviceId)
+        {
+            throw new ArgumentException(
+                "A Replace inventory result sender must match its target device.",
+                nameof(senderDeviceId));
+        }
+
+        if (sentAt < result.CapturedAt)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sentAt),
+                "A Replace inventory result cannot be sent before it was captured.");
+        }
+
+        string body = JsonSerializer.Serialize(new
+        {
+            capturedAt = result.CapturedAt,
+            failureCode = ToWireName(result.FailureCode),
+            incomingKind = result.IncomingKind.Value,
+            isTruncated = result.IsTruncated,
+            queryDeadline = result.QueryDeadline,
+            requestingDeviceId = result.RequestingDeviceId.ToString(),
+            targetDeviceId = result.TargetDeviceId.ToString(),
+            targets = result.Targets.Select(static target => new
+            {
+                activityId = target.ActivityId.ToString(),
+                descriptorDigest = target.DescriptorDigest,
+                kind = target.Kind.Value,
+                placementSlot = target.PlacementSlot,
+                revision = target.Revision,
+                title = target.Title,
+            }),
+        });
+        return ControlMessage.Create(
+            version,
+            ControlMessageType.ActivityReplaceInventoryResult,
+            Guid.NewGuid(),
+            result.CorrelationId,
+            senderDeviceId,
+            sentAt,
+            ReceiptTimeToLive,
+            body);
+    }
+
+    public static ReplaceTargetInventoryResult DecodeReplaceInventoryResult(
+        ControlMessage message,
+        DeviceId expectedRecipientDeviceId,
+        ReplaceTargetInventoryQuery expectedQuery)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expectedRecipientDeviceId);
+        ArgumentNullException.ThrowIfNull(expectedQuery);
+        if (message.Type != ControlMessageType.ActivityReplaceInventoryResult)
+        {
+            throw new InvalidDataException(
+                "The control message is not a Replace inventory result.");
+        }
+
+        try
+        {
+            if (message.CorrelationId != expectedQuery.CorrelationId)
+            {
+                throw new InvalidDataException(
+                    "The Replace inventory result correlation does not match its query.");
+            }
+
+            JsonElement root = message.Body;
+            RequireOnly(
+                root,
+                "capturedAt",
+                "failureCode",
+                "incomingKind",
+                "isTruncated",
+                "queryDeadline",
+                "requestingDeviceId",
+                "targetDeviceId",
+                "targets");
+            DeviceId requestingDeviceId = DeviceId.Parse(
+                RequireString(root, "requestingDeviceId"));
+            DeviceId targetDeviceId = DeviceId.Parse(
+                RequireString(root, "targetDeviceId"));
+            if (requestingDeviceId != expectedRecipientDeviceId
+                || targetDeviceId != message.SenderDeviceId
+                || targetDeviceId != expectedQuery.TargetDeviceId)
+            {
+                throw new InvalidDataException(
+                    "The Replace inventory result participants do not match the authenticated query.");
+            }
+
+            ActivityKind incomingKind = ActivityKind.Parse(
+                RequireString(root, "incomingKind"));
+            DateTimeOffset queryDeadline = RequireDateTimeOffset(
+                root,
+                "queryDeadline");
+            if (incomingKind != expectedQuery.IncomingKind
+                || queryDeadline != expectedQuery.Deadline)
+            {
+                throw new InvalidDataException(
+                    "The Replace inventory result purpose does not match its query.");
+            }
+
+            DateTimeOffset capturedAt = RequireDateTimeOffset(root, "capturedAt");
+            if (capturedAt > message.SentAt)
+            {
+                throw new InvalidDataException(
+                    "The Replace inventory result predates its claimed capture time.");
+            }
+
+            FailureCode failureCode = ParseFailureCode(
+                RequireString(root, "failureCode"));
+            bool isTruncated = RequireBoolean(root, "isTruncated");
+            JsonElement targetsElement = Require(
+                root,
+                "targets",
+                JsonValueKind.Array);
+            if (targetsElement.GetArrayLength()
+                > ReplaceTargetInventoryResult.MaximumTargets)
+            {
+                throw new InvalidDataException(
+                    "The Replace inventory result exceeds its target limit.");
+            }
+
+            var targets = new List<ReplaceTargetSnapshot>(
+                targetsElement.GetArrayLength());
+            foreach (JsonElement target in targetsElement.EnumerateArray())
+            {
+                RequireOnly(
+                    target,
+                    "activityId",
+                    "descriptorDigest",
+                    "kind",
+                    "placementSlot",
+                    "revision",
+                    "title");
+                targets.Add(ReplaceTargetSnapshot.Create(
+                    ActivityId.Parse(RequireString(target, "activityId")),
+                    RequireInt64(target, "revision"),
+                    RequireDigest(target, "descriptorDigest"),
+                    ActivityKind.Parse(RequireString(target, "kind")),
+                    RequireString(target, "title"),
+                    RequireString(target, "placementSlot")));
+            }
+
+            if (failureCode == FailureCode.None)
+            {
+                return ReplaceTargetInventoryResult.Success(
+                    requestingDeviceId,
+                    expectedQuery,
+                    capturedAt,
+                    targets,
+                    isTruncated);
+            }
+
+            if (targets.Count != 0 || isTruncated)
+            {
+                throw new InvalidDataException(
+                    "A rejected Replace inventory result cannot disclose targets.");
+            }
+
+            return ReplaceTargetInventoryResult.Rejected(
+                requestingDeviceId,
+                expectedQuery,
+                capturedAt,
+                failureCode);
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException
+            or FormatException
+            or JsonException
+            or OverflowException)
+        {
+            throw new InvalidDataException(
+                "The Replace inventory result body is malformed.",
+                exception);
+        }
+    }
+
     public static ControlMessage CreateTransfer(
         ProtocolVersion version,
         DeviceId senderDeviceId,
@@ -754,6 +1031,18 @@ public static class ActivityControlMessageCodec
         return value.TryGetInt64(out long parsed)
             ? parsed
             : throw new InvalidDataException($"The '{name}' field is not an integer.");
+    }
+
+    private static bool RequireBoolean(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out JsonElement value)
+            || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            throw new InvalidDataException(
+                $"The required '{name}' field is missing or has the wrong type.");
+        }
+
+        return value.GetBoolean();
     }
 
     private static string RequireDigest(JsonElement parent, string name)

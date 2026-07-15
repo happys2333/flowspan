@@ -153,6 +153,39 @@ resume, restore, or catalog mutation. Undo completion stores its result and
 capsule-consumption marker atomically. Expiry cleanup removes only unconsumed,
 non-pending capsules whose retention deadline passed.
 
+Replace target discovery is a purpose-scoped authenticated query, not a general
+remote Activity browser. The source may query only while its current Trust
+Record grants `activity.receive`; the target rechecks the requesting peer's
+current `activity.replace` grant before reading inventory. An
+`activity.replace.inventory` request binds correlation, target device,
+incoming kind, and deadline. Its corresponding result binds the same fields and
+capture time and contains at most 64 canonically Activity-ID-ordered target
+snapshots. A snapshot contains target ID, positive revision, descriptor digest,
+kind, normal-sensitivity title, and placement slot only. Descriptor payload,
+payload digest, origin, sensitive/restricted Activities, inactive Activities,
+non-local placements, different-kind Activities, and Activities without a
+Replace-capable Adapter are not disclosed. Truncation is explicit and valid
+only for a full 64-target page; rejected results contain neither targets nor
+truncation. Capture time is
+initialized, no later than the query deadline for success, and no later than
+the authenticated result send time. A later Replace command still carries and
+revalidates the selected ID/revision/digest, so inventory is never authority to
+mutate stale state.
+
+`activity.replace` joins `activity.offer` and `activity.receive` as an
+independent any-of admission capability for the idle encrypted Activity control
+channel. Admission grants no operation by itself: inventory and every later
+operation recheck their exact current directional capability. The inventory
+endpoint may be composed before the destructive Replace endpoint; desktop
+Replace remains unavailable until preview, explicit confirmation,
+receipt/recovery, and target-local undo surfaces are complete.
+
+Transfer, Replace inventory, and destructive Replace share one atomic pending
+correlation reservation per authenticated session. A correlation ID cannot
+identify two concurrent Activity operations even when their message types
+differ; normal response, pre-send failure, and session loss all release the
+reservation through the same lifecycle boundary.
+
 ### Atomic swap
 
 Swap uses a coordinator plus durable endpoint journals:

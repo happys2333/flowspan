@@ -1,7 +1,7 @@
 # ADR 0011: Bounded Replace with a Target-Owned Undo Capsule
 
-Status: accepted for the `workspace.note/v1` tracer slice; durable-state
-implementation and desktop activation remain pending
+Status: accepted for the `workspace.note/v1` tracer slice; durable state and
+query-only target inventory delivered; destructive desktop activation pending
 
 Date: 2026-07-15
 
@@ -57,15 +57,37 @@ as acknowledgement-lost; the sender cannot infer whether the target committed.
 The target operation journal makes an exact retry idempotent and rejects reuse of
 the Operation ID with different bound content.
 
-The desktop composition does not yet inject a Replace endpoint or expose a
-Replace control. Activation is blocked until the UI can present a remote target
-Activity snapshot, obtain an explicit destructive confirmation, show the exact
-undo expiry, and execute local target undo. A protocol existing is not evidence
-that this user flow is shipped.
+### Purpose-scoped target inventory
+
+Target discovery uses distinct `activity.replace.inventory` request/result
+messages rather than exposing a general remote Activity browser. The source
+requires its current peer-relative `activity.receive` before channel lookup; on
+every request the target reloads the requesting peer's current
+`activity.replace` before catalog projection. The request binds the target,
+incoming kind, correlation, and deadline. Only active, normal-sensitivity,
+target-local, same-kind Activities backed by an `IReplaceActivityAdapter` are
+eligible.
+
+The result contains at most 64 snapshots in strict Activity-ID order. Each
+snapshot contains only ID, positive revision, descriptor digest, kind, bounded
+title, and bounded Placement slot. Payload, payload digest, origin, incompatible
+kind, and protected metadata stay local. Truncation is valid only for a full
+page; rejected results contain no targets. Capture time is bound to the query
+deadline and authenticated send time. Transfer, inventory, and destructive
+Replace share one atomic pending correlation reservation per secure session.
+
+An inventory snapshot is preview data, never mutation authority. A later
+destructive command must still carry and revalidate the selected
+ID/revision/digest before Adapter capture, resume, or catalog mutation. The
+desktop now composes the query-only inventory endpoint but does not inject an
+`IReplacePeer` or expose a destructive Replace control. Activation remains
+blocked until the UI presents both Activities, obtains explicit confirmation,
+shows recovery/receipt state and exact undo expiry, and exposes target-local
+undo. Protocol availability is not evidence that this user flow is shipped.
 
 ### Durable target state
 
-The next vertical slice persists the bounded capsule repository, Replace
+The delivered durable slice persists the bounded capsule repository, Replace
 operation journal, undo journal, and capsule-consumption markers as one
 versioned target-owned snapshot. The application port exposes only bounded
 load, atomic replace, and delete operations. A platform adapter obtains a
@@ -107,10 +129,10 @@ remain structured and must not cross a destructive boundary unnoticed.
 - Adapters that cannot prove an honest semantic capsule fail before destructive
   work; Remote Window is not silently substituted.
 - The durable-state module and Windows/macOS/Linux protected-key adapters now
-  exist, but the desktop still does not compose Replace. In-memory state remains
-  available only for deterministic tests. Desktop target selection,
-  confirmation, startup recovery presentation, and local undo remain mandatory
-  before product activation.
+  exist, and Desktop composes only a payload-free target query. It still does
+  not compose destructive Replace. In-memory state remains available only for
+  deterministic tests. Destructive preview/confirmation, startup recovery
+  presentation, and local undo remain mandatory before product activation.
 - Same-host loopback tests prove authenticated framing and state ordering, not
   physical LAN behavior or native application restoration.
 
@@ -124,6 +146,12 @@ remain structured and must not cross a destructive boundary unnoticed.
 - Session tests cover authenticated inbound/outbound Replace, exact pending
   result binding, acknowledgement loss, forged target metadata, and a real
   encrypted loopback connection.
+- Inventory tests cover authorization and live downgrade, same-kind eligibility,
+  sensitive/restricted/inactive/non-local/different-kind/unsupported filtering,
+  non-Replace incoming Adapter rejection, canonical 64-item truncation, strict
+  schema/purpose/time binding, global pending correlation exclusion,
+  acknowledgement loss, and a real encrypted loopback query without catalog
+  mutation.
 - The durable-state candidate covers protected-key restart, exact Replace and
   undo replay, pending recovery without duplicate Adapter calls, atomic save
   failure on both sides of destructive boundaries, authenticated-file and

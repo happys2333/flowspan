@@ -11,6 +11,8 @@ public enum ControlMessageType
 {
     Hello,
     ActivityTransfer,
+    ActivityReplaceInventory,
+    ActivityReplaceInventoryResult,
     ActivityReplace,
     ActivityReplaceResult,
     OperationReceipt,
@@ -360,6 +362,8 @@ public static class ControlMessageCodec
     {
         ControlMessageType.Hello => "hello",
         ControlMessageType.ActivityTransfer => "activity.transfer",
+        ControlMessageType.ActivityReplaceInventory => "activity.replace.inventory",
+        ControlMessageType.ActivityReplaceInventoryResult => "activity.replace.inventory.result",
         ControlMessageType.ActivityReplace => "activity.replace",
         ControlMessageType.ActivityReplaceResult => "activity.replace.result",
         ControlMessageType.OperationReceipt => "operation.receipt",
@@ -370,6 +374,8 @@ public static class ControlMessageCodec
     {
         "hello" => ControlMessageType.Hello,
         "activity.transfer" => ControlMessageType.ActivityTransfer,
+        "activity.replace.inventory" => ControlMessageType.ActivityReplaceInventory,
+        "activity.replace.inventory.result" => ControlMessageType.ActivityReplaceInventoryResult,
         "activity.replace" => ControlMessageType.ActivityReplace,
         "activity.replace.result" => ControlMessageType.ActivityReplaceResult,
         "operation.receipt" => ControlMessageType.OperationReceipt,

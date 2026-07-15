@@ -82,6 +82,30 @@ public sealed class DesktopTrustedPeerConnectionsTests
     }
 
     [Fact]
+    public async Task ReplaceOnlyGrantStillAdmitsElectedControlChannelConnector()
+    {
+        using DeviceIdentity local = CreateIdentity("11111111", "Local");
+        using DeviceIdentity remote = CreateIdentity("22222222", "Remote");
+        await using var trust = new TrustSessionCoordinator(
+            CreateTrustStore(remote, Capability.ActivityReplace));
+        var loops = new FakeReconnectLoopFactory();
+        await using var connections = new DesktopTrustedPeerConnectionCoordinator(
+            local.DeviceId,
+            trust,
+            static () => [],
+            loops);
+
+        connections.Start();
+
+        DesktopTrustedPeerConnectionSnapshot snapshot =
+            Assert.Single(connections.GetSnapshot());
+        Assert.Equal(
+            DesktopTrustedPeerConnectionState.WaitingForPeer,
+            snapshot.State);
+        Assert.Single(loops.Created);
+    }
+
+    [Fact]
     public async Task MissingActivityControlGrantIsPolicyIdleAndNeverContacted()
     {
         using DeviceIdentity local = CreateIdentity("11111111", "Local");
@@ -105,7 +129,10 @@ public sealed class DesktopTrustedPeerConnectionsTests
         Assert.Equal(
             "IDLE — ACTIVITY CONTROL CAPABILITY NOT GRANTED",
             snapshot.StatusLabel);
-        Assert.Contains("activity.offer or activity.receive", snapshot.StatusDescription);
+        Assert.Contains(
+            "activity.offer, activity.receive, or activity.replace",
+            snapshot.StatusDescription,
+            StringComparison.Ordinal);
         Assert.Empty(loops.Created);
     }
 
