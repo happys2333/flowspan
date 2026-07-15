@@ -148,6 +148,14 @@ implementation convenience.
   same-host loopback contracts are covered. The capsule/undo journals remain in
   memory and desktop Replace remains deliberately uncomposed, so the Replace
   product criterion is still unchecked.
+- [2026-07-15 protected Replace recovery state](../evidence/2026-07-15-protected-replace-recovery-state.md):
+  472 local and hosted tests prove one bounded durable snapshot for capsules,
+  Replace/undo pending and terminal records, and consumption; reconstructed
+  process replay without duplicate Adapter work; authenticated AES-256-GCM
+  atomic files; real macOS Keychain and hosted Windows DPAPI API smoke; and
+  supported-platform storage contracts. Ubuntu uses a fake Secret Service
+  runner, and the desktop Replace flow remains deliberately uncomposed, so the
+  Replace product criterion is still unchecked.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product

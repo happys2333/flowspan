@@ -313,18 +313,26 @@ means its linked evidence exists; it does not imply the entire product works.
     process-memory state; the current candidate adds a single versioned durable
     snapshot for capsules, Replace/undo pending and terminal records, and
     consumption, protected by an OS-credential-backed AES-256-GCM atomic file.
+    The protected durable-core sub-slice is complete at implementation commit
+    `3652c9b`: a single bounded snapshot persists capsules, Replace/undo pending
+    and terminal records, and consumption; reconstructed-process tests prevent
+    duplicate destructive Adapter work; and OS-credential-backed authenticated
+    files fail closed. All 472 tests, Secret Scan, and CodeQL pass on the exact
+    commit's hosted Windows, macOS, and Ubuntu matrix. Commands, run/job IDs,
+    platform-API coverage, stress results, and explicit physical/native limits
+    are recorded in
+    [protected Replace recovery evidence](../../docs/evidence/2026-07-15-protected-replace-recovery-state.md).
     Desktop target inventory, destructive preview, explicit confirmation,
-    recovery, visible undo, the new final-HEAD matrix, and physical/native
-    evidence remain open. The earlier exact implementation-commit matrix,
-    Secret Scan, CodeQL, and evidence limits are recorded in
+    recovery, visible undo, and physical/native product evidence remain open.
+    The earlier core/protocol evidence is recorded in
     [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
     Consequently 7.3c and the parent task are not complete. See
     [ADR 0011](../../docs/adr/0011-bounded-replace-undo-capsule.md).
-    - [-] 7.3c.1 Persist capsules, Replace pending/final receipts, undo
+    - [x] 7.3c.1 Persist capsules, Replace pending/final receipts, undo
       pending/final results, and consumption markers in one bounded,
       authenticated target snapshot. Keep its random key in DPAPI, Keychain, or
       Secret Service; fail closed on key/store/tamper/version/bounds errors.
-    - [-] 7.3c.2 Prove exact Replace and undo replay across reconstructed
+    - [x] 7.3c.2 Prove exact Replace and undo replay across reconstructed
       process state, pending recovery without duplicate Adapter work, atomic
       failure ordering, expiry cleanup, and supported-platform storage
       contracts. Do not mark 7.3c complete until the desktop flow is composed.
