@@ -162,6 +162,35 @@ and the native-safe tests already present in the matrix. They do not prove
 physical LAN reachability, abrupt power-loss durability, packaged applications,
 native accessibility, or arbitrary-application Adapters.
 
+## Hosted results for the evidence commit
+
+The evidence and task-status commit
+`2888dc3b8de167b38e1070826ec42600ec0df525` was independently verified by CI
+run
+[`29419322248`](https://github.com/happys2333/flowspan/actions/runs/29419322248):
+
+- Secret Scan job
+  [`87365427775`](https://github.com/happys2333/flowspan/actions/runs/29419322248/job/87365427775):
+  success;
+- Windows job
+  [`87365427835`](https://github.com/happys2333/flowspan/actions/runs/29419322248/job/87365427835):
+  success;
+- Ubuntu job
+  [`87365427838`](https://github.com/happys2333/flowspan/actions/runs/29419322248/job/87365427838):
+  success;
+- macOS job
+  [`87365427857`](https://github.com/happys2333/flowspan/actions/runs/29419322248/job/87365427857):
+  success.
+
+CodeQL run
+[`29419322056`](https://github.com/happys2333/flowspan/actions/runs/29419322056)
+and Analyze C# job
+[`87365427228`](https://github.com/happys2333/flowspan/actions/runs/29419322056/job/87365427228)
+also completed successfully. Thus both the exact implementation commit and the
+commit that records task 7.3c.5 as complete passed the same hosted gates. The
+closure commit that adds this second result remains subject to those gates
+before its status is treated as final.
+
 ## Evidence limits
 
 - The local host is macOS. Windows and Linux platform tests here are managed

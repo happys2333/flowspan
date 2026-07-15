@@ -345,9 +345,9 @@ means its linked evidence exists; it does not imply the entire product works.
     records with unresolved-first ordering, known-field-only bindings, exact
     snapshot/expiry state, sanitized startup failure, and a keyboard-navigable
     read-only Desktop surface. All 541 tests, Secret Scan, and CodeQL pass on
-    that exact implementation commit across hosted Windows, macOS, and Ubuntu.
-    Commands, run/job IDs, two 20-process stress groups, and explicit
-    physical/native limits are recorded in
+    that exact implementation commit and evidence commit `2888dc3` across
+    hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, two 20-process
+    stress groups, and explicit physical/native limits are recorded in
     [Desktop Replace receipt/recovery evidence](../../docs/evidence/2026-07-15-desktop-replace-recovery.md).
     Target-local visible undo, destructive composition, and physical/native
     product evidence remain open.
