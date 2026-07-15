@@ -139,17 +139,18 @@ devices or native accessibility.
 
 | Threat | Required implementation evidence | Remaining evidence |
 | --- | --- | --- |
-| T04 | `activity.replace.inventory` and its result bind authenticated participants, correlation, target, incoming kind, query deadline, capture/send ordering, strict schema, and one bounded canonical snapshot page. Transfer, inventory, and Replace cannot share a pending correlation. Unsolicited/wrong-correlation results fault closed and disconnect becomes acknowledgement-lost. Destructive `activity.replace` retains its existing exact Operation/target/capsule binding and durable replay. | Hosted final-HEAD matrix, cross-machine packet loss/retry, physical sleep/wake interruption, and a desktop recovery surface. |
+| T04 | `activity.replace.inventory` and its result bind authenticated participants, correlation, target, incoming kind, query deadline, capture/send ordering, strict schema, and one bounded canonical snapshot page. Transfer, inventory, and Replace cannot share a pending correlation. Unsolicited/wrong-correlation results fault closed and disconnect becomes acknowledgement-lost. Destructive `activity.replace` retains its existing exact Operation/target/capsule binding and durable replay. The target desktop projects unresolved durable boundaries before terminal history without replaying Adapter work. | Hosted final-HEAD matrix, cross-machine packet loss/retry, and physical sleep/wake interruption. |
 | T05 | The source checks its current `activity.receive` before channel lookup. On every query, the target reloads the requesting peer's current `activity.replace`; a same-session downgrade is rejected before catalog projection. `activity.replace` may admit an idle control channel but authorizes no other operation. The desktop handler still does not accept destructive Replace. | Explicit target-side confirmation and revocation observation on physical supported-platform pairs. |
 | T10 | Inventory exposes only Activity ID/revision/descriptor digest/kind/normal-sensitivity title/Placement slot; payload, payload digest, origin, sensitive/restricted/inactive/non-local/different-kind/unsupported Activities stay local. Full target state remains in the protected target store, and destructive results/receipts remain payload-free. | Packaged crash/minidump/export canary inspection and independent protected-store review. |
-| T18 | Inventory is purpose-scoped preview data, not mutation authority: it is limited to active normal local same-kind targets with a Replace-capable Adapter, and destructive Replace still revalidates selected ID/revision/digest before capture or resume. Capture/store/conflict/expiry/consumption and durable pending/final ordering retain their previous fail-closed tests. | Desktop destructive preview/confirmation/recovery/visible undo, native Adapter evidence beyond `workspace.note/v1`, and physical crash/power-loss evidence. |
+| T18 | Inventory is purpose-scoped preview data, not mutation authority: it is limited to active normal local same-kind targets with a Replace-capable Adapter, and destructive Replace still revalidates selected ID/revision/digest before capture or resume. Capture/store/conflict/expiry/consumption and durable pending/final ordering retain their previous fail-closed tests; the Desktop preview/confirmation and read-only recovery projection remain non-authoritative. | Target-local visible undo, destructive Desktop composition, native Adapter evidence beyond `workspace.note/v1`, and physical crash/power-loss evidence. |
 
 The current candidate includes a durable protected-state implementation,
-platform key-store adapters, and a query-only desktop target-inventory endpoint.
-It does not compose the destructive Replace peer or advertise a Replace action;
-preview, confirmation, recovery, visible undo, hosted final-HEAD evidence, and
-physical evidence remain incomplete. It therefore does not yet satisfy the v1
-Replace release criterion.
+platform key-store adapters, a query-only desktop target-inventory endpoint,
+snapshot-bound preview/confirmation, and a target-local read-only recovery
+surface. It does not compose the destructive Replace peer or advertise a
+Replace, recovery, or undo action. Target-local visible undo, hosted final-HEAD,
+and physical evidence remain incomplete. It therefore does not yet satisfy the
+v1 Replace release criterion.
 
 ## 6. Security state machine rules
 

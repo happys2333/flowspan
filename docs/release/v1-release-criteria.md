@@ -171,6 +171,13 @@ implementation convenience.
   Receipt/recovery presentation, target-local visible undo, destructive
   composition, and physical/native evidence remain open, so the Replace product
   criterion is still unchecked.
+- [2026-07-15 Desktop Replace receipt and recovery](../evidence/2026-07-15-desktop-replace-recovery.md):
+  541 local and exact-implementation-commit hosted tests prove a bounded,
+  payload-free, unresolved-first projection of protected target-local Replace/
+  undo state plus sanitized startup failure and a keyboard-navigable read-only
+  Desktop panel. No recovery, undo, or destructive command exists; target-local
+  visible undo, destructive composition, and physical/native evidence remain
+  open, so the Replace product criterion is still unchecked.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product

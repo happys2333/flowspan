@@ -340,8 +340,17 @@ means its linked evidence exists; it does not imply the entire product works.
     Commands, run/job IDs, 20-process Desktop Replace stress, and explicit
     physical/native limits are recorded in
     [Desktop Replace preview evidence](../../docs/evidence/2026-07-15-desktop-replace-preview.md).
-    Receipt/recovery presentation, startup recovery, target-local visible undo,
-    destructive composition, and physical/native product evidence remain open.
+    The target-local receipt/recovery sub-slice is complete at implementation
+    commit `04cad52`: it projects at most 64 payload-free protected Replace/undo
+    records with unresolved-first ordering, known-field-only bindings, exact
+    snapshot/expiry state, sanitized startup failure, and a keyboard-navigable
+    read-only Desktop surface. All 541 tests, Secret Scan, and CodeQL pass on
+    that exact implementation commit across hosted Windows, macOS, and Ubuntu.
+    Commands, run/job IDs, two 20-process stress groups, and explicit
+    physical/native limits are recorded in
+    [Desktop Replace receipt/recovery evidence](../../docs/evidence/2026-07-15-desktop-replace-recovery.md).
+    Target-local visible undo, destructive composition, and physical/native
+    product evidence remain open.
     The earlier core/protocol evidence is recorded in
     [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
     Consequently 7.3c and the parent task are not complete. See
@@ -366,7 +375,7 @@ means its linked evidence exists; it does not imply the entire product works.
       production `IReplacePeer` uncomposed until receipt/recovery and target-local
       undo surfaces exist.
       - _Requirements: R4.7-R4.10, R10.1-R10.4_
-    - [-] 7.3c.5 Add a bounded, payload-free target-local Replace receipt and
+    - [x] 7.3c.5 Add a bounded, payload-free target-local Replace receipt and
       recovery surface. Load the protected state at Desktop startup; prioritize
       unresolved Replace/undo boundaries; show only known opaque IDs,
       participants, timestamps, redacted outcomes, and exact undo availability;

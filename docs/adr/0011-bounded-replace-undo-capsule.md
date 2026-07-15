@@ -141,10 +141,10 @@ untrusted or unrelated state.
   work; Remote Window is not silently substituted.
 - The durable-state module and Windows/macOS/Linux protected-key adapters now
   exist. Desktop composes a payload-free target query plus a preview-only,
-  snapshot-bound confirmation surface, but it still does not compose
-  destructive Replace. In-memory state remains available only for deterministic
-  tests. Receipt/recovery presentation, startup recovery presentation, and
-  target-local visible undo remain mandatory before product activation.
+  snapshot-bound confirmation surface and a protected target-local read-only
+  recovery projection, but it still does not compose destructive Replace.
+  In-memory state remains available only for deterministic tests. Target-local
+  visible undo remains mandatory before product activation.
 - Same-host loopback tests prove authenticated framing and state ordering, not
   physical LAN behavior or native application restoration.
 
@@ -168,6 +168,11 @@ untrusted or unrelated state.
   coverage and capture time, confirmation revocation, stale revision/digest or
   missing-target refresh, late-result rejection, sanitized recovery, keyboard
   operation, accessible names/state, and the uncomposed destructive capability.
+- Recovery projection tests cover unresolved-first 64-record bounds, known-only
+  pending fields, payload/title/digest canaries, available/expired/pending/
+  consumed capsule state, protected-store restart and failure, sanitized
+  Desktop startup, keyboard list navigation, accessible names, and the locked
+  destructive endpoint.
 - The durable-state candidate covers protected-key restart, exact Replace and
   undo replay, pending recovery without duplicate Adapter calls, atomic save
   failure on both sides of destructive boundaries, authenticated-file and
