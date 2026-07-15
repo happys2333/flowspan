@@ -280,8 +280,10 @@ means its linked evidence exists; it does not imply the entire product works.
     and show a payload-free receipt. The local 421-test candidate, negative and
     stress cases, simulator result, and evidence limits are recorded in
     [desktop Semantic Handoff evidence](../../docs/evidence/2026-07-15-desktop-semantic-handoff.md).
-    Windows/macOS/Ubuntu CI, Secret Scan, CodeQL, and final-HEAD verification are
-    still pending, so this slice is not complete.
+    All 421 tests, Secret Scan, and CodeQL pass on hosted Windows, macOS, and
+    Ubuntu at `c7cee09`. The exact run/job evidence is linked above. A
+    documentation-only evidence commit and its final-HEAD CI/CodeQL verification
+    are still pending, so this slice is not complete.
     Move/replace/swap, live-sharing indicators, recovery history, and undo
     remain later slices.
   - _Requirements: R3, R4, R5, R6, R10, R11_

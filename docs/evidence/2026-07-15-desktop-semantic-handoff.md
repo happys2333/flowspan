@@ -1,11 +1,12 @@
 # Evidence: desktop Semantic Handoff, 2026-07-15
 
-Classification: **Local**, **headless UI/contract**, and **same-host encrypted
-loopback**. Hosted CI is pending for this candidate.
+Classification: **Local**, **headless UI/contract**, **same-host encrypted
+loopback**, and **Hosted CI**
 
 Branch: `codex/v1-foundation`
 
-Candidate implementation commit: pending creation and hosted verification.
+Verified implementation commit:
+`c7cee092ed008b4829cd3fc74603601e8154be57`
 
 ## Local environment and commands
 
@@ -74,12 +75,43 @@ is unavailable. Earlier tracer tests drove the bounded codec, authenticated
 session, directional authorization, desktop runtime, preview, receipt, and
 lifecycle composition.
 
-## Hosted CI status
+## Hosted CI results
 
-Pending. Task 7.3a remains in progress until the implementation commit and the
-final evidence-documentation HEAD both pass the configured Windows, macOS, and
-Ubuntu matrix, Secret Scan, and CodeQL. Run IDs, job IDs, exact suite counts, and
-timestamps will be added only after those hosted runs complete.
+CI run
+[29387850255](https://github.com/happys2333/flowspan/actions/runs/29387850255)
+completed successfully for the verified implementation commit. Every required
+step reported `success` in:
+
+- `Test (windows-latest)` (`87264727819`);
+- `Test (macos-latest)` (`87264727834`);
+- `Test (ubuntu-latest)` (`87264727846`); and
+- `Secret scan` (`87264727809`).
+
+Each hosted OS restored all 24 locked projects, verified formatting, built with
+0 warnings and 0 errors, ran all 421 tests with 0 failures and 0 skips, ran the
+explicit TEST MODE desktop composition validator, ran the deterministic
+simulator, and uploaded test evidence. Every suite reported 95 desktop, 103
+transport, 90 security, 24 integration, 33 domain, 17 protocol, 8
+platform-contract, 12 Windows-adapter, 10 macOS-adapter, 15 Linux-adapter, and 14
+DNS-SD passes. Every validator printed
+`Flowspan desktop composition validation passed in explicit TEST MODE.`; every
+simulator printed protocol 1.0, `Source preserved: True`, and
+`Target resumed: True`.
+
+CodeQL run
+[29387850241](https://github.com/happys2333/flowspan/actions/runs/29387850241)
+also completed successfully. Its `Analyze C#` job (`87264727692`) restored the
+locked dependency graph, built the analyzed source, scanned 151/151 C# files,
+successfully uploaded the SARIF result, and reported a successful job status.
+
+Both runs were created at `2026-07-15T03:59:22Z`. CodeQL completed at
+`2026-07-15T04:01:57Z`, and CI completed at `2026-07-15T04:02:24Z`. Run, job,
+step, commit, timestamp, suite-count, validator-output, simulator-output, and
+CodeQL coverage evidence was queried with `gh run view` on 2026-07-15.
+
+Task 7.3a remains in progress only until this evidence update is committed and
+that final documentation HEAD independently passes the same configured CI,
+Secret Scan, and CodeQL workflows.
 
 ## What this proves
 
