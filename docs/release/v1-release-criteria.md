@@ -178,6 +178,14 @@ implementation convenience.
   Desktop panel. No recovery, undo, or destructive command exists; target-local
   visible undo, destructive composition, and physical/native evidence remain
   open, so the Replace product criterion is still unchecked.
+- [2026-07-15 Desktop target-local Replace Undo](../evidence/2026-07-15-desktop-target-local-undo.md):
+  568 local and exact-implementation-commit hosted tests prove bounded
+  semantic-note restart reduction, exact live capsule eligibility, explicit
+  keyboard-operable confirmation, protected pending/terminal outcomes, precise
+  expiry/consume/stale reasons, and service-level fail-closed enforcement.
+  Destructive source/target composition, physical/native recovery, and native
+  accessibility remain open, so the Replace product criterion is still
+  unchecked.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product

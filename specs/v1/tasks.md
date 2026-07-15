@@ -349,8 +349,17 @@ means its linked evidence exists; it does not imply the entire product works.
     hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, two 20-process
     stress groups, and explicit physical/native limits are recorded in
     [Desktop Replace receipt/recovery evidence](../../docs/evidence/2026-07-15-desktop-replace-recovery.md).
-    Target-local visible undo, destructive composition, and physical/native
-    product evidence remain open.
+    The target-local visible-undo sub-slice is complete at implementation commit
+    `e076bd2`: for `workspace.note/v1`, protected terminal history reconstructs
+    only an unambiguous exact frontier; pending/ambiguous/orphan state fails
+    closed; one private local endpoint enforces durable single-consume undo; and
+    a keyboard-operable, snapshot-bound confirmation presents every recorded
+    outcome without Activity content. All 568 tests, Secret Scan, and CodeQL pass
+    on that exact implementation commit across hosted Windows, macOS, and
+    Ubuntu. Commands, run/job IDs, two 20-process stress groups, and explicit
+    physical/native limits are recorded in
+    [Desktop target-local Undo evidence](../../docs/evidence/2026-07-15-desktop-target-local-undo.md).
+    Destructive composition and physical/native product evidence remain open.
     The earlier core/protocol evidence is recorded in
     [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
     Consequently 7.3c and the parent task are not complete. See
@@ -383,7 +392,7 @@ means its linked evidence exists; it does not imply the entire product works.
       Activity work usable when this store fails closed. Do not add a recovery,
       undo, or destructive command in this slice.
       - _Requirements: R4.11, R10.3-R10.4, R11.1_
-    - [ ] 7.3c.6 Add target-local visible undo for an exact unexpired,
+    - [x] 7.3c.6 Add target-local visible undo for an exact unexpired,
       unconsumed capsule. Bind one explicit keyboard-operable action to the
       selected recovery snapshot, present expiry and every terminal/pending
       outcome, and prove restart replay cannot repeat Adapter restoration.
