@@ -145,7 +145,8 @@ public interface IOperationJournal
 public readonly record struct JournalExecutionResult(
     OperationReceipt? Receipt,
     bool WasReplay,
-    bool IsConflict);
+    bool IsConflict,
+    bool IsRecoveryRequired = false);
 
 public interface IReceiptSink
 {

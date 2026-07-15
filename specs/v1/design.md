@@ -137,6 +137,22 @@ idempotent, expiry-checked, and restores a new Activity revision only if the
 exact replacement is still current. See
 `docs/adr/0011-bounded-replace-undo-capsule.md`.
 
+Durable Replace state is one versioned target snapshot containing capsules,
+Replace journal entries, undo journal entries, and consumption markers. The
+platform boundary keeps a random 256-bit key in current-user OS credential
+storage and uses AES-256-GCM for a bounded atomic local state file. A fresh
+nonce and authenticated envelope detect corruption or replacement; decode
+reconstructs descriptors and verifies their computed digests. The application
+publishes its candidate snapshot only after the protected atomic save succeeds.
+
+Both Replace and undo persist `Pending` before destructive Adapter work and a
+terminal result afterward. Terminal exact retries replay across restart;
+different request content conflicts. Startup recovery never guesses across a
+persisted `Pending` boundary: it returns `Recovering` without another capture,
+resume, restore, or catalog mutation. Undo completion stores its result and
+capsule-consumption marker atomically. Expiry cleanup removes only unconsumed,
+non-pending capsules whose retention deadline passed.
+
 ### Atomic swap
 
 Swap uses a coordinator plus durable endpoint journals:
@@ -557,9 +573,8 @@ spikes/ADRs:
 
 - the physical-test trigger for replacing the provisional managed DNS-SD
   adapter with native adapters;
-- persistence format after the simulator slice;
 - packaging/signing pipeline for the pinned Avalonia desktop shell;
 - per-platform Remote Window codec and capture implementation;
-- persistence and cleanup policy for protected undo capsule storage beyond the
-  current 15-minute process-lifetime tracer; Activity descriptor size budgets
-  are already bounded by the core and each Adapter.
+- long-term history pruning after the bounded protected Replace snapshot and
+  15-minute capsule cleanup policy; Activity descriptor size budgets are
+  already bounded by the core and each Adapter.

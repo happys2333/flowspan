@@ -184,7 +184,7 @@ public sealed class ActivityControlSessionTests
             catalog,
             new InMemoryOperationJournal(),
             new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]),
-            new InMemoryUndoCapsuleStore(),
+            new InMemoryReplaceStateStore(),
             new DeterministicUndoCapsuleIdSource(
             [
                 UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
@@ -572,7 +572,7 @@ public sealed class ActivityControlSessionTests
             targetCatalog,
             new InMemoryOperationJournal(),
             new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]),
-            new InMemoryUndoCapsuleStore(),
+            new InMemoryReplaceStateStore(),
             new DeterministicUndoCapsuleIdSource(
             [
                 UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),

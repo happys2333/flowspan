@@ -177,10 +177,18 @@ expiry-aware, exact-current, idempotent, and single-consume. Protocol tests use
 strict `activity.replace` and `activity.replace.result` bodies, keep preserved
 target payload out of results, reject target-snapshot tampering, fault closed on
 forged capsule binding, classify lost acknowledgement as uncertain, and run one
-real encrypted loopback Replace. The desktop endpoint and controls remain
-deliberately uncomposed until remote target selection, destructive preview, and
-visible local undo exist. In-memory and same-host evidence does not prove
-restart durability, physical networking, native restoration, or a shipped UI.
+real encrypted loopback Replace. The durable-state follow-up writes pending
+before destructive work and terminal results afterward in the same bounded
+snapshot as capsules and consumption. Tests reconstruct the store and catalog
+to prove exact Replace/undo replay, persisted-pending recovery without duplicate
+Adapter calls, cleanup/store/digest/tag fault behavior, and concurrent retry.
+Platform contracts keep a random key in DPAPI, Keychain, or Secret Service and
+put descriptors only in an AES-256-GCM atomic file; local macOS also exercises a
+disposable real Keychain item. The desktop endpoint and controls remain
+deliberately uncomposed until remote target selection, destructive preview,
+recovery, and visible local undo exist. Hosted runners and same-host evidence do
+not prove physical networking, native restoration, crash/power-loss behavior,
+or a shipped UI.
 
 Core invariants are asserted after every event:
 

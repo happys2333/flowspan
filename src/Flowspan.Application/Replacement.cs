@@ -330,6 +330,54 @@ public sealed record UndoReplaceResult
             failureCode,
             occurredAt);
 
+    public static UndoReplaceResult Recovering(
+        OperationContext context,
+        UndoCapsuleId capsuleId,
+        FailureCode failureCode,
+        DateTimeOffset occurredAt) => CreateFailure(
+            context,
+            capsuleId,
+            OperationStatus.Recovering,
+            failureCode,
+            occurredAt);
+
+    public static UndoReplaceResult FromRecordedResult(
+        OperationId operationId,
+        CorrelationId correlationId,
+        UndoCapsuleId capsuleId,
+        OperationStatus status,
+        FailureCode failureCode,
+        DateTimeOffset occurredAt)
+    {
+        ArgumentNullException.ThrowIfNull(operationId);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(capsuleId);
+        if (status is not (
+                OperationStatus.Committed
+                or OperationStatus.Rejected
+                or OperationStatus.Failed
+                or OperationStatus.Recovering))
+        {
+            throw new ArgumentOutOfRangeException(nameof(status));
+        }
+
+        bool expectsFailure = status != OperationStatus.Committed;
+        if (expectsFailure == (failureCode == FailureCode.None))
+        {
+            throw new ArgumentException(
+                "The recorded undo status and failure code are inconsistent.",
+                nameof(failureCode));
+        }
+
+        return new UndoReplaceResult(
+            operationId,
+            correlationId,
+            capsuleId,
+            status,
+            failureCode,
+            occurredAt);
+    }
+
     private static UndoReplaceResult CreateFailure(
         OperationContext context,
         UndoCapsuleId capsuleId,
@@ -366,9 +414,11 @@ public sealed record UndoReplaceResult
     }
 }
 
-public interface IUndoCapsuleStore
+public interface IReplaceStateStore
 {
-    public bool TryAdd(UndoCapsule capsule);
+    public ValueTask<bool> TryAddAsync(
+        UndoCapsule capsule,
+        CancellationToken cancellationToken = default);
 
     public bool TryGet(
         UndoCapsuleId capsuleId,
@@ -378,14 +428,42 @@ public interface IUndoCapsuleStore
         OperationId operationId,
         [NotNullWhen(true)] out UndoCapsule? capsule);
 
-    public bool TryRemove(UndoCapsuleId capsuleId);
+    public ValueTask<bool> TryRemoveAsync(
+        UndoCapsuleId capsuleId,
+        CancellationToken cancellationToken = default);
+
+    public ValueTask<UndoJournalPreparation> PrepareUndoAsync(
+        UndoCapsuleId capsuleId,
+        OperationId operationId,
+        string requestDigest,
+        CancellationToken cancellationToken = default);
+
+    public ValueTask CompleteUndoAsync(
+        OperationId operationId,
+        UndoReplaceResult result,
+        CancellationToken cancellationToken = default);
 }
 
-public sealed class InMemoryUndoCapsuleStore : IUndoCapsuleStore
+public enum UndoJournalPreparationStatus
+{
+    Prepared,
+    PreparedConsumed,
+    Replay,
+    Conflict,
+    RecoveryRequired,
+    CapsuleReserved,
+}
+
+public readonly record struct UndoJournalPreparation(
+    UndoJournalPreparationStatus Status,
+    UndoReplaceResult? Result = null);
+
+public sealed class InMemoryReplaceStateStore : IReplaceStateStore
 {
     private readonly Lock gate = new();
     private readonly Dictionary<UndoCapsuleId, UndoCapsule> capsules = [];
     private readonly Dictionary<OperationId, UndoCapsuleId> operationIndex = [];
+    private readonly Dictionary<OperationId, InMemoryUndoEntry> undoOperations = [];
 
     public int Count
     {
@@ -398,20 +476,23 @@ public sealed class InMemoryUndoCapsuleStore : IUndoCapsuleStore
         }
     }
 
-    public bool TryAdd(UndoCapsule capsule)
+    public ValueTask<bool> TryAddAsync(
+        UndoCapsule capsule,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(capsule);
+        cancellationToken.ThrowIfCancellationRequested();
         lock (gate)
         {
             if (capsules.ContainsKey(capsule.Id)
                 || operationIndex.ContainsKey(capsule.OperationId))
             {
-                return false;
+                return ValueTask.FromResult(false);
             }
 
             capsules.Add(capsule.Id, capsule);
             operationIndex.Add(capsule.OperationId, capsule.Id);
-            return true;
+            return ValueTask.FromResult(true);
         }
     }
 
@@ -443,20 +524,107 @@ public sealed class InMemoryUndoCapsuleStore : IUndoCapsuleStore
         }
     }
 
-    public bool TryRemove(UndoCapsuleId capsuleId)
+    public ValueTask<bool> TryRemoveAsync(
+        UndoCapsuleId capsuleId,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(capsuleId);
+        cancellationToken.ThrowIfCancellationRequested();
         lock (gate)
         {
             if (!capsules.Remove(capsuleId, out UndoCapsule? capsule))
             {
-                return false;
+                return ValueTask.FromResult(false);
             }
 
             operationIndex.Remove(capsule.OperationId);
-            return true;
+            return ValueTask.FromResult(true);
         }
     }
+
+    public ValueTask<UndoJournalPreparation> PrepareUndoAsync(
+        UndoCapsuleId capsuleId,
+        OperationId operationId,
+        string requestDigest,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capsuleId);
+        ArgumentNullException.ThrowIfNull(operationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestDigest);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (gate)
+        {
+            if (undoOperations.TryGetValue(
+                    operationId,
+                    out InMemoryUndoEntry? existing))
+            {
+                if (existing.CapsuleId != capsuleId
+                    || !StringComparer.Ordinal.Equals(
+                        existing.RequestDigest,
+                        requestDigest))
+                {
+                    return ValueTask.FromResult(new UndoJournalPreparation(
+                        UndoJournalPreparationStatus.Conflict));
+                }
+
+                return ValueTask.FromResult(existing.Result is null
+                    ? new UndoJournalPreparation(
+                        UndoJournalPreparationStatus.RecoveryRequired)
+                    : new UndoJournalPreparation(
+                        UndoJournalPreparationStatus.Replay,
+                        existing.Result));
+            }
+
+            if (undoOperations.Values.Any(entry =>
+                    entry.CapsuleId == capsuleId && entry.Result is null))
+            {
+                return ValueTask.FromResult(new UndoJournalPreparation(
+                    UndoJournalPreparationStatus.CapsuleReserved));
+            }
+
+            bool consumed = undoOperations.Values.Any(entry =>
+                entry.CapsuleId == capsuleId
+                && entry.Result?.Status == OperationStatus.Committed);
+            undoOperations.Add(
+                operationId,
+                new InMemoryUndoEntry(capsuleId, requestDigest, null));
+            return ValueTask.FromResult(new UndoJournalPreparation(
+                consumed
+                    ? UndoJournalPreparationStatus.PreparedConsumed
+                    : UndoJournalPreparationStatus.Prepared));
+        }
+    }
+
+    public ValueTask CompleteUndoAsync(
+        OperationId operationId,
+        UndoReplaceResult result,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operationId);
+        ArgumentNullException.ThrowIfNull(result);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (gate)
+        {
+            if (!undoOperations.TryGetValue(
+                    operationId,
+                    out InMemoryUndoEntry? existing)
+                || existing.Result is not null
+                || existing.CapsuleId != result.CapsuleId
+                || result.OperationId != operationId)
+            {
+                throw new InvalidOperationException(
+                    "An undo result requires its matching pending journal entry.");
+            }
+
+            undoOperations[operationId] = existing with { Result = result };
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed record InMemoryUndoEntry(
+        UndoCapsuleId CapsuleId,
+        string RequestDigest,
+        UndoReplaceResult? Result);
 }
 
 public interface IUndoCapsuleIdSource
@@ -499,9 +667,7 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
     private readonly ConcurrentDictionary<DeviceId, CapabilityGrant> peerGrants = new();
     private readonly IReceiptSink receiptSink;
     private readonly SemaphoreSlim serializationGate = new(1, 1);
-    private readonly IUndoCapsuleStore undoCapsules;
-    private readonly Dictionary<UndoCapsuleId, OperationId> consumedUndoCapsules = [];
-    private readonly Dictionary<OperationId, UndoJournalEntry> undoJournal = [];
+    private readonly IReplaceStateStore replaceState;
 
     public ReplaceEndpoint(
         DeviceId deviceId,
@@ -509,7 +675,7 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
         IActivityCatalog catalog,
         IOperationJournal journal,
         ActivityAdapterRegistry adapterRegistry,
-        IUndoCapsuleStore undoCapsules,
+        IReplaceStateStore replaceState,
         IUndoCapsuleIdSource idSource,
         IReceiptSink receiptSink)
     {
@@ -518,7 +684,7 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(adapterRegistry);
-        ArgumentNullException.ThrowIfNull(undoCapsules);
+        ArgumentNullException.ThrowIfNull(replaceState);
         ArgumentNullException.ThrowIfNull(idSource);
         ArgumentNullException.ThrowIfNull(receiptSink);
 
@@ -527,7 +693,7 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
         this.catalog = catalog;
         this.journal = journal;
         this.adapterRegistry = adapterRegistry;
-        this.undoCapsules = undoCapsules;
+        this.replaceState = replaceState;
         this.idSource = idSource;
         this.receiptSink = receiptSink;
     }
@@ -551,16 +717,42 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
         ArgumentNullException.ThrowIfNull(senderDeviceId);
         ArgumentNullException.ThrowIfNull(command);
 
-        JournalExecutionResult execution = await journal.ExecuteOnceAsync(
-            command.Context.OperationId,
-            command.BindAuthenticatedSender(senderDeviceId),
-            ExecuteOnceAsync,
-            cancellationToken).ConfigureAwait(false);
+        JournalExecutionResult execution;
+        try
+        {
+            execution = await journal.ExecuteOnceAsync(
+                command.Context.OperationId,
+                command.BindAuthenticatedSender(senderDeviceId),
+                ExecuteOnceAsync,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (ReplaceStatePersistenceException)
+        {
+            OperationReceipt unavailable = Reject(
+                command,
+                senderDeviceId,
+                FailureCode.UndoUnavailable);
+            receiptSink.Write(unavailable);
+            return new ReplaceOperationResult(unavailable, null);
+        }
 
         OperationReceipt receipt;
         if (execution.IsConflict)
         {
             receipt = Reject(command, senderDeviceId, FailureCode.OperationIdConflict);
+            receiptSink.Write(receipt);
+        }
+        else if (execution.IsRecoveryRequired)
+        {
+            receipt = OperationReceipt.Recovering(
+                command.Context.OperationId,
+                command.Context.CorrelationId,
+                OperationKind.Replace,
+                senderDeviceId,
+                DeviceId,
+                command.IncomingDescriptor,
+                clock.UtcNow,
+                FailureCode.OperationInProgress);
             receiptSink.Write(receipt);
         }
         else
@@ -570,7 +762,12 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
                     "The Replace journal returned no operation receipt.");
         }
 
-        undoCapsules.TryGetByOperation(command.Context.OperationId, out UndoCapsule? capsule);
+        UndoCapsule? capsule = null;
+        if (receipt.IsSuccess)
+        {
+            replaceState.TryGetByOperation(command.Context.OperationId, out capsule);
+        }
+
         return new ReplaceOperationResult(receipt, capsule?.Reference);
 
         async ValueTask<OperationReceipt> ExecuteOnceAsync(CancellationToken innerToken)
@@ -667,7 +864,19 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
                 replacement,
                 clock.UtcNow,
                 command.UndoExpiresAt);
-            if (!undoCapsules.TryAdd(capsule))
+            bool capsuleStored;
+            try
+            {
+                capsuleStored = await replaceState
+                    .TryAddAsync(capsule, innerToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ReplaceStatePersistenceException)
+            {
+                return Reject(command, senderDeviceId, FailureCode.UndoUnavailable);
+            }
+
+            if (!capsuleStored)
             {
                 return Reject(command, senderDeviceId, FailureCode.UndoUnavailable);
             }
@@ -680,14 +889,38 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
                 .ConfigureAwait(false);
             if (!resume.Succeeded)
             {
-                undoCapsules.TryRemove(capsule.Id);
+                try
+                {
+                    await replaceState.TryRemoveAsync(capsule.Id, innerToken)
+                        .ConfigureAwait(false);
+                }
+                catch (ReplaceStatePersistenceException)
+                {
+                    return OperationReceipt.Recovering(
+                        command.Context.OperationId,
+                        command.Context.CorrelationId,
+                        OperationKind.Replace,
+                        senderDeviceId,
+                        DeviceId,
+                        command.IncomingDescriptor,
+                        clock.UtcNow,
+                        FailureCode.InternalFailure);
+                }
+
                 return Reject(command, senderDeviceId, resume.FailureCode);
             }
 
             if (!catalog.TrySwapReplace(original, replacement))
             {
-                undoCapsules.TryRemove(capsule.Id);
-                return Reject(command, senderDeviceId, FailureCode.RevisionConflict);
+                return OperationReceipt.Recovering(
+                    command.Context.OperationId,
+                    command.Context.CorrelationId,
+                    OperationKind.Replace,
+                    senderDeviceId,
+                    DeviceId,
+                    command.IncomingDescriptor,
+                    clock.UtcNow,
+                    FailureCode.InternalFailure);
             }
 
             return OperationReceipt.Committed(
@@ -713,45 +946,73 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
         try
         {
             string requestDigest = ComputeUndoRequestDigest(capsuleId, context);
-            if (undoJournal.TryGetValue(
+            UndoJournalPreparation preparation;
+            try
+            {
+                preparation = await replaceState.PrepareUndoAsync(
+                    capsuleId,
                     context.OperationId,
-                    out UndoJournalEntry? recorded))
-            {
-                return recorded.CapsuleId == capsuleId
-                    && StringComparer.Ordinal.Equals(recorded.RequestDigest, requestDigest)
-                        ? recorded.Result
-                        : UndoReplaceResult.Rejected(
-                            context,
-                            capsuleId,
-                            FailureCode.OperationIdConflict,
-                            clock.UtcNow);
+                    requestDigest,
+                    cancellationToken).ConfigureAwait(false);
             }
-
-            if (consumedUndoCapsules.ContainsKey(capsuleId))
+            catch (ReplaceStatePersistenceException)
             {
-                UndoReplaceResult consumed = UndoReplaceResult.Rejected(
+                return UndoReplaceResult.Failed(
                     context,
                     capsuleId,
-                    FailureCode.UndoCapsuleConsumed,
+                    FailureCode.UndoUnavailable,
                     clock.UtcNow);
-                undoJournal.Add(
-                    context.OperationId,
-                    new UndoJournalEntry(capsuleId, requestDigest, consumed));
-                return consumed;
             }
 
-            UndoReplaceResult result = await ExecuteUndoAsync(cancellationToken)
-                .ConfigureAwait(false);
-            if (result.Status == OperationStatus.Committed)
+            if (preparation.Status == UndoJournalPreparationStatus.Replay)
             {
-                consumedUndoCapsules.Add(capsuleId, context.OperationId);
+                return preparation.Result
+                    ?? throw new InvalidOperationException(
+                        "A replayed undo journal entry has no result.");
             }
 
-            if (result.Status is not OperationStatus.Failed)
+            if (preparation.Status == UndoJournalPreparationStatus.Conflict)
             {
-                undoJournal.Add(
+                return UndoReplaceResult.Rejected(
+                    context,
+                    capsuleId,
+                    FailureCode.OperationIdConflict,
+                    clock.UtcNow);
+            }
+
+            if (preparation.Status is
+                UndoJournalPreparationStatus.RecoveryRequired
+                or UndoJournalPreparationStatus.CapsuleReserved)
+            {
+                return UndoReplaceResult.Recovering(
+                    context,
+                    capsuleId,
+                    FailureCode.OperationInProgress,
+                    clock.UtcNow);
+            }
+
+            UndoReplaceResult result = preparation.Status
+                == UndoJournalPreparationStatus.PreparedConsumed
+                    ? UndoReplaceResult.Rejected(
+                        context,
+                        capsuleId,
+                        FailureCode.UndoCapsuleConsumed,
+                        clock.UtcNow)
+                    : await ExecuteUndoAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await replaceState.CompleteUndoAsync(
                     context.OperationId,
-                    new UndoJournalEntry(capsuleId, requestDigest, result));
+                    result,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (ReplaceStatePersistenceException)
+            {
+                return UndoReplaceResult.Recovering(
+                    context,
+                    capsuleId,
+                    FailureCode.InternalFailure,
+                    clock.UtcNow);
             }
 
             return result;
@@ -772,7 +1033,7 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
                     clock.UtcNow);
             }
 
-            if (!undoCapsules.TryGet(capsuleId, out UndoCapsule? capsule)
+            if (!replaceState.TryGet(capsuleId, out UndoCapsule? capsule)
                 || capsule is null)
             {
                 return UndoReplaceResult.Rejected(
@@ -878,8 +1139,4 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
             clock.UtcNow,
             failureCode);
 
-    private sealed record UndoJournalEntry(
-        UndoCapsuleId CapsuleId,
-        string RequestDigest,
-        UndoReplaceResult Result);
 }

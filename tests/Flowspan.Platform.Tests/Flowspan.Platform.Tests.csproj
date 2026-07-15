@@ -10,6 +10,7 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/Flowspan.Application/Flowspan.Application.csproj" />
     <ProjectReference Include="../../src/Flowspan.Domain/Flowspan.Domain.csproj" />
     <ProjectReference Include="../../src/Flowspan.Platform/Flowspan.Platform.csproj" />
   </ItemGroup>

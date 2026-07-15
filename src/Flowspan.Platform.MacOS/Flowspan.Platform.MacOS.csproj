@@ -4,6 +4,8 @@
     <Description>macOS platform adapters for Flowspan.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../Flowspan.Application/Flowspan.Application.csproj" />
+    <ProjectReference Include="../Flowspan.Platform/Flowspan.Platform.csproj" />
     <ProjectReference Include="../Flowspan.Security/Flowspan.Security.csproj" />
   </ItemGroup>
 </Project>

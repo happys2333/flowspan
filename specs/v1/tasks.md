@@ -309,16 +309,25 @@ means its linked evidence exists; it does not imply the entire product works.
     `activity.replace` request/result messages return only payload-free capsule
     metadata; exact retries, acknowledgement loss, revision/digest conflict,
     expiry, consumed capsules, and idempotent undo have deterministic tests plus
-    a same-host encrypted loopback case. The current capsule/undo journals are
-    process-memory only, and desktop target inventory, destructive preview,
-    explicit confirmation, visible undo, protected persistence/restart,
-    final-HEAD matrix, and physical/native evidence remain open. The 452-test
-    local candidate, two 20-process stress groups, exact implementation-commit
-    Windows/macOS/Ubuntu CI, Secret Scan, CodeQL, and evidence limits are
-    recorded in
+    a same-host encrypted loopback case. The historical 452-test evidence used
+    process-memory state; the current candidate adds a single versioned durable
+    snapshot for capsules, Replace/undo pending and terminal records, and
+    consumption, protected by an OS-credential-backed AES-256-GCM atomic file.
+    Desktop target inventory, destructive preview, explicit confirmation,
+    recovery, visible undo, the new final-HEAD matrix, and physical/native
+    evidence remain open. The earlier exact implementation-commit matrix,
+    Secret Scan, CodeQL, and evidence limits are recorded in
     [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
     Consequently 7.3c and the parent task are not complete. See
     [ADR 0011](../../docs/adr/0011-bounded-replace-undo-capsule.md).
+    - [-] 7.3c.1 Persist capsules, Replace pending/final receipts, undo
+      pending/final results, and consumption markers in one bounded,
+      authenticated target snapshot. Keep its random key in DPAPI, Keychain, or
+      Secret Service; fail closed on key/store/tamper/version/bounds errors.
+    - [-] 7.3c.2 Prove exact Replace and undo replay across reconstructed
+      process state, pending recovery without duplicate Adapter work, atomic
+      failure ordering, expiry cleanup, and supported-platform storage
+      contracts. Do not mark 7.3c complete until the desktop flow is composed.
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

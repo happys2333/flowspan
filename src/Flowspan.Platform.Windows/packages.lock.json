@@ -8,8 +8,21 @@
         "resolved": "10.0.9",
         "contentHash": "vXp+vBQbTkMrDzUiPCxo1KvzfaAvZWuSRS2P7e5orhtV7ZuePKAB3Cqc9dH2YHUavRJyA2uWd2yrL6hl2VoJ5g=="
       },
+      "flowspan.application": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Domain": "[1.0.0, )"
+        }
+      },
       "flowspan.domain": {
         "type": "Project"
+      },
+      "flowspan.platform": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Application": "[1.0.0, )",
+          "Flowspan.Domain": "[1.0.0, )"
+        }
       },
       "flowspan.protocol": {
         "type": "Project",

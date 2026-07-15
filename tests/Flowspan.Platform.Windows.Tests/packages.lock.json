@@ -99,12 +99,27 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "flowspan.application": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Domain": "[1.0.0, )"
+        }
+      },
       "flowspan.domain": {
         "type": "Project"
+      },
+      "flowspan.platform": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Application": "[1.0.0, )",
+          "Flowspan.Domain": "[1.0.0, )"
+        }
       },
       "flowspan.platform.windows": {
         "type": "Project",
         "dependencies": {
+          "Flowspan.Application": "[1.0.0, )",
+          "Flowspan.Platform": "[1.0.0, )",
           "Flowspan.Security": "[1.0.0, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.9, )"
         }

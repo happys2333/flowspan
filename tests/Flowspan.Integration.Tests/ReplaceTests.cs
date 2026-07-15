@@ -24,7 +24,7 @@ public sealed class ReplaceTests
         Assert.Null(result.UndoCapsule);
         Assert.Equal(1, fixture.Adapter.CaptureCount);
         Assert.Equal(0, fixture.Adapter.ResumeCount);
-        Assert.Equal(0, fixture.UndoCapsules.Count);
+        Assert.Equal(0, fixture.ReplaceState.Count);
         Assert.True(fixture.Catalog.TryGet(
             fixture.Original.Descriptor.Id,
             out ActivityInstance? preserved));
@@ -57,7 +57,7 @@ public sealed class ReplaceTests
             capsule.TargetDescriptorDigest);
         Assert.Equal(fixture.Incoming.DescriptorDigest, capsule.IncomingDescriptorDigest);
         Assert.Equal(Now.AddMinutes(10), capsule.ExpiresAt);
-        Assert.Equal(1, fixture.UndoCapsules.Count);
+        Assert.Equal(1, fixture.ReplaceState.Count);
         Assert.False(fixture.Catalog.TryGet(fixture.Original.Descriptor.Id, out _));
         Assert.True(fixture.Catalog.TryGet(
             fixture.Incoming.Id,
@@ -183,7 +183,7 @@ public sealed class ReplaceTests
         Assert.Equal(FailureCode.RevisionConflict, result.Receipt.FailureCode);
         Assert.Equal(0, fixture.Adapter.CaptureCount);
         Assert.Equal(0, fixture.Adapter.ResumeCount);
-        Assert.Equal(0, fixture.UndoCapsules.Count);
+        Assert.Equal(0, fixture.ReplaceState.Count);
         Assert.True(fixture.Catalog.TryGet(
             fixture.Original.Descriptor.Id,
             out ActivityInstance? preserved));
@@ -202,7 +202,7 @@ public sealed class ReplaceTests
         Assert.Equal(FailureCode.UndoCapsuleInvalid, result.Receipt.FailureCode);
         Assert.Equal(1, fixture.Adapter.CaptureCount);
         Assert.Equal(0, fixture.Adapter.ResumeCount);
-        Assert.Equal(0, fixture.UndoCapsules.Count);
+        Assert.Equal(0, fixture.ReplaceState.Count);
         Assert.True(fixture.Catalog.TryGet(fixture.Original.Descriptor.Id, out _));
     }
 
@@ -236,7 +236,7 @@ public sealed class ReplaceTests
             catalog,
             new InMemoryOperationJournal(),
             new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]),
-            new InMemoryUndoCapsuleStore(),
+            new InMemoryReplaceStateStore(),
             new DeterministicUndoCapsuleIdSource(
             [
                 UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
@@ -288,7 +288,7 @@ public sealed class ReplaceTests
         Assert.Equal(OperationStatus.Committed, replay.Receipt.Status);
         Assert.Equal(1, fixture.Adapter.CaptureCount);
         Assert.Equal(1, fixture.Adapter.ResumeCount);
-        Assert.Equal(1, fixture.UndoCapsules.Count);
+        Assert.Equal(1, fixture.ReplaceState.Count);
         Assert.Equal(1, fixture.Catalog.Count);
     }
 
@@ -297,7 +297,7 @@ public sealed class ReplaceTests
     {
         Fixture fixture = new(
             captureSucceeds: true,
-            undoCapsuleStore: new RejectingUndoCapsuleStore());
+            replaceState: new RejectingReplaceStateStore());
         fixture.AuthorizeReplace();
 
         ReplaceOperationResult result = await fixture.ReplaceAsync();
@@ -347,7 +347,7 @@ public sealed class ReplaceTests
         Assert.Equal(FailureCode.CapabilityDenied, result.Receipt.FailureCode);
         Assert.Equal(0, fixture.Adapter.CaptureCount);
         Assert.Equal(0, fixture.Adapter.ResumeCount);
-        Assert.Equal(0, fixture.UndoCapsules.Count);
+        Assert.Equal(0, fixture.ReplaceState.Count);
         Assert.True(fixture.Catalog.TryGet(fixture.Original.Descriptor.Id, out _));
     }
 
@@ -365,12 +365,12 @@ public sealed class ReplaceTests
             bool captureSucceeds,
             long? expectedRevision = null,
             bool capturedStateMatches = true,
-            IUndoCapsuleStore? undoCapsuleStore = null,
+            IReplaceStateStore? replaceState = null,
             string? expectedTargetDescriptorDigest = null)
         {
             Clock = new TestClock(Now);
             Catalog = new InMemoryActivityCatalog();
-            UndoCapsules = new InMemoryUndoCapsuleStore();
+            ReplaceState = new InMemoryReplaceStateStore();
             Adapter = new RecordingReplaceAdapter(captureSucceeds, capturedStateMatches);
             Endpoint = new ReplaceEndpoint(
                 TargetId,
@@ -378,7 +378,7 @@ public sealed class ReplaceTests
                 Catalog,
                 new InMemoryOperationJournal(),
                 new ActivityAdapterRegistry([Adapter]),
-                undoCapsuleStore ?? UndoCapsules,
+                replaceState ?? ReplaceState,
                 new DeterministicUndoCapsuleIdSource(
                 [
                     UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
@@ -417,7 +417,7 @@ public sealed class ReplaceTests
 
         public TestClock Clock { get; }
 
-        public InMemoryUndoCapsuleStore UndoCapsules { get; }
+        public InMemoryReplaceStateStore ReplaceState { get; }
 
         public RecordingReplaceAdapter Adapter { get; }
 
@@ -451,12 +451,15 @@ public sealed class ReplaceTests
         public DateTimeOffset UtcNow { get; set; } = utcNow;
     }
 
-    private sealed class RejectingUndoCapsuleStore : IUndoCapsuleStore
+    private sealed class RejectingReplaceStateStore : IReplaceStateStore
     {
-        public bool TryAdd(UndoCapsule capsule)
+        public ValueTask<bool> TryAddAsync(
+            UndoCapsule capsule,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(capsule);
-            return false;
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(false);
         }
 
         public bool TryGet(
@@ -477,10 +480,33 @@ public sealed class ReplaceTests
             return false;
         }
 
-        public bool TryRemove(UndoCapsuleId capsuleId)
+        public ValueTask<bool> TryRemoveAsync(
+            UndoCapsuleId capsuleId,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(capsuleId);
-            return false;
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(false);
+        }
+
+        public ValueTask<UndoJournalPreparation> PrepareUndoAsync(
+            UndoCapsuleId capsuleId,
+            OperationId operationId,
+            string requestDigest,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new UndoJournalPreparation(
+                UndoJournalPreparationStatus.Prepared));
+        }
+
+        public ValueTask CompleteUndoAsync(
+            OperationId operationId,
+            UndoReplaceResult result,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
         }
     }
 

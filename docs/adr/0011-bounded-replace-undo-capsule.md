@@ -1,7 +1,7 @@
 # ADR 0011: Bounded Replace with a Target-Owned Undo Capsule
 
-Status: accepted for the `workspace.note/v1` tracer slice; desktop activation and
-durable persistence remain pending
+Status: accepted for the `workspace.note/v1` tracer slice; durable-state
+implementation and desktop activation remain pending
 
 Date: 2026-07-15
 
@@ -63,6 +63,42 @@ Activity snapshot, obtain an explicit destructive confirmation, show the exact
 undo expiry, and execute local target undo. A protocol existing is not evidence
 that this user flow is shipped.
 
+### Durable target state
+
+The next vertical slice persists the bounded capsule repository, Replace
+operation journal, undo journal, and capsule-consumption markers as one
+versioned target-owned snapshot. The application port exposes only bounded
+load, atomic replace, and delete operations. A platform adapter obtains a
+random 256-bit state key from the current user's OS credential service and uses
+AES-256-GCM to protect the snapshot in an atomic local file. Windows protects
+the key with current-user DPAPI, macOS stores it in Keychain, and Linux stores
+it through Secret Service. Each purpose uses identifiers distinct from device
+identity and Trust data. Full Activity descriptors never enter command-line
+arguments, logs, receipts, discovery, or the remote result.
+
+The file envelope has an explicit magic value and format version, a fresh nonce
+for every save, bounded ciphertext length, and an authentication tag. Save
+writes and flushes a same-directory temporary file before atomic replacement;
+the in-memory snapshot changes only after that replacement succeeds. Startup
+fails closed on an unavailable key, unsupported version, malformed bounds,
+authentication failure, non-canonical state, or a descriptor/digest mismatch.
+No empty in-memory fallback may hide an unreadable existing repository.
+
+The durable journal writes a `Pending` record before invoking destructive
+Adapter work and replaces it with a terminal result afterward. An exact retry
+of a terminal record replays it; different content conflicts. A `Pending`
+record observed after restart is reported as `Recovering` and is never silently
+re-executed. Undo preparation reserves the capsule for one Operation; terminal
+commit records the result and consumption marker atomically. If the terminal
+write fails after Adapter/catalog mutation, the caller receives `Recovering`
+and the durable `Pending` record continues to block a duplicate restore.
+
+Expired unconsumed capsules and their non-pending metadata are removed by a
+bounded explicit cleanup operation. Pending recovery records and consumption
+markers are retained until a later recovery/history policy can prove they are
+safe to prune. Store-full, key, disk, cancellation, and authentication failures
+remain structured and must not cross a destructive boundary unnoticed.
+
 ## Consequences
 
 - Replace cannot accidentally inherit Handoff/Move's source-preserving or
@@ -70,10 +106,11 @@ that this user flow is shipped.
 - A source never receives the target's preserved payload in a result or receipt.
 - Adapters that cannot prove an honest semantic capsule fail before destructive
   work; Remote Window is not silently substituted.
-- The current in-memory capsule store and undo journal prove process-lifetime
-  behavior only. Crash/restart durability, protected local persistence, tamper
-  detection, retention cleanup, desktop target selection, and desktop undo are
-  mandatory later evidence before Replace can satisfy the v1 release criterion.
+- The durable-state module and Windows/macOS/Linux protected-key adapters now
+  exist, but the desktop still does not compose Replace. In-memory state remains
+  available only for deterministic tests. Desktop target selection,
+  confirmation, startup recovery presentation, and local undo remain mandatory
+  before product activation.
 - Same-host loopback tests prove authenticated framing and state ordering, not
   physical LAN behavior or native application restoration.
 
@@ -87,3 +124,9 @@ that this user flow is shipped.
 - Session tests cover authenticated inbound/outbound Replace, exact pending
   result binding, acknowledgement loss, forged target metadata, and a real
   encrypted loopback connection.
+- The durable-state candidate covers protected-key restart, exact Replace and
+  undo replay, pending recovery without duplicate Adapter calls, atomic save
+  failure on both sides of destructive boundaries, authenticated-file and
+  canonical-descriptor tamper, bounds, expiry cleanup, concurrent retry, and
+  current-host macOS Keychain smoke. Hosted Windows DPAPI and portable Linux
+  Secret Service contracts remain required before this sub-slice can close.

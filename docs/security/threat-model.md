@@ -139,14 +139,16 @@ devices or native accessibility.
 
 | Threat | Required implementation evidence | Remaining evidence |
 | --- | --- | --- |
-| T04 | `activity.replace` and `activity.replace.result` strictly bind authenticated participants, correlation/Operation, target ID/revision/digest, incoming descriptor, Placement, deadline, undo expiry, and capsule reference. Wrong target metadata faults the session; lost acknowledgement remains uncertain; exact retry is idempotent. | Restart recovery with a durable journal, cross-machine packet loss/retry, and physical sleep/wake interruption. |
+| T04 | `activity.replace` and `activity.replace.result` strictly bind authenticated participants, correlation/Operation, target ID/revision/digest, incoming descriptor, Placement, deadline, undo expiry, and capsule reference. Wrong target metadata faults the session; lost acknowledgement remains uncertain; exact retry is idempotent. A versioned durable journal replays terminal Replace/undo after reconstructed process state and reports persisted pending entries as `Recovering` without repeating Adapter work. | Hosted final-HEAD matrix, cross-machine packet loss/retry, physical sleep/wake interruption, and a desktop recovery surface. |
 | T05 | The target checks current `activity.replace` before capture or payload use. The desktop handler does not accept inbound Replace yet, so protocol availability cannot bypass the missing confirmation flow. | Trust-bound desktop composition, revocation race, and explicit target-side confirmation on all supported platforms. |
-| T10 | Full target state remains in the target store. Replace results and receipts carry only IDs, kinds, digests, outcome, reason, and expiry; tests search for the target-state canary. | Protected persistent-store review, crash/minidump/export canary inspection, and retention cleanup evidence. |
-| T18 | Capture mismatch/failure, store failure, revision/digest conflict, expiry, and consumed capsules all fail before unsafe work. Successful undo restores a new revision and exact retry does not restore twice. | Durable protected capsule storage, restart-safe consume journal, cleanup/tamper tests, desktop target inventory/preview/undo, and native Adapter evidence beyond `workspace.note/v1`. |
+| T10 | Full target state remains in the target store. Replace results and receipts carry only IDs, kinds, digests, outcome, reason, and expiry. The candidate keeps a random 256-bit key in DPAPI, Keychain, or Secret Service and stores descriptors only in an AES-256-GCM authenticated atomic file; plaintext and valid-JSON tamper canaries are tested. | Hosted Windows native-key evidence, packaged crash/minidump/export canary inspection, and independent protected-store review. |
+| T18 | Capture mismatch/failure, store failure, revision/digest conflict, expiry, and consumed capsules all fail before unsafe work. Successful undo restores a new revision and exact retry does not restore twice. Pending/final Replace and undo records, consumption, cleanup, and destructive-boundary I/O failures are persisted in one snapshot; failed final writes retain pending evidence and suppress duplicate resume/restore. | Final-HEAD matrix, desktop target inventory/preview/recovery/undo, native Adapter evidence beyond `workspace.note/v1`, and physical crash/power-loss evidence. |
 
-The current implementation is an application/protocol tracer. Its store and undo
-journal are in memory, and the desktop does not compose or advertise Replace.
-It therefore does not yet satisfy the v1 Replace release criterion.
+The current candidate includes a durable protected-state implementation and
+platform key-store adapters, while retaining an in-memory implementation for
+deterministic tests. The desktop still does not compose or advertise Replace,
+and hosted/physical evidence remains incomplete. It therefore does not yet
+satisfy the v1 Replace release criterion.
 
 ## 6. Security state machine rules
 
