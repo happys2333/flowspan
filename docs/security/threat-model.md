@@ -151,9 +151,9 @@ semantic-note restart reduction, and one confirmed keyboard-operable local undo
 action. The authenticated handler still receives no destructive Replace peer,
 the source has no `ReplaceAsync`, and no physical/native recovery or accessibility
 claim is made. The implementation exact-commit hosted matrix, Secret Scan, and
-CodeQL pass; the evidence and final-HEAD commits remain subject to the same
-gates. This slice therefore does not yet satisfy the v1 Replace release
-criterion.
+CodeQL pass, as do the evidence commit's matching gates. The closure commit that
+records those results remains subject to final-HEAD verification. This slice
+therefore does not yet satisfy the v1 Replace release criterion.
 
 ## 6. Security state machine rules
 

@@ -355,9 +355,9 @@ means its linked evidence exists; it does not imply the entire product works.
     closed; one private local endpoint enforces durable single-consume undo; and
     a keyboard-operable, snapshot-bound confirmation presents every recorded
     outcome without Activity content. All 568 tests, Secret Scan, and CodeQL pass
-    on that exact implementation commit across hosted Windows, macOS, and
-    Ubuntu. Commands, run/job IDs, two 20-process stress groups, and explicit
-    physical/native limits are recorded in
+    on that exact implementation commit and evidence commit `b7269c5` across
+    hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, two 20-process
+    stress groups, and explicit physical/native limits are recorded in
     [Desktop target-local Undo evidence](../../docs/evidence/2026-07-15-desktop-target-local-undo.md).
     Destructive composition and physical/native product evidence remain open.
     The earlier core/protocol evidence is recorded in

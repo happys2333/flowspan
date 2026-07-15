@@ -164,6 +164,30 @@ also analyzed the exact implementation SHA. C# job `87384105976` completed
 successfully from 2026-07-15T14:42:15Z through 2026-07-15T14:44:47Z, including
 locked restore, analyzed-source build, and analysis.
 
+## Hosted evidence-commit verification
+
+The evidence and task-status commit
+`b7269c572c293da62b27cb5910bb2a783702ab72` was independently verified by
+[CI run 29425371227](https://github.com/happys2333/flowspan/actions/runs/29425371227)
+from 2026-07-15T14:50:24Z through 2026-07-15T14:53:19Z:
+
+| Job | Job ID | Result |
+| --- | ---: | --- |
+| Windows | 87386276466 | success |
+| Ubuntu | 87386276471 | success |
+| macOS | 87386276514 | success |
+| Secret Scan | 87386276654 | success |
+
+Every OS job again passed locked restore, format, warning-as-error build, all 568
+tests, TEST MODE composition, deterministic simulator, and evidence upload.
+
+[CodeQL run 29425367807](https://github.com/happys2333/flowspan/actions/runs/29425367807)
+and Analyze C# job `87386266939` also completed successfully for the exact
+evidence commit from 2026-07-15T14:50:25Z through 2026-07-15T14:53:44Z. Thus the
+implementation and the commit recording task 7.3c.6 both passed the same hosted
+gates. The closure commit that records this second result remains subject to
+those gates before its status is treated as final.
+
 ## Explicit limits
 
 - Hosted Windows/macOS/Linux jobs prove portable build and deterministic
