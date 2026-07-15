@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Flowspan.Application;
 using Flowspan.Domain;
 using Flowspan.Protocol;
 using Flowspan.Security;
@@ -466,9 +467,84 @@ public sealed class DesktopActivityRuntimeTests
         await sourceTrust.DisposeAsync();
     }
 
+    [Fact]
+    public async Task LoadsProtectedReplaceRecoveryWithoutComposingDestructiveEndpoint()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        ActivityDescriptor incoming = ActivityDescriptor.Create(
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            ActivityKind.Parse("workspace.note/v1"),
+            SourceId,
+            "Secret title",
+            "{\"text\":\"secret body\"}");
+        OperationId operationId =
+            OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        CorrelationId correlationId =
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            await state.ExecuteOnceAsync(
+                operationId,
+                new string('A', 64),
+                _ => ValueTask.FromResult(OperationReceipt.Rejected(
+                    operationId,
+                    correlationId,
+                    OperationKind.Replace,
+                    SourceId,
+                    TargetId,
+                    incoming,
+                    Now,
+                    FailureCode.CapabilityDenied)),
+                CancellationToken.None);
+        }
+
+        using DeviceIdentity identity = DeviceIdentity.Generate(TargetId, "Target");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(identity, trust, payloadStore);
+
+        await runtime.InitializeAsync();
+
+        DesktopReplaceRecoveryResult recovery = runtime.GetReplaceRecoveryState();
+        Assert.True(recovery.IsAvailable);
+        ReplaceRecoveryRecord record = Assert.Single(recovery.Records);
+        Assert.Equal(operationId, record.OperationId);
+        Assert.Equal(OperationStatus.Rejected, record.Status);
+        Assert.Equal(FailureCode.CapabilityDenied, record.FailureCode);
+        AuthenticatedActivitySessionHandler handler =
+            await runtime.GetSessionHandlerAsync();
+        Assert.False(handler.IsReplaceEndpointAvailable);
+        Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ReplaceRecoveryLoadFailureKeepsOtherActivityWorkAvailable()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(
+            identity,
+            trust,
+            new FailingReplaceStatePayloadStore());
+
+        await runtime.InitializeAsync();
+        DesktopActivitySnapshot note = runtime.CreateWorkspaceNote(
+            "Still available",
+            "Replace recovery failed closed",
+            ActivitySensitivity.Normal);
+
+        Assert.True(runtime.IsReady);
+        Assert.Equal(note, Assert.Single(runtime.GetActivities()));
+        Assert.False(runtime.GetReplaceRecoveryState().IsAvailable);
+        Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
+        await trust.DisposeAsync();
+    }
+
     private static DesktopActivityRuntime CreateRuntime(
         DeviceIdentity identity,
-        TrustSessionCoordinator trust) => new(
+        TrustSessionCoordinator trust,
+        IReplaceStatePayloadStore? replaceStatePayloadStore = null) => new(
         cancellationToken =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -479,10 +555,46 @@ public sealed class DesktopActivityRuntimeTests
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(trust);
         },
-        new FixedTimeProvider(Now));
+        new FixedTimeProvider(Now),
+        replaceStatePayloadStore);
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class MemoryReplaceStatePayloadStore : IReplaceStatePayloadStore
+    {
+        private byte[]? payload;
+
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(payload?.ToArray());
+        }
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> value,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            payload = value.ToArray();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FailingReplaceStatePayloadStore : IReplaceStatePayloadStore
+    {
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<byte[]?>(
+                new IOException("Injected protected Replace state failure."));
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> payload,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(
+                new IOException("Injected protected Replace state failure."));
     }
 }

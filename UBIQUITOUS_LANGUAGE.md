@@ -19,6 +19,7 @@ screens or arbitrary process migration.
 | **Replace Target Inventory** | A purpose-scoped authenticated preview query that returns only bounded, eligible, same-kind, payload-free target choices for one incoming Activity kind. | Remote Activity browser, catalog sync |
 | **Replace Target Snapshot** | The target ID, revision, descriptor digest, kind, normal-sensitivity title, and Placement slot captured for preview and later stale-selection detection; it grants no mutation authority. | Backup, live handle |
 | **Replace Preview** | A local comparison and confirmation state bound to one incoming Activity, peer, and exact Replace Target Snapshot. It grants no mutation authority and is revoked by participant, snapshot, or inventory-refresh changes. | Replace command, authorization |
+| **Replace Recovery Snapshot** | A bounded, immutable, target-local, payload-free projection of known Replace/undo journal state, ordered to expose unresolved destructive boundaries before terminal history. | Log dump, remote history |
 | **Undo Capsule** | A target-owned, expiring preservation of the exact pre-Replace semantic state plus bindings needed for one safe compensating undo. | Backup, rollback promise |
 | **Swap** | One atomic transaction that exchanges two Activity Placements or changes neither. | Two moves |
 | **Mirror** | An Activity presentation on multiple devices while authoritative execution remains on one host. | Copy, sync |
@@ -90,6 +91,11 @@ screens or arbitrary process migration.
   inventory query for orientation, but it always revokes confirmation. A missing
   or changed snapshot requires a fresh selection; confirmation alone never
   authorizes or sends **Replace**.
+- A **Replace Recovery Snapshot** exposes only known opaque identifiers,
+  participants, state, redacted reason, timestamps, and capsule availability.
+  It never includes descriptors, preserved payload, request digests, or
+  exception text, and it never invents fields absent from a pre-capture pending
+  record.
 
 ## Example dialogue
 

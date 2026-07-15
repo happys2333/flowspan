@@ -690,6 +690,80 @@ public sealed class ActivityWorkspaceViewModelTests
         Assert.False(viewModel.IsDestructiveReplaceAvailable);
     }
 
+    [Fact]
+    public async Task StartupShowsPayloadFreeTargetLocalReplaceRecoveryAndExactExpiry()
+    {
+        var service = new FakeActivityService
+        {
+            ReplaceRecoveryResult = await CreateReplaceRecoveryResultAsync(),
+        };
+        await using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(
+            "TARGET-LOCAL REPLACE HISTORY — READ ONLY",
+            viewModel.ReplaceRecoveryStatus);
+        Assert.Equal(
+            "1 TARGET-LOCAL REPLACE / UNDO RECORDS",
+            viewModel.ReplaceRecoveryCoverage);
+        DesktopReplaceRecoveryItem item = Assert.Single(
+            viewModel.ReplaceRecoveryItems);
+        Assert.Equal("TARGET-LOCAL REPLACE", item.Kind);
+        Assert.Equal("COMMITTED", item.State);
+        Assert.Equal("none", item.Reason);
+        Assert.Contains(LocalId.ToString(), item.Participants, StringComparison.Ordinal);
+        Assert.Contains(TargetId.ToString(), item.Participants, StringComparison.Ordinal);
+        Assert.Contains("2026-07-15T12:10:00.0000000+00:00", item.Undo);
+        Assert.Contains("AVAILABLE AT SNAPSHOT", item.Undo, StringComparison.Ordinal);
+        Assert.Contains("READ ONLY IN THIS BUILD", item.Undo, StringComparison.Ordinal);
+        string visible = string.Join(
+            '\n',
+            item.Kind,
+            item.State,
+            item.Reason,
+            item.OperationId,
+            item.CorrelationId,
+            item.Participants,
+            item.Activities,
+            item.Capsule,
+            item.Timestamp,
+            item.Undo);
+        Assert.DoesNotContain("Original secret title", visible, StringComparison.Ordinal);
+        Assert.DoesNotContain("Incoming secret title", visible, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret body", visible, StringComparison.Ordinal);
+        Assert.False(viewModel.IsDestructiveReplaceAvailable);
+    }
+
+    [Fact]
+    public async Task UnavailableReplaceRecoveryDoesNotBlockNonReplaceWorkspace()
+    {
+        var service = new FakeActivityService();
+        await using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Still usable",
+            DraftText = "Non-Replace work remains available",
+        };
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(
+            "REPLACE RECOVERY STATE UNAVAILABLE — REPLACE LOCKED",
+            viewModel.ReplaceRecoveryStatus);
+        Assert.Contains(
+            "Handoff and Move remain available",
+            viewModel.ReplaceRecoveryDescription,
+            StringComparison.Ordinal);
+        Assert.True(viewModel.IsNoteCreationAvailable);
+        viewModel.CreateWorkspaceNote();
+        Assert.Single(viewModel.Activities);
+        Assert.False(viewModel.IsDestructiveReplaceAvailable);
+    }
+
     private static ActivityWorkspaceViewModel CreateReplaceReadyViewModel(
         FakeActivityService service)
     {
@@ -733,6 +807,64 @@ public sealed class ActivityWorkspaceViewModelTests
                 _ => [target, secondTarget],
             });
 
+    private static async Task<DesktopReplaceRecoveryResult>
+        CreateReplaceRecoveryResultAsync()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        using PersistentReplaceStateStore state =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+        var original = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                ActivityKind.Parse("workspace.note/v1"),
+                TargetId,
+                "Original secret title",
+                "{\"text\":\"secret body one\"}"),
+            ActivityPlacement.On(TargetId, "desktop"),
+            revision: 4);
+        var incoming = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                ActivityKind.Parse("workspace.note/v1"),
+                LocalId,
+                "Incoming secret title",
+                "{\"text\":\"secret body two\"}"),
+            ActivityPlacement.On(TargetId, "desktop"),
+            revision: 5);
+        OperationId operationId =
+            OperationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        CorrelationId correlationId =
+            CorrelationId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        UndoCapsule capsule = UndoCapsule.Create(
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            OperationContext.Create(
+                operationId,
+                correlationId,
+                new DateTimeOffset(2026, 7, 15, 12, 0, 30, TimeSpan.Zero)),
+            LocalId,
+            TargetId,
+            original,
+            incoming,
+            new DateTimeOffset(2026, 7, 15, 12, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 7, 15, 12, 10, 0, TimeSpan.Zero));
+        Assert.True(await state.TryAddAsync(capsule));
+        await state.ExecuteOnceAsync(
+            operationId,
+            new string('A', 64),
+            _ => ValueTask.FromResult(OperationReceipt.Committed(
+                operationId,
+                correlationId,
+                OperationKind.Replace,
+                LocalId,
+                TargetId,
+                incoming.Descriptor,
+                new DateTimeOffset(2026, 7, 15, 12, 0, 1, TimeSpan.Zero))),
+            CancellationToken.None);
+        return DesktopReplaceRecoveryResult.Available(
+            state.GetRecoverySnapshot(
+                new DateTimeOffset(2026, 7, 15, 12, 1, 0, TimeSpan.Zero)));
+    }
+
     private sealed class FakeActivityService : IDesktopActivityService
     {
         private readonly List<DesktopActivitySnapshot> activities = [];
@@ -751,6 +883,9 @@ public sealed class ActivityWorkspaceViewModelTests
 
         public DesktopReplaceTargetInventoryResult ReplaceInventoryResult { get; set; } =
             DesktopReplaceTargetInventoryResult.Failed(FailureCode.PeerUnavailable);
+
+        public DesktopReplaceRecoveryResult ReplaceRecoveryResult { get; set; } =
+            DesktopReplaceRecoveryResult.Unavailable;
 
         public Exception? ReplaceInventoryException { get; set; }
 
@@ -792,6 +927,9 @@ public sealed class ActivityWorkspaceViewModelTests
         public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets() => connected
             ? [new DesktopActivityTargetSnapshot(TargetId, "Peer desk")]
             : [];
+
+        public DesktopReplaceRecoveryResult GetReplaceRecoveryState() =>
+            ReplaceRecoveryResult;
 
         public ValueTask<OperationReceipt> HandoffAsync(
             ActivityId activityId,
@@ -906,5 +1044,26 @@ public sealed class ActivityWorkspaceViewModelTests
         public void SignalChanged() => Changed?.Invoke();
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class MemoryReplaceStatePayloadStore : IReplaceStatePayloadStore
+    {
+        private byte[]? payload;
+
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(payload?.ToArray());
+        }
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> value,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            payload = value.ToArray();
+            return ValueTask.CompletedTask;
+        }
     }
 }

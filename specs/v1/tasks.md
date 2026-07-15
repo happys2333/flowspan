@@ -366,6 +366,24 @@ means its linked evidence exists; it does not imply the entire product works.
       production `IReplacePeer` uncomposed until receipt/recovery and target-local
       undo surfaces exist.
       - _Requirements: R4.7-R4.10, R10.1-R10.4_
+    - [-] 7.3c.5 Add a bounded, payload-free target-local Replace receipt and
+      recovery surface. Load the protected state at Desktop startup; prioritize
+      unresolved Replace/undo boundaries; show only known opaque IDs,
+      participants, timestamps, redacted outcomes, and exact undo availability;
+      mark incomplete pre-capture fields and truncation honestly; and keep other
+      Activity work usable when this store fails closed. Do not add a recovery,
+      undo, or destructive command in this slice.
+      - _Requirements: R4.11, R10.3-R10.4, R11.1_
+    - [ ] 7.3c.6 Add target-local visible undo for an exact unexpired,
+      unconsumed capsule. Bind one explicit keyboard-operable action to the
+      selected recovery snapshot, present expiry and every terminal/pending
+      outcome, and prove restart replay cannot repeat Adapter restoration.
+      - _Requirements: R4.12, R10.3-R10.4, R11.2_
+    - [ ] 7.3c.7 Only after 7.3c.5-7.3c.6, compose production `IReplacePeer`
+      and the source-side Desktop `ReplaceAsync` command. Revalidate the exact
+      preview at send time, project the authenticated receipt/capsule reference,
+      and retain truthful acknowledgement-loss and recovery behavior.
+      - _Requirements: R4.4-R4.12, R9, R10, R11_
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

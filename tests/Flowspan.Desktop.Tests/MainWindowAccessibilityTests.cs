@@ -5,6 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Flowspan.Application;
 using Flowspan.Domain;
 using Flowspan.Protocol;
 using Flowspan.Security;
@@ -302,6 +303,57 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "PREVIEW CONFIRMED — DESTRUCTIVE REPLACE NOT ACTIVATED",
                 activationStatus.Text);
+            Assert.False(destructiveReplace.IsEnabled);
+            Assert.Equal("NOT SHARING", sharing.Text);
+            window.Close();
+        }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task ReplaceRecoveryRecordsAreNamedKeyboardNavigableAndReadOnly()
+    {
+        var activities = new AccessibilityActivityService
+        {
+            ReplaceRecoveryResult = await CreateReplaceRecoveryResultAsync(),
+        };
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            activityService: activities);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            TextBlock status = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ReplaceRecoveryStatusText"));
+            ListBox records = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("ReplaceRecoveryList"));
+            Button destructiveReplace = Assert.IsType<Button>(
+                window.FindControl<Button>("DestructiveReplaceButton"));
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
+
+            Assert.Equal(
+                "Replace recovery status",
+                status.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Target-local Replace and undo recovery records",
+                records.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal("TARGET-LOCAL REPLACE HISTORY — READ ONLY", status.Text);
+            Assert.Equal(2, records.ItemCount);
+            Control first = Assert.IsAssignableFrom<Control>(
+                records.ContainerFromIndex(0));
+            Assert.True(first.Focus());
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+
+            Assert.Equal(1, records.SelectedIndex);
             Assert.False(destructiveReplace.IsEnabled);
             Assert.Equal("NOT SHARING", sharing.Text);
             window.Close();
@@ -608,6 +660,44 @@ public sealed class MainWindowAccessibilityTests
         }
     }
 
+    private static async Task<DesktopReplaceRecoveryResult>
+        CreateReplaceRecoveryResultAsync()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        using PersistentReplaceStateStore state =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+        ActivityDescriptor descriptor = ActivityDescriptor.Create(
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            ActivityKind.Parse("workspace.note/v1"),
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Must stay private",
+            "{\"text\":\"must stay private\"}");
+        for (int index = 1; index <= 2; index++)
+        {
+            OperationId operationId = OperationId.Parse(
+                $"bbbbbbbb-bbbb-bbbb-bbbb-{index:X12}");
+            CorrelationId correlationId = CorrelationId.Parse(
+                $"cccccccc-cccc-cccc-cccc-{index:X12}");
+            await state.ExecuteOnceAsync(
+                operationId,
+                index.ToString("X64", System.Globalization.CultureInfo.InvariantCulture),
+                _ => ValueTask.FromResult(OperationReceipt.Rejected(
+                    operationId,
+                    correlationId,
+                    OperationKind.Replace,
+                    DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+                    DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+                    descriptor,
+                    new DateTimeOffset(2026, 7, 15, 12, index, 0, TimeSpan.Zero),
+                    FailureCode.CapabilityDenied)),
+                CancellationToken.None);
+        }
+
+        return DesktopReplaceRecoveryResult.Available(
+            state.GetRecoverySnapshot(
+                new DateTimeOffset(2026, 7, 15, 12, 5, 0, TimeSpan.Zero)));
+    }
+
     private sealed class AccessibilityActivityService : IDesktopActivityService
     {
         private static readonly DeviceId LocalId =
@@ -619,6 +709,9 @@ public sealed class MainWindowAccessibilityTests
         private ActivityDescriptor? descriptor;
 
         public event Action? Changed;
+
+        public DesktopReplaceRecoveryResult ReplaceRecoveryResult { get; init; } =
+            DesktopReplaceRecoveryResult.Unavailable;
 
         public DesktopActivitySnapshot CreateWorkspaceNote(
             string title,
@@ -641,6 +734,9 @@ public sealed class MainWindowAccessibilityTests
 
         public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets() =>
             [new DesktopActivityTargetSnapshot(TargetId, "Peer desk")];
+
+        public DesktopReplaceRecoveryResult GetReplaceRecoveryState() =>
+            ReplaceRecoveryResult;
 
         public ValueTask<OperationReceipt> HandoffAsync(
             ActivityId activityId,
@@ -723,6 +819,27 @@ public sealed class MainWindowAccessibilityTests
                 current.Kind.Value,
                 current.Sensitivity,
                 ActivityLifecycle.Active);
+        }
+    }
+
+    private sealed class MemoryReplaceStatePayloadStore : IReplaceStatePayloadStore
+    {
+        private byte[]? payload;
+
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(payload?.ToArray());
+        }
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> value,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            payload = value.ToArray();
+            return ValueTask.CompletedTask;
         }
     }
 

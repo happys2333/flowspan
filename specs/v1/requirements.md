@@ -131,6 +131,21 @@ interfaces.
   request. Until receipt/recovery and target-local undo surfaces are available,
   the production desktop shall keep destructive Replace unavailable even after
   preview confirmation.
+- R4.11: When the desktop opens protected target-local Replace state, it shall
+  present one bounded, payload-free recovery snapshot that distinguishes
+  pending Replace, terminal Replace, pending undo, and terminal undo records;
+  exposes only known opaque IDs, participants, timestamps, outcome/reason, and
+  exact undo expiry/availability; marks pre-capture fields unavailable instead
+  of guessing; and identifies truncation. If protected state is unavailable,
+  corrupt, or unsupported, the desktop shall show actionable recovery guidance
+  and keep destructive Replace unavailable without blocking non-Replace
+  Activity work.
+- R4.12: While a committed target-local Replace has an unconsumed capsule whose
+  retention window is open, the desktop shall offer an explicit,
+  keyboard-operable undo bound to that capsule and show its exact expiry. When
+  undo is pending, expired, consumed, stale, unavailable, or completed, the
+  desktop shall disable a duplicate action and present the recorded state
+  without guessing or repeating Adapter work.
 
 ### R5 — Atomic swap
 

@@ -754,6 +754,99 @@
                       </StackPanel>
                     </Border>
 
+                    <Border BorderBrush="{StaticResource SafetyAmberBrush}"
+                            BorderThickness="1"
+                            Padding="14"
+                            AutomationProperties.Name="Target-local Replace receipt and recovery state">
+                      <StackPanel Spacing="8">
+                        <TextBlock Classes="label"
+                                   Foreground="{StaticResource SafetyAmberBrush}"
+                                   Text="REPLACE RECOVERY / READ ONLY" />
+                        <TextBlock x:Name="ReplaceRecoveryStatusText"
+                                   Classes="label"
+                                   Text="{Binding Activities.ReplaceRecoveryStatus}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Replace recovery status" />
+                        <TextBlock Text="{Binding Activities.ReplaceRecoveryDescription}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Replace recovery guidance" />
+                        <Grid ColumnDefinitions="5*,7*">
+                          <TextBlock Grid.Column="0"
+                                     Classes="secondary"
+                                     FontSize="11"
+                                     Text="{Binding Activities.ReplaceRecoveryCoverage}"
+                                     TextWrapping="Wrap"
+                                     AutomationProperties.Name="Replace recovery record coverage" />
+                          <TextBlock Grid.Column="1"
+                                     Classes="secondary"
+                                     FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                     FontSize="10"
+                                     Text="{Binding Activities.ReplaceRecoveryCapturedAt, StringFormat='Snapshot: {0}'}"
+                                     TextWrapping="Wrap"
+                                     AutomationProperties.Name="Replace recovery snapshot time" />
+                        </Grid>
+                        <ListBox x:Name="ReplaceRecoveryList"
+                                 ItemsSource="{Binding Activities.ReplaceRecoveryItems}"
+                                 MaxHeight="260"
+                                 AutomationProperties.Name="Target-local Replace and undo recovery records">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DesktopReplaceRecoveryItem">
+                              <Border Margin="4"
+                                      BorderBrush="{StaticResource CoolGrayBrush}"
+                                      BorderThickness="1"
+                                      Padding="10">
+                                <StackPanel Spacing="4">
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0"
+                                               Classes="label"
+                                               Text="{Binding Kind}" />
+                                    <TextBlock Grid.Column="1"
+                                               Classes="label"
+                                               Text="{Binding State}"
+                                               TextWrapping="Wrap"
+                                               AutomationProperties.Name="Replace recovery record state" />
+                                  </Grid>
+                                  <TextBlock Classes="secondary"
+                                             Text="{Binding Reason, StringFormat='Reason: {0}'}" />
+                                  <SelectableTextBlock Classes="secondary"
+                                                       FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                       FontSize="10"
+                                                       Text="{Binding OperationId, StringFormat='Operation: {0}'}"
+                                                       TextWrapping="Wrap"
+                                                       AutomationProperties.Name="Replace recovery Operation ID" />
+                                  <SelectableTextBlock Classes="secondary"
+                                                       FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                       FontSize="10"
+                                                       Text="{Binding CorrelationId, StringFormat='Correlation: {0}'}"
+                                                       TextWrapping="Wrap"
+                                                       AutomationProperties.Name="Replace recovery correlation ID" />
+                                  <TextBlock Classes="secondary"
+                                             Text="{Binding Participants}"
+                                             TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary"
+                                             Text="{Binding Activities}"
+                                             TextWrapping="Wrap" />
+                                  <SelectableTextBlock Classes="secondary"
+                                                       FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                       FontSize="10"
+                                                       Text="{Binding Capsule, StringFormat='Capsule: {0}'}"
+                                                       TextWrapping="Wrap"
+                                                       AutomationProperties.Name="Replace recovery capsule ID" />
+                                  <TextBlock Classes="secondary"
+                                             Text="{Binding Timestamp}"
+                                             TextWrapping="Wrap" />
+                                  <TextBlock Classes="label"
+                                             Text="{Binding Undo}"
+                                             TextWrapping="Wrap"
+                                             AutomationProperties.Name="Replace recovery undo availability" />
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+                      </StackPanel>
+                    </Border>
+
                     <Border IsVisible="{Binding Activities.IsReceiptVisible}"
                             BorderBrush="{StaticResource CoolGrayBrush}"
                             BorderThickness="1"

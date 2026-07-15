@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Flowspan.Application;
 using Flowspan.Domain;
 
 namespace Flowspan.Desktop;
@@ -53,6 +54,40 @@ public sealed record DesktopReplaceTargetInventoryResult(
     }
 }
 
+public sealed record DesktopReplaceRecoveryResult(
+    bool IsAvailable,
+    DateTimeOffset? CapturedAt,
+    bool IsTruncated,
+    ImmutableArray<ReplaceRecoveryRecord> Records)
+{
+    public static DesktopReplaceRecoveryResult Available(
+        ReplaceRecoverySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return new DesktopReplaceRecoveryResult(
+            true,
+            snapshot.CapturedAt,
+            snapshot.IsTruncated,
+            snapshot.Records);
+    }
+
+    public static DesktopReplaceRecoveryResult Unavailable { get; } =
+        new(false, null, false, []);
+}
+
+public sealed record DesktopReplaceRecoveryItem(
+    string Kind,
+    string State,
+    string Reason,
+    string OperationId,
+    string CorrelationId,
+    string Participants,
+    string Activities,
+    string Capsule,
+    string Timestamp,
+    string Undo,
+    bool IsRecoveryRequired);
+
 public interface IDesktopActivityService : IAsyncDisposable
 {
     public event Action? Changed;
@@ -69,6 +104,9 @@ public interface IDesktopActivityService : IAsyncDisposable
     public ImmutableArray<DesktopActivitySnapshot> GetActivities();
 
     public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets();
+
+    public DesktopReplaceRecoveryResult GetReplaceRecoveryState() =>
+        DesktopReplaceRecoveryResult.Unavailable;
 
     public ValueTask InitializeAsync(
         CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
@@ -123,6 +161,11 @@ public sealed class ActivityWorkspaceViewModel :
     private string replaceInventoryCoverage = string.Empty;
     private string replaceInventoryStatus = "REPLACE TARGETS NOT LOADED";
     private int replaceInventoryContextVersion;
+    private string replaceRecoveryCapturedAt = string.Empty;
+    private string replaceRecoveryCoverage = string.Empty;
+    private string replaceRecoveryDescription =
+        "Protected target-local Replace state has not been loaded.";
+    private string replaceRecoveryStatus = "REPLACE RECOVERY STATE NOT LOADED";
     private string undoDescription = string.Empty;
     private DesktopActivitySnapshot? selectedActivity;
     private DesktopReplaceTargetSnapshot? selectedReplaceTarget;
@@ -152,6 +195,7 @@ public sealed class ActivityWorkspaceViewModel :
             CanRefreshReplaceTargets);
         service.Changed += OnServiceChanged;
         Refresh();
+        RefreshReplaceRecovery();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -161,6 +205,8 @@ public sealed class ActivityWorkspaceViewModel :
     public ObservableCollection<DesktopActivityTargetSnapshot> Targets { get; } = [];
 
     public ObservableCollection<DesktopReplaceTargetSnapshot> ReplaceTargets { get; } = [];
+
+    public ObservableCollection<DesktopReplaceRecoveryItem> ReplaceRecoveryItems { get; } = [];
 
     public ICommand CreateWorkspaceNoteCommand => createWorkspaceNoteCommand;
 
@@ -383,6 +429,30 @@ public sealed class ActivityWorkspaceViewModel :
         private set => SetProperty(ref replaceInventoryStatus, value);
     }
 
+    public string ReplaceRecoveryCapturedAt
+    {
+        get => replaceRecoveryCapturedAt;
+        private set => SetProperty(ref replaceRecoveryCapturedAt, value);
+    }
+
+    public string ReplaceRecoveryCoverage
+    {
+        get => replaceRecoveryCoverage;
+        private set => SetProperty(ref replaceRecoveryCoverage, value);
+    }
+
+    public string ReplaceRecoveryDescription
+    {
+        get => replaceRecoveryDescription;
+        private set => SetProperty(ref replaceRecoveryDescription, value);
+    }
+
+    public string ReplaceRecoveryStatus
+    {
+        get => replaceRecoveryStatus;
+        private set => SetProperty(ref replaceRecoveryStatus, value);
+    }
+
     public DesktopActivitySnapshot? SelectedActivity
     {
         get => selectedActivity;
@@ -472,6 +542,7 @@ public sealed class ActivityWorkspaceViewModel :
         }
 
         Refresh();
+        RefreshReplaceRecovery();
         OnPropertyChanged(nameof(IsNoteCreationAvailable));
         OnPropertyChanged(nameof(IsHandoffAvailable));
         OnPropertyChanged(nameof(IsMoveAvailable));
@@ -639,6 +710,138 @@ public sealed class ActivityWorkspaceViewModel :
             ReplaceInventoryDescription =
                 "Choose one exact target snapshot to build the destructive preview. No Replace request has been sent.";
         }
+    }
+
+    private void RefreshReplaceRecovery()
+    {
+        DesktopReplaceRecoveryResult result;
+        try
+        {
+            result = service.GetReplaceRecoveryState();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            result = DesktopReplaceRecoveryResult.Unavailable;
+        }
+
+        if (!result.IsAvailable)
+        {
+            ReplaceRecoveryItems.Clear();
+            ReplaceRecoveryCapturedAt = string.Empty;
+            ReplaceRecoveryCoverage = "RECOVERY RECORD COUNT UNAVAILABLE";
+            ReplaceRecoveryStatus =
+                "REPLACE RECOVERY STATE UNAVAILABLE — REPLACE LOCKED";
+            ReplaceRecoveryDescription =
+                "The protected target-local Replace store could not be opened. Handoff and Move remain available, but do not activate Replace. Check the current-user credential store and local Flowspan data permissions, then restart.";
+            return;
+        }
+
+        Replace(
+            ReplaceRecoveryItems,
+            result.Records.Select(CreateReplaceRecoveryItem).ToImmutableArray());
+        ReplaceRecoveryCapturedAt = result.CapturedAt?.ToString("O")
+            ?? string.Empty;
+        ReplaceRecoveryCoverage = result.IsTruncated
+            ? "SHOWING FIRST 64 RECORDS — UNRESOLVED STATE PRIORITIZED — HISTORY TRUNCATED"
+            : $"{ReplaceRecoveryItems.Count} TARGET-LOCAL REPLACE / UNDO RECORDS";
+        int recoveryRequired = result.Records.Count(
+            static record => record.IsRecoveryRequired);
+        if (recoveryRequired > 0)
+        {
+            ReplaceRecoveryStatus =
+                $"REPLACE RECOVERY REQUIRED — {recoveryRequired} UNRESOLVED";
+            ReplaceRecoveryDescription =
+                "Inspect the opaque IDs and both devices before retrying. This read-only surface does not repeat Replace or undo Adapter work.";
+        }
+        else if (result.Records.IsEmpty)
+        {
+            ReplaceRecoveryStatus = "NO TARGET-LOCAL REPLACE HISTORY";
+            ReplaceRecoveryDescription =
+                "No protected Replace or undo records are stored on this device. Destructive Replace remains locked in this build.";
+        }
+        else
+        {
+            ReplaceRecoveryStatus = "TARGET-LOCAL REPLACE HISTORY — READ ONLY";
+            ReplaceRecoveryDescription =
+                "Recorded outcomes and exact capsule availability are shown without Activity content. This build exposes no Replace, recovery, or undo command.";
+        }
+    }
+
+    private static DesktopReplaceRecoveryItem CreateReplaceRecoveryItem(
+        ReplaceRecoveryRecord record)
+    {
+        string kind = record.Kind switch
+        {
+            ReplaceRecoveryOperationKind.Replace => "TARGET-LOCAL REPLACE",
+            ReplaceRecoveryOperationKind.Undo => "TARGET-LOCAL UNDO",
+            _ => "TARGET-LOCAL OPERATION",
+        };
+        string state = record.JournalState switch
+        {
+            ReplaceRecoveryJournalState.Pending =>
+                "PENDING — RECOVERY REQUIRED",
+            _ when record.Status == OperationStatus.Recovering =>
+                "RECORDED RECOVERING — OUTCOME UNCERTAIN",
+            _ => record.Status switch
+            {
+                OperationStatus.Committed => "COMMITTED",
+                OperationStatus.CommittedWithWarning => "COMMITTED WITH WARNING",
+                OperationStatus.Rejected => "REJECTED",
+                OperationStatus.Failed => "FAILED",
+                _ => "OUTCOME UNAVAILABLE",
+            },
+        };
+        string participants = string.Join(
+            " → ",
+            record.ReplaceSourceDeviceId is not null
+                ? $"Replace source device {record.ReplaceSourceDeviceId}"
+                : "SOURCE DEVICE NOT RECORDED",
+            record.ReplaceTargetDeviceId is not null
+                ? $"target device {record.ReplaceTargetDeviceId}"
+                : "TARGET DEVICE NOT RECORDED");
+        string activities = string.Join(
+            " ← ",
+            record.TargetActivityId is not null
+                ? $"Target Activity {record.TargetActivityId}"
+                : "TARGET ACTIVITY NOT RECORDED",
+            record.IncomingActivityId is not null
+                ? $"incoming Activity {record.IncomingActivityId}"
+                : "INCOMING ACTIVITY NOT RECORDED");
+        string timestamp = record.TimestampKind switch
+        {
+            ReplaceRecoveryTimestampKind.Outcome =>
+                $"Outcome recorded: {record.RecordedAt:O}",
+            ReplaceRecoveryTimestampKind.CapsuleCaptured =>
+                $"Undo capsule captured: {record.RecordedAt:O}",
+            _ => "TIME NOT RECORDED — pre-capture pending boundary.",
+        };
+        string undo = record.UndoAvailability switch
+        {
+            ReplaceUndoAvailability.Available =>
+                $"UNDO AVAILABLE AT SNAPSHOT — EXPIRES {record.UndoExpiresAt:O} — READ ONLY IN THIS BUILD",
+            ReplaceUndoAvailability.Expired =>
+                $"UNDO EXPIRED AT {record.UndoExpiresAt:O}",
+            ReplaceUndoAvailability.PendingOperation =>
+                $"UNDO / REPLACE OUTCOME PENDING — EXPIRY {record.UndoExpiresAt:O}",
+            ReplaceUndoAvailability.Consumed => "UNDO ALREADY CONSUMED",
+            _ when record.UndoExpiresAt is not null =>
+                $"UNDO NOT AVAILABLE FOR THIS RECORD — CAPSULE EXPIRY {record.UndoExpiresAt:O}",
+            _ => "UNDO NOT AVAILABLE FOR THIS RECORD",
+        };
+        return new DesktopReplaceRecoveryItem(
+            kind,
+            state,
+            ToReasonCode(record.FailureCode),
+            record.OperationId.ToString(),
+            record.CorrelationId?.ToString()
+                ?? "NOT RECORDED — NO VALUE IN PROTECTED STATE",
+            participants,
+            activities,
+            record.CapsuleId?.ToString()
+                ?? "NO CAPSULE ID RECORDED",
+            timestamp,
+            undo,
+            record.IsRecoveryRequired);
     }
 
     private void ReconcileRefreshedReplaceTarget(
@@ -840,6 +1043,7 @@ public sealed class ActivityWorkspaceViewModel :
                     SelectedActivity?.ActivityId,
                     SelectedTarget?.DeviceId);
                 InvalidateReplaceInventory();
+                RefreshReplaceRecovery();
                 OnPropertyChanged(nameof(IsReady));
                 OnPropertyChanged(nameof(IsDestructiveReplaceAvailable));
                 OnPropertyChanged(nameof(IsNoteCreationAvailable));

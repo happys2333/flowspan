@@ -15,23 +15,27 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
     private readonly Func<CancellationToken, ValueTask<TrustSessionCoordinator>> getTrust;
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly CancellationTokenSource lifetimeCancellation = new();
+    private readonly IReplaceStatePayloadStore? replaceStatePayloadStore;
     private readonly TimeProvider timeProvider;
     private InMemoryActivityCatalog? catalog;
     private AuthenticatedActivitySessionHandler? handler;
     private FlowspanNode? node;
+    private PersistentReplaceStateStore? replaceState;
     private TrustSessionCoordinator? trust;
     private int disposed;
 
     public DesktopActivityRuntime(
         Func<CancellationToken, ValueTask<DeviceIdentity>> getIdentity,
         Func<CancellationToken, ValueTask<TrustSessionCoordinator>> getTrust,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IReplaceStatePayloadStore? replaceStatePayloadStore = null)
     {
         ArgumentNullException.ThrowIfNull(getIdentity);
         ArgumentNullException.ThrowIfNull(getTrust);
         this.getIdentity = getIdentity;
         this.getTrust = getTrust;
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.replaceStatePayloadStore = replaceStatePayloadStore;
     }
 
     public event Action? Changed;
@@ -116,6 +120,26 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         }
 
         return targets.ToImmutable();
+    }
+
+    public DesktopReplaceRecoveryResult GetReplaceRecoveryState()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        PersistentReplaceStateStore? current = replaceState;
+        if (current is null)
+        {
+            return DesktopReplaceRecoveryResult.Unavailable;
+        }
+
+        try
+        {
+            return DesktopReplaceRecoveryResult.Available(
+                current.GetRecoverySnapshot(timeProvider.GetUtcNow()));
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return DesktopReplaceRecoveryResult.Unavailable;
+        }
     }
 
     public async ValueTask<OperationReceipt> HandoffAsync(
@@ -310,15 +334,44 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             var authorizedInventoryPeer = new TrustBoundReplaceInventoryPeer(
                 inventoryEndpoint,
                 coordinator);
-            var newHandler = new AuthenticatedActivitySessionHandler(
-                authorizedPeer,
-                replacePeer: null,
-                authorizedInventoryPeer,
-                timeProvider);
+            PersistentReplaceStateStore? newReplaceState = null;
+            if (replaceStatePayloadStore is not null)
+            {
+                try
+                {
+                    newReplaceState = await PersistentReplaceStateStore.OpenAsync(
+                        replaceStatePayloadStore,
+                        linked.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (linked.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    newReplaceState = null;
+                }
+            }
+
+            AuthenticatedActivitySessionHandler newHandler;
+            try
+            {
+                newHandler = new AuthenticatedActivitySessionHandler(
+                    authorizedPeer,
+                    replacePeer: null,
+                    authorizedInventoryPeer,
+                    timeProvider);
+            }
+            catch
+            {
+                newReplaceState?.Dispose();
+                throw;
+            }
             newHandler.Changed += OnHandlerChanged;
             catalog = newCatalog;
             trust = coordinator;
             handler = newHandler;
+            replaceState = newReplaceState;
             Volatile.Write(ref node, newNode);
         }
         finally
@@ -358,6 +411,9 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             }
 
             Volatile.Write(ref node, null);
+            PersistentReplaceStateStore? currentReplaceState = replaceState;
+            replaceState = null;
+            currentReplaceState?.Dispose();
             catalog = null;
             trust = null;
         }

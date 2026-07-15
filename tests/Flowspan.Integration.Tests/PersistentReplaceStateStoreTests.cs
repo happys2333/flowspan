@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Flowspan.Application;
 using Flowspan.Domain;
 
@@ -666,6 +667,211 @@ public sealed class PersistentReplaceStateStoreTests
                 capsule.ReplacementActivity.Descriptor,
                 Now);
         }
+    }
+
+    [Fact]
+    public async Task RecoverySnapshotProjectsOnlyBoundedKnownReplaceState()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        using PersistentReplaceStateStore state =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+        UndoCapsule capsule = CreateCapsule();
+        var catalog = new InMemoryActivityCatalog();
+        Assert.True(catalog.TryAdd(capsule.OriginalActivity));
+        using var endpoint = new ReplaceEndpoint(
+            capsule.TargetDeviceId,
+            new TestClock(Now),
+            catalog,
+            state,
+            new ActivityAdapterRegistry([new CountingReplaceAdapter()]),
+            state,
+            new DeterministicUndoCapsuleIdSource([capsule.Id]),
+            NullReceiptSink.Instance);
+        endpoint.SetPeerGrant(
+            capsule.SourceDeviceId,
+            CapabilityGrant.Of(Capability.ActivityReplace));
+
+        ReplaceOperationResult result = await endpoint.ReplaceAsync(
+            capsule.SourceDeviceId,
+            CreateReplaceCommand(capsule));
+
+        Assert.Equal(OperationStatus.Committed, result.Receipt.Status);
+        ReplaceRecoverySnapshot snapshot = state.GetRecoverySnapshot(Now);
+        Assert.Equal(Now, snapshot.CapturedAt);
+        Assert.False(snapshot.IsTruncated);
+        ReplaceRecoveryRecord record = Assert.Single(snapshot.Records);
+        Assert.Equal(ReplaceRecoveryOperationKind.Replace, record.Kind);
+        Assert.Equal(ReplaceRecoveryJournalState.Terminal, record.JournalState);
+        Assert.Equal(capsule.OperationId, record.OperationId);
+        Assert.Equal(capsule.CorrelationId, record.CorrelationId);
+        Assert.Equal(capsule.SourceDeviceId, record.ReplaceSourceDeviceId);
+        Assert.Equal(capsule.TargetDeviceId, record.ReplaceTargetDeviceId);
+        Assert.Equal(capsule.TargetActivityId, record.TargetActivityId);
+        Assert.Equal(
+            capsule.ReplacementActivity.Descriptor.Id,
+            record.IncomingActivityId);
+        Assert.Equal(capsule.Id, record.CapsuleId);
+        Assert.Equal(ReplaceRecoveryTimestampKind.Outcome, record.TimestampKind);
+        Assert.Equal(Now, record.RecordedAt);
+        Assert.Equal(capsule.ExpiresAt, record.UndoExpiresAt);
+        Assert.Equal(ReplaceUndoAvailability.Available, record.UndoAvailability);
+        Assert.True(record.HasCompleteReplaceBindings);
+
+        string json = JsonSerializer.Serialize(snapshot);
+        Assert.DoesNotContain("Original note", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Incoming note", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("keep me", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("replace with me", json, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            capsule.TargetDescriptorDigest,
+            json,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            capsule.IncomingDescriptorDigest,
+            json,
+            StringComparison.OrdinalIgnoreCase);
+
+        ReplaceRecoveryRecord expired = Assert.Single(
+            state.GetRecoverySnapshot(Now.AddMinutes(11)).Records);
+        Assert.Equal(ReplaceUndoAvailability.Expired, expired.UndoAvailability);
+    }
+
+    [Fact]
+    public async Task RecoverySnapshotShowsPendingAndConsumedUndoWithoutActions()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        using PersistentReplaceStateStore state =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+        UndoCapsule capsule = CreateCapsule();
+        Assert.True(await state.TryAddCapsuleAsync(capsule));
+        await state.ExecuteOnceAsync(
+            capsule.OperationId,
+            new string('A', 64),
+            _ => ValueTask.FromResult(OperationReceipt.Committed(
+                capsule.OperationId,
+                capsule.CorrelationId,
+                OperationKind.Replace,
+                capsule.SourceDeviceId,
+                capsule.TargetDeviceId,
+                capsule.ReplacementActivity.Descriptor,
+                Now)),
+            CancellationToken.None);
+        OperationId undoOperationId =
+            OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        CorrelationId undoCorrelationId =
+            CorrelationId.Parse("99999999-9999-9999-9999-999999999999");
+        Assert.Equal(
+            UndoJournalPreparationStatus.Prepared,
+            (await state.PrepareUndoAsync(
+                capsule.Id,
+                undoOperationId,
+                new string('C', 64))).Status);
+
+        ReplaceRecoverySnapshot pending = state.GetRecoverySnapshot(Now);
+        Assert.Equal(2, pending.Records.Length);
+        ReplaceRecoveryRecord pendingUndo = pending.Records[0];
+        Assert.Equal(ReplaceRecoveryOperationKind.Undo, pendingUndo.Kind);
+        Assert.Equal(ReplaceRecoveryJournalState.Pending, pendingUndo.JournalState);
+        Assert.True(pendingUndo.IsRecoveryRequired);
+        Assert.Null(pendingUndo.CorrelationId);
+        Assert.Equal(FailureCode.OperationInProgress, pendingUndo.FailureCode);
+        ReplaceRecoveryRecord pendingReplace = Assert.Single(
+            pending.Records,
+            record => record.Kind == ReplaceRecoveryOperationKind.Replace);
+        Assert.Equal(
+            ReplaceUndoAvailability.PendingOperation,
+            pendingReplace.UndoAvailability);
+
+        await state.CompleteUndoAsync(
+            undoOperationId,
+            UndoReplaceResult.Committed(
+                OperationContext.Create(
+                    undoOperationId,
+                    undoCorrelationId,
+                    Now.AddSeconds(30)),
+                capsule.Id,
+                Now.AddSeconds(1)));
+
+        ReplaceRecoverySnapshot completed = state.GetRecoverySnapshot(Now.AddSeconds(1));
+        ReplaceRecoveryRecord replace = Assert.Single(
+            completed.Records,
+            record => record.Kind == ReplaceRecoveryOperationKind.Replace);
+        ReplaceRecoveryRecord undo = Assert.Single(
+            completed.Records,
+            record => record.Kind == ReplaceRecoveryOperationKind.Undo);
+        Assert.Equal(ReplaceUndoAvailability.Consumed, replace.UndoAvailability);
+        Assert.Equal(ReplaceRecoveryJournalState.Terminal, undo.JournalState);
+        Assert.Equal(OperationStatus.Committed, undo.Status);
+        Assert.Equal(undoCorrelationId, undo.CorrelationId);
+    }
+
+    [Fact]
+    public async Task RecoverySnapshotPrioritizesIncompletePendingBoundaryWhenTruncated()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        using PersistentReplaceStateStore state =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+        UndoCapsule capsule = CreateCapsule();
+        for (int index = 1; index <= ReplaceRecoverySnapshot.MaximumRecords; index++)
+        {
+            OperationId operationId = OperationId.Parse(
+                $"00000000-0000-0000-0000-{index:X12}");
+            CorrelationId correlationId = CorrelationId.Parse(
+                $"10000000-0000-0000-0000-{index:X12}");
+            await state.ExecuteOnceAsync(
+                operationId,
+                index.ToString("X64", System.Globalization.CultureInfo.InvariantCulture),
+                _ => ValueTask.FromResult(OperationReceipt.Rejected(
+                    operationId,
+                    correlationId,
+                    OperationKind.Replace,
+                    capsule.SourceDeviceId,
+                    capsule.TargetDeviceId,
+                    capsule.ReplacementActivity.Descriptor,
+                    Now.AddSeconds(index),
+                    FailureCode.CapabilityDenied)),
+                CancellationToken.None);
+        }
+
+        OperationId pendingOperationId =
+            OperationId.Parse("ffffffff-0000-0000-0000-ffffffffffff");
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<JournalExecutionResult> pendingExecution = state.ExecuteOnceAsync(
+            pendingOperationId,
+            new string('D', 64),
+            async cancellationToken =>
+            {
+                started.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+                return OperationReceipt.Rejected(
+                    pendingOperationId,
+                    CorrelationId.Parse("ffffffff-1111-1111-1111-ffffffffffff"),
+                    OperationKind.Replace,
+                    capsule.SourceDeviceId,
+                    capsule.TargetDeviceId,
+                    capsule.ReplacementActivity.Descriptor,
+                    Now,
+                    FailureCode.InternalFailure);
+            },
+            CancellationToken.None).AsTask();
+        await started.Task;
+
+        ReplaceRecoverySnapshot snapshot = state.GetRecoverySnapshot(Now);
+
+        Assert.True(snapshot.IsTruncated);
+        Assert.Equal(ReplaceRecoverySnapshot.MaximumRecords, snapshot.Records.Length);
+        ReplaceRecoveryRecord pending = snapshot.Records[0];
+        Assert.Equal(pendingOperationId, pending.OperationId);
+        Assert.Equal(ReplaceRecoveryJournalState.Pending, pending.JournalState);
+        Assert.False(pending.HasCompleteReplaceBindings);
+        Assert.Null(pending.CorrelationId);
+        Assert.Null(pending.RecordedAt);
+        Assert.Null(pending.CapsuleId);
+        release.TrySetResult();
+        await pendingExecution;
     }
 
     private static UndoCapsule CreateCapsule()

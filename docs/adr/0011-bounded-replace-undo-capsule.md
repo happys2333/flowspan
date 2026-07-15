@@ -122,6 +122,16 @@ markers are retained until a later recovery/history policy can prove they are
 safe to prune. Store-full, key, disk, cancellation, and authentication failures
 remain structured and must not cross a destructive boundary unnoticed.
 
+The same in-memory snapshot provides a bounded read-only recovery projection
+for the target desktop. It combines Replace and undo journal entries without
+serializing another history file, orders unresolved entries before terminal
+history, and discloses only known opaque IDs, participants, timestamps,
+redacted outcome/reason, and exact capsule expiry/availability. Descriptor
+metadata and payload, preserved state, request digests, and exceptions are
+excluded. A pending entry written before capsule capture may contain only an
+Operation ID and is presented as incomplete rather than reconstructed from
+untrusted or unrelated state.
+
 ## Consequences
 
 - Replace cannot accidentally inherit Handoff/Move's source-preserving or

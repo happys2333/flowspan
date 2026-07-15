@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -28,6 +29,7 @@ public sealed class ReplaceStatePersistenceException : IOException
 public sealed class PersistentReplaceStateStore :
     IOperationJournal,
     IReplaceStateStore,
+    IReplaceRecoverySnapshotSource,
     IDisposable
 {
     public const int MaximumCapsuleCount = 16;
@@ -64,6 +66,59 @@ public sealed class PersistentReplaceStateStore :
                 return state.Capsules.Count;
             }
         }
+    }
+
+    public ReplaceRecoverySnapshot GetRecoverySnapshot(DateTimeOffset utcNow)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (utcNow.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "A Replace recovery snapshot requires a UTC timestamp.",
+                nameof(utcNow));
+        }
+
+        PersistedOperation[] operations;
+        PersistedUndoOperation[] undoOperations;
+        UndoCapsule[] capsules;
+        lock (snapshotGate)
+        {
+            operations = state.Operations.Values.ToArray();
+            undoOperations = state.UndoOperations.Values.ToArray();
+            capsules = state.Capsules.Values.ToArray();
+        }
+
+        var capsuleByOperation = capsules.ToDictionary(
+            static capsule => capsule.OperationId);
+        var capsuleById = capsules.ToDictionary(static capsule => capsule.Id);
+        var undoByCapsule = undoOperations
+            .GroupBy(static undo => undo.CapsuleId)
+            .ToDictionary(static group => group.Key, static group => group.ToArray());
+        IEnumerable<ReplaceRecoveryRecord> replaceRecords = operations.Select(
+            operation => CreateReplaceRecoveryRecord(
+                operation,
+                capsuleByOperation.GetValueOrDefault(operation.OperationId),
+                undoByCapsule,
+                utcNow));
+        IEnumerable<ReplaceRecoveryRecord> undoRecords = undoOperations.Select(
+            operation => CreateUndoRecoveryRecord(
+                operation,
+                capsuleById.GetValueOrDefault(operation.CapsuleId)));
+        ReplaceRecoveryRecord[] ordered = replaceRecords
+            .Concat(undoRecords)
+            .OrderByDescending(static record => record.IsRecoveryRequired)
+            .ThenByDescending(static record =>
+                record.RecordedAt ?? DateTimeOffset.MinValue)
+            .ThenBy(static record => record.Kind)
+            .ThenBy(
+                static record => record.OperationId.ToString(),
+                StringComparer.Ordinal)
+            .ToArray();
+        bool isTruncated = ordered.Length > ReplaceRecoverySnapshot.MaximumRecords;
+        return new ReplaceRecoverySnapshot(
+            utcNow,
+            isTruncated,
+            ordered.Take(ReplaceRecoverySnapshot.MaximumRecords).ToImmutableArray());
     }
 
     public static async ValueTask<PersistentReplaceStateStore> OpenAsync(
@@ -541,6 +596,105 @@ public sealed class PersistentReplaceStateStore :
                 "A journal request digest must contain 1 to 256 non-control characters.",
                 nameof(requestDigest));
         }
+    }
+
+    private static ReplaceRecoveryRecord CreateReplaceRecoveryRecord(
+        PersistedOperation operation,
+        UndoCapsule? capsule,
+        IReadOnlyDictionary<UndoCapsuleId, PersistedUndoOperation[]> undoByCapsule,
+        DateTimeOffset utcNow)
+    {
+        OperationReceipt? receipt = operation.Receipt;
+        ReplaceRecoveryJournalState journalState = receipt is null
+            ? ReplaceRecoveryJournalState.Pending
+            : ReplaceRecoveryJournalState.Terminal;
+        ReplaceRecoveryTimestampKind timestampKind = receipt is not null
+            ? ReplaceRecoveryTimestampKind.Outcome
+            : capsule is not null
+                ? ReplaceRecoveryTimestampKind.CapsuleCaptured
+                : ReplaceRecoveryTimestampKind.None;
+        return new ReplaceRecoveryRecord(
+            ReplaceRecoveryOperationKind.Replace,
+            journalState,
+            operation.OperationId,
+            receipt?.Status ?? OperationStatus.Recovering,
+            receipt?.FailureCode ?? FailureCode.OperationInProgress,
+            receipt?.CorrelationId ?? capsule?.CorrelationId,
+            receipt?.SourceDeviceId ?? capsule?.SourceDeviceId,
+            receipt?.TargetDeviceId ?? capsule?.TargetDeviceId,
+            capsule?.TargetActivityId,
+            receipt?.ActivityId ?? capsule?.ReplacementActivity.Descriptor.Id,
+            capsule?.Id,
+            timestampKind,
+            receipt?.OccurredAt ?? capsule?.CapturedAt,
+            capsule?.ExpiresAt,
+            GetUndoAvailability(receipt, capsule, undoByCapsule, utcNow));
+    }
+
+    private static ReplaceRecoveryRecord CreateUndoRecoveryRecord(
+        PersistedUndoOperation operation,
+        UndoCapsule? capsule)
+    {
+        UndoReplaceResult? result = operation.Result;
+        return new ReplaceRecoveryRecord(
+            ReplaceRecoveryOperationKind.Undo,
+            result is null
+                ? ReplaceRecoveryJournalState.Pending
+                : ReplaceRecoveryJournalState.Terminal,
+            operation.OperationId,
+            result?.Status ?? OperationStatus.Recovering,
+            result?.FailureCode ?? FailureCode.OperationInProgress,
+            result?.CorrelationId,
+            capsule?.SourceDeviceId,
+            capsule?.TargetDeviceId,
+            capsule?.TargetActivityId,
+            capsule?.ReplacementActivity.Descriptor.Id,
+            operation.CapsuleId,
+            result is null
+                ? ReplaceRecoveryTimestampKind.None
+                : ReplaceRecoveryTimestampKind.Outcome,
+            result?.OccurredAt,
+            capsule?.ExpiresAt,
+            ReplaceUndoAvailability.None);
+    }
+
+    private static ReplaceUndoAvailability GetUndoAvailability(
+        OperationReceipt? receipt,
+        UndoCapsule? capsule,
+        IReadOnlyDictionary<UndoCapsuleId, PersistedUndoOperation[]> undoByCapsule,
+        DateTimeOffset utcNow)
+    {
+        if (capsule is null)
+        {
+            return ReplaceUndoAvailability.None;
+        }
+
+        if (undoByCapsule.TryGetValue(
+                capsule.Id,
+                out PersistedUndoOperation[]? undoOperations))
+        {
+            if (undoOperations.Any(static undo =>
+                    undo.Result?.Status == OperationStatus.Committed))
+            {
+                return ReplaceUndoAvailability.Consumed;
+            }
+
+            if (undoOperations.Any(static undo => undo.Result is null))
+            {
+                return ReplaceUndoAvailability.PendingOperation;
+            }
+        }
+
+        if (receipt is null || !receipt.IsSuccess)
+        {
+            return receipt?.Status == OperationStatus.Recovering
+                ? ReplaceUndoAvailability.PendingOperation
+                : ReplaceUndoAvailability.None;
+        }
+
+        return capsule.ExpiresAt <= utcNow
+            ? ReplaceUndoAvailability.Expired
+            : ReplaceUndoAvailability.Available;
     }
 
     private sealed record StoreState(

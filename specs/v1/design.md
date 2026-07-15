@@ -196,6 +196,29 @@ slice exposes no `ReplaceAsync` desktop service method and continues composing
 `AuthenticatedActivitySessionHandler` with `replacePeer: null`, so confirming a
 preview cannot cross the destructive boundary.
 
+The target-local recovery surface reads a snapshot from the same protected
+Replace store; it does not scrape logs or query a peer. The application projects
+at most 64 canonically ordered records across Replace and undo journals. Each
+record contains only its operation type, pending/terminal state, redacted reason,
+known opaque operation/correlation/capsule/Activity/device IDs, known timestamp,
+and exact capsule expiry/availability. A pending record created before capsule
+capture may know only its Operation ID and is labelled as incomplete rather than
+having participants inferred. Descriptor title, kind, digest, payload, preserved
+state, request digest, and exception text never enter this read model. The
+snapshot is immutable, explicitly marks truncation, and orders recovery-required
+records before terminal history so a bounded page cannot hide an unresolved
+boundary.
+
+After identity and Trust make the Activity workspace available, Desktop startup
+opens the protected Replace store as an independent failure domain. A key,
+authentication, schema, bounds, or I/O failure becomes a named Replace-recovery
+fault with platform-neutral guidance; normal note, Handoff, and Move work
+remains available, while destructive Replace stays locked. The current 7.3c.5
+slice is read-only: it exposes no recovery retry, undo command, `ReplaceAsync`,
+or production `IReplacePeer`. A later target-local undo surface will use only a
+terminal committed Replace item whose capsule is unconsumed and not expired;
+pending/expired/consumed states never become actions.
+
 Transfer, Replace inventory, and destructive Replace share one atomic pending
 correlation reservation per authenticated session. A correlation ID cannot
 identify two concurrent Activity operations even when their message types

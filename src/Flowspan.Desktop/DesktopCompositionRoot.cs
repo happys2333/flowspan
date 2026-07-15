@@ -1,4 +1,5 @@
 using System.Text;
+using Flowspan.Application;
 using Flowspan.Platform.Linux;
 using Flowspan.Platform.MacOS;
 using Flowspan.Platform.Windows;
@@ -18,7 +19,8 @@ public static class DesktopCompositionRoot
         var trustAuthority = new PersistentDesktopTrustAuthority(trustStore);
         var activityRuntime = new DesktopActivityRuntime(
             identityStartup.GetRuntimeIdentityAsync,
-            trustAuthority.GetRuntimeCoordinatorAsync);
+            trustAuthority.GetRuntimeCoordinatorAsync,
+            replaceStatePayloadStore: CreatePlatformReplaceStatePayloadStore());
         var localPairingRuntime = new DesktopLocalPairingRuntime(
             new SystemDesktopLocalPairingNetworkFactory(
                 identityStartup,
@@ -83,6 +85,26 @@ public static class DesktopCompositionRoot
         return new UnsupportedTrustPayloadStore();
     }
 
+    private static IReplaceStatePayloadStore CreatePlatformReplaceStatePayloadStore()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return new WindowsReplaceStatePayloadStore();
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return new MacOSReplaceStatePayloadStore();
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            return new LinuxReplaceStatePayloadStore();
+        }
+
+        return new UnsupportedReplaceStatePayloadStore();
+    }
+
     private static string GetLocalDisplayName()
     {
         string candidate = Environment.MachineName.Normalize(NormalizationForm.FormC);
@@ -130,5 +152,20 @@ public static class DesktopCompositionRoot
 
         private static PlatformNotSupportedException CreateException() =>
             new("The desktop shell supports Windows, macOS, and Linux only.");
+    }
+
+    private sealed class UnsupportedReplaceStatePayloadStore : IReplaceStatePayloadStore
+    {
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<byte[]?>(CreateException());
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> payload,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(CreateException());
+
+        private static PlatformNotSupportedException CreateException() =>
+            new("Protected Replace state supports Windows, macOS, and Linux only.");
     }
 }
