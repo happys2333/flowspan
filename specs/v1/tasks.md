@@ -286,7 +286,7 @@ means its linked evidence exists; it does not imply the entire product works.
     only after the closure commit itself passes the same final-HEAD workflows.
     Replace/swap, live-sharing indicators, recovery history, and compensating
     undo remain later slices.
-  - 7.3b implementation and hosted candidate verified: expose bounded
+  - 7.3b complete: expose bounded
     `workspace.note/v1` Move as a separate target-first preview and keyboard
     control. Close the source only after the target returns a verified committed
     receipt; preserve it after rejection, failure, or acknowledgement loss; and
@@ -298,8 +298,10 @@ means its linked evidence exists; it does not imply the entire product works.
     package audit, exact-commit hosted matrix, Secret Scan, CodeQL, and evidence
     limits are recorded in
     [desktop Semantic Move evidence](../../docs/evidence/2026-07-15-desktop-semantic-move.md).
-    The evidence and closure commits must independently pass the same final-HEAD
-    workflows before marking this sub-slice complete.
+    All 431 tests, Secret Scan, and CodeQL pass on hosted Windows, macOS, and
+    Ubuntu for implementation commit `eb83801` and evidence commit `3ea5e10`;
+    exact run/job evidence is linked above. This completion status is effective
+    only after the closure commit itself passes the same final-HEAD workflows.
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

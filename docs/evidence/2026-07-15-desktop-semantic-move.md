@@ -113,6 +113,26 @@ The implementation commit is green. This evidence-document commit and the
 subsequent closure commit must independently pass the same workflows before task
 7.3b is recorded complete.
 
+The evidence-document commit
+`3ea5e10f9a07f0b71fd40b000df975d8b22836bc` was then independently verified by
+CI run
+[29393553679](https://github.com/happys2333/flowspan/actions/runs/29393553679)
+and CodeQL run
+[29393553720](https://github.com/happys2333/flowspan/actions/runs/29393553720).
+The second CI run again passed all 431 tests, locked restore, formatting,
+warning-free builds, TEST MODE composition, deterministic Handoff simulator,
+artifact upload, and Secret Scan in jobs `87281960616` (Windows), `87281960652`
+(macOS), `87281960696` (Ubuntu), and `87281960612` (Secret Scan). The second
+CodeQL job `87281960754` again scanned 151/151 C# files, uploaded results, and
+completed successfully. Both runs were created at `2026-07-15T06:12:56Z`; CI
+completed at `2026-07-15T06:15:26Z` and CodeQL at
+`2026-07-15T06:16:01Z`.
+
+With the implementation and evidence commits independently green, the 7.3b
+automated acceptance evidence is complete. The closure commit that records this
+status remains subject to the same branch CI, Secret Scan, and CodeQL workflows;
+the status is effective only after those final-HEAD checks pass.
+
 ## What this proves
 
 - The desktop offers a separate Move preview and keyboard-operable confirmation
