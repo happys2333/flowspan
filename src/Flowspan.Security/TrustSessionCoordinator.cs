@@ -5,6 +5,12 @@ using Flowspan.Domain;
 
 namespace Flowspan.Security;
 
+public enum CapabilityRequirementMatch
+{
+    All,
+    Any,
+}
+
 public enum TrustSessionStopReason
 {
     PeerRevoked,
@@ -104,11 +110,36 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         }
     }
 
-    public async ValueTask<TrustSessionRegistration?> TryRegisterAsync(
+    public ValueTask<TrustSessionRegistration?> TryRegisterAsync(
         DeviceId peerDeviceId,
         CapabilityGrant requiredCapabilities,
         IRevocablePeerSession session,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        TryRegisterCoreAsync(
+            peerDeviceId,
+            requiredCapabilities,
+            CapabilityRequirementMatch.All,
+            session,
+            cancellationToken);
+
+    public ValueTask<TrustSessionRegistration?> TryRegisterAnyAsync(
+        DeviceId peerDeviceId,
+        CapabilityGrant requiredCapabilities,
+        IRevocablePeerSession session,
+        CancellationToken cancellationToken = default) =>
+        TryRegisterCoreAsync(
+            peerDeviceId,
+            requiredCapabilities,
+            CapabilityRequirementMatch.Any,
+            session,
+            cancellationToken);
+
+    private async ValueTask<TrustSessionRegistration?> TryRegisterCoreAsync(
+        DeviceId peerDeviceId,
+        CapabilityGrant requiredCapabilities,
+        CapabilityRequirementMatch capabilityMatch,
+        IRevocablePeerSession session,
+        CancellationToken cancellationToken)
     {
         ThrowIfShuttingDown();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
@@ -125,8 +156,10 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         try
         {
             ThrowIfShuttingDown();
-            if (requiredCapabilities.Capabilities.Any(capability =>
-                    !trustStore.Allows(peerDeviceId, capability)))
+            if (!IsCapabilityRequirementSatisfied(
+                    requiredCapabilities,
+                    capabilityMatch,
+                    capability => trustStore.Allows(peerDeviceId, capability)))
             {
                 return null;
             }
@@ -137,6 +170,7 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
                 new TrackedSession(
                     peerDeviceId,
                     requiredCapabilities,
+                    capabilityMatch,
                     session));
             return new TrustSessionRegistration(this, registrationId);
         }
@@ -256,8 +290,10 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
             unauthorizedSessions = RemoveSessions(
                 static (tracked, state) =>
                     tracked.PeerDeviceId == state.PeerDeviceId
-                    && tracked.RequiredCapabilities.Capabilities.Any(capability =>
-                        !state.Capabilities.Allows(capability)),
+                    && !IsCapabilityRequirementSatisfied(
+                        tracked.RequiredCapabilities,
+                        tracked.CapabilityMatch,
+                        state.Capabilities.Allows),
                 (PeerDeviceId: peerDeviceId, Capabilities: capabilities));
         }
         finally
@@ -401,8 +437,24 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
             Volatile.Read(ref disposalState) != 0,
             this);
 
+    private static bool IsCapabilityRequirementSatisfied(
+        CapabilityGrant requiredCapabilities,
+        CapabilityRequirementMatch capabilityMatch,
+        Func<Capability, bool> allows) => capabilityMatch switch
+        {
+            CapabilityRequirementMatch.All =>
+                requiredCapabilities.Capabilities.All(allows),
+            CapabilityRequirementMatch.Any =>
+                requiredCapabilities.Capabilities.Any(allows),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(capabilityMatch),
+                capabilityMatch,
+                "Unknown session capability match mode."),
+        };
+
     private sealed record TrackedSession(
         DeviceId PeerDeviceId,
         CapabilityGrant RequiredCapabilities,
+        CapabilityRequirementMatch CapabilityMatch,
         IRevocablePeerSession Session);
 }

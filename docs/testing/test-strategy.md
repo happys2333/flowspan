@@ -117,12 +117,15 @@ revoke, cancellation/drain, conflicting-fingerprint latching, sanitized worker
 failure, and the rule that discovery refresh cannot interrupt an active
 authenticated channel. Candidate-source tests reconstruct the public key only
 from current Trust and require the signed offer to verify before returning an
-endpoint. A same-process loopback test composes the production reconnect
+endpoint. A same-process loopback theory composes the production reconnect
 supervisor, authenticated connector, listener, both Trust coordinators, and both
-idle handlers; both peers must say `AUTHENTICATED — IDLE / NOT SHARING`. Headless
-tests verify the per-peer and warning text/automation surface. These results do
-not prove physical DNS-SD, firewall behavior, sleep/wake, interface churn,
-native notifications, or two-machine identity replacement.
+handlers with complementary one-way grants in either Device ID ordering; both
+peers must say `AUTHENTICATED — IDLE / NOT SHARING`. Security and transport tests
+separately prove explicit all-of versus any-of admission and that an any-of
+session drains only after its final alternative is removed. Headless tests verify
+the per-peer and warning text/automation surface. These results do not prove
+physical DNS-SD, firewall behavior, sleep/wake, interface churn, native
+notifications, or two-machine identity replacement.
 
 The task 7.2e permission-preflight tests treat the local-network runtime factory
 as the side-effect boundary. Windows, macOS, and Linux guide cases must name the
@@ -136,6 +139,23 @@ persistent `NOT SHARING` state. These are selection, state, and UI contracts,
 not evidence that a native prompt appeared, permission changed, a firewall rule
 worked, or settings revocation succeeded.
 
+The task 7.3a Activity tests use one `workspace.note/v1` tracer bullet. Codec
+tests round-trip the bounded transfer and payload-free receipt, reject wrong
+targets, tampered descriptor digests, overlong envelope deadlines, wrong
+recipients, and correlation mismatch. Session tests cover authenticated sender
+binding, target resume, exact pending-receipt binding (including wrong Activity),
+unsolicited receipt, acknowledgement loss, and a real encrypted loopback
+Handoff that preserves the source. Application and desktop-runtime tests enforce
+source-side `activity.receive`, target-side `activity.offer`, target liveness,
+idempotency, target rejection of empty or malformed-shape portable notes, and no
+outbound payload before authorization. View-model and Avalonia Headless tests
+prove the explicit source-preserving preview, named
+Remote Window limitation, keyboard flow, payload-free receipt projection, and
+unchanged `NOT SHARING` band. Workspace tests prove identity -> Trust -> Activity
+initialization, Activity-only retry, and network -> Activity -> Trust -> identity
+disposal. These are deterministic and same-host results, not physical two-device
+or arbitrary-application migration evidence.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance;
@@ -144,7 +164,9 @@ Core invariants are asserted after every event:
 4. operation ID/digest is one-to-one;
 5. at most one live driver lease epoch authorizes input;
 6. unauthorized peers never observe descriptor content;
-7. diagnostics contain no registered canary secret.
+7. a receipt cannot acknowledge another pending Activity or repeat descriptor
+   payload;
+8. diagnostics contain no registered canary secret.
 
 ## 4. CI matrix
 

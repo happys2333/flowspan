@@ -95,6 +95,44 @@ public sealed class WorkspaceShellViewModelTests
     }
 
     [Fact]
+    public async Task ActivityWorkspaceInitializesAfterIdentityAndTrust()
+    {
+        var order = new List<string>();
+        var activity = new OrderedActivityService(order);
+        await using var viewModel = new WorkspaceShellViewModel(
+            new OrderedReadyStartup(order),
+            trustAuthority: new OrderedReadyTrustAuthority(order),
+            activityService: activity);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(["identity-init", "trust-init", "activity-init"], order);
+        Assert.True(viewModel.Activities.IsReady);
+    }
+
+    [Fact]
+    public async Task ActivityWorkspaceRetryKeepsReadyIdentityAndTrustOpen()
+    {
+        var order = new List<string>();
+        var activity = new RecoveringOrderedActivityService(order);
+        await using var viewModel = new WorkspaceShellViewModel(
+            new OrderedReadyStartup(order),
+            trustAuthority: new OrderedReadyTrustAuthority(order),
+            activityService: activity);
+
+        await viewModel.InitializeAsync();
+        Assert.False(viewModel.Activities.IsReady);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(
+            ["identity-init", "trust-init", "activity-init", "activity-init"],
+            order);
+        Assert.True(viewModel.Activities.IsReady);
+        Assert.Equal(2, activity.Attempts);
+    }
+
+    [Fact]
     public async Task DisposeAsyncCancelsTrustMutationBeforeDisposingDependencies()
     {
         var startup = new TrackingStartup();
@@ -116,7 +154,7 @@ public sealed class WorkspaceShellViewModelTests
     }
 
     [Fact]
-    public async Task DisposeStopsLocalPairingBeforeTrustAndIdentity()
+    public async Task DisposeStopsNetworkAndActivityBeforeTrustAndIdentity()
     {
         var order = new List<string>();
         var startup = new OrderedStartup(order);
@@ -126,12 +164,13 @@ public sealed class WorkspaceShellViewModelTests
         var viewModel = new WorkspaceShellViewModel(
             startup,
             trustAuthority: authority,
-            localPairingRuntime: runtime);
+            localPairingRuntime: runtime,
+            activityService: new OrderedActivityService(order));
         await runtime.EnableAsync();
 
         await viewModel.DisposeAsync();
 
-        Assert.Equal(["network", "trust", "identity"], order);
+        Assert.Equal(["network", "activity", "trust", "identity"], order);
     }
 
     private static WorkspaceShellViewModel CreateReadyViewModel() => new(
@@ -182,6 +221,155 @@ public sealed class WorkspaceShellViewModelTests
         }
 
         public void Dispose() => Disposed = true;
+    }
+
+    private sealed class OrderedReadyStartup(List<string> order) :
+        IDesktopIdentityStartup
+    {
+        public ValueTask<LocalIdentitySnapshot> InitializeAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            order.Add("identity-init");
+            return ValueTask.FromResult(new LocalIdentitySnapshot(
+                "Desk",
+                "11111111-1111-1111-1111-111111111111",
+                new string('A', 64),
+                "Operating-system protected",
+                false));
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class OrderedReadyTrustAuthority(List<string> order) :
+        IDesktopTrustAuthority
+    {
+        public ValueTask<DesktopTrustSnapshot> InitializeAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            order.Add("trust-init");
+            return ValueTask.FromResult(new DesktopTrustSnapshot(
+                SecretStoreProtection.OperatingSystemProtected,
+                []));
+        }
+
+        public ValueTask<DesktopTrustMutationOutcome> UpdateCapabilitiesAsync(
+            DeviceId peerDeviceId,
+            string expectedFingerprint,
+            CapabilityGrant capabilities,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<DesktopTrustMutationOutcome>(
+                new NotSupportedException());
+
+        public ValueTask<DesktopTrustMutationOutcome> RevokeAsync(
+            DeviceId peerDeviceId,
+            string expectedFingerprint,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<DesktopTrustMutationOutcome>(
+                new NotSupportedException());
+
+        public ValueTask<TrustSessionRegistration?> TryRegisterSessionAsync(
+            DeviceId peerDeviceId,
+            CapabilityGrant requiredCapabilities,
+            IRevocablePeerSession session,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<TrustSessionRegistration?>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class OrderedActivityService(List<string> order) :
+        IDesktopActivityService
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public bool IsReady { get; private set; }
+
+        public DesktopActivitySnapshot CreateWorkspaceNote(
+            string title,
+            string text,
+            ActivitySensitivity sensitivity) => throw new NotSupportedException();
+
+        public ImmutableArray<DesktopActivitySnapshot> GetActivities() => [];
+
+        public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets() => [];
+
+        public ValueTask<OperationReceipt> HandoffAsync(
+            ActivityId activityId,
+            DeviceId targetDeviceId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<OperationReceipt>(new NotSupportedException());
+
+        public ValueTask InitializeAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            order.Add("activity-init");
+            IsReady = true;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            order.Add("activity");
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RecoveringOrderedActivityService(List<string> order) :
+        IDesktopActivityService
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int Attempts { get; private set; }
+
+        public bool IsReady { get; private set; }
+
+        public DesktopActivitySnapshot CreateWorkspaceNote(
+            string title,
+            string text,
+            ActivitySensitivity sensitivity) => throw new NotSupportedException();
+
+        public ImmutableArray<DesktopActivitySnapshot> GetActivities() => [];
+
+        public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets() => [];
+
+        public ValueTask<OperationReceipt> HandoffAsync(
+            ActivityId activityId,
+            DeviceId targetDeviceId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<OperationReceipt>(new NotSupportedException());
+
+        public ValueTask InitializeAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Attempts++;
+            order.Add("activity-init");
+            if (Attempts == 1)
+            {
+                return ValueTask.FromException(
+                    new IOException("Injected Activity startup failure."));
+            }
+
+            IsReady = true;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class BlockingTrustAuthority : IDesktopTrustAuthority

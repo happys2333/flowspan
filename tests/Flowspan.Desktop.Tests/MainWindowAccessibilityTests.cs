@@ -65,6 +65,97 @@ public sealed class MainWindowAccessibilityTests
     }
 
     [Fact]
+    public async Task SemanticHandoffPreviewAndReceiptAreKeyboardOperableAndNamed()
+    {
+        var activities = new AccessibilityActivityService();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            activityService: activities);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            TextBox title = Assert.IsType<TextBox>(
+                window.FindControl<TextBox>("WorkspaceNoteTitleTextBox"));
+            TextBox body = Assert.IsType<TextBox>(
+                window.FindControl<TextBox>("WorkspaceNoteBodyTextBox"));
+            Button create = Assert.IsType<Button>(
+                window.FindControl<Button>("CreateWorkspaceNoteButton"));
+            ListBox activityList = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("ActivityList"));
+            ListBox targetList = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("ActivityTargetList"));
+            TextBlock preview = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ActivityPreviewStatusText"));
+            TextBlock disclosure = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ActivityDataDisclosureText"));
+            TextBlock degradation = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ActivityDegradationStatusText"));
+            Button handoff = Assert.IsType<Button>(
+                window.FindControl<Button>("ActivityHandoffButton"));
+            TextBlock receipt = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ActivityReceiptStatusText"));
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
+
+            Assert.Equal(
+                "Portable note title",
+                title.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Portable note body",
+                body.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Create portable note Activity",
+                create.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Local semantic Activities",
+                activityList.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Authenticated semantic handoff targets",
+                targetList.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Confirm semantic handoff copy",
+                handoff.GetValue(AutomationProperties.NameProperty));
+            Assert.False(handoff.IsEnabled);
+
+            viewModel.Activities.DraftTitle = "Release plan";
+            viewModel.Activities.DraftText = "bounded note body";
+            Assert.True(create.IsEnabled);
+            Assert.True(create.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            viewModel.Activities.SelectedTarget = Assert.Single(
+                viewModel.Activities.Targets);
+
+            Assert.Single(activityList.Items);
+            Assert.Single(targetList.Items);
+            Assert.Equal(
+                "SEMANTIC HANDOFF — SOURCE STAYS OPEN",
+                preview.Text);
+            Assert.Contains("plain-text note", disclosure.Text);
+            Assert.Equal(
+                "REMOTE WINDOW NOT AVAILABLE IN THIS BUILD",
+                degradation.Text);
+            Assert.True(handoff.IsEnabled);
+            Assert.True(handoff.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.Equal("HANDOFF COMMITTED", receipt.Text);
+            Assert.Equal(
+                "Semantic handoff receipt status",
+                receipt.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal("NOT SHARING", sharing.Text);
+            window.Close();
+        }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task PairingConfirmationRequiresKeyboardCodeAcknowledgement()
     {
         using DeviceIdentity peer = DeviceIdentity.Generate(
@@ -360,6 +451,73 @@ public sealed class MainWindowAccessibilityTests
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class AccessibilityActivityService : IDesktopActivityService
+    {
+        private static readonly DeviceId LocalId =
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111");
+
+        private static readonly DeviceId TargetId =
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222");
+
+        private ActivityDescriptor? descriptor;
+
+        public event Action? Changed;
+
+        public DesktopActivitySnapshot CreateWorkspaceNote(
+            string title,
+            string text,
+            ActivitySensitivity sensitivity)
+        {
+            descriptor = ActivityDescriptor.Create(
+                ActivityId.From(Guid.NewGuid()),
+                ActivityKind.Parse("workspace.note/v1"),
+                LocalId,
+                title,
+                System.Text.Json.JsonSerializer.Serialize(new { text }),
+                sensitivity);
+            Changed?.Invoke();
+            return CreateSnapshot();
+        }
+
+        public ImmutableArray<DesktopActivitySnapshot> GetActivities() =>
+            descriptor is null ? [] : [CreateSnapshot()];
+
+        public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets() =>
+            [new DesktopActivityTargetSnapshot(TargetId, "Peer desk")];
+
+        public ValueTask<OperationReceipt> HandoffAsync(
+            ActivityId activityId,
+            DeviceId targetDeviceId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ActivityDescriptor current = descriptor
+                ?? throw new InvalidOperationException("No note exists.");
+            return ValueTask.FromResult(OperationReceipt.Committed(
+                OperationId.From(Guid.NewGuid()),
+                CorrelationId.From(Guid.NewGuid()),
+                OperationKind.Handoff,
+                LocalId,
+                TargetId,
+                current,
+                DateTimeOffset.UtcNow));
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private DesktopActivitySnapshot CreateSnapshot()
+        {
+            ActivityDescriptor current = descriptor
+                ?? throw new InvalidOperationException("No note exists.");
+            return new DesktopActivitySnapshot(
+                current.Id,
+                current.Title,
+                current.Kind.Value,
+                current.Sensitivity,
+                ActivityLifecycle.Active);
         }
     }
 

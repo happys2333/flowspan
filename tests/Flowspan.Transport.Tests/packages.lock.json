@@ -99,6 +99,12 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "flowspan.application": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Domain": "[1.0.0, )"
+        }
+      },
       "flowspan.domain": {
         "type": "Project"
       },
@@ -118,6 +124,7 @@
       "flowspan.transport": {
         "type": "Project",
         "dependencies": {
+          "Flowspan.Application": "[1.0.0, )",
           "Flowspan.Domain": "[1.0.0, )",
           "Flowspan.Protocol": "[1.0.0, )",
           "Flowspan.Security": "[1.0.0, )"

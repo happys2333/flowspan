@@ -332,12 +332,19 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "flowspan.application": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Domain": "[1.0.0, )"
+        }
+      },
       "flowspan.desktop": {
         "type": "Project",
         "dependencies": {
           "Avalonia": "[12.1.0, )",
           "Avalonia.Desktop": "[12.1.0, )",
           "Avalonia.Themes.Fluent": "[12.1.0, )",
+          "Flowspan.Application": "[1.0.0, )",
           "Flowspan.Platform.Linux": "[1.0.0, )",
           "Flowspan.Platform.MacOS": "[1.0.0, )",
           "Flowspan.Platform.Windows": "[1.0.0, )",
@@ -384,6 +391,7 @@
       "flowspan.transport": {
         "type": "Project",
         "dependencies": {
+          "Flowspan.Application": "[1.0.0, )",
           "Flowspan.Domain": "[1.0.0, )",
           "Flowspan.Protocol": "[1.0.0, )",
           "Flowspan.Security": "[1.0.0, )"

@@ -16,18 +16,23 @@ public static class DesktopCompositionRoot
         var identityStartup = new DesktopIdentityStartup(store, displayName);
         var pairingDecisions = new DesktopPairingDecisionSource();
         var trustAuthority = new PersistentDesktopTrustAuthority(trustStore);
+        var activityRuntime = new DesktopActivityRuntime(
+            identityStartup.GetRuntimeIdentityAsync,
+            trustAuthority.GetRuntimeCoordinatorAsync);
         var localPairingRuntime = new DesktopLocalPairingRuntime(
             new SystemDesktopLocalPairingNetworkFactory(
                 identityStartup,
                 trustAuthority,
-                pairingDecisions));
+                pairingDecisions,
+                activityRuntime));
         return new WorkspaceShellViewModel(
             identityStartup,
             pairingDecisions,
             AvaloniaDesktopUiDispatcher.Instance,
             trustAuthority,
             localPairingRuntime,
-            DesktopLocalNetworkPermissionGuide.ForCurrentPlatform());
+            DesktopLocalNetworkPermissionGuide.ForCurrentPlatform(),
+            activityRuntime);
     }
 
     public static WorkspaceShellViewModel CreateValidation() =>

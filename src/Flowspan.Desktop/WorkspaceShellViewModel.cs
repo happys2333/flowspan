@@ -42,7 +42,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         IDesktopUiDispatcher? dispatcher = null,
         IDesktopTrustAuthority? trustAuthority = null,
         DesktopLocalPairingRuntime? localPairingRuntime = null,
-        DesktopLocalNetworkPermissionGuide? localNetworkPermissionGuide = null)
+        DesktopLocalNetworkPermissionGuide? localNetworkPermissionGuide = null,
+        IDesktopActivityService? activityService = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
@@ -65,6 +66,9 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             effectiveDispatcher,
             TrustedDevices.InitializeAsync,
             localNetworkPermissionGuide);
+        Activities = new ActivityWorkspaceViewModel(
+            activityService ?? UnavailableDesktopActivityService.Instance,
+            effectiveDispatcher);
         toggleIdentityDetailsCommand = new RelayCommand(
             ToggleIdentityDetails,
             () => IsIdentityAvailable);
@@ -76,6 +80,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public PairingPromptViewModel Pairing { get; }
+
+    public ActivityWorkspaceViewModel Activities { get; }
 
     public LocalPairingViewModel LocalPairing { get; }
 
@@ -201,7 +207,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
                 enteredInitializationGate = true;
                 if (IsIdentityAvailable
                     && !IsStartupBlocked
-                    && TrustedDevices.IsTrustAvailable)
+                    && TrustedDevices.IsTrustAvailable
+                    && Activities.IsReady)
                 {
                     return;
                 }
@@ -228,9 +235,20 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
 
                     if (IsIdentityAvailable)
                     {
-                        await TrustedDevices
-                            .InitializeAsync(linkedCancellation.Token)
-                            .ConfigureAwait(true);
+                        if (!TrustedDevices.IsTrustAvailable)
+                        {
+                            await TrustedDevices
+                                .InitializeAsync(linkedCancellation.Token)
+                                .ConfigureAwait(true);
+                        }
+
+                        if (TrustedDevices.IsTrustAvailable && !Activities.IsReady)
+                        {
+                            await Activities
+                                .InitializeAsync(linkedCancellation.Token)
+                                .ConfigureAwait(true);
+                        }
+
                         LocalPairing.SetPrerequisitesAvailable(
                             localPairingAvailable
                             && TrustedDevices.IsTrustAvailable);
@@ -320,6 +338,15 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         try
         {
             await LocalPairing.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            await Activities.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {

@@ -79,6 +79,111 @@ public sealed class TrustSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task AnyCapabilitySessionAcceptsPeerWithOfferGrant()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+
+        await using TrustSessionRegistration? registration =
+            await coordinator.TryRegisterAnyAsync(
+                PeerId,
+                CapabilityGrant.Of(
+                    Capability.ActivityOffer,
+                    Capability.ActivityReceive),
+                new RecordingRevocableSession());
+
+        Assert.NotNull(registration);
+    }
+
+    [Fact]
+    public async Task AnyCapabilitySessionAcceptsPeerWithReceiveGrant()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+
+        await using TrustSessionRegistration? registration =
+            await coordinator.TryRegisterAnyAsync(
+                PeerId,
+                CapabilityGrant.Of(
+                    Capability.ActivityOffer,
+                    Capability.ActivityReceive),
+                new RecordingRevocableSession());
+
+        Assert.NotNull(registration);
+    }
+
+    [Fact]
+    public async Task AnyCapabilitySessionRejectsPeerWithNeitherGrant()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.MirrorView)));
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+
+        TrustSessionRegistration? registration =
+            await coordinator.TryRegisterAnyAsync(
+                PeerId,
+                CapabilityGrant.Of(
+                    Capability.ActivityOffer,
+                    Capability.ActivityReceive),
+                new RecordingRevocableSession());
+
+        Assert.Null(registration);
+    }
+
+    [Fact]
+    public async Task AnyCapabilitySessionStopsOnlyAfterFinalAlternativeIsRemoved()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(
+                Capability.ActivityOffer,
+                Capability.ActivityReceive)));
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+        var session = new RecordingRevocableSession();
+        await using TrustSessionRegistration registration =
+            await coordinator.TryRegisterAnyAsync(
+                PeerId,
+                CapabilityGrant.Of(
+                    Capability.ActivityOffer,
+                    Capability.ActivityReceive),
+                session)
+            ?? throw new InvalidOperationException("Expected an authorized session.");
+
+        Assert.True(await coordinator.TryUpdateCapabilitiesAsync(
+            PeerId,
+            identity.PublicIdentity.Fingerprint,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        Assert.Equal(0, session.StopCount);
+
+        Assert.True(await coordinator.TryUpdateCapabilitiesAsync(
+            PeerId,
+            identity.PublicIdentity.Fingerprint,
+            CapabilityGrant.Of(Capability.MirrorView)));
+
+        Assert.Equal(1, session.StopCount);
+        Assert.Equal(
+            TrustSessionStopReason.CapabilityRevoked,
+            session.LastReason);
+    }
+
+    [Fact]
     public async Task OneStopFailureDoesNotLeaveAnotherRevokedSessionRunning()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");

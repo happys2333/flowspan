@@ -58,6 +58,11 @@ screens or arbitrary process migration.
   **Handoff** never removes the source.
 - A **Mirror** has at most one effective **Driver Lease** at a time.
 - A **Trust Record** may grant zero or more independent **Capabilities**.
+- A Capability is always a local grant to the named peer. In particular,
+  `activity.offer` allows that peer to send an Activity to this device, while
+  `activity.receive` allows this device to disclose and send an Activity to that
+  peer. A reusable Activity control channel may require either grant, but each
+  Operation still checks its exact direction immediately before payload use.
 - An **Unverified Pairing Candidate** can open a Pairing attempt but cannot
   become a **Trust Record**, show a SAS prompt, or authorize a **Capability**
   until its Device ID, fingerprint, signature, and lifetime match the

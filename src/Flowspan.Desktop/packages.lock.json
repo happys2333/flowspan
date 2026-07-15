@@ -241,6 +241,12 @@
         "resolved": "0.2.0",
         "contentHash": "+RvLuNHOLW7cxzgDe9yHLoayBgjsuH2/gJtJnuVMxweKrxxYT6TwQNAmt06SFWpjwk68aRcwwD4FfMMA6tZvVA=="
       },
+      "flowspan.application": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Domain": "[1.0.0, )"
+        }
+      },
       "flowspan.domain": {
         "type": "Project"
       },
@@ -279,6 +285,7 @@
       "flowspan.transport": {
         "type": "Project",
         "dependencies": {
+          "Flowspan.Application": "[1.0.0, )",
           "Flowspan.Domain": "[1.0.0, )",
           "Flowspan.Protocol": "[1.0.0, )",
           "Flowspan.Security": "[1.0.0, )"

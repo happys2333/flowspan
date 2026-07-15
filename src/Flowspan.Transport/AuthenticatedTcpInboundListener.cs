@@ -43,7 +43,8 @@ public sealed class AuthenticatedInboundSessionProfile
         CapabilityGrant requiredCapabilities,
         IEnumerable<ProtocolVersion> supportedVersions,
         int maximumConcurrentSessions = DefaultMaximumConcurrentSessions,
-        TimeSpan? handshakeTimeout = null)
+        TimeSpan? handshakeTimeout = null,
+        CapabilityRequirementMatch capabilityMatch = CapabilityRequirementMatch.All)
     {
         ArgumentNullException.ThrowIfNull(requiredCapabilities);
         ArgumentNullException.ThrowIfNull(supportedVersions);
@@ -72,6 +73,11 @@ public sealed class AuthenticatedInboundSessionProfile
             throw new ArgumentOutOfRangeException(nameof(maximumConcurrentSessions));
         }
 
+        if (!Enum.IsDefined(capabilityMatch))
+        {
+            throw new ArgumentOutOfRangeException(nameof(capabilityMatch));
+        }
+
         TimeSpan timeout = handshakeTimeout
             ?? AuthenticatedTcpControlConnection.DefaultHandshakeTimeout;
         if (timeout <= TimeSpan.Zero
@@ -81,6 +87,7 @@ public sealed class AuthenticatedInboundSessionProfile
         }
 
         RequiredCapabilities = requiredCapabilities;
+        CapabilityMatch = capabilityMatch;
         SupportedVersions = versions;
         MaximumConcurrentSessions = maximumConcurrentSessions;
         HandshakeTimeout = timeout;
@@ -90,9 +97,31 @@ public sealed class AuthenticatedInboundSessionProfile
 
     public int MaximumConcurrentSessions { get; }
 
+    public CapabilityRequirementMatch CapabilityMatch { get; }
+
     public CapabilityGrant RequiredCapabilities { get; }
 
     public ImmutableArray<ProtocolVersion> SupportedVersions { get; }
+
+    internal ValueTask<TrustSessionRegistration?> TryRegisterAsync(
+        TrustSessionCoordinator trustSessions,
+        DeviceId peerDeviceId,
+        IRevocablePeerSession session,
+        CancellationToken cancellationToken) => CapabilityMatch switch
+        {
+            CapabilityRequirementMatch.All => trustSessions.TryRegisterAsync(
+                peerDeviceId,
+                RequiredCapabilities,
+                session,
+                cancellationToken),
+            CapabilityRequirementMatch.Any => trustSessions.TryRegisterAnyAsync(
+                peerDeviceId,
+                RequiredCapabilities,
+                session,
+                cancellationToken),
+            _ => throw new InvalidOperationException(
+                "The inbound capability match mode is invalid."),
+        };
 }
 
 public sealed class SystemAuthenticatedControlSessionAcceptor :
@@ -343,9 +372,9 @@ public sealed class AuthenticatedTcpInboundListener
                 TrustSessionRegistration? registration;
                 try
                 {
-                    registration = await trustSessions.TryRegisterAsync(
+                    registration = await profile.TryRegisterAsync(
+                        trustSessions,
                         peerDeviceId,
-                        profile.RequiredCapabilities,
                         revocable,
                         cancellationToken).ConfigureAwait(false);
                 }

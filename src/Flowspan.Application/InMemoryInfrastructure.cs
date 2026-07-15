@@ -19,6 +19,18 @@ public sealed class InMemoryActivityCatalog : IActivityCatalog
         }
     }
 
+    public IReadOnlyList<ActivityInstance> Snapshot()
+    {
+        lock (gate)
+        {
+            return activities.Values
+                .OrderBy(
+                    static activity => activity.Descriptor.Id.ToString(),
+                    StringComparer.Ordinal)
+                .ToArray();
+        }
+    }
+
     public bool TryGet(
         ActivityId activityId,
         [NotNullWhen(true)] out ActivityInstance? activity)

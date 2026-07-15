@@ -114,7 +114,8 @@ public sealed class AuthenticatedPeerSessionProfile
         DeviceId peerDeviceId,
         CapabilityGrant requiredCapabilities,
         IEnumerable<ProtocolVersion> supportedVersions,
-        TimeSpan? handshakeTimeout = null)
+        TimeSpan? handshakeTimeout = null,
+        CapabilityRequirementMatch capabilityMatch = CapabilityRequirementMatch.All)
     {
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         ArgumentNullException.ThrowIfNull(requiredCapabilities);
@@ -124,6 +125,11 @@ public sealed class AuthenticatedPeerSessionProfile
             throw new ArgumentException(
                 "An authenticated peer session must require at least one capability.",
                 nameof(requiredCapabilities));
+        }
+
+        if (!Enum.IsDefined(capabilityMatch))
+        {
+            throw new ArgumentOutOfRangeException(nameof(capabilityMatch));
         }
 
         ImmutableArray<ProtocolVersion> versions = supportedVersions
@@ -151,17 +157,50 @@ public sealed class AuthenticatedPeerSessionProfile
 
         PeerDeviceId = peerDeviceId;
         RequiredCapabilities = requiredCapabilities;
+        CapabilityMatch = capabilityMatch;
         SupportedVersions = versions;
         HandshakeTimeout = timeout;
     }
 
     public TimeSpan HandshakeTimeout { get; }
 
+    public CapabilityRequirementMatch CapabilityMatch { get; }
+
     public DeviceId PeerDeviceId { get; }
 
     public CapabilityGrant RequiredCapabilities { get; }
 
     public ImmutableArray<ProtocolVersion> SupportedVersions { get; }
+
+    internal bool IsSatisfiedBy(CapabilityGrant grantedCapabilities) =>
+        CapabilityMatch switch
+        {
+            CapabilityRequirementMatch.All =>
+                RequiredCapabilities.Capabilities.All(grantedCapabilities.Allows),
+            CapabilityRequirementMatch.Any =>
+                RequiredCapabilities.Capabilities.Any(grantedCapabilities.Allows),
+            _ => throw new InvalidOperationException(
+                "The peer capability match mode is invalid."),
+        };
+
+    internal ValueTask<TrustSessionRegistration?> TryRegisterAsync(
+        TrustSessionCoordinator trustSessions,
+        IRevocablePeerSession session,
+        CancellationToken cancellationToken) => CapabilityMatch switch
+        {
+            CapabilityRequirementMatch.All => trustSessions.TryRegisterAsync(
+                PeerDeviceId,
+                RequiredCapabilities,
+                session,
+                cancellationToken),
+            CapabilityRequirementMatch.Any => trustSessions.TryRegisterAnyAsync(
+                PeerDeviceId,
+                RequiredCapabilities,
+                session,
+                cancellationToken),
+            _ => throw new InvalidOperationException(
+                "The peer capability match mode is invalid."),
+        };
 }
 
 public sealed class AuthenticatedTcpPeerSessionAttempt :
@@ -211,8 +250,7 @@ public sealed class AuthenticatedTcpPeerSessionAttempt :
                 PeerReconnectStopReason.PeerNotTrusted);
         }
 
-        if (profile.RequiredCapabilities.Capabilities.Any(capability =>
-                !trustRecord.GrantedCapabilities.Allows(capability)))
+        if (!profile.IsSatisfiedBy(trustRecord.GrantedCapabilities))
         {
             return PeerSessionAttemptResult.PermanentlyRejected(
                 PeerReconnectStopReason.CapabilityDenied);
@@ -250,9 +288,8 @@ public sealed class AuthenticatedTcpPeerSessionAttempt :
                     cancellationToken).ConfigureAwait(false);
             using var revocableSession = new RevocableControlSession();
             TrustSessionRegistration? registration =
-                await trustSessions.TryRegisterAsync(
-                    profile.PeerDeviceId,
-                    profile.RequiredCapabilities,
+                await profile.TryRegisterAsync(
+                    trustSessions,
                     revocableSession,
                     cancellationToken).ConfigureAwait(false);
             if (registration is null)

@@ -223,8 +223,9 @@ The next composition slice binds a resolved endpoint to the signed offer and
 candidate public identity as one `VerifiedPeerConnectionCandidate`; the name
 means the discovery adapter verified internal consistency, not that the peer is
 trusted. Each `AuthenticatedTcpPeerSessionAttempt` reloads the current trust
-record, checks required capabilities, verifies the candidate against that trust
-and current UTC, and only then opens TCP. Missing/expired candidates are
+record, checks the profile's explicit all-of or any-of Capability requirement,
+verifies the candidate against that trust and current UTC, and only then opens
+TCP. Missing/expired candidates are
 transient; absent trust, identity change, capability denial, incompatible
 protocol, and authentication failure are structured permanent stop reasons.
 
@@ -266,9 +267,9 @@ multicast behavior.
 
 The desktop 7.2d composition owns trusted reconnect only while the owner has
 explicitly enabled the same local-network lifetime used for pairing. For each
-trusted peer whose local `activity.offer` grant permits the currently idle
-control channel, the lexicographically smaller Device ID is the sole active
-connector and the other endpoint waits on the shared authenticated listener.
+trusted peer with either local `activity.offer` or `activity.receive`, the
+lexicographically smaller Device ID is the sole active connector and the other
+endpoint waits on the shared authenticated listener.
 This deterministic ownership prevents two healthy peers from maintaining
 duplicate symmetric idle connections. Discovery changes wake a waiting retry
 loop but do not tear down an already authenticated session merely because an
@@ -281,9 +282,10 @@ current Trust Record and verifies the signed, unexpired offer before TCP is
 opened. It projects waiting, authenticating, authenticated-idle, bounded retry,
 and permanent rejection. `AUTHENTICATED — IDLE / NOT SHARING` means only that a
 fresh encrypted control channel passed identity and capability registration;
-the Activity layer remains absent. Revocation, capability downgrade, local
-network disable, and window close cancel and drain the corresponding supervisor
-or registered handler before its owners are disposed.
+it does not describe a live Mirror or remote-input session. Revocation,
+capability downgrade, local network disable, and window close cancel and drain
+the corresponding supervisor or registered handler before its owners are
+disposed.
 
 A DNS-SD record that claims a trusted Device ID with a different fingerprint is
 never supplied to the connector. The desktop latches a prominent warning for
@@ -293,6 +295,33 @@ does not prove possession of the conflicting key. A transcript authentication
 failure that resolves to `CandidateIdentityChanged` is also a permanent warning
 even when no safe observed fingerprint is available. Trust is never replaced or
 repaired automatically.
+
+The desktop 7.3a vertical slice attaches one `AuthenticatedActivitySessionHandler`
+to both elected outgoing and shared incoming control paths. It admits the
+reusable channel when the local Trust Record has `activity.offer` **or**
+`activity.receive`; legacy profiles continue to require all listed Capabilities.
+`TrustSessionCoordinator` records the match mode so a partial downgrade of an
+any-of session keeps it alive while removal of the final alternative drains it.
+Duplicate authenticated Activity sessions for one Device ID are rejected.
+
+An outbound `workspace.note/v1` Handoff is separately authorized immediately
+before disclosure: the source's local Trust Record must grant its target
+`activity.receive`. The target binds the authenticated sender to its current
+Trust Record and requires `activity.offer` before adapter use. The encrypted
+`activity.transfer` body carries exact, bounded descriptor fields plus operation,
+placement, deadline, request, payload, and descriptor digests. Decoding rejects
+unknown/missing fields, participant mismatch, unsupported kind, digest mismatch,
+or a deadline outside the authenticated envelope. The target's payload-free
+receipt is bound to the authenticated participants, protocol, correlation ID,
+Operation ID/kind, Activity ID/kind, and descriptor digest. Unknown message types,
+unsolicited or mismatched receipts, and duplicate peer sessions fault closed.
+Disconnect after send but before a verified receipt produces
+`AcknowledgementLost`, leaving the source active.
+
+Production startup orders protected identity, persistent Trust, then Activity
+runtime. Local network shutdown drains control sessions before the Activity
+handler, Trust, and identity are disposed. A failed Activity startup can be
+retried without reopening already-ready identity or Trust dependencies.
 
 ## 7. Identity, pairing, and encryption
 
@@ -402,6 +431,12 @@ capabilities are denied. Suggested independent grants are:
 
 `activity.offer`, `activity.receive`, `activity.replace`, `mirror.view`,
 `mirror.drive`, `file.receive`, and `scene.apply`.
+
+Capabilities are local grants to the peer named by a Trust Record.
+`activity.offer` permits that peer to send an Activity to this device;
+`activity.receive` permits this device to disclose and send an Activity to that
+peer. Transport admission may use an explicit any-of set for a bidirectional
+control channel, but that never substitutes for the operation-direction check.
 
 All product trust mutations and active peer-session registrations pass through
 one coordinator boundary. Revocation or capability downgrade first removes the

@@ -11,7 +11,7 @@ public sealed class MoveTests
     public async Task TargetResumePrecedesSourceClose()
     {
         Fixture fixture = new();
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
 
         OperationReceipt receipt = await fixture.MoveAsync(
             new DirectActivityChannel(fixture.Target));
@@ -43,7 +43,7 @@ public sealed class MoveTests
     public async Task LostAcknowledgementRecoversWithoutDuplicateResume()
     {
         Fixture fixture = new();
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
         var channel = new DeterministicActivityChannel(
             fixture.Target,
             [ActivityDeliveryFault.DropAcknowledgement, ActivityDeliveryFault.None]);
@@ -70,7 +70,7 @@ public sealed class MoveTests
     public async Task DeliveryFailureIsRetryableAndPreservesSource()
     {
         Fixture fixture = new();
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
         var channel = new DeterministicActivityChannel(
             fixture.Target,
             [ActivityDeliveryFault.DropBeforeDelivery, ActivityDeliveryFault.None]);
@@ -93,7 +93,7 @@ public sealed class MoveTests
     public async Task DuplicateDeliveryIsIdempotentAtTarget()
     {
         Fixture fixture = new();
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
         var channel = new DeterministicActivityChannel(
             fixture.Target,
             [ActivityDeliveryFault.DuplicateDelivery]);
@@ -110,7 +110,7 @@ public sealed class MoveTests
     public async Task SourceCloseFailureIsCommittedWithWarning()
     {
         Fixture fixture = new(sourceCloseSucceeds: false);
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
 
         OperationReceipt receipt = await fixture.MoveAsync(
             new DirectActivityChannel(fixture.Target));
@@ -196,9 +196,9 @@ public sealed class MoveTests
 
         public InMemoryActivityCatalog TargetCatalog { get; }
 
-        public void AuthorizeReceive() => Target.SetPeerGrant(
+        public void AuthorizeOffer() => Target.SetPeerGrant(
             Source.DeviceId,
-            CapabilityGrant.Of(Capability.ActivityReceive));
+            CapabilityGrant.Of(Capability.ActivityOffer));
 
         public ValueTask<OperationReceipt> MoveAsync(IActivityChannel channel) =>
             Source.MoveAsync(Descriptor.Id, channel, "main", context);

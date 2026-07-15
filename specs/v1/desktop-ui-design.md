@@ -1,8 +1,8 @@
 # Flowspan v1 Desktop UI Design
 
-Status: accepted evolving implementation specification for desktop tasks 7.1–7.2e
+Status: accepted evolving implementation specification for desktop tasks 7.1–7.3a
 
-Requirements: R1, R2, R8, R9.6, R10, R12
+Requirements: R1–R4, R8–R12
 
 ## 1. Purpose statement
 
@@ -273,11 +273,11 @@ uses `WAITING FOR TRUSTED PEER`, `WAITING FOR INBOUND AUTHENTICATION`,
 `AUTHENTICATING`, `AUTHENTICATED — IDLE / NOT SHARING`, `RETRYING LOCALLY`, or a
 specific permanent policy/security block. It never shortens an authenticated
 idle channel to `Connected`, and the persistent top-level `NOT SHARING`
-indicator remains unchanged. A peer without the local `activity.offer` grant is
-shown as policy-ineligible rather than repeatedly contacted. Saving a relevant
-grant reconciles supervisors; revocation or downgrade first changes Trust and
-drains authority through `TrustSessionCoordinator`, then removes or stops the
-reconnect projection.
+  indicator remains unchanged. A peer without either local `activity.offer` or
+  `activity.receive` is shown as policy-ineligible rather than repeatedly
+  contacted. Saving a relevant grant reconciles supervisors; revocation or
+  downgrade first changes Trust and drains authority through
+  `TrustSessionCoordinator`, then removes or stops the reconnect projection.
 
 For a permitted pair, the lexicographically smaller Device ID initiates and the
 other waits on the shared inbound listener. Either direction updates the same
@@ -330,3 +330,44 @@ boundary, command gating, retry, Disable reset, and disposal during enable. A
 Headless test must prove keyboard access and declared automation names. Hosted
 matrix results prove selection and UI contracts only; real prompts, firewall
 state, settings navigation, and revocation remain matching-machine evidence.
+
+## 15. Task 7.3a: portable-note semantic handoff preview and receipt
+
+The first operation surface supports one deliberately narrow Activity kind:
+`workspace.note/v1`. A person creates a bounded plain-text note locally, selects
+an authenticated trusted peer, reviews a semantic-handoff preview, and sends an
+encrypted Activity transfer over that peer's existing authenticated control
+session. The target validates the descriptor and its current local
+`activity.offer` grant before adding the Activity; the source separately
+requires its local `activity.receive` disclosure grant for that target. Success
+leaves the source note active and shows a redacted receipt with correlation ID,
+target, outcome, timestamp, and reason code. The receipt never repeats note text
+or another descriptor payload.
+
+The preview must say `SEMANTIC HANDOFF — SOURCE STAYS OPEN`, name the exact
+descriptor kind, destination, sensitivity, and data being sent, and state that
+Flowspan does not transfer process memory, unsaved application internals, or
+credentials. `REMOTE WINDOW NOT AVAILABLE IN THIS BUILD` is a named capability
+limit, not an offered fallback. Move, replace, swap, mirror, and driver transfer
+remain unavailable and are not represented by enabled controls. Because a
+handoff is additive, this slice offers no misleading undo action; the receipt
+explains that each device owns its resulting copy.
+
+Only an authenticated session registered for the selected Device ID can become
+a target. The transfer envelope is versioned, bounded, correlation-bound, and
+validated against the authenticated sender and negotiated protocol. The target
+returns one bounded operation receipt. Unknown message types, mismatched
+correlation or participant IDs, malformed descriptors, stale capability,
+duplicate operation IDs with different content, disconnect, and cancellation
+must fail closed without removing the source Activity or displaying payload
+content in an error. An acknowledgement lost after target commit is shown as an
+uncertain/recovering outcome rather than success.
+
+The top-level safety band remains `NOT SHARING`: a one-shot semantic descriptor
+transfer is not a live mirror or remote-control session. The UI exposes visible
+labels and automation names for note creation, Activity selection, target
+selection, preview, confirmation, and receipt. Deterministic application tests,
+authenticated loopback tests, and Avalonia Headless tests are required before
+the slice is called complete. Physical two-device LAN behavior remains task 5.4
+and release evidence; hosted runners prove protocol, loopback, composition, and
+platform-selection contracts only.

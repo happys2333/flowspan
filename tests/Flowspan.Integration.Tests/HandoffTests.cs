@@ -15,7 +15,7 @@ public sealed class HandoffTests
     public async Task HandoffResumesTargetAndPreservesSource()
     {
         Fixture fixture = new();
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
 
         OperationReceipt receipt = await fixture.HandoffAsync();
 
@@ -43,10 +43,26 @@ public sealed class HandoffTests
     }
 
     [Fact]
+    public async Task ReceiveGrantDoesNotAuthorizePeerToOfferInboundActivity()
+    {
+        Fixture fixture = new();
+        fixture.Target.SetPeerGrant(
+            fixture.Source.DeviceId,
+            CapabilityGrant.Of(Capability.ActivityReceive));
+
+        OperationReceipt receipt = await fixture.HandoffAsync();
+
+        Assert.Equal(FailureCode.CapabilityDenied, receipt.FailureCode);
+        Assert.Equal(0, fixture.Adapter.CallCount);
+        Assert.False(fixture.Target.TryGetActivity(fixture.Descriptor.Id, out _));
+        Assert.True(fixture.Source.TryGetActivity(fixture.Descriptor.Id, out _));
+    }
+
+    [Fact]
     public async Task RetryReturnsRecordedResultWithoutResumingTwice()
     {
         Fixture fixture = new();
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
 
         OperationReceipt first = await fixture.HandoffAsync();
         OperationReceipt replay = await fixture.HandoffAsync();
@@ -61,7 +77,7 @@ public sealed class HandoffTests
     public async Task ReusingOperationIdForDifferentRequestIsRejected()
     {
         Fixture fixture = new();
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
 
         OperationReceipt first = await fixture.HandoffAsync("main");
         OperationReceipt conflict = await fixture.HandoffAsync("secondary");
@@ -76,7 +92,7 @@ public sealed class HandoffTests
     public async Task InvalidAdapterPayloadDoesNotMutateTarget()
     {
         Fixture fixture = new(payloadJson: "{\"unexpected\":true}");
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
 
         OperationReceipt receipt = await fixture.HandoffAsync();
 
@@ -87,11 +103,24 @@ public sealed class HandoffTests
     }
 
     [Fact]
+    public async Task EmptyWorkspaceNoteIsRejectedByTargetAdapter()
+    {
+        Fixture fixture = new(payloadJson: JsonSerializer.Serialize(new { text = string.Empty }));
+        fixture.AuthorizeOffer();
+
+        OperationReceipt receipt = await fixture.HandoffAsync();
+
+        Assert.Equal(FailureCode.DescriptorRejected, receipt.FailureCode);
+        Assert.False(fixture.Target.TryGetActivity(fixture.Descriptor.Id, out _));
+        Assert.True(fixture.Source.TryGetActivity(fixture.Descriptor.Id, out _));
+    }
+
+    [Fact]
     public async Task ReceiptSerializationDoesNotContainDescriptorPayload()
     {
         const string canary = "FLOWSPAN_SUPER_SECRET_CANARY";
         Fixture fixture = new(payloadJson: JsonSerializer.Serialize(new { text = canary }));
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
 
         OperationReceipt receipt = await fixture.HandoffAsync();
         string exported = ReceiptJson.Serialize(receipt);
@@ -104,7 +133,7 @@ public sealed class HandoffTests
     public async Task ExpiredRequestIsRejectedBeforeAdapterUse()
     {
         Fixture fixture = new(deadline: Now);
-        fixture.AuthorizeReceive();
+        fixture.AuthorizeOffer();
 
         OperationReceipt receipt = await fixture.HandoffAsync();
 
@@ -172,9 +201,9 @@ public sealed class HandoffTests
 
         public InMemoryReceiptSink TargetReceipts { get; }
 
-        public void AuthorizeReceive() => Target.SetPeerGrant(
+        public void AuthorizeOffer() => Target.SetPeerGrant(
             Source.DeviceId,
-            CapabilityGrant.Of(Capability.ActivityReceive));
+            CapabilityGrant.Of(Capability.ActivityOffer));
 
         public ValueTask<OperationReceipt> HandoffAsync(string slot = "main") =>
             Source.HandoffAsync(

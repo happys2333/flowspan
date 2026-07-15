@@ -260,7 +260,7 @@ public sealed class FlowspanNode : IActivityPeer
             }
 
             if (!peerGrants.TryGetValue(senderDeviceId, out CapabilityGrant? grant)
-                || !grant.Allows(Capability.ActivityReceive))
+                || !grant.Allows(Capability.ActivityOffer))
             {
                 return RecordRejection(FailureCode.CapabilityDenied);
             }

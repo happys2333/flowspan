@@ -271,8 +271,19 @@ means its linked evidence exists; it does not imply the entire product works.
     accessibility/remote-input permission flows, aligned with platform tasks
     6.3–6.5, plus matching real-machine permission/accessibility evidence.
   - _Requirements: R1, R2, R8, R10_
-- [ ] 7.3 Implement operation preview, named degradation, persistent sharing
+- [-] 7.3 Implement operation preview, named degradation, persistent sharing
   indicator, recovery, receipt, and undo surfaces.
+  - 7.3a in progress: deliver one bounded `workspace.note/v1` semantic handoff
+    from the desktop over an authenticated control session. Require an explicit
+    source-preserving preview, name the unavailable Remote Window fallback,
+    enforce source-side `activity.receive` plus target-side `activity.offer`,
+    and show a payload-free receipt. The local 421-test candidate, negative and
+    stress cases, simulator result, and evidence limits are recorded in
+    [desktop Semantic Handoff evidence](../../docs/evidence/2026-07-15-desktop-semantic-handoff.md).
+    Windows/macOS/Ubuntu CI, Secret Scan, CodeQL, and final-HEAD verification are
+    still pending, so this slice is not complete.
+    Move/replace/swap, live-sharing indicators, recovery history, and undo
+    remain later slices.
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

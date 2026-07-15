@@ -482,14 +482,146 @@
                 <Border BorderBrush="{StaticResource CoolGrayBrush}"
                         BorderThickness="0,1,0,0"
                         Padding="0,22,0,0">
-                  <StackPanel Spacing="8">
-                    <TextBlock x:Name="ActivityEmptyState"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               Text="No Activities are available yet."
-                               AutomationProperties.Name="Activities status: No Activities available" />
-                    <TextBlock Classes="secondary"
-                               Text="Activities appear when a supported app can describe resumable intent and context. Remote Window remains a separately labelled fallback." />
+                  <StackPanel Spacing="16">
+                    <StackPanel Spacing="8">
+                      <TextBlock Classes="label" Text="NEW PORTABLE NOTE" />
+                      <TextBlock Classes="secondary"
+                                 Text="Create a bounded workspace.note/v1 Activity. This does not inspect another application's unsaved state." />
+                      <TextBlock Text="Title" />
+                      <TextBox x:Name="WorkspaceNoteTitleTextBox"
+                               Text="{Binding Activities.DraftTitle, Mode=TwoWay}"
+                               MaxLength="120"
+                               AutomationProperties.Name="Portable note title" />
+                      <TextBlock Text="Plain-text note" />
+                      <TextBox x:Name="WorkspaceNoteBodyTextBox"
+                               Text="{Binding Activities.DraftText, Mode=TwoWay}"
+                               AcceptsReturn="True"
+                               MinHeight="88"
+                               MaxLength="16384"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Portable note body" />
+                      <Button x:Name="CreateWorkspaceNoteButton"
+                              Content="CREATE PORTABLE NOTE"
+                              Command="{Binding Activities.CreateWorkspaceNoteCommand}"
+                              IsEnabled="{Binding Activities.IsNoteCreationAvailable}"
+                              AutomationProperties.Name="Create portable note Activity" />
+                      <TextBlock Classes="secondary"
+                                 Text="{Binding Activities.CreationStatus}"
+                                 TextWrapping="Wrap"
+                                 AutomationProperties.Name="Portable note creation result" />
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="*,*">
+                      <StackPanel Grid.Column="0" Margin="0,0,8,0" Spacing="6">
+                        <TextBlock Classes="label" Text="LOCAL ACTIVITIES" />
+                        <ListBox x:Name="ActivityList"
+                                 ItemsSource="{Binding Activities.Activities}"
+                                 SelectedItem="{Binding Activities.SelectedActivity, Mode=TwoWay}"
+                                 MaxHeight="190"
+                                 AutomationProperties.Name="Local semantic Activities">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DesktopActivitySnapshot">
+                              <StackPanel Margin="8" Spacing="3">
+                                <TextBlock FontWeight="SemiBold"
+                                           Text="{Binding Title}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Classes="secondary"
+                                           FontSize="11"
+                                           Text="{Binding Kind}" />
+                                <TextBlock Classes="secondary"
+                                           FontSize="11"
+                                           Text="{Binding Sensitivity}" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+                      </StackPanel>
+
+                      <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="6">
+                        <TextBlock Classes="label" Text="AUTHENTICATED TARGET" />
+                        <ListBox x:Name="ActivityTargetList"
+                                 ItemsSource="{Binding Activities.Targets}"
+                                 SelectedItem="{Binding Activities.SelectedTarget, Mode=TwoWay}"
+                                 MaxHeight="190"
+                                 AutomationProperties.Name="Authenticated semantic handoff targets">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DesktopActivityTargetSnapshot">
+                              <StackPanel Margin="8" Spacing="3">
+                                <TextBlock FontWeight="SemiBold"
+                                           Text="{Binding DisplayName}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Classes="secondary"
+                                           FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                           FontSize="11"
+                                           Text="{Binding DeviceId}"
+                                           TextWrapping="Wrap" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+                      </StackPanel>
+                    </Grid>
+
+                    <Border BorderBrush="{StaticResource SafetyAmberBrush}"
+                            BorderThickness="2"
+                            Padding="14"
+                            AutomationProperties.Name="Semantic handoff preview">
+                      <StackPanel Spacing="8">
+                        <TextBlock x:Name="ActivityPreviewStatusText"
+                                   Classes="label"
+                                   Foreground="{StaticResource SafetyAmberBrush}"
+                                   Text="{Binding Activities.PreviewStatus}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Semantic handoff preview status" />
+                        <TextBlock Text="{Binding Activities.PreviewDescription}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock x:Name="ActivityDataDisclosureText"
+                                   Classes="secondary"
+                                   Text="{Binding Activities.DataDisclosure}"
+                                   AutomationProperties.Name="Semantic handoff data disclosure" />
+                        <TextBlock x:Name="ActivityDegradationStatusText"
+                                   Classes="label"
+                                   Foreground="{StaticResource SignalRedBrush}"
+                                   Text="{Binding Activities.DegradationStatus}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Semantic handoff degradation status" />
+                        <TextBlock Classes="secondary"
+                                   Text="{Binding Activities.DegradationDescription}" />
+                        <Button x:Name="ActivityHandoffButton"
+                                Content="HAND OFF COPY"
+                                Command="{Binding Activities.HandoffCommand}"
+                                IsEnabled="{Binding Activities.IsHandoffAvailable}"
+                                AutomationProperties.Name="Confirm semantic handoff copy"
+                                AutomationProperties.HelpText="Creates a semantic copy on the selected authenticated target and keeps the source open." />
+                      </StackPanel>
+                    </Border>
+
+                    <Border IsVisible="{Binding Activities.IsReceiptVisible}"
+                            BorderBrush="{StaticResource CoolGrayBrush}"
+                            BorderThickness="1"
+                            Padding="14"
+                            AutomationProperties.Name="Semantic handoff receipt">
+                      <StackPanel Spacing="6">
+                        <TextBlock x:Name="ActivityReceiptStatusText"
+                                   Classes="label"
+                                   Text="{Binding Activities.ReceiptStatus}"
+                                   AutomationProperties.Name="Semantic handoff receipt status" />
+                        <TextBlock Text="{Binding Activities.ReceiptSummary}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Classes="secondary"
+                                   Text="{Binding Activities.ReceiptReason, StringFormat='Reason: {0}'}" />
+                        <SelectableTextBlock Classes="secondary"
+                                             FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                             FontSize="11"
+                                             Text="{Binding Activities.ReceiptCorrelationId, StringFormat='Correlation: {0}'}"
+                                             TextWrapping="Wrap"
+                                             AutomationProperties.Name="Semantic handoff correlation ID" />
+                        <TextBlock Classes="secondary"
+                                   Text="{Binding Activities.ReceiptOccurredAt, StringFormat='Occurred: {0}'}" />
+                        <TextBlock Classes="secondary"
+                                   Text="{Binding Activities.UndoDescription}" />
+                      </StackPanel>
+                    </Border>
                   </StackPanel>
                 </Border>
               </StackPanel>
@@ -594,10 +726,10 @@
                                      FontSize="12"
                                      Text="A grant permits a class of peer request. It does not start sharing or request an operating-system permission." />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityOffer, Mode=TwoWay}"
-                                    Content="activity.offer — offer Activities"
+                                    Content="activity.offer — allow this peer to send Activities to this device"
                                     AutomationProperties.Name="Allow peer to offer Activities" />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityReceive, Mode=TwoWay}"
-                                    Content="activity.receive — receive Activities"
+                                    Content="activity.receive — allow this peer to receive Activities from this device"
                                     AutomationProperties.Name="Allow peer to receive Activities" />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityReplace, Mode=TwoWay}"
                                     Content="activity.replace — replace Activities"
@@ -719,11 +851,11 @@
                                Text="Start with no access. These options do not request operating-system permissions." />
                     <CheckBox x:Name="GrantActivityOfferCheckBox"
                               IsChecked="{Binding Pairing.GrantActivityOffer, Mode=TwoWay}"
-                              Content="Allow this peer to offer Activities"
+                              Content="Allow this peer to send Activities to this device"
                               AutomationProperties.Name="Allow peer to offer Activities" />
                     <CheckBox x:Name="GrantActivityReceiveCheckBox"
                               IsChecked="{Binding Pairing.GrantActivityReceive, Mode=TwoWay}"
-                              Content="Allow this peer to receive Activities"
+                              Content="Allow this peer to receive Activities from this device"
                               AutomationProperties.Name="Allow peer to receive Activities" />
                     <TextBlock Classes="secondary"
                                FontSize="12"

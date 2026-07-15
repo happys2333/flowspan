@@ -31,7 +31,7 @@ var target = new FlowspanNode(
 
 target.SetPeerGrant(
     source.DeviceId,
-    CapabilityGrant.Of(Capability.ActivityReceive));
+    CapabilityGrant.Of(Capability.ActivityOffer));
 
 ActivityDescriptor descriptor = ActivityDescriptor.Create(
     ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),

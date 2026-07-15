@@ -45,7 +45,7 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
             "AUTHENTICATED — IDLE / NOT SHARING",
         DesktopTrustedPeerConnectionState.Retrying => "RETRYING LOCALLY",
         DesktopTrustedPeerConnectionState.CapabilityRequired =>
-            "IDLE — ACTIVITY OFFER NOT GRANTED",
+            "IDLE — ACTIVITY CONTROL CAPABILITY NOT GRANTED",
         DesktopTrustedPeerConnectionState.PermanentlyBlocked => StopReason switch
         {
             PeerReconnectStopReason.CandidateIdentityChanged =>
@@ -79,7 +79,7 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
             ? $"A transient local failure is using bounded retry ({delay.TotalSeconds:0.###} seconds)."
             : "A transient local failure is using bounded retry.",
         DesktopTrustedPeerConnectionState.CapabilityRequired =>
-            "This device will not open the idle control channel until activity.offer is granted locally.",
+            "This device will not open the idle control channel until activity.offer or activity.receive is granted locally.",
         DesktopTrustedPeerConnectionState.PermanentlyBlocked =>
             "Automatic retry stopped. Trust was not changed.",
         DesktopTrustedPeerConnectionState.Unavailable =>
@@ -147,7 +147,8 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         DeviceId localDeviceId,
         TrustSessionCoordinator trust,
         Func<ImmutableArray<UnverifiedPairingCandidate>> getCandidates,
-        IDesktopPeerReconnectLoopFactory loopFactory)
+        IDesktopPeerReconnectLoopFactory loopFactory,
+        IAuthenticatedControlSessionHandler? sessionHandler = null)
     {
         ArgumentNullException.ThrowIfNull(localDeviceId);
         ArgumentNullException.ThrowIfNull(trust);
@@ -157,7 +158,9 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         this.trust = trust;
         this.getCandidates = getCandidates;
         this.loopFactory = loopFactory;
-        SessionHandler = new IdleSessionHandler(this);
+        SessionHandler = new TrackingSessionHandler(
+            this,
+            sessionHandler ?? IdleSessionHandler.Instance);
     }
 
     public event Action? Changed;
@@ -268,8 +271,7 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
                     if (!isEligible)
                     {
                         DetachLoop(state, stopping);
-                        state.State = snapshot.GrantedCapabilities.Allows(
-                            Capability.ActivityOffer)
+                        state.State = HasControlChannelCapability(snapshot)
                             ? DesktopTrustedPeerConnectionState.WaitingForInbound
                             : DesktopTrustedPeerConnectionState.CapabilityRequired;
                         state.RetryDelay = null;
@@ -447,7 +449,7 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
 
     private PeerState CreatePeerState(TrustedPeerSnapshot peer) => new(peer)
     {
-        State = peer.GrantedCapabilities.Allows(Capability.ActivityOffer)
+        State = HasControlChannelCapability(peer)
             ? IsLocalConnector(peer.DeviceId)
                 ? DesktopTrustedPeerConnectionState.WaitingForPeer
                 : DesktopTrustedPeerConnectionState.WaitingForInbound
@@ -586,8 +588,12 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         IsConnectorEligible(peer);
 
     private bool IsConnectorEligible(TrustedPeerSnapshot peer) =>
-        peer.GrantedCapabilities.Allows(Capability.ActivityOffer)
+        HasControlChannelCapability(peer)
         && IsLocalConnector(peer.DeviceId);
+
+    private static bool HasControlChannelCapability(TrustedPeerSnapshot peer) =>
+        peer.GrantedCapabilities.Allows(Capability.ActivityOffer)
+        || peer.GrantedCapabilities.Allows(Capability.ActivityReceive);
 
     private bool IsLocalConnector(DeviceId peerDeviceId) =>
         StringComparer.Ordinal.Compare(
@@ -699,8 +705,9 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
             ConflictingFingerprint);
     }
 
-    private sealed class IdleSessionHandler(
-        DesktopTrustedPeerConnectionCoordinator owner) :
+    private sealed class TrackingSessionHandler(
+        DesktopTrustedPeerConnectionCoordinator owner,
+        IAuthenticatedControlSessionHandler inner) :
         IAuthenticatedControlSessionHandler
     {
         public async ValueTask RunAsync(
@@ -710,6 +717,24 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
             ArgumentNullException.ThrowIfNull(connection);
             using IDisposable lease = owner.TrackAuthenticatedSession(
                 connection.PeerIdentity.DeviceId);
+            await inner.RunAsync(connection, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private sealed class IdleSessionHandler : IAuthenticatedControlSessionHandler
+    {
+        private IdleSessionHandler()
+        {
+        }
+
+        public static IdleSessionHandler Instance { get; } = new();
+
+        public async ValueTask RunAsync(
+            AuthenticatedTcpControlConnection connection,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(connection);
             try
             {
                 _ = await connection.ReceiveAsync(cancellationToken)
@@ -918,8 +943,11 @@ internal sealed class SystemDesktopPeerReconnectLoopFactory :
                 active => Volatile.Write(ref activeSession, active ? 1 : 0));
             var profile = new AuthenticatedPeerSessionProfile(
                 peer.DeviceId,
-                CapabilityGrant.Of(Capability.ActivityOffer),
-                [new ProtocolVersion(1, 0)]);
+                CapabilityGrant.Of(
+                    Capability.ActivityOffer,
+                    Capability.ActivityReceive),
+                [new ProtocolVersion(1, 0)],
+                capabilityMatch: CapabilityRequirementMatch.Any);
             var attempt = new AuthenticatedTcpPeerSessionAttempt(
                 profile,
                 localIdentity,

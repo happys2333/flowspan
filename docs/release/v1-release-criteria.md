@@ -132,6 +132,13 @@ implementation convenience.
   acknowledged platform-specific education boundary starts no networking on
   review/cancel; it is not native prompt, firewall, revocation, screen-capture,
   remote-input, or physical-LAN evidence.
+- [2026-07-15 desktop Semantic Handoff](../evidence/2026-07-15-desktop-semantic-handoff.md):
+  the local 421-test candidate covers one bounded `workspace.note/v1` encrypted
+  Handoff, directional authorization, exact payload-free receipt binding,
+  source-preserving preview, named degradation, truthful uncertain outcome, and
+  lifecycle order. Hosted matrix, Secret Scan, CodeQL, final-HEAD verification,
+  physical-device, native accessibility, and arbitrary-application evidence
+  remain pending.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product

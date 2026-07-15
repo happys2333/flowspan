@@ -233,6 +233,84 @@ public sealed record OperationReceipt
             FailureCode.ActivityNotFound);
     }
 
+    public static OperationReceipt FromRecordedResult(
+        OperationId operationId,
+        CorrelationId correlationId,
+        OperationKind kind,
+        OperationStatus status,
+        DeviceId sourceDeviceId,
+        DeviceId targetDeviceId,
+        ActivityId activityId,
+        ActivityKind? activityKind,
+        string? descriptorDigest,
+        DateTimeOffset occurredAt,
+        FailureCode failureCode)
+    {
+        ArgumentNullException.ThrowIfNull(operationId);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(sourceDeviceId);
+        ArgumentNullException.ThrowIfNull(targetDeviceId);
+        ArgumentNullException.ThrowIfNull(activityId);
+        if (!Enum.IsDefined(kind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        }
+
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(nameof(status));
+        }
+
+        if (!Enum.IsDefined(failureCode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(failureCode));
+        }
+
+        bool expectsFailure = status is not OperationStatus.Committed;
+        if (expectsFailure == (failureCode == FailureCode.None))
+        {
+            throw new ArgumentException(
+                "The recorded status and failure code are inconsistent.",
+                nameof(failureCode));
+        }
+
+        if ((activityKind is null) != (descriptorDigest is null))
+        {
+            throw new ArgumentException(
+                "Recorded Activity kind and descriptor digest must both be present or absent.",
+                nameof(descriptorDigest));
+        }
+
+        if (activityKind is null && failureCode != FailureCode.ActivityNotFound)
+        {
+            throw new ArgumentException(
+                "Only a missing-Activity result may omit descriptor metadata.",
+                nameof(activityKind));
+        }
+
+        if (descriptorDigest is not null
+            && (descriptorDigest.Length != 64
+                || !descriptorDigest.All(char.IsAsciiHexDigit)))
+        {
+            throw new ArgumentException(
+                "A recorded descriptor digest must be a 32-byte hexadecimal value.",
+                nameof(descriptorDigest));
+        }
+
+        return new OperationReceipt(
+            operationId,
+            correlationId,
+            kind,
+            status,
+            sourceDeviceId,
+            targetDeviceId,
+            activityId,
+            activityKind,
+            descriptorDigest,
+            occurredAt,
+            failureCode);
+    }
+
     private static OperationReceipt Create(
         OperationId operationId,
         CorrelationId correlationId,

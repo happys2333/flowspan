@@ -10,6 +10,7 @@
     <PackageReference Include="Avalonia.Themes.Fluent" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../Flowspan.Application/Flowspan.Application.csproj" />
     <ProjectReference Include="../Flowspan.Platform.Linux/Flowspan.Platform.Linux.csproj" />
     <ProjectReference Include="../Flowspan.Platform.MacOS/Flowspan.Platform.MacOS.csproj" />
     <ProjectReference Include="../Flowspan.Platform.Windows/Flowspan.Platform.Windows.csproj" />

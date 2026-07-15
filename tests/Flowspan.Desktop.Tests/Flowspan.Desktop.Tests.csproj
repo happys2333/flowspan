@@ -19,6 +19,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/Flowspan.Application/Flowspan.Application.csproj" />
     <ProjectReference Include="../../src/Flowspan.Desktop/Flowspan.Desktop.csproj" />
     <ProjectReference Include="../../src/Flowspan.Security/Flowspan.Security.csproj" />
     <ProjectReference Include="../../src/Flowspan.Transport/Flowspan.Transport.csproj" />

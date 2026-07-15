@@ -23,18 +23,21 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
     private readonly Func<CancellationToken, ValueTask<DeviceIdentity>> getIdentity;
     private readonly Func<CancellationToken, ValueTask<TrustSessionCoordinator>> getTrust;
     private readonly DesktopPairingDecisionSource pairingDecisions;
+    private readonly DesktopActivityRuntime? activityRuntime;
 
     internal SystemDesktopLocalPairingNetworkFactory(
         DesktopIdentityStartup identityStartup,
         PersistentDesktopTrustAuthority trustAuthority,
-        DesktopPairingDecisionSource pairingDecisions)
+        DesktopPairingDecisionSource pairingDecisions,
+        DesktopActivityRuntime activityRuntime)
         : this(
             identityStartup.GetRuntimeIdentityAsync,
             trustAuthority.GetRuntimeCoordinatorAsync,
             pairingDecisions,
             CreateDualStackListener,
             CreateProductionDnsSdTransport,
-            static () => new SystemDnsSdAdvertisementDelay())
+            static () => new SystemDnsSdAdvertisementDelay(),
+            activityRuntime)
     {
     }
 
@@ -44,7 +47,8 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         DesktopPairingDecisionSource pairingDecisions,
         Func<TcpListener> createListener,
         Func<DesktopDnsSdTransport> createDnsSdTransport,
-        Func<IDnsSdAdvertisementDelay>? createAdvertisementDelay = null)
+        Func<IDnsSdAdvertisementDelay>? createAdvertisementDelay = null,
+        DesktopActivityRuntime? activityRuntime = null)
     {
         ArgumentNullException.ThrowIfNull(getIdentity);
         ArgumentNullException.ThrowIfNull(getTrust);
@@ -58,6 +62,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         this.createDnsSdTransport = createDnsSdTransport;
         this.createAdvertisementDelay = createAdvertisementDelay
             ?? (static () => new SystemDnsSdAdvertisementDelay());
+        this.activityRuntime = activityRuntime;
     }
 
     public async ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
@@ -67,6 +72,10 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             .ConfigureAwait(false);
         TrustSessionCoordinator trust = await getTrust(cancellationToken)
             .ConfigureAwait(false);
+        AuthenticatedActivitySessionHandler? activityHandler = activityRuntime is null
+            ? null
+            : await activityRuntime.GetSessionHandlerAsync(cancellationToken)
+                .ConfigureAwait(false);
         TcpListener? listener = null;
         DnsSdUnverifiedPairingCandidateSource? candidates = null;
         DesktopTrustedPeerConnectionCoordinator? trustedConnections = null;
@@ -95,14 +104,18 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 new SystemDesktopPeerReconnectLoopFactory(
                     identity,
                     trust,
-                    trustedCandidateSource));
+                    trustedCandidateSource),
+                activityHandler);
             IPEndPoint boundEndPoint = listener.LocalEndpoint as IPEndPoint
                 ?? throw new InvalidOperationException(
                     "The local pairing listener did not expose an IP endpoint.");
             ProtocolVersion[] versions = [new ProtocolVersion(1, 0)];
             var sessionProfile = new AuthenticatedInboundSessionProfile(
-                CapabilityGrant.Of(Capability.ActivityOffer),
-                versions);
+                CapabilityGrant.Of(
+                    Capability.ActivityOffer,
+                    Capability.ActivityReceive),
+                versions,
+                capabilityMatch: CapabilityRequirementMatch.Any);
             var inbound = new FlowspanTcpInboundListener(
                 listener,
                 identity,

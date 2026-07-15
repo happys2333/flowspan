@@ -41,6 +41,10 @@ for end-user installation. The repository currently includes:
   pairing, persistent Trust editing, and truthful per-peer trusted-reconnect
   status while remaining `NOT SHARING`; starting that lifetime requires an
   acknowledged Windows/macOS/Linux-specific privacy preflight;
+- one bounded `workspace.note/v1` desktop Semantic Handoff over the encrypted
+  authenticated control channel, with directional Capability checks, an
+  explicit source-preserving preview, a named unavailable Remote Window limit,
+  and payload-free operation receipts;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
@@ -99,11 +103,13 @@ Start with [v1 requirements](specs/v1/requirements.md), then read the
 ## Safety boundary
 
 The current desktop composition can explicitly enable local pairing and an
-authenticated but idle control channel. It does not carry Activity payloads and
-must continue to say `NOT SHARING`. The in-memory simulator does not provide
-production security, and Activity/media/input traffic must not be enabled until
-its end-to-end framing, platform protection, authorization negatives, native
-evidence, and security-review gates are satisfied.
+authenticated control channel. It can carry only the implemented bounded
+`workspace.note/v1` Semantic Handoff; that one-shot source-preserving copy is not
+live sharing, so the global state remains `NOT SHARING`. It does not transfer
+process memory, unsaved application internals, credentials, screen media, or
+remote input. The in-memory simulator and same-host loopback evidence do not
+substitute for physical-device, native-permission, or independent security
+review gates.
 
 Flowspan is a clean-room rewrite. See
 [clean-room engineering and provenance](docs/engineering/clean-room.md).

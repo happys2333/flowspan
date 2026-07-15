@@ -320,6 +320,40 @@ public sealed class AuthenticatedTcpInboundListenerTests
     }
 
     [Fact]
+    public async Task AnyCapabilityProfileRunsPeerWithOneAlternativeGrant()
+    {
+        using DeviceIdentity identity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            identity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        await using var trustSessions = new TrustSessionCoordinator(trustStore);
+        var accepted = new FakeAcceptedSession(identity.PublicIdentity, block: false);
+        var listener = new AuthenticatedTcpInboundListener(
+            new QueueSessionAcceptor(accepted),
+            trustSessions,
+            new AuthenticatedInboundSessionProfile(
+                CapabilityGrant.Of(
+                    Capability.ActivityOffer,
+                    Capability.ActivityReceive),
+                [new ProtocolVersion(1, 0)],
+                maximumConcurrentSessions: 1,
+                handshakeTimeout: TimeSpan.FromSeconds(2),
+                capabilityMatch: CapabilityRequirementMatch.Any),
+            new NeverHandler());
+        using var cancellation = new CancellationTokenSource();
+        Task running = listener.RunAsync(cancellation.Token).AsTask();
+
+        await accepted.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+    }
+
+    [Fact]
     public async Task AcceptedSessionIsRecheckedAgainstCurrentTrustedKey()
     {
         DeviceId deviceId =

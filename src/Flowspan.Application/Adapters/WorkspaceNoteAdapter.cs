@@ -29,7 +29,7 @@ public sealed class WorkspaceNoteAdapter : IActivityAdapter
         if (!root.TryGetProperty("text", out JsonElement textElement)
             || textElement.ValueKind != JsonValueKind.String
             || textElement.GetString() is not string text
-            || text.Length > MaximumTextCharacters
+            || text.Length is < 1 or > MaximumTextCharacters
             || root.EnumerateObject().Any(static property => property.Name != "text"))
         {
             return ValueTask.FromResult(

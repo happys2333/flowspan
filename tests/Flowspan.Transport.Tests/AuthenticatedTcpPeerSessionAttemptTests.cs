@@ -117,6 +117,43 @@ public sealed class AuthenticatedTcpPeerSessionAttemptTests
     }
 
     [Fact]
+    public async Task AnyCapabilityProfileConnectsPeerWithOneAlternativeGrant()
+    {
+        using DeviceIdentity localIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Laptop");
+        using DeviceIdentity peerIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            peerIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        await using var trustSessions = new TrustSessionCoordinator(trustStore);
+        var connector = new FailingConnector(new IOException("Connection refused."));
+        var attempt = new AuthenticatedTcpPeerSessionAttempt(
+            new AuthenticatedPeerSessionProfile(
+                peerIdentity.DeviceId,
+                CapabilityGrant.Of(
+                    Capability.ActivityOffer,
+                    Capability.ActivityReceive),
+                [new ProtocolVersion(1, 0)],
+                capabilityMatch: CapabilityRequirementMatch.Any),
+            localIdentity,
+            trustSessions,
+            new TestCandidateSource(CreateCandidate(peerIdentity)),
+            connector,
+            new NeverSessionHandler(),
+            new FixedTimeProvider(Now));
+
+        PeerSessionAttemptResult result = await attempt.RunAsync();
+
+        Assert.Equal(PeerSessionAttemptResult.TransientFailure, result);
+        Assert.Equal(1, connector.Count);
+    }
+
+    [Fact]
     public async Task ChangedCandidateIdentityIsRejectedBeforeTcpConnect()
     {
         using DeviceIdentity localIdentity = DeviceIdentity.Generate(

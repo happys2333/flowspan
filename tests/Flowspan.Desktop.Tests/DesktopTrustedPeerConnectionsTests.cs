@@ -58,7 +58,31 @@ public sealed class DesktopTrustedPeerConnectionsTests
     }
 
     [Fact]
-    public async Task MissingActivityOfferGrantIsPolicyIdleAndNeverContacted()
+    public async Task ReceiveOnlyGrantStillAdmitsElectedControlChannelConnector()
+    {
+        using DeviceIdentity local = CreateIdentity("11111111", "Local");
+        using DeviceIdentity remote = CreateIdentity("22222222", "Remote");
+        await using var trust = new TrustSessionCoordinator(
+            CreateTrustStore(remote, Capability.ActivityReceive));
+        var loops = new FakeReconnectLoopFactory();
+        await using var connections = new DesktopTrustedPeerConnectionCoordinator(
+            local.DeviceId,
+            trust,
+            static () => [],
+            loops);
+
+        connections.Start();
+
+        DesktopTrustedPeerConnectionSnapshot snapshot =
+            Assert.Single(connections.GetSnapshot());
+        Assert.Equal(
+            DesktopTrustedPeerConnectionState.WaitingForPeer,
+            snapshot.State);
+        Assert.Single(loops.Created);
+    }
+
+    [Fact]
+    public async Task MissingActivityControlGrantIsPolicyIdleAndNeverContacted()
     {
         using DeviceIdentity local = CreateIdentity("11111111", "Local");
         using DeviceIdentity remote = CreateIdentity("22222222", "Remote");
@@ -78,6 +102,10 @@ public sealed class DesktopTrustedPeerConnectionsTests
         Assert.Equal(
             DesktopTrustedPeerConnectionState.CapabilityRequired,
             snapshot.State);
+        Assert.Equal(
+            "IDLE — ACTIVITY CONTROL CAPABILITY NOT GRANTED",
+            snapshot.StatusLabel);
+        Assert.Contains("activity.offer or activity.receive", snapshot.StatusDescription);
         Assert.Empty(loops.Created);
     }
 
@@ -326,17 +354,21 @@ public sealed class DesktopTrustedPeerConnectionsTests
         Assert.False(source.TryGet(trusted.DeviceId, out _));
     }
 
-    [Fact]
-    public async Task ProductionLoopAuthenticatesOneIdleLoopbackChannelOnBothPeers()
+    [Theory]
+    [InlineData(Capability.ActivityReceive, Capability.ActivityOffer)]
+    [InlineData(Capability.ActivityOffer, Capability.ActivityReceive)]
+    public async Task ProductionLoopAuthenticatesOneWayGrantInEitherDeviceIdOrdering(
+        Capability connectorCapability,
+        Capability listenerCapability)
     {
         using DeviceIdentity connectorIdentity =
             CreateIdentity("11111111", "Connector");
         using DeviceIdentity listenerIdentity =
             CreateIdentity("22222222", "Listener");
         await using var connectorTrust = new TrustSessionCoordinator(
-            CreateTrustStore(listenerIdentity, Capability.ActivityOffer));
+            CreateTrustStore(listenerIdentity, connectorCapability));
         await using var listenerTrust = new TrustSessionCoordinator(
-            CreateTrustStore(connectorIdentity, Capability.ActivityOffer));
+            CreateTrustStore(connectorIdentity, listenerCapability));
         var listenerLoops = new FakeReconnectLoopFactory();
         await using var listenerConnections =
             new DesktopTrustedPeerConnectionCoordinator(
@@ -351,8 +383,11 @@ public sealed class DesktopTrustedPeerConnectionsTests
         socket.Start();
         int port = ((IPEndPoint)socket.LocalEndpoint).Port;
         var inboundProfile = new AuthenticatedInboundSessionProfile(
-            CapabilityGrant.Of(Capability.ActivityOffer),
-            [new ProtocolVersion(1, 0)]);
+            CapabilityGrant.Of(
+                Capability.ActivityOffer,
+                Capability.ActivityReceive),
+            [new ProtocolVersion(1, 0)],
+            capabilityMatch: CapabilityRequirementMatch.Any);
         var inbound = new AuthenticatedTcpInboundListener(
             socket,
             listenerIdentity,
