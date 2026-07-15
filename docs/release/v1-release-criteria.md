@@ -163,6 +163,14 @@ implementation convenience.
   loss, same-host encrypted loopback, and query-only Desktop composition.
   Destructive preview/confirmation/recovery/undo and physical/native product
   evidence remain open, so the Replace product criterion is still unchecked.
+- [2026-07-15 Desktop Replace preview and confirmation](../evidence/2026-07-15-desktop-replace-preview.md):
+  533 local and exact-implementation-commit hosted tests prove an explicit,
+  keyboard-operable, payload-free preview that compares incoming and exact
+  target snapshots, revokes confirmation on relevant changes, rejects stale
+  async inventory, and keeps destructive production composition locked.
+  Receipt/recovery presentation, target-local visible undo, destructive
+  composition, and physical/native evidence remain open, so the Replace product
+  criterion is still unchecked.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product

@@ -330,8 +330,17 @@ means its linked evidence exists; it does not imply the entire product works.
     across hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, stress
     results, and explicit physical/native limits are recorded in
     [Replace target inventory evidence](../../docs/evidence/2026-07-15-replace-target-inventory.md).
-    Destructive preview, explicit confirmation, recovery, visible undo, and
-    physical/native product evidence remain open.
+    The preview-only Desktop sub-slice is complete at implementation commit
+    `4407de7`: it explicitly queries and refreshes the bounded inventory,
+    compares one incoming Activity with one exact target snapshot, revokes
+    confirmation on participant/snapshot changes, names stale and sanitized
+    recovery states, and keeps production destructive Replace uncomposed. All
+    533 tests, Secret Scan, and CodeQL pass on that exact implementation commit
+    across hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, 20-process
+    Desktop Replace stress, and explicit physical/native limits are recorded in
+    [Desktop Replace preview evidence](../../docs/evidence/2026-07-15-desktop-replace-preview.md).
+    Receipt/recovery presentation, startup recovery, target-local visible undo,
+    destructive composition, and physical/native product evidence remain open.
     The earlier core/protocol evidence is recorded in
     [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
     Consequently 7.3c and the parent task are not complete. See
@@ -349,7 +358,7 @@ means its linked evidence exists; it does not imply the entire product works.
       `activity.replace`; disclose only bounded, payload-free, normal-sensitivity
       same-kind target snapshots; bind correlation/target/kind/deadline; and
       preserve stale ID/revision/digest rejection before destructive work.
-    - [ ] 7.3c.4 Add a keyboard-operable preview-only Desktop Replace flow.
+    - [x] 7.3c.4 Add a keyboard-operable preview-only Desktop Replace flow.
       Query and refresh inventory explicitly; compare the incoming Activity with
       one exact target snapshot; revoke confirmation on every relevant change;
       name stale revision/digest refresh and sanitized failure recovery; and keep
