@@ -120,6 +120,20 @@ the production framing, authentication, authorization, lifecycle, and UI
 contracts on one host; they do not prove physical LAN reachability, two-machine
 application behavior, or native platform permission handling.
 
+### 5.5 Task 7.3b acknowledged Semantic Move evidence plan
+
+| Threat | Required implementation evidence | Evidence that remains physical |
+| --- | --- | --- |
+| T04 | Move accepts only the precisely bound target receipt already required by 7.3a. Target rejection, delivery failure, and acknowledgement loss leave the source active; deterministic duplicate/lost-ack retry returns the journaled result without a second target resume. | Cross-machine packet loss immediately before/after receipt, peer restart, and recovery after sleep on representative LANs. |
+| T05 | The source rechecks local `activity.receive` before channel use and the target reloads local `activity.offer` before adapter use. A live authenticated target that rejects the current grant cannot trigger source cleanup. | Capability revocation racing a physical transfer and protected Trust-store failure on each supported OS. |
+| T10 | Move receipts and visible failure/warning text remain payload-free; target acceptance, source cleanup, and duplicate risk are expressed without note content or exception details. | Packaged crash-report, minidump, and exported-diagnostic review. |
+| T15 | Handoff and Move have separate previews and confirmation controls. Move names target-first ordering, acknowledgement loss, and `SourceCleanupFailed`; the shared receipt is not labelled as Handoff. | Native screen-reader speech, focus order, scaling, contrast, and translated-string review in packaged builds. |
+
+Same-host encrypted loopback proves the production control framing and the
+target-first contract on one machine. Hosted Windows/macOS/Linux runners add OS
+build and portable-contract evidence only; neither class proves two physical
+devices or native accessibility.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

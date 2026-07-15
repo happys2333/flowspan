@@ -14,7 +14,7 @@ screens or arbitrary process migration.
 | **Semantic Handoff** | A resume of an Activity through a target Adapter using portable context. | App migration |
 | **Remote Window** | An explicit fallback that keeps execution on the source while presenting captured output and optional authorized input elsewhere. | Migration, screen handoff |
 | **Handoff** | An operation that resumes an Activity on another device while preserving the source. | Move |
-| **Move** | An operation that resumes an Activity elsewhere, then closes or suspends the source only after target acknowledgement. | Handoff |
+| **Move** | An operation that resumes an Activity elsewhere, then closes or suspends the source only after verified target acknowledgement; failed source cleanup is a committed duplicate warning, not a target rollback. | Handoff |
 | **Replace** | An operation that preserves eligible target state before installing an incoming Activity in its Placement. | Overwrite |
 | **Swap** | One atomic transaction that exchanges two Activity Placements or changes neither. | Two moves |
 | **Mirror** | An Activity presentation on multiple devices while authoritative execution remains on one host. | Copy, sync |
@@ -55,7 +55,8 @@ screens or arbitrary process migration.
 - A **Semantic Handoff** and a **Remote Window** are distinct execution modes;
   the latter keeps authoritative execution on the source.
 - A **Move** is complete only after the target acknowledges resume; a
-  **Handoff** never removes the source.
+  **Handoff** never removes the source. If Move source cleanup fails, the target
+  remains committed and both active copies must be reported.
 - A **Mirror** has at most one effective **Driver Lease** at a time.
 - A **Trust Record** may grant zero or more independent **Capabilities**.
 - A Capability is always a local grant to the named peer. In particular,

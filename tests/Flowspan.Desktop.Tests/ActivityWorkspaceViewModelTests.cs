@@ -41,6 +41,31 @@ public sealed class ActivityWorkspaceViewModelTests
     }
 
     [Fact]
+    public void NoteAndAuthenticatedTargetProduceAcknowledgementOrderedMovePreview()
+    {
+        var service = new FakeActivityService();
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Release plan",
+            DraftText = "portable note body",
+        };
+        viewModel.CreateWorkspaceNote();
+        viewModel.SelectedTarget = Assert.Single(viewModel.Targets);
+
+        Assert.True(viewModel.IsMovePreviewVisible);
+        Assert.Equal(
+            "SEMANTIC MOVE — SOURCE CLOSES AFTER TARGET ACKNOWLEDGEMENT",
+            viewModel.MovePreviewStatus);
+        Assert.Contains("resumes", viewModel.MovePreviewDescription);
+        Assert.Contains("first", viewModel.MovePreviewDescription);
+        Assert.Contains("only after", viewModel.MovePreviewDescription);
+        Assert.Contains("remains active", viewModel.MovePreviewDescription);
+        Assert.True(viewModel.MoveCommand.CanExecute(null));
+    }
+
+    [Fact]
     public async Task CommittedHandoffShowsRedactedReceiptAndNoMisleadingUndo()
     {
         const string canary = "FLOWSPAN_NOTE_SECRET_CANARY";
@@ -67,6 +92,124 @@ public sealed class ActivityWorkspaceViewModelTests
         Assert.DoesNotContain(canary, viewModel.ReceiptSummary, StringComparison.Ordinal);
         Assert.DoesNotContain(canary, viewModel.ReceiptReason, StringComparison.Ordinal);
         Assert.True(service.SourceStillActive);
+    }
+
+    [Fact]
+    public async Task CommittedMoveClosesSourceOnlyAfterVerifiedTargetReceipt()
+    {
+        var service = new FakeActivityService();
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Incident note",
+            DraftText = "portable body",
+        };
+        viewModel.CreateWorkspaceNote();
+        viewModel.SelectedTarget = Assert.Single(viewModel.Targets);
+
+        await viewModel.MoveAsync();
+
+        Assert.Equal("MOVE COMMITTED", viewModel.ReceiptStatus);
+        Assert.Contains("acknowledged", viewModel.ReceiptSummary);
+        Assert.Contains("source closed", viewModel.ReceiptSummary);
+        Assert.Contains("NO AUTOMATIC UNDO", viewModel.UndoDescription);
+        Assert.Contains("move it back", viewModel.UndoDescription);
+        Assert.DoesNotContain(
+            "handoff",
+            viewModel.UndoDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(service.SourceStillActive);
+        Assert.Empty(viewModel.Activities);
+        Assert.Null(viewModel.SelectedActivity);
+    }
+
+    [Fact]
+    public async Task MoveSourceCleanupFailureNamesCommittedDuplicateWarning()
+    {
+        var service = new FakeActivityService
+        {
+            Outcome = OperationStatus.CommittedWithWarning,
+            Failure = FailureCode.SourceCleanupFailed,
+        };
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Incident note",
+            DraftText = "portable body",
+        };
+        viewModel.CreateWorkspaceNote();
+        viewModel.SelectedTarget = Assert.Single(viewModel.Targets);
+
+        await viewModel.MoveAsync();
+
+        Assert.Equal("MOVE COMMITTED WITH WARNING", viewModel.ReceiptStatus);
+        Assert.Contains("target committed", viewModel.ReceiptSummary);
+        Assert.Contains("source cleanup failed", viewModel.ReceiptSummary);
+        Assert.Contains("two active copies", viewModel.ReceiptSummary);
+        Assert.Equal("source-cleanup-failed", viewModel.ReceiptReason);
+        Assert.True(service.SourceStillActive);
+        Assert.Single(viewModel.Activities);
+    }
+
+    [Fact]
+    public async Task MoveAcknowledgementLossKeepsSourceAndNamesUncertainOutcome()
+    {
+        var service = new FakeActivityService
+        {
+            Outcome = OperationStatus.Recovering,
+            Failure = FailureCode.AcknowledgementLost,
+        };
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Incident note",
+            DraftText = "portable body",
+        };
+        viewModel.CreateWorkspaceNote();
+        viewModel.SelectedTarget = Assert.Single(viewModel.Targets);
+
+        await viewModel.MoveAsync();
+
+        Assert.Equal("MOVE OUTCOME UNCERTAIN", viewModel.ReceiptStatus);
+        Assert.Contains("may have accepted", viewModel.ReceiptSummary);
+        Assert.Contains("semantic resume", viewModel.ReceiptSummary);
+        Assert.DoesNotContain("semantic copy", viewModel.ReceiptSummary);
+        Assert.Contains("source remains available", viewModel.ReceiptSummary);
+        Assert.Equal("acknowledgement-lost", viewModel.ReceiptReason);
+        Assert.True(service.SourceStillActive);
+        Assert.Single(viewModel.Activities);
+    }
+
+    [Fact]
+    public async Task MoveRejectionNamesFailedResumeAndKeepsSource()
+    {
+        var service = new FakeActivityService
+        {
+            Outcome = OperationStatus.Rejected,
+            Failure = FailureCode.CapabilityDenied,
+        };
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Incident note",
+            DraftText = "portable body",
+        };
+        viewModel.CreateWorkspaceNote();
+        viewModel.SelectedTarget = Assert.Single(viewModel.Targets);
+
+        await viewModel.MoveAsync();
+
+        Assert.Equal("MOVE REJECTED", viewModel.ReceiptStatus);
+        Assert.Contains("did not accept the semantic resume", viewModel.ReceiptSummary);
+        Assert.DoesNotContain("semantic copy", viewModel.ReceiptSummary);
+        Assert.Contains("source remains available", viewModel.ReceiptSummary);
+        Assert.Equal("capability-denied", viewModel.ReceiptReason);
+        Assert.True(service.SourceStillActive);
+        Assert.Single(viewModel.Activities);
     }
 
     [Fact]
@@ -200,7 +343,31 @@ public sealed class ActivityWorkspaceViewModelTests
         public ValueTask<OperationReceipt> HandoffAsync(
             ActivityId activityId,
             DeviceId targetDeviceId,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(OperationKind.Handoff, cancellationToken);
+
+        public ValueTask<OperationReceipt> MoveAsync(
+            ActivityId activityId,
+            DeviceId targetDeviceId,
             CancellationToken cancellationToken = default)
+        {
+            ValueTask<OperationReceipt> result = ExecuteAsync(
+                OperationKind.Move,
+                cancellationToken);
+            if (result.IsCompletedSuccessfully
+                && result.Result.Status == OperationStatus.Committed)
+            {
+                SourceStillActive = false;
+                activities.Clear();
+                Changed?.Invoke();
+            }
+
+            return result;
+        }
+
+        private ValueTask<OperationReceipt> ExecuteAsync(
+            OperationKind kind,
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (FailureException is not null)
@@ -217,15 +384,25 @@ public sealed class ActivityWorkspaceViewModelTests
                 OperationStatus.Committed => OperationReceipt.Committed(
                     operationId,
                     correlationId,
-                    OperationKind.Handoff,
+                    kind,
                     LocalId,
                     TargetId,
                     current,
                     DateTimeOffset.UtcNow),
+                OperationStatus.CommittedWithWarning =>
+                    OperationReceipt.CommittedWithWarning(
+                        operationId,
+                        correlationId,
+                        kind,
+                        LocalId,
+                        TargetId,
+                        current,
+                        DateTimeOffset.UtcNow,
+                        Failure),
                 OperationStatus.Rejected => OperationReceipt.Rejected(
                     operationId,
                     correlationId,
-                    OperationKind.Handoff,
+                    kind,
                     LocalId,
                     TargetId,
                     current,
@@ -234,7 +411,7 @@ public sealed class ActivityWorkspaceViewModelTests
                 OperationStatus.Recovering => OperationReceipt.Recovering(
                     operationId,
                     correlationId,
-                    OperationKind.Handoff,
+                    kind,
                     LocalId,
                     TargetId,
                     current,

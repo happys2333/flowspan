@@ -156,9 +156,23 @@ initialization, Activity-only retry, and network -> Activity -> Trust -> identit
 disposal. These are deterministic and same-host results, not physical two-device
 or arbitrary-application migration evidence.
 
+The task 7.3b tests reuse that bounded descriptor and control channel for Move.
+Application fault injection proves target resume precedes source close, target
+rejection and delivery/acknowledgement loss preserve the source, duplicate
+delivery is idempotent, and source-close failure becomes a committed duplicate
+warning. Desktop-runtime tests cover missing source-side `activity.receive`, no
+live authenticated channel, encrypted loopback success, and a live authenticated
+target-side `activity.offer` rejection. View-model tests distinguish committed,
+committed-with-warning, rejected, unavailable, and uncertain outcomes while
+keeping receipts payload-free; Avalonia Headless drives the separate disabled/
+enabled Move control by keyboard and verifies operation-neutral automation names.
+These layers do not replace physical two-device interruption, packaged native
+accessibility, or arbitrary application Adapter evidence.
+
 Core invariants are asserted after every event:
 
-1. a move never removes the only acknowledged instance;
+1. a move never removes the only acknowledged instance, and closes the source
+   only after a verified target receipt;
 2. aborted/uncommitted swap leaves original placements;
 3. terminal outcomes do not change;
 4. operation ID/digest is one-to-one;

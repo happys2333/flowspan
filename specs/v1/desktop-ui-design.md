@@ -1,6 +1,6 @@
 # Flowspan v1 Desktop UI Design
 
-Status: accepted evolving implementation specification for desktop tasks 7.1–7.3a
+Status: accepted evolving implementation specification for desktop tasks 7.1–7.3b
 
 Requirements: R1–R4, R8–R12
 
@@ -348,10 +348,10 @@ The preview must say `SEMANTIC HANDOFF — SOURCE STAYS OPEN`, name the exact
 descriptor kind, destination, sensitivity, and data being sent, and state that
 Flowspan does not transfer process memory, unsaved application internals, or
 credentials. `REMOTE WINDOW NOT AVAILABLE IN THIS BUILD` is a named capability
-limit, not an offered fallback. Move, replace, swap, mirror, and driver transfer
-remain unavailable and are not represented by enabled controls. Because a
-handoff is additive, this slice offers no misleading undo action; the receipt
-explains that each device owns its resulting copy.
+limit, not an offered fallback. In task 7.3a, Move, replace, swap, mirror, and
+driver transfer remain unavailable and are not represented by enabled controls.
+Because a handoff is additive, this slice offers no misleading undo action; the
+receipt explains that each device owns its resulting copy.
 
 Only an authenticated session registered for the selected Device ID can become
 a target. The transfer envelope is versioned, bounded, correlation-bound, and
@@ -371,3 +371,37 @@ authenticated loopback tests, and Avalonia Headless tests are required before
 the slice is called complete. Physical two-device LAN behavior remains task 5.4
 and release evidence; hosted runners prove protocol, loopback, composition, and
 platform-selection contracts only.
+
+## 16. Task 7.3b: acknowledged semantic Move
+
+The next operation surface exposes bounded `workspace.note/v1` Move without
+changing the Handoff contract. Handoff and Move have separate bordered previews
+and separate confirmation buttons. The Move preview must say
+`SEMANTIC MOVE — SOURCE CLOSES AFTER TARGET ACKNOWLEDGEMENT`, name the selected
+target, descriptor kind, and sensitivity, and explain that rejection, failure,
+or an uncertain outcome leaves the source active. A user must never invoke Move
+from the source-preserving Handoff preview.
+
+The Move control is disabled until an active local Activity and authenticated
+eligible target are selected, and while another Activity operation is busy. It
+has an explicit automation name and help text describing target-first ordering,
+is keyboard focusable, and activates through the standard keyboard path. The
+shared target list and receipt use operation-neutral automation names; assistive
+technology must not hear a Move result described as Handoff.
+
+A verified committed receipt removes the closed source from the active Activity
+list and reports that target resume preceded source close. Rejection, failure,
+and acknowledgement loss retain the source. `SourceCleanupFailed` is visibly
+`COMMITTED WITH WARNING` and says two active copies may exist; the target is not
+rolled back. Receipt and undo text is operation-aware: Handoff explains its
+source-preserving copy, committed Move says there is no automatic reversal and
+requires a new Move to return, and an uncertain Move tells the user to inspect
+both devices before retrying. The top-level state remains `NOT SHARING` because
+Move transfers one descriptor and does not establish Mirror or remote input.
+
+Deterministic Move ordering/fault tests, production desktop authorization and
+peer-unavailable tests, an authenticated encrypted loopback success/rejection
+pair, ViewModel projection tests, and Avalonia Headless keyboard/automation tests
+gate this slice. These remain same-host and hosted-runner evidence; physical
+two-device LAN, packaged accessibility, and arbitrary-application state transfer
+are not implied.

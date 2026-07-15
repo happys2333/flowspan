@@ -86,6 +86,7 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         return catalog?.Snapshot()
+            .Where(static activity => activity.Lifecycle == ActivityLifecycle.Active)
             .Select(CreateSnapshot)
             .ToImmutableArray() ?? [];
     }
@@ -125,70 +126,60 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         ArgumentNullException.ThrowIfNull(activityId);
         ArgumentNullException.ThrowIfNull(targetDeviceId);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
-        FlowspanNode currentNode = node
-            ?? throw new InvalidOperationException(
-                "The Activity runtime is not initialized.");
-        var context = OperationContext.Create(
-            OperationId.From(Guid.NewGuid()),
-            CorrelationId.From(Guid.NewGuid()),
-            timeProvider.GetUtcNow().Add(OperationLifetime));
-        if (!currentNode.TryGetActivity(activityId, out ActivityInstance? activity))
+        OutboundOperationPreparation preparation = PrepareOutboundOperation(
+            activityId,
+            targetDeviceId,
+            OperationKind.Handoff);
+        if (preparation.FailureReceipt is not null)
         {
-            return OperationReceipt.RejectedMissingActivity(
-                context.OperationId,
-                context.CorrelationId,
-                OperationKind.Handoff,
-                currentNode.DeviceId,
-                targetDeviceId,
-                activityId,
-                timeProvider.GetUtcNow());
-        }
-
-        TrustSessionCoordinator? currentTrust = trust;
-        if (currentTrust is null
-            || !currentTrust.TryGetCurrentTrust(
-                targetDeviceId,
-                out TrustRecord? record)
-            || !record.GrantedCapabilities.Allows(Capability.ActivityReceive))
-        {
-            return OperationReceipt.Rejected(
-                context.OperationId,
-                context.CorrelationId,
-                OperationKind.Handoff,
-                currentNode.DeviceId,
-                targetDeviceId,
-                activity.Descriptor,
-                timeProvider.GetUtcNow(),
-                FailureCode.CapabilityDenied);
-        }
-
-        if (handler is null
-            || !handler.TryGetChannel(
-                targetDeviceId,
-                out IActivityChannel? channel)
-            || channel is null)
-        {
-            return OperationReceipt.Failed(
-                context.OperationId,
-                context.CorrelationId,
-                OperationKind.Handoff,
-                currentNode.DeviceId,
-                targetDeviceId,
-                activity.Descriptor,
-                timeProvider.GetUtcNow(),
-                FailureCode.PeerUnavailable);
+            return preparation.FailureReceipt;
         }
 
         using CancellationTokenSource linked =
             CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 lifetimeCancellation.Token);
-        return await currentNode.HandoffAsync(
+        return await preparation.Node.HandoffAsync(
             activityId,
-            channel,
+            preparation.Channel!,
             "desktop",
-            context,
+            preparation.Context,
             linked.Token).ConfigureAwait(false);
+    }
+
+    public async ValueTask<OperationReceipt> MoveAsync(
+        ActivityId activityId,
+        DeviceId targetDeviceId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(activityId);
+        ArgumentNullException.ThrowIfNull(targetDeviceId);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        OutboundOperationPreparation preparation = PrepareOutboundOperation(
+            activityId,
+            targetDeviceId,
+            OperationKind.Move);
+        if (preparation.FailureReceipt is not null)
+        {
+            return preparation.FailureReceipt;
+        }
+
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+        OperationReceipt receipt = await preparation.Node.MoveAsync(
+            activityId,
+            preparation.Channel!,
+            "desktop",
+            preparation.Context,
+            linked.Token).ConfigureAwait(false);
+        if (receipt.Status == OperationStatus.Committed)
+        {
+            PublishChanged();
+        }
+
+        return receipt;
     }
 
     public async ValueTask InitializeAsync(
@@ -285,6 +276,84 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
     private static ActivityKind WorkspaceNoteKind { get; } =
         ActivityKind.Parse("workspace.note/v1");
 
+    private OutboundOperationPreparation PrepareOutboundOperation(
+        ActivityId activityId,
+        DeviceId targetDeviceId,
+        OperationKind kind)
+    {
+        FlowspanNode currentNode = node
+            ?? throw new InvalidOperationException(
+                "The Activity runtime is not initialized.");
+        OperationContext context = OperationContext.Create(
+            OperationId.From(Guid.NewGuid()),
+            CorrelationId.From(Guid.NewGuid()),
+            timeProvider.GetUtcNow().Add(OperationLifetime));
+        if (!currentNode.TryGetActivity(activityId, out ActivityInstance? activity))
+        {
+            return new OutboundOperationPreparation(
+                currentNode,
+                context,
+                null,
+                OperationReceipt.RejectedMissingActivity(
+                    context.OperationId,
+                    context.CorrelationId,
+                    kind,
+                    currentNode.DeviceId,
+                    targetDeviceId,
+                    activityId,
+                    timeProvider.GetUtcNow()));
+        }
+
+        TrustSessionCoordinator? currentTrust = trust;
+        if (currentTrust is null
+            || !currentTrust.TryGetCurrentTrust(
+                targetDeviceId,
+                out TrustRecord? record)
+            || !record.GrantedCapabilities.Allows(Capability.ActivityReceive))
+        {
+            return new OutboundOperationPreparation(
+                currentNode,
+                context,
+                null,
+                OperationReceipt.Rejected(
+                    context.OperationId,
+                    context.CorrelationId,
+                    kind,
+                    currentNode.DeviceId,
+                    targetDeviceId,
+                    activity.Descriptor,
+                    timeProvider.GetUtcNow(),
+                    FailureCode.CapabilityDenied));
+        }
+
+        if (handler is null
+            || !handler.TryGetChannel(
+                targetDeviceId,
+                out IActivityChannel? channel)
+            || channel is null)
+        {
+            return new OutboundOperationPreparation(
+                currentNode,
+                context,
+                null,
+                OperationReceipt.Failed(
+                    context.OperationId,
+                    context.CorrelationId,
+                    kind,
+                    currentNode.DeviceId,
+                    targetDeviceId,
+                    activity.Descriptor,
+                    timeProvider.GetUtcNow(),
+                    FailureCode.PeerUnavailable));
+        }
+
+        return new OutboundOperationPreparation(
+            currentNode,
+            context,
+            channel,
+            null);
+    }
+
     private static DesktopActivitySnapshot CreateSnapshot(ActivityInstance activity) => new(
         activity.Descriptor.Id,
         activity.Descriptor.Title,
@@ -313,6 +382,12 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
     {
         public DateTimeOffset UtcNow => timeProvider.GetUtcNow();
     }
+
+    private sealed record OutboundOperationPreparation(
+        FlowspanNode Node,
+        OperationContext Context,
+        IActivityChannel? Channel,
+        OperationReceipt? FailureReceipt);
 
     private sealed class TrustBoundActivityPeer(
         FlowspanNode node,

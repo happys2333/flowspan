@@ -103,6 +103,9 @@ interfaces.
   target state to offer undo before installing the incoming Activity.
 - R4.5: When an operation ID is retried after lost acknowledgement, Flowspan
   shall return the recorded result without applying the operation twice.
+- R4.6: When the target has acknowledged a move but source cleanup fails,
+  Flowspan shall preserve the committed target, report a duplicate Activity as
+  `CommittedWithWarning`, and shall not claim that the move completed cleanly.
 
 ### R5 — Atomic swap
 

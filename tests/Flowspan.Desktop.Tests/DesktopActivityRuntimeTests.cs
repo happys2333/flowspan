@@ -73,6 +73,65 @@ public sealed class DesktopActivityRuntimeTests
     }
 
     [Fact]
+    public async Task LocalReceiveGrantIsRequiredBeforeAnyMovePayload()
+    {
+        using DeviceIdentity source = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity target = DeviceIdentity.Generate(TargetId, "Target");
+        var store = new InMemoryTrustStore();
+        store.Register(new TrustRecord(
+            target.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        var trust = new TrustSessionCoordinator(store);
+        await using var runtime = CreateRuntime(source, trust);
+        await runtime.InitializeAsync();
+        DesktopActivitySnapshot activity = runtime.CreateWorkspaceNote(
+            "Plan",
+            "must not leave",
+            ActivitySensitivity.Normal);
+
+        OperationReceipt receipt = await runtime.MoveAsync(
+            activity.ActivityId,
+            TargetId);
+
+        Assert.Equal(OperationKind.Move, receipt.Kind);
+        Assert.Equal(OperationStatus.Rejected, receipt.Status);
+        Assert.Equal(FailureCode.CapabilityDenied, receipt.FailureCode);
+        Assert.Empty(runtime.GetTargets());
+        Assert.Equal(ActivityLifecycle.Active, Assert.Single(runtime.GetActivities()).Lifecycle);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveWithoutLiveAuthenticatedChannelKeepsSourceActive()
+    {
+        using DeviceIdentity source = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity target = DeviceIdentity.Generate(TargetId, "Target");
+        var store = new InMemoryTrustStore();
+        store.Register(new TrustRecord(
+            target.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        var trust = new TrustSessionCoordinator(store);
+        await using var runtime = CreateRuntime(source, trust);
+        await runtime.InitializeAsync();
+        DesktopActivitySnapshot activity = runtime.CreateWorkspaceNote(
+            "Plan",
+            "must remain local",
+            ActivitySensitivity.Normal);
+
+        OperationReceipt receipt = await runtime.MoveAsync(
+            activity.ActivityId,
+            TargetId);
+
+        Assert.Equal(OperationKind.Move, receipt.Kind);
+        Assert.Equal(OperationStatus.Failed, receipt.Status);
+        Assert.Equal(FailureCode.PeerUnavailable, receipt.FailureCode);
+        Assert.Equal(activity, Assert.Single(runtime.GetActivities()));
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
     public async Task AuthenticatedRuntimesExchangeNoteAndExposeOnlyEligibleLiveTarget()
     {
         using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
@@ -140,6 +199,153 @@ public sealed class DesktopActivityRuntimeTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
         Assert.Empty(source.GetTargets());
+        await sourceTrust.DisposeAsync();
+        await targetTrust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AuthenticatedRuntimesMoveOnlyAfterVerifiedTargetReceipt()
+    {
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
+        var sourceStore = new InMemoryTrustStore();
+        sourceStore.Register(new TrustRecord(
+            targetIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        var targetStore = new InMemoryTrustStore();
+        targetStore.Register(new TrustRecord(
+            sourceIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        var sourceTrust = new TrustSessionCoordinator(sourceStore);
+        var targetTrust = new TrustSessionCoordinator(targetStore);
+        await using var source = CreateRuntime(sourceIdentity, sourceTrust);
+        await using var target = CreateRuntime(targetIdentity, targetTrust);
+        await source.InitializeAsync();
+        await target.InitializeAsync();
+        AuthenticatedActivitySessionHandler sourceHandler =
+            await source.GetSessionHandlerAsync();
+        AuthenticatedActivitySessionHandler targetHandler =
+            await target.GetSessionHandlerAsync();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        using var stop = new CancellationTokenSource();
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+        DesktopActivityTargetSnapshot liveTarget = Assert.Single(source.GetTargets());
+        DesktopActivitySnapshot activity = source.CreateWorkspaceNote(
+            "Release plan",
+            "portable body",
+            ActivitySensitivity.Normal);
+
+        OperationReceipt receipt = await source.MoveAsync(
+            activity.ActivityId,
+            liveTarget.DeviceId);
+
+        Assert.True(receipt.IsSuccess);
+        Assert.Equal(OperationKind.Move, receipt.Kind);
+        Assert.Empty(source.GetActivities());
+        Assert.Equal("Release plan", Assert.Single(target.GetActivities()).Title);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
+        await sourceTrust.DisposeAsync();
+        await targetTrust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AuthenticatedTargetRejectionKeepsMoveSourceActive()
+    {
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
+        var sourceStore = new InMemoryTrustStore();
+        sourceStore.Register(new TrustRecord(
+            targetIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        var targetStore = new InMemoryTrustStore();
+        targetStore.Register(new TrustRecord(
+            sourceIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        var sourceTrust = new TrustSessionCoordinator(sourceStore);
+        var targetTrust = new TrustSessionCoordinator(targetStore);
+        await using var source = CreateRuntime(sourceIdentity, sourceTrust);
+        await using var target = CreateRuntime(targetIdentity, targetTrust);
+        await source.InitializeAsync();
+        await target.InitializeAsync();
+        AuthenticatedActivitySessionHandler sourceHandler =
+            await source.GetSessionHandlerAsync();
+        AuthenticatedActivitySessionHandler targetHandler =
+            await target.GetSessionHandlerAsync();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        using var stop = new CancellationTokenSource();
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+        DesktopActivityTargetSnapshot liveTarget = Assert.Single(source.GetTargets());
+        DesktopActivitySnapshot activity = source.CreateWorkspaceNote(
+            "Release plan",
+            "portable body",
+            ActivitySensitivity.Normal);
+        Assert.True(targetStore.TryUpdateCapabilities(
+            SourceId,
+            sourceIdentity.PublicIdentity.Fingerprint,
+            CapabilityGrant.None));
+
+        OperationReceipt receipt = await source.MoveAsync(
+            activity.ActivityId,
+            liveTarget.DeviceId);
+
+        Assert.Equal(OperationKind.Move, receipt.Kind);
+        Assert.Equal(OperationStatus.Rejected, receipt.Status);
+        Assert.Equal(FailureCode.CapabilityDenied, receipt.FailureCode);
+        Assert.Equal(activity, Assert.Single(source.GetActivities()));
+        Assert.Empty(target.GetActivities());
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
         await sourceTrust.DisposeAsync();
         await targetTrust.DisposeAsync();
     }

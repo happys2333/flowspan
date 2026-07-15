@@ -117,7 +117,7 @@ public sealed class MainWindowAccessibilityTests
                 "Local semantic Activities",
                 activityList.GetValue(AutomationProperties.NameProperty));
             Assert.Equal(
-                "Authenticated semantic handoff targets",
+                "Authenticated semantic Activity targets",
                 targetList.GetValue(AutomationProperties.NameProperty));
             Assert.Equal(
                 "Confirm semantic handoff copy",
@@ -147,9 +147,75 @@ public sealed class MainWindowAccessibilityTests
 
             Assert.Equal("HANDOFF COMMITTED", receipt.Text);
             Assert.Equal(
-                "Semantic handoff receipt status",
+                "Semantic Activity operation receipt status",
                 receipt.GetValue(AutomationProperties.NameProperty));
             Assert.Equal("NOT SHARING", sharing.Text);
+            window.Close();
+        }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task SemanticMovePreviewAndCommitAreKeyboardOperableAndNamed()
+    {
+        var activities = new AccessibilityActivityService();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            activityService: activities);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            TextBox title = Assert.IsType<TextBox>(
+                window.FindControl<TextBox>("WorkspaceNoteTitleTextBox"));
+            TextBox body = Assert.IsType<TextBox>(
+                window.FindControl<TextBox>("WorkspaceNoteBodyTextBox"));
+            Button create = Assert.IsType<Button>(
+                window.FindControl<Button>("CreateWorkspaceNoteButton"));
+            TextBlock preview = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ActivityMovePreviewStatusText"));
+            Button move = Assert.IsType<Button>(
+                window.FindControl<Button>("ActivityMoveButton"));
+            TextBlock receipt = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ActivityReceiptStatusText"));
+
+            Assert.Equal(
+                "Semantic move preview status",
+                preview.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Confirm semantic move after target acknowledgement",
+                move.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Resumes the Activity on the selected authenticated target first, then closes the source only after a verified target acknowledgement.",
+                move.GetValue(AutomationProperties.HelpTextProperty));
+            Assert.Equal("MOVE PREVIEW NOT READY", preview.Text);
+            Assert.False(move.IsEnabled);
+
+            title.Text = "Release plan";
+            body.Text = "bounded note body";
+            Assert.True(create.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            viewModel.Activities.SelectedTarget = Assert.Single(
+                viewModel.Activities.Targets);
+
+            Assert.Equal(
+                "SEMANTIC MOVE — SOURCE CLOSES AFTER TARGET ACKNOWLEDGEMENT",
+                preview.Text);
+            Assert.True(move.IsEnabled);
+            Assert.True(move.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.Equal("MOVE COMMITTED", receipt.Text);
+            Assert.Equal(
+                "Semantic Activity operation receipt status",
+                receipt.GetValue(AutomationProperties.NameProperty));
+            Assert.Empty(viewModel.Activities.Activities);
             window.Close();
         }, CancellationToken.None);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -504,6 +570,27 @@ public sealed class MainWindowAccessibilityTests
                 TargetId,
                 current,
                 DateTimeOffset.UtcNow));
+        }
+
+        public ValueTask<OperationReceipt> MoveAsync(
+            ActivityId activityId,
+            DeviceId targetDeviceId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ActivityDescriptor current = descriptor
+                ?? throw new InvalidOperationException("No note exists.");
+            OperationReceipt receipt = OperationReceipt.Committed(
+                OperationId.From(Guid.NewGuid()),
+                CorrelationId.From(Guid.NewGuid()),
+                OperationKind.Move,
+                LocalId,
+                TargetId,
+                current,
+                DateTimeOffset.UtcNow);
+            descriptor = null;
+            Changed?.Invoke();
+            return ValueTask.FromResult(receipt);
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

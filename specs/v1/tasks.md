@@ -284,8 +284,18 @@ means its linked evidence exists; it does not imply the entire product works.
     Ubuntu for implementation commit `c7cee09` and evidence commit `4d49bd9`;
     exact run/job evidence is linked above. This completion status is effective
     only after the closure commit itself passes the same final-HEAD workflows.
-    Move/replace/swap, live-sharing indicators, recovery history, and undo
-    remain later slices.
+    Replace/swap, live-sharing indicators, recovery history, and compensating
+    undo remain later slices.
+  - 7.3b implementation candidate in progress: expose bounded
+    `workspace.note/v1` Move as a separate target-first preview and keyboard
+    control. Close the source only after the target returns a verified committed
+    receipt; preserve it after rejection, failure, or acknowledgement loss; and
+    report `SourceCleanupFailed` as a committed duplicate warning. The desktop
+    runtime rechecks source-side `activity.receive`, the target rechecks
+    `activity.offer`, shared receipt automation is operation-neutral, and Move
+    undo/recovery text does not reuse Handoff copy semantics. Local full-suite,
+    stress, simulator, package-audit, and exact-commit hosted CI/CodeQL evidence
+    are still required before marking this sub-slice complete.
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

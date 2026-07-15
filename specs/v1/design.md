@@ -318,6 +318,16 @@ unsolicited or mismatched receipts, and duplicate peer sessions fault closed.
 Disconnect after send but before a verified receipt produces
 `AcknowledgementLost`, leaving the source active.
 
+The desktop 7.3b slice reuses that authenticated transfer for bounded
+`workspace.note/v1` Move. The target must resume and return the same precisely
+bound, payload-free receipt before the source adapter is asked to close. A
+rejected transfer, delivery failure, or missing acknowledgement keeps the source
+active. A source-close failure does not roll back the acknowledged target; it is
+`CommittedWithWarning / SourceCleanupFailed` and may leave two active copies.
+Only an exactly `Committed` result removes the source from the desktop's active
+Activity projection. Move uses the same source-side `activity.receive` and
+target-side `activity.offer` authorization as Handoff.
+
 Production startup orders protected identity, persistent Trust, then Activity
 runtime. Local network shutdown drains control sessions before the Activity
 handler, Trust, and identity are disposed. A failed Activity startup can be

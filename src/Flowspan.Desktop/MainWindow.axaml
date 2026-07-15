@@ -543,7 +543,7 @@
                                  ItemsSource="{Binding Activities.Targets}"
                                  SelectedItem="{Binding Activities.SelectedTarget, Mode=TwoWay}"
                                  MaxHeight="190"
-                                 AutomationProperties.Name="Authenticated semantic handoff targets">
+                                 AutomationProperties.Name="Authenticated semantic Activity targets">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DesktopActivityTargetSnapshot">
                               <StackPanel Margin="8" Spacing="3">
@@ -596,16 +596,38 @@
                       </StackPanel>
                     </Border>
 
+                    <Border BorderBrush="{StaticResource SignalRedBrush}"
+                            BorderThickness="2"
+                            Padding="14"
+                            AutomationProperties.Name="Semantic move preview">
+                      <StackPanel Spacing="8">
+                        <TextBlock x:Name="ActivityMovePreviewStatusText"
+                                   Classes="label"
+                                   Foreground="{StaticResource SignalRedBrush}"
+                                   Text="{Binding Activities.MovePreviewStatus}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Semantic move preview status" />
+                        <TextBlock Text="{Binding Activities.MovePreviewDescription}"
+                                   TextWrapping="Wrap" />
+                        <Button x:Name="ActivityMoveButton"
+                                Content="MOVE AFTER TARGET ACK"
+                                Command="{Binding Activities.MoveCommand}"
+                                IsEnabled="{Binding Activities.IsMoveAvailable}"
+                                AutomationProperties.Name="Confirm semantic move after target acknowledgement"
+                                AutomationProperties.HelpText="Resumes the Activity on the selected authenticated target first, then closes the source only after a verified target acknowledgement." />
+                      </StackPanel>
+                    </Border>
+
                     <Border IsVisible="{Binding Activities.IsReceiptVisible}"
                             BorderBrush="{StaticResource CoolGrayBrush}"
                             BorderThickness="1"
                             Padding="14"
-                            AutomationProperties.Name="Semantic handoff receipt">
+                            AutomationProperties.Name="Semantic Activity operation receipt">
                       <StackPanel Spacing="6">
                         <TextBlock x:Name="ActivityReceiptStatusText"
                                    Classes="label"
                                    Text="{Binding Activities.ReceiptStatus}"
-                                   AutomationProperties.Name="Semantic handoff receipt status" />
+                                   AutomationProperties.Name="Semantic Activity operation receipt status" />
                         <TextBlock Text="{Binding Activities.ReceiptSummary}"
                                    TextWrapping="Wrap" />
                         <TextBlock Classes="secondary"
@@ -615,7 +637,7 @@
                                              FontSize="11"
                                              Text="{Binding Activities.ReceiptCorrelationId, StringFormat='Correlation: {0}'}"
                                              TextWrapping="Wrap"
-                                             AutomationProperties.Name="Semantic handoff correlation ID" />
+                                             AutomationProperties.Name="Semantic Activity operation correlation ID" />
                         <TextBlock Classes="secondary"
                                    Text="{Binding Activities.ReceiptOccurredAt, StringFormat='Occurred: {0}'}" />
                         <TextBlock Classes="secondary"

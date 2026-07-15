@@ -40,6 +40,14 @@ public interface IDesktopActivityService : IAsyncDisposable
         ActivityId activityId,
         DeviceId targetDeviceId,
         CancellationToken cancellationToken = default);
+
+    public ValueTask<OperationReceipt> MoveAsync(
+        ActivityId activityId,
+        DeviceId targetDeviceId,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromException<OperationReceipt>(
+            new PlatformNotSupportedException(
+                "Semantic Move is not configured by this Activity service."));
 }
 
 public sealed class ActivityWorkspaceViewModel :
@@ -49,6 +57,7 @@ public sealed class ActivityWorkspaceViewModel :
 {
     private readonly AsyncRelayCommand handoffCommand;
     private readonly CancellationTokenSource lifetimeCancellation = new();
+    private readonly AsyncRelayCommand moveCommand;
     private readonly IDesktopActivityService service;
     private readonly IDesktopUiDispatcher dispatcher;
     private readonly RelayCommand createWorkspaceNoteCommand;
@@ -61,6 +70,7 @@ public sealed class ActivityWorkspaceViewModel :
     private string receiptReason = string.Empty;
     private string receiptStatus = string.Empty;
     private string receiptSummary = string.Empty;
+    private string undoDescription = string.Empty;
     private DesktopActivitySnapshot? selectedActivity;
     private DesktopActivityTargetSnapshot? selectedTarget;
     private int disposed;
@@ -80,6 +90,9 @@ public sealed class ActivityWorkspaceViewModel :
         handoffCommand = new AsyncRelayCommand(
             HandoffAsync,
             CanHandoff);
+        moveCommand = new AsyncRelayCommand(
+            MoveAsync,
+            CanMove);
         service.Changed += OnServiceChanged;
         Refresh();
     }
@@ -93,6 +106,8 @@ public sealed class ActivityWorkspaceViewModel :
     public ICommand CreateWorkspaceNoteCommand => createWorkspaceNoteCommand;
 
     public ICommand HandoffCommand => handoffCommand;
+
+    public ICommand MoveCommand => moveCommand;
 
     public string CreationStatus
     {
@@ -143,14 +158,18 @@ public sealed class ActivityWorkspaceViewModel :
             if (SetProperty(ref isBusy, value))
             {
                 OnPropertyChanged(nameof(IsHandoffAvailable));
+                OnPropertyChanged(nameof(IsMoveAvailable));
                 OnPropertyChanged(nameof(IsNoteCreationAvailable));
                 createWorkspaceNoteCommand.NotifyCanExecuteChanged();
                 handoffCommand.NotifyCanExecuteChanged();
+                moveCommand.NotifyCanExecuteChanged();
             }
         }
     }
 
     public bool IsHandoffAvailable => CanHandoff();
+
+    public bool IsMoveAvailable => CanMove();
 
     public bool IsNoteCreationAvailable => CanCreateWorkspaceNote();
 
@@ -158,6 +177,8 @@ public sealed class ActivityWorkspaceViewModel :
 
     public bool IsPreviewVisible =>
         SelectedActivity is not null && SelectedTarget is not null;
+
+    public bool IsMovePreviewVisible => IsPreviewVisible;
 
     public bool IsReceiptVisible => ReceiptStatus.Length > 0;
 
@@ -168,6 +189,14 @@ public sealed class ActivityWorkspaceViewModel :
     public string PreviewStatus => IsPreviewVisible
         ? "SEMANTIC HANDOFF — SOURCE STAYS OPEN"
         : "HANDOFF PREVIEW NOT READY";
+
+    public string MovePreviewDescription => IsMovePreviewVisible
+        ? $"The target {SelectedTarget!.DisplayName} resumes {SelectedActivity!.Kind} first. Flowspan closes the source only after a verified target acknowledgement; it remains active after rejection, failure, or an uncertain outcome. Sensitivity: {SelectedActivity.Sensitivity}."
+        : "Select one local Activity and one authenticated target to review a move.";
+
+    public string MovePreviewStatus => IsMovePreviewVisible
+        ? "SEMANTIC MOVE — SOURCE CLOSES AFTER TARGET ACKNOWLEDGEMENT"
+        : "MOVE PREVIEW NOT READY";
 
     public string ReceiptCorrelationId
     {
@@ -229,8 +258,11 @@ public sealed class ActivityWorkspaceViewModel :
         }
     }
 
-    public string UndoDescription { get; } =
-        "NO UNDO REQUIRED — handoff preserves the source. Each device owns its resulting copy and can delete it locally.";
+    public string UndoDescription
+    {
+        get => undoDescription;
+        private set => SetProperty(ref undoDescription, value);
+    }
 
     public void CreateWorkspaceNote()
     {
@@ -278,8 +310,10 @@ public sealed class ActivityWorkspaceViewModel :
         Refresh();
         OnPropertyChanged(nameof(IsNoteCreationAvailable));
         OnPropertyChanged(nameof(IsHandoffAvailable));
+        OnPropertyChanged(nameof(IsMoveAvailable));
         createWorkspaceNoteCommand.NotifyCanExecuteChanged();
         handoffCommand.NotifyCanExecuteChanged();
+        moveCommand.NotifyCanExecuteChanged();
     }
 
     public async Task HandoffAsync()
@@ -312,6 +346,47 @@ public sealed class ActivityWorkspaceViewModel :
             ReceiptReason = "peer-unavailable";
             ReceiptCorrelationId = string.Empty;
             ReceiptOccurredAt = string.Empty;
+            UndoDescription =
+                "NO UNDO REQUIRED — the handoff did not change the source Activity.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    public async Task MoveAsync()
+    {
+        if (!CanMove())
+        {
+            return;
+        }
+
+        DesktopActivitySnapshot activity = SelectedActivity!;
+        DesktopActivityTargetSnapshot target = SelectedTarget!;
+        IsBusy = true;
+        ClearReceipt();
+        try
+        {
+            OperationReceipt receipt = await service.MoveAsync(
+                activity.ActivityId,
+                target.DeviceId,
+                lifetimeCancellation.Token).ConfigureAwait(true);
+            ApplyReceipt(receipt, target.DisplayName);
+        }
+        catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            ReceiptStatus = "MOVE UNAVAILABLE";
+            ReceiptSummary =
+                $"{target.DisplayName} did not return a verified receipt. The source remains active; retry after the authenticated local connection recovers.";
+            ReceiptReason = "peer-unavailable";
+            ReceiptCorrelationId = string.Empty;
+            ReceiptOccurredAt = string.Empty;
+            UndoDescription =
+                "NO UNDO REQUIRED — the move did not close the source Activity.";
         }
         finally
         {
@@ -342,27 +417,43 @@ public sealed class ActivityWorkspaceViewModel :
 
     private void ApplyReceipt(OperationReceipt receipt, string targetDisplayName)
     {
-        ReceiptStatus = receipt.Status switch
+        string operation = receipt.Kind switch
         {
-            OperationStatus.Committed => "HANDOFF COMMITTED",
-            OperationStatus.CommittedWithWarning => "HANDOFF COMMITTED WITH WARNING",
-            OperationStatus.Rejected => "HANDOFF REJECTED",
-            OperationStatus.Failed => "HANDOFF FAILED",
-            OperationStatus.Recovering => "HANDOFF OUTCOME UNCERTAIN",
-            _ => "HANDOFF RESULT UNAVAILABLE",
+            OperationKind.Handoff => "HANDOFF",
+            OperationKind.Move => "MOVE",
+            _ => "OPERATION",
         };
-        ReceiptSummary = receipt.Status switch
+        string outcome = receipt.Status switch
         {
-            OperationStatus.Committed or OperationStatus.CommittedWithWarning =>
+            OperationStatus.Committed => "COMMITTED",
+            OperationStatus.CommittedWithWarning => "COMMITTED WITH WARNING",
+            OperationStatus.Rejected => "REJECTED",
+            OperationStatus.Failed => "FAILED",
+            OperationStatus.Recovering => "OUTCOME UNCERTAIN",
+            _ => "RESULT UNAVAILABLE",
+        };
+        ReceiptStatus = $"{operation} {outcome}";
+        ReceiptSummary = (receipt.Kind, receipt.Status) switch
+        {
+            (OperationKind.Move, OperationStatus.Committed) =>
+                $"{targetDisplayName} acknowledged the semantic resume; the source closed only after that verified receipt.",
+            (OperationKind.Move, OperationStatus.CommittedWithWarning) =>
+                $"The target committed the semantic resume, but source cleanup failed. The source remains active, so two active copies may exist.",
+            (OperationKind.Handoff, OperationStatus.Committed or OperationStatus.CommittedWithWarning) =>
                 $"{targetDisplayName} acknowledged a semantic copy; the source remains available on this device.",
-            OperationStatus.Recovering =>
+            (OperationKind.Move, OperationStatus.Recovering) =>
+                $"{targetDisplayName} may have accepted the semantic resume, but the verified acknowledgement is unavailable. The source remains available and unchanged; inspect both devices before retrying.",
+            (_, OperationStatus.Recovering) =>
                 $"{targetDisplayName} may have accepted a semantic copy, but the verified outcome is unavailable. The source remains available and unchanged.",
+            (OperationKind.Move, _) =>
+                $"{targetDisplayName} did not accept the semantic resume; the source remains available and unchanged.",
             _ =>
                 $"{targetDisplayName} did not accept a semantic copy; the source remains available and unchanged.",
         };
         ReceiptCorrelationId = receipt.CorrelationId.ToString();
         ReceiptOccurredAt = receipt.OccurredAt.ToString("O");
         ReceiptReason = ToReasonCode(receipt.FailureCode);
+        UndoDescription = ToUndoDescription(receipt.Kind, receipt.Status);
     }
 
     private bool CanCreateWorkspaceNote() =>
@@ -381,6 +472,8 @@ public sealed class ActivityWorkspaceViewModel :
         && Activities.Contains(SelectedActivity)
         && Targets.Contains(SelectedTarget);
 
+    private bool CanMove() => CanHandoff();
+
     private void ClearReceipt()
     {
         ReceiptStatus = string.Empty;
@@ -388,6 +481,7 @@ public sealed class ActivityWorkspaceViewModel :
         ReceiptCorrelationId = string.Empty;
         ReceiptOccurredAt = string.Empty;
         ReceiptReason = string.Empty;
+        UndoDescription = string.Empty;
     }
 
     private void OnPreviewChanged()
@@ -395,8 +489,13 @@ public sealed class ActivityWorkspaceViewModel :
         OnPropertyChanged(nameof(IsPreviewVisible));
         OnPropertyChanged(nameof(PreviewStatus));
         OnPropertyChanged(nameof(PreviewDescription));
+        OnPropertyChanged(nameof(IsMovePreviewVisible));
+        OnPropertyChanged(nameof(MovePreviewStatus));
+        OnPropertyChanged(nameof(MovePreviewDescription));
         OnPropertyChanged(nameof(IsHandoffAvailable));
+        OnPropertyChanged(nameof(IsMoveAvailable));
         handoffCommand.NotifyCanExecuteChanged();
+        moveCommand.NotifyCanExecuteChanged();
     }
 
     private void OnServiceChanged()
@@ -411,6 +510,8 @@ public sealed class ActivityWorkspaceViewModel :
                 OnPropertyChanged(nameof(IsReady));
                 OnPropertyChanged(nameof(IsNoteCreationAvailable));
                 OnPropertyChanged(nameof(IsHandoffAvailable));
+                OnPropertyChanged(nameof(IsMoveAvailable));
+                moveCommand.NotifyCanExecuteChanged();
             }
         });
     }
@@ -462,6 +563,23 @@ public sealed class ActivityWorkspaceViewModel :
 
         return new string([.. characters]);
     }
+
+    private static string ToUndoDescription(
+        OperationKind kind,
+        OperationStatus status) => (kind, status) switch
+        {
+            (OperationKind.Handoff, _) =>
+                "NO UNDO REQUIRED — handoff preserves the source. Each device owns its resulting copy and can delete it locally.",
+            (OperationKind.Move, OperationStatus.Committed) =>
+                "NO AUTOMATIC UNDO — the source closed after verified target acknowledgement. Start a new move to move it back.",
+            (OperationKind.Move, OperationStatus.CommittedWithWarning) =>
+                "NO AUTOMATIC UNDO — target resume is committed and source cleanup failed. Resolve the two active copies explicitly.",
+            (OperationKind.Move, OperationStatus.Recovering) =>
+                "NO AUTOMATIC UNDO — the source remains active, but target acceptance is uncertain. Inspect both devices before retrying.",
+            (OperationKind.Move, _) =>
+                "NO UNDO REQUIRED — the move did not close the source Activity.",
+            _ => string.Empty,
+        };
 
     private bool SetProperty<T>(
         ref T field,
