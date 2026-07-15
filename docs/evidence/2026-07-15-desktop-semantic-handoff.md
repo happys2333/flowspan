@@ -109,9 +109,24 @@ Both runs were created at `2026-07-15T03:59:22Z`. CodeQL completed at
 step, commit, timestamp, suite-count, validator-output, simulator-output, and
 CodeQL coverage evidence was queried with `gh run view` on 2026-07-15.
 
-Task 7.3a remains in progress only until this evidence update is committed and
-that final documentation HEAD independently passes the same configured CI,
-Secret Scan, and CodeQL workflows.
+The evidence-documentation commit
+`4d49bd96436e472d52323704b01d3d5f59419d33` was then independently verified by
+CI run
+[29388968415](https://github.com/happys2333/flowspan/actions/runs/29388968415)
+and CodeQL run
+[29388968454](https://github.com/happys2333/flowspan/actions/runs/29388968454).
+The second CI run again passed all 421 tests, locked restore, formatting,
+warning-free builds, TEST MODE composition, deterministic simulator, artifact
+upload, and Secret Scan in jobs `87267987685` (Windows), `87267987611` (macOS),
+`87267987621` (Ubuntu), and `87267987613` (Secret Scan). The second CodeQL job
+`87267987746` again scanned 151/151 C# files, uploaded results, and completed
+successfully. Both runs were created at `2026-07-15T04:26:14Z`; CI completed at
+`2026-07-15T04:29:10Z` and CodeQL at `2026-07-15T04:29:22Z`.
+
+With the implementation and evidence commits independently green, the 7.3a
+automated acceptance evidence is complete. The closure commit that records this
+status remains subject to the same branch CI, Secret Scan, and CodeQL workflows;
+the status is effective only after those final HEAD checks pass.
 
 ## What this proves
 

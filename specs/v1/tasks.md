@@ -273,7 +273,7 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R1, R2, R8, R10_
 - [-] 7.3 Implement operation preview, named degradation, persistent sharing
   indicator, recovery, receipt, and undo surfaces.
-  - 7.3a in progress: deliver one bounded `workspace.note/v1` semantic handoff
+  - 7.3a complete: deliver one bounded `workspace.note/v1` semantic handoff
     from the desktop over an authenticated control session. Require an explicit
     source-preserving preview, name the unavailable Remote Window fallback,
     enforce source-side `activity.receive` plus target-side `activity.offer`,
@@ -281,9 +281,9 @@ means its linked evidence exists; it does not imply the entire product works.
     stress cases, simulator result, and evidence limits are recorded in
     [desktop Semantic Handoff evidence](../../docs/evidence/2026-07-15-desktop-semantic-handoff.md).
     All 421 tests, Secret Scan, and CodeQL pass on hosted Windows, macOS, and
-    Ubuntu at `c7cee09`. The exact run/job evidence is linked above. A
-    documentation-only evidence commit and its final-HEAD CI/CodeQL verification
-    are still pending, so this slice is not complete.
+    Ubuntu for implementation commit `c7cee09` and evidence commit `4d49bd9`;
+    exact run/job evidence is linked above. This completion status is effective
+    only after the closure commit itself passes the same final-HEAD workflows.
     Move/replace/swap, live-sharing indicators, recovery history, and undo
     remain later slices.
   - _Requirements: R3, R4, R5, R6, R10, R11_

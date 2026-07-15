@@ -137,9 +137,9 @@ implementation convenience.
   Handoff, directional authorization, exact payload-free receipt binding,
   source-preserving preview, named degradation, truthful uncertain outcome, and
   lifecycle order. All 421 tests, Secret Scan, and CodeQL pass on hosted Windows,
-  macOS, and Ubuntu for implementation commit `c7cee09`; final documentation-HEAD
-  verification, physical-device, native accessibility, and
-  arbitrary-application evidence remain pending.
+  macOS, and Ubuntu for implementation commit `c7cee09` and evidence commit
+  `4d49bd9`. Physical-device, native accessibility, and arbitrary-application
+  evidence remain pending.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product
