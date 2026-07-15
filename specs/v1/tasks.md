@@ -336,8 +336,9 @@ means its linked evidence exists; it does not imply the entire product works.
     confirmation on participant/snapshot changes, names stale and sanitized
     recovery states, and keeps production destructive Replace uncomposed. All
     533 tests, Secret Scan, and CodeQL pass on that exact implementation commit
-    across hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, 20-process
-    Desktop Replace stress, and explicit physical/native limits are recorded in
+    and evidence commit `d3727a9` across hosted Windows, macOS, and Ubuntu.
+    Commands, run/job IDs, 20-process Desktop Replace stress, and explicit
+    physical/native limits are recorded in
     [Desktop Replace preview evidence](../../docs/evidence/2026-07-15-desktop-replace-preview.md).
     Receipt/recovery presentation, startup recovery, target-local visible undo,
     destructive composition, and physical/native product evidence remain open.
