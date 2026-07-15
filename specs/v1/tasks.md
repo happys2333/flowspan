@@ -311,9 +311,13 @@ means its linked evidence exists; it does not imply the entire product works.
     expiry, consumed capsules, and idempotent undo have deterministic tests plus
     a same-host encrypted loopback case. The current capsule/undo journals are
     process-memory only, and desktop target inventory, destructive preview,
-    explicit confirmation, visible undo, protected persistence/restart, hosted
-    matrix, and physical/native evidence remain open. Consequently 7.3c and the
-    parent task are not complete. See
+    explicit confirmation, visible undo, protected persistence/restart,
+    final-HEAD matrix, and physical/native evidence remain open. The 452-test
+    local candidate, two 20-process stress groups, exact implementation-commit
+    Windows/macOS/Ubuntu CI, Secret Scan, CodeQL, and evidence limits are
+    recorded in
+    [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
+    Consequently 7.3c and the parent task are not complete. See
     [ADR 0011](../../docs/adr/0011-bounded-replace-undo-capsule.md).
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,

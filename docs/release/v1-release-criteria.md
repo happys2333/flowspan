@@ -140,6 +140,14 @@ implementation convenience.
   macOS, and Ubuntu for implementation commit `c7cee09` and evidence commit
   `4d49bd9`. Physical-device, native accessibility, and arbitrary-application
   evidence remain pending.
+- [2026-07-15 bounded Replace core and authenticated protocol](../evidence/2026-07-15-bounded-replace-core.md):
+  452 local tests and exact implementation-commit hosted Windows/macOS/Ubuntu
+  CI, Secret Scan, and CodeQL pass for the descriptor-only `workspace.note/v1`
+  core. Target snapshot binding, store-before-resume, payload-free capsule
+  reference, retry, expiry, consume, undo, acknowledgement-loss, and encrypted
+  same-host loopback contracts are covered. The capsule/undo journals remain in
+  memory and desktop Replace remains deliberately uncomposed, so the Replace
+  product criterion is still unchecked.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product
