@@ -326,9 +326,9 @@ means its linked evidence exists; it does not imply the entire product works.
     commit `23d1ba4`: it filters to bounded payload-free same-kind targets,
     rechecks directional grants, binds strict authenticated query/results, and
     composes no destructive endpoint. All 516 tests, Secret Scan, and CodeQL
-    pass on that exact implementation commit across hosted Windows, macOS, and
-    Ubuntu. Commands, run/job IDs, stress results, and explicit physical/native
-    limits are recorded in
+    pass on that exact implementation commit and evidence commit `4ed97e2`
+    across hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, stress
+    results, and explicit physical/native limits are recorded in
     [Replace target inventory evidence](../../docs/evidence/2026-07-15-replace-target-inventory.md).
     Destructive preview, explicit confirmation, recovery, visible undo, and
     physical/native product evidence remain open.

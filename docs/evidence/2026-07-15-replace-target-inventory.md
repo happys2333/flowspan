@@ -169,6 +169,35 @@ native-safe tests already present in the matrix. They do not prove physical LAN
 reachability, two physical devices, packaged applications, native accessibility,
 or arbitrary-application Adapters.
 
+## Hosted results for the evidence commit
+
+The evidence and task-status commit
+`4ed97e2047be61d1ff5322065a04bf579465099b` was independently verified by CI
+run
+[`29412716121`](https://github.com/happys2333/flowspan/actions/runs/29412716121):
+
+- Ubuntu job
+  [`87343348720`](https://github.com/happys2333/flowspan/actions/runs/29412716121/job/87343348720):
+  success;
+- Secret Scan job
+  [`87343348749`](https://github.com/happys2333/flowspan/actions/runs/29412716121/job/87343348749):
+  success;
+- Windows job
+  [`87343348792`](https://github.com/happys2333/flowspan/actions/runs/29412716121/job/87343348792):
+  success;
+- macOS job
+  [`87343348799`](https://github.com/happys2333/flowspan/actions/runs/29412716121/job/87343348799):
+  success.
+
+CodeQL run
+[`29412716116`](https://github.com/happys2333/flowspan/actions/runs/29412716116)
+and Analyze C# job
+[`87343348485`](https://github.com/happys2333/flowspan/actions/runs/29412716116/job/87343348485)
+also completed successfully. Thus both the exact implementation commit and the
+commit that records task 7.3c.3 as complete passed the same hosted gates. The
+closure commit that adds this second result remains subject to those gates
+before its status is treated as final.
+
 ## Remaining before the Replace release criterion can pass
 
 - a Desktop destructive preview that identifies the incoming and selected
