@@ -169,6 +169,19 @@ enabled Move control by keyboard and verifies operation-neutral automation names
 These layers do not replace physical two-device interruption, packaged native
 accessibility, or arbitrary application Adapter evidence.
 
+The task 7.3c tracer keeps Replace separate from Activity transfer. Application
+tests require an exact target ID/revision/digest and prove capture or store
+failure blocks before incoming resume, successful Replace stores a 15-minute
+target-owned capsule, retries do not repeat capture/resume, and undo is
+expiry-aware, exact-current, idempotent, and single-consume. Protocol tests use
+strict `activity.replace` and `activity.replace.result` bodies, keep preserved
+target payload out of results, reject target-snapshot tampering, fault closed on
+forged capsule binding, classify lost acknowledgement as uncertain, and run one
+real encrypted loopback Replace. The desktop endpoint and controls remain
+deliberately uncomposed until remote target selection, destructive preview, and
+visible local undo exist. In-memory and same-host evidence does not prove
+restart durability, physical networking, native restoration, or a shipped UI.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source
@@ -181,6 +194,9 @@ Core invariants are asserted after every event:
 7. a receipt cannot acknowledge another pending Activity or repeat descriptor
    payload;
 8. diagnostics contain no registered canary secret.
+9. replace never resumes incoming work unless an exact target snapshot has a
+   verified, stored, unexpired undo capsule; undo applies only to the exact
+   replacement and consumes the capsule once.
 
 ## 4. CI matrix
 

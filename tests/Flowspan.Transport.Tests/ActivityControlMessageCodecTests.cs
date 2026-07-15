@@ -25,6 +25,13 @@ public sealed class ActivityControlMessageCodecTests
         JsonSerializer.Serialize(new { text = "one-shot semantic payload" }),
         ActivitySensitivity.Sensitive);
 
+    private static readonly ActivityDescriptor TargetDescriptor = ActivityDescriptor.Create(
+        ActivityId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+        ActivityKind.Parse("workspace.note/v1"),
+        TargetId,
+        "Current target",
+        JsonSerializer.Serialize(new { text = "preserve this target state" }));
+
     private static readonly OperationContext Context = OperationContext.Create(
         OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
         CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
@@ -80,6 +87,123 @@ public sealed class ActivityControlMessageCodecTests
                 SourceId,
                 offer,
                 Now));
+    }
+
+    [Fact]
+    public void ReplaceRoundTripsEveryBoundedField()
+    {
+        ReplaceActivityCommand command = ReplaceActivityCommand.Create(
+            Context,
+            TargetDescriptor.Id,
+            expectedTargetRevision: 7,
+            TargetDescriptor.DescriptorDigest,
+            Descriptor,
+            ActivityPlacement.On(TargetId, "desktop-primary"),
+            Now.AddMinutes(10));
+
+        ControlMessage message = ActivityControlMessageCodec.CreateReplace(
+            new ProtocolVersion(1, 0),
+            SourceId,
+            command,
+            Now);
+        ReplaceActivityCommand decoded = ActivityControlMessageCodec.DecodeReplace(
+            message,
+            TargetId);
+
+        Assert.Equal(ControlMessageType.ActivityReplace, message.Type);
+        Assert.Equal(Context.CorrelationId, message.CorrelationId);
+        Assert.Equal(SourceId, message.SenderDeviceId);
+        Assert.Equal(Context, decoded.Context);
+        Assert.Equal(TargetDescriptor.Id, decoded.TargetActivityId);
+        Assert.Equal(7, decoded.ExpectedTargetRevision);
+        Assert.Equal(
+            TargetDescriptor.DescriptorDigest,
+            decoded.ExpectedTargetDescriptorDigest);
+        Assert.Equal(Descriptor, decoded.IncomingDescriptor);
+        Assert.Equal(TargetId, decoded.TargetPlacement.DeviceId);
+        Assert.Equal("desktop-primary", decoded.TargetPlacement.Slot);
+        Assert.Equal(Now.AddMinutes(10), decoded.UndoExpiresAt);
+        Assert.Equal(command.RequestDigest, decoded.RequestDigest);
+    }
+
+    [Fact]
+    public void ReplaceResultRoundTripsOnlyBoundCapsuleMetadata()
+    {
+        OperationReceipt receipt = OperationReceipt.Committed(
+            Context.OperationId,
+            Context.CorrelationId,
+            OperationKind.Replace,
+            SourceId,
+            TargetId,
+            Descriptor,
+            Now.AddSeconds(1));
+        var capsule = new UndoCapsuleReference(
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            Context.OperationId,
+            Context.CorrelationId,
+            TargetDescriptor.Id,
+            ExpectedTargetRevision: 7,
+            TargetDescriptor.DescriptorDigest,
+            Descriptor.Id,
+            Descriptor.DescriptorDigest,
+            Now.AddMinutes(10));
+        var result = new ReplaceOperationResult(receipt, capsule);
+
+        ControlMessage message = ActivityControlMessageCodec.CreateReplaceResult(
+            new ProtocolVersion(1, 0),
+            TargetId,
+            result,
+            Now.AddSeconds(1));
+        ReplaceOperationResult decoded =
+            ActivityControlMessageCodec.DecodeReplaceResult(
+                message,
+                SourceId,
+                Context.CorrelationId);
+
+        Assert.Equal(ControlMessageType.ActivityReplaceResult, message.Type);
+        Assert.Equal(result, decoded);
+        Assert.DoesNotContain(
+            "preserve this target state",
+            message.Body.GetRawText(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            TargetDescriptor.PayloadDigest,
+            message.Body.GetRawText(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReplaceRejectsTargetSnapshotTamperingEvenWithValidEnvelopeDigest()
+    {
+        ReplaceActivityCommand command = ReplaceActivityCommand.Create(
+            Context,
+            TargetDescriptor.Id,
+            expectedTargetRevision: 7,
+            TargetDescriptor.DescriptorDigest,
+            Descriptor,
+            ActivityPlacement.On(TargetId, "desktop-primary"),
+            Now.AddMinutes(10));
+        ControlMessage valid = ActivityControlMessageCodec.CreateReplace(
+            new ProtocolVersion(1, 0),
+            SourceId,
+            command,
+            Now);
+        string body = valid.Body.GetRawText().Replace(
+            TargetDescriptor.DescriptorDigest,
+            new string('A', 64),
+            StringComparison.Ordinal);
+        ControlMessage forged = ControlMessage.Create(
+            valid.Version,
+            valid.Type,
+            valid.MessageId,
+            valid.CorrelationId,
+            valid.SenderDeviceId,
+            valid.SentAt,
+            TimeSpan.FromMilliseconds(valid.TimeToLiveMilliseconds),
+            body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplace(forged, TargetId));
     }
 
     [Fact]

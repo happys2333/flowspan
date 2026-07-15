@@ -11,6 +11,8 @@ public enum ControlMessageType
 {
     Hello,
     ActivityTransfer,
+    ActivityReplace,
+    ActivityReplaceResult,
     OperationReceipt,
 }
 
@@ -358,6 +360,8 @@ public static class ControlMessageCodec
     {
         ControlMessageType.Hello => "hello",
         ControlMessageType.ActivityTransfer => "activity.transfer",
+        ControlMessageType.ActivityReplace => "activity.replace",
+        ControlMessageType.ActivityReplaceResult => "activity.replace.result",
         ControlMessageType.OperationReceipt => "operation.receipt",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown message type."),
     };
@@ -366,6 +370,8 @@ public static class ControlMessageCodec
     {
         "hello" => ControlMessageType.Hello,
         "activity.transfer" => ControlMessageType.ActivityTransfer,
+        "activity.replace" => ControlMessageType.ActivityReplace,
+        "activity.replace.result" => ControlMessageType.ActivityReplaceResult,
         "operation.receipt" => ControlMessageType.OperationReceipt,
         _ => throw new InvalidDataException($"The control message type '{type}' is unknown."),
     };

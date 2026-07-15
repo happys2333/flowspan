@@ -33,6 +33,59 @@ public interface IActivityAdapter
         CancellationToken cancellationToken);
 }
 
+public interface IReplaceActivityAdapter : IActivityAdapter
+{
+    public ValueTask<CaptureUndoResult> CaptureUndoAsync(
+        ActivityInstance activity,
+        CancellationToken cancellationToken);
+
+    public ValueTask<RestoreActivityResult> RestoreAsync(
+        UndoCapsule capsule,
+        ActivityPlacement placement,
+        CancellationToken cancellationToken);
+}
+
+public readonly record struct CaptureUndoResult(
+    bool Succeeded,
+    ActivityDescriptor? PreservedDescriptor,
+    FailureCode FailureCode)
+{
+    public static CaptureUndoResult Success(ActivityDescriptor preservedDescriptor)
+    {
+        ArgumentNullException.ThrowIfNull(preservedDescriptor);
+        return new CaptureUndoResult(true, preservedDescriptor, FailureCode.None);
+    }
+
+    public static CaptureUndoResult Rejected(FailureCode failureCode)
+    {
+        if (failureCode == FailureCode.None)
+        {
+            throw new ArgumentException(
+                "A rejected undo capture must have a failure code.",
+                nameof(failureCode));
+        }
+
+        return new CaptureUndoResult(false, null, failureCode);
+    }
+}
+
+public readonly record struct RestoreActivityResult(bool Succeeded, FailureCode FailureCode)
+{
+    public static RestoreActivityResult Success { get; } = new(true, FailureCode.None);
+
+    public static RestoreActivityResult Rejected(FailureCode failureCode)
+    {
+        if (failureCode == FailureCode.None)
+        {
+            throw new ArgumentException(
+                "A rejected Activity restore must have a failure code.",
+                nameof(failureCode));
+        }
+
+        return new RestoreActivityResult(false, failureCode);
+    }
+}
+
 public readonly record struct CloseActivityResult(bool Succeeded, FailureCode FailureCode)
 {
     public static CloseActivityResult Success { get; } = new(true, FailureCode.None);

@@ -66,6 +66,7 @@ rather than grant it.
 | T15 | Downgrade to unsafe fallback | authenticated feature negotiation; name degraded mode; explicit capability and confirmation | downgrade tests |
 | T16 | Future relay reads content | application-layer E2E encryption independent of byte-forwarding relay | relay-as-attacker integration test |
 | T17 | Hidden or premature platform/network privilege | request no capture/input/network privilege at launch; require feature-scoped rationale, exposed-data disclosure, prompt expectation, revocation path, and affirmative acknowledgement before the privileged boundary; cancel remains side-effect free | platform-guide, command-gating, no-start review/cancel, disable-reset, and Headless keyboard tests plus native grant/deny/revoke evidence |
+| T18 | Destructive Replace without recoverable target state, or forged/stale undo metadata | distinct `activity.replace` capability and message; exact target ID/revision/digest binding; Adapter capture plus application verification and target-owned store before resume; payload-free capsule reference; bounded expiry; exact-current replacement check; idempotent consume; desktop activation blocked until target snapshot, confirmation, and undo are visible | capture/store/revision/digest negatives, retry/expiry/consume tests, strict codec tamper tests, authenticated result binding, acknowledgement-loss and encrypted-loopback tests |
 
 ### 5.1 Task 7.2c local-pairing evidence
 
@@ -133,6 +134,19 @@ Same-host encrypted loopback proves the production control framing and the
 target-first contract on one machine. Hosted Windows/macOS/Linux runners add OS
 build and portable-contract evidence only; neither class proves two physical
 devices or native accessibility.
+
+### 5.6 Task 7.3c bounded Replace core evidence plan
+
+| Threat | Required implementation evidence | Remaining evidence |
+| --- | --- | --- |
+| T04 | `activity.replace` and `activity.replace.result` strictly bind authenticated participants, correlation/Operation, target ID/revision/digest, incoming descriptor, Placement, deadline, undo expiry, and capsule reference. Wrong target metadata faults the session; lost acknowledgement remains uncertain; exact retry is idempotent. | Restart recovery with a durable journal, cross-machine packet loss/retry, and physical sleep/wake interruption. |
+| T05 | The target checks current `activity.replace` before capture or payload use. The desktop handler does not accept inbound Replace yet, so protocol availability cannot bypass the missing confirmation flow. | Trust-bound desktop composition, revocation race, and explicit target-side confirmation on all supported platforms. |
+| T10 | Full target state remains in the target store. Replace results and receipts carry only IDs, kinds, digests, outcome, reason, and expiry; tests search for the target-state canary. | Protected persistent-store review, crash/minidump/export canary inspection, and retention cleanup evidence. |
+| T18 | Capture mismatch/failure, store failure, revision/digest conflict, expiry, and consumed capsules all fail before unsafe work. Successful undo restores a new revision and exact retry does not restore twice. | Durable protected capsule storage, restart-safe consume journal, cleanup/tamper tests, desktop target inventory/preview/undo, and native Adapter evidence beyond `workspace.note/v1`. |
+
+The current implementation is an application/protocol tracer. Its store and undo
+journal are in memory, and the desktop does not compose or advertise Replace.
+It therefore does not yet satisfy the v1 Replace release criterion.
 
 ## 6. Security state machine rules
 

@@ -302,6 +302,19 @@ means its linked evidence exists; it does not imply the entire product works.
     Ubuntu for implementation commit `eb83801` and evidence commit `3ea5e10`;
     exact run/job evidence is linked above. This completion status is effective
     only after the closure commit itself passes the same final-HEAD workflows.
+  - 7.3c core/protocol in progress: implement a distinct bounded Replace for
+    `workspace.note/v1`. The target requires `activity.replace`, an exact target
+    ID/revision/descriptor digest, verified Adapter capture, and a stored
+    15-minute target-owned undo capsule before incoming resume. Authenticated
+    `activity.replace` request/result messages return only payload-free capsule
+    metadata; exact retries, acknowledgement loss, revision/digest conflict,
+    expiry, consumed capsules, and idempotent undo have deterministic tests plus
+    a same-host encrypted loopback case. The current capsule/undo journals are
+    process-memory only, and desktop target inventory, destructive preview,
+    explicit confirmation, visible undo, protected persistence/restart, hosted
+    matrix, and physical/native evidence remain open. Consequently 7.3c and the
+    parent task are not complete. See
+    [ADR 0011](../../docs/adr/0011-bounded-replace-undo-capsule.md).
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

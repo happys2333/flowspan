@@ -63,3 +63,19 @@ public sealed record CorrelationId
 
     public override string ToString() => Value.ToString("D");
 }
+
+public sealed record UndoCapsuleId
+{
+    private UndoCapsuleId(Guid value) => Value = value;
+
+    public Guid Value { get; }
+
+    public static UndoCapsuleId From(Guid value) =>
+        value == Guid.Empty
+            ? throw new ArgumentException("An undo capsule ID cannot be empty.", nameof(value))
+            : new UndoCapsuleId(value);
+
+    public static UndoCapsuleId Parse(string value) => From(Guid.Parse(value));
+
+    public override string ToString() => Value.ToString("D");
+}

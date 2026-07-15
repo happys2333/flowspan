@@ -16,6 +16,7 @@ screens or arbitrary process migration.
 | **Handoff** | An operation that resumes an Activity on another device while preserving the source. | Move |
 | **Move** | An operation that resumes an Activity elsewhere, then closes or suspends the source only after verified target acknowledgement; failed source cleanup is a committed duplicate warning, not a target rollback. | Handoff |
 | **Replace** | An operation that preserves eligible target state before installing an incoming Activity in its Placement. | Overwrite |
+| **Undo Capsule** | A target-owned, expiring preservation of the exact pre-Replace semantic state plus bindings needed for one safe compensating undo. | Backup, rollback promise |
 | **Swap** | One atomic transaction that exchanges two Activity Placements or changes neither. | Two moves |
 | **Mirror** | An Activity presentation on multiple devices while authoritative execution remains on one host. | Copy, sync |
 | **Placement** | The desired device and presentation location of an Activity. | Screen ownership |
@@ -74,6 +75,9 @@ screens or arbitrary process migration.
   may describe Placements for Activities or Groups.
 - An **Operation** produces one terminal **Operation Receipt** and may reference
   one or more expiring **Reservations** before commitment.
+- A committed **Replace** has one target-owned **Undo Capsule**. Its payload
+  never travels back to the source; only bound, payload-free availability
+  metadata may appear in an authenticated result.
 
 ## Example dialogue
 

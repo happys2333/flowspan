@@ -39,6 +39,11 @@ public enum FailureCode
     ReservationConflict,
     ReservationExpired,
     DecisionConflict,
+    UndoUnavailable,
+    UndoCapsuleInvalid,
+    UndoCapsuleExpired,
+    UndoCapsuleNotFound,
+    UndoCapsuleConsumed,
     InternalFailure,
 }
 

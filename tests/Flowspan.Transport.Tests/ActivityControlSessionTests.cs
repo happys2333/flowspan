@@ -66,6 +66,61 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task OutboundReplaceWaitsForExactlyBoundPayloadFreeResult()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new RejectingReplacePeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ReplaceActivityCommand command = CreateReplaceCommand(LocalId, PeerId);
+
+        ValueTask<ReplaceDeliveryResult> sending = session.SendAsync(
+            LocalId,
+            command,
+            CancellationToken.None);
+        ControlMessage request = await connection.ReadSentAsync();
+        OperationReceipt receipt = OperationReceipt.Committed(
+            command.Context.OperationId,
+            command.Context.CorrelationId,
+            OperationKind.Replace,
+            LocalId,
+            PeerId,
+            command.IncomingDescriptor,
+            Now.AddSeconds(1));
+        var capsule = new UndoCapsuleReference(
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            command.Context.OperationId,
+            command.Context.CorrelationId,
+            command.TargetActivityId,
+            command.ExpectedTargetRevision,
+            command.ExpectedTargetDescriptorDigest,
+            command.IncomingDescriptor.Id,
+            command.IncomingDescriptor.DescriptorDigest,
+            command.UndoExpiresAt);
+        var expected = new ReplaceOperationResult(receipt, capsule);
+        connection.Receive(ActivityControlMessageCodec.CreateReplaceResult(
+            request.Version,
+            PeerId,
+            expected,
+            Now.AddSeconds(1)));
+
+        ReplaceDeliveryResult delivered = await sending;
+
+        Assert.Equal(ActivityDeliveryStatus.Acknowledged, delivered.Status);
+        Assert.Equal(expected, delivered.Result);
+        Assert.DoesNotContain(
+            "preserve target secret",
+            connection.LastSentBody(ControlMessageType.ActivityReplace),
+            StringComparison.Ordinal);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
     public async Task InboundTransferUsesAuthenticatedPeerAndReturnsReceipt()
     {
         var catalog = new InMemoryActivityCatalog();
@@ -109,6 +164,87 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task InboundReplaceUsesAuthenticatedPeerAndReturnsBoundUndoReference()
+    {
+        var catalog = new InMemoryActivityCatalog();
+        ActivityDescriptor originalDescriptor = ActivityDescriptor.Create(
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            ActivityKind.Parse("workspace.note/v1"),
+            LocalId,
+            "Target note",
+            JsonSerializer.Serialize(new { text = "preserve target secret" }));
+        ActivityInstance original = ActivityInstance.Active(
+            originalDescriptor,
+            ActivityPlacement.On(LocalId, "desktop"),
+            revision: 7);
+        Assert.True(catalog.TryAdd(original));
+        using var endpoint = new ReplaceEndpoint(
+            LocalId,
+            new FixedClock(Now),
+            catalog,
+            new InMemoryOperationJournal(),
+            new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]),
+            new InMemoryUndoCapsuleStore(),
+            new DeterministicUndoCapsuleIdSource(
+            [
+                UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            ]),
+            NullReceiptSink.Instance);
+        endpoint.SetPeerGrant(
+            PeerId,
+            CapabilityGrant.Of(Capability.ActivityReplace));
+        ActivityDescriptor incoming = ActivityDescriptor.Create(
+            ActivityId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            ActivityKind.Parse("workspace.note/v1"),
+            PeerId,
+            "Incoming note",
+            JsonSerializer.Serialize(new { text = "incoming secret" }));
+        ReplaceActivityCommand command = ReplaceActivityCommand.Create(
+            OperationContext.Create(
+                OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                Now.AddSeconds(30)),
+            originalDescriptor.Id,
+            original.Revision,
+            originalDescriptor.DescriptorDigest,
+            incoming,
+            ActivityPlacement.On(LocalId, "desktop"),
+            Now.AddMinutes(10));
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            endpoint,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+
+        connection.Receive(ActivityControlMessageCodec.CreateReplace(
+            new ProtocolVersion(1, 0),
+            PeerId,
+            command,
+            Now));
+        ControlMessage response = await connection.ReadSentAsync();
+        ReplaceOperationResult result =
+            ActivityControlMessageCodec.DecodeReplaceResult(
+                response,
+                PeerId,
+                command.Context.CorrelationId);
+
+        Assert.Equal(OperationStatus.Committed, result.Receipt.Status);
+        Assert.NotNull(result.UndoCapsule);
+        Assert.False(catalog.TryGet(originalDescriptor.Id, out _));
+        Assert.True(catalog.TryGet(incoming.Id, out ActivityInstance? replacement));
+        Assert.Equal(8, replacement.Revision);
+        Assert.DoesNotContain(
+            "preserve target secret",
+            response.Body.GetRawText(),
+            StringComparison.Ordinal);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
     public async Task SessionEndMarksSentButUnacknowledgedTransferAsUncertain()
     {
         var connection = new FakeActivityControlConnection(LocalId, PeerId);
@@ -128,6 +264,31 @@ public sealed class ActivityControlSessionTests
 
         ActivityDeliveryResult result = await sending;
         Assert.Equal(ActivityDeliveryStatus.AcknowledgementLost, result.Status);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task SessionEndMarksSentButUnacknowledgedReplaceAsUncertain()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new RejectingReplacePeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+
+        ValueTask<ReplaceDeliveryResult> sending = session.SendAsync(
+            LocalId,
+            CreateReplaceCommand(LocalId, PeerId),
+            CancellationToken.None);
+        _ = await connection.ReadSentAsync();
+        stop.Cancel();
+
+        ReplaceDeliveryResult result = await sending;
+        Assert.Equal(ActivityDeliveryStatus.AcknowledgementLost, result.Status);
+        Assert.Null(result.Result);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
     }
 
@@ -228,6 +389,62 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task ReplaceResultForDifferentTargetSnapshotFaultsClosed()
+    {
+        var connection = new FakeActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new RejectingReplacePeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ReplaceActivityCommand command = CreateReplaceCommand(LocalId, PeerId);
+        ValueTask<ReplaceDeliveryResult> sending = session.SendAsync(
+            LocalId,
+            command,
+            CancellationToken.None);
+        _ = await connection.ReadSentAsync();
+        OperationReceipt receipt = OperationReceipt.Committed(
+            command.Context.OperationId,
+            command.Context.CorrelationId,
+            OperationKind.Replace,
+            LocalId,
+            PeerId,
+            command.IncomingDescriptor,
+            Now);
+        var forgedCapsule = new UndoCapsuleReference(
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            command.Context.OperationId,
+            command.Context.CorrelationId,
+            ActivityId.From(Guid.NewGuid()),
+            command.ExpectedTargetRevision,
+            command.ExpectedTargetDescriptorDigest,
+            command.IncomingDescriptor.Id,
+            command.IncomingDescriptor.DescriptorDigest,
+            command.UndoExpiresAt);
+
+        connection.Receive(ActivityControlMessageCodec.CreateReplaceResult(
+            new ProtocolVersion(1, 0),
+            PeerId,
+            new ReplaceOperationResult(receipt, forgedCapsule),
+            Now));
+
+        Exception? runFailure = await Record.ExceptionAsync(
+            () => run.WaitAsync(TimeSpan.FromSeconds(1)));
+        if (!run.IsCompleted)
+        {
+            stop.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+        }
+
+        Assert.IsType<InvalidDataException>(runFailure);
+        Assert.Equal(
+            ActivityDeliveryStatus.AcknowledgementLost,
+            (await sending).Status);
+    }
+
+    [Fact]
     public async Task RealAuthenticatedLoopbackHandsOffAndPreservesSource()
     {
         using DeviceIdentityFixture identities = new();
@@ -302,6 +519,116 @@ public sealed class ActivityControlSessionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
     }
 
+    [Fact]
+    public async Task RealAuthenticatedLoopbackReplacesTargetWithBoundUndoReference()
+    {
+        using DeviceIdentityFixture identities = new();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var listenerEndpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                identities.Target,
+                new TrustRecord(
+                    identities.Source.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(Capability.ActivityReplace)),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                listenerEndpoint,
+                identities.Source,
+                new TrustRecord(
+                    identities.Target.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(Capability.ActivityReceive)),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        var sourceCatalog = new InMemoryActivityCatalog();
+        var targetCatalog = new InMemoryActivityCatalog();
+        FlowspanNode source = CreateNode(
+            identities.Source.DeviceId,
+            "Source",
+            sourceCatalog);
+        FlowspanNode target = CreateNode(
+            identities.Target.DeviceId,
+            "Target",
+            targetCatalog);
+        ActivityDescriptor originalDescriptor = ActivityDescriptor.Create(
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            ActivityKind.Parse("workspace.note/v1"),
+            identities.Target.DeviceId,
+            "Target note",
+            JsonSerializer.Serialize(new { text = "preserve target secret" }));
+        ActivityInstance original = ActivityInstance.Active(
+            originalDescriptor,
+            ActivityPlacement.On(identities.Target.DeviceId, "desktop"),
+            revision: 7);
+        Assert.True(targetCatalog.TryAdd(original));
+        using var replaceEndpoint = new ReplaceEndpoint(
+            identities.Target.DeviceId,
+            new FixedClock(Now),
+            targetCatalog,
+            new InMemoryOperationJournal(),
+            new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]),
+            new InMemoryUndoCapsuleStore(),
+            new DeterministicUndoCapsuleIdSource(
+            [
+                UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            ]),
+            NullReceiptSink.Instance);
+        replaceEndpoint.SetPeerGrant(
+            identities.Source.DeviceId,
+            CapabilityGrant.Of(Capability.ActivityReplace));
+        ActivityDescriptor incoming = ActivityDescriptor.Create(
+            ActivityId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            ActivityKind.Parse("workspace.note/v1"),
+            identities.Source.DeviceId,
+            "Incoming note",
+            JsonSerializer.Serialize(new { text = "incoming secret" }));
+        ReplaceActivityCommand command = ReplaceActivityCommand.Create(
+            OperationContext.Create(
+                OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                Now.AddSeconds(30)),
+            originalDescriptor.Id,
+            original.Revision,
+            originalDescriptor.DescriptorDigest,
+            incoming,
+            ActivityPlacement.On(identities.Target.DeviceId, "desktop"),
+            Now.AddMinutes(10));
+        await using var sourceHandler = new AuthenticatedActivitySessionHandler(
+            source,
+            replacePeer: null,
+            new FixedTimeProvider(Now));
+        await using var targetHandler = new AuthenticatedActivitySessionHandler(
+            target,
+            replaceEndpoint,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+        Assert.True(sourceHandler.TryGetReplaceChannel(
+            identities.Target.DeviceId,
+            out IReplaceChannel? channel));
+        Assert.NotNull(channel);
+
+        ReplaceDeliveryResult delivered = await channel.SendAsync(
+            identities.Source.DeviceId,
+            command,
+            CancellationToken.None);
+
+        Assert.Equal(ActivityDeliveryStatus.Acknowledged, delivered.Status);
+        Assert.Equal(OperationStatus.Committed, delivered.Result?.Receipt.Status);
+        Assert.NotNull(delivered.Result?.UndoCapsule);
+        Assert.False(targetCatalog.TryGet(originalDescriptor.Id, out _));
+        Assert.True(targetCatalog.TryGet(incoming.Id, out _));
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
+    }
+
     private static ActivityTransferOffer CreateOffer(
         DeviceId sourceId,
         DeviceId targetId)
@@ -320,6 +647,35 @@ public sealed class ActivityControlSessionTests
                 Now.AddSeconds(30)),
             descriptor,
             ActivityPlacement.On(targetId, "desktop"));
+    }
+
+    private static ReplaceActivityCommand CreateReplaceCommand(
+        DeviceId sourceId,
+        DeviceId targetId)
+    {
+        ActivityDescriptor target = ActivityDescriptor.Create(
+            ActivityId.From(Guid.NewGuid()),
+            ActivityKind.Parse("workspace.note/v1"),
+            targetId,
+            "Target note",
+            JsonSerializer.Serialize(new { text = "preserve target secret" }));
+        ActivityDescriptor incoming = ActivityDescriptor.Create(
+            ActivityId.From(Guid.NewGuid()),
+            ActivityKind.Parse("workspace.note/v1"),
+            sourceId,
+            "Incoming note",
+            JsonSerializer.Serialize(new { text = "incoming secret" }));
+        return ReplaceActivityCommand.Create(
+            OperationContext.Create(
+                OperationId.From(Guid.NewGuid()),
+                CorrelationId.From(Guid.NewGuid()),
+                Now.AddSeconds(30)),
+            target.Id,
+            expectedTargetRevision: 7,
+            target.DescriptorDigest,
+            incoming,
+            ActivityPlacement.On(targetId, "desktop"),
+            Now.AddMinutes(10));
     }
 
     private static FlowspanNode CreateNode(
@@ -354,6 +710,18 @@ public sealed class ActivityControlSessionTests
             CancellationToken cancellationToken) =>
             ValueTask.FromException<OperationReceipt>(
                 new InvalidOperationException("No inbound transfer was expected."));
+    }
+
+    private sealed class RejectingReplacePeer(DeviceId deviceId) : IReplacePeer
+    {
+        public DeviceId DeviceId { get; } = deviceId;
+
+        public ValueTask<ReplaceOperationResult> ReplaceAsync(
+            DeviceId senderDeviceId,
+            ReplaceActivityCommand command,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromException<ReplaceOperationResult>(
+                new InvalidOperationException("No inbound Replace was expected."));
     }
 
     private sealed class FakeActivityControlConnection(

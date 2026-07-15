@@ -128,7 +128,14 @@ by destructively guessing.
 
 Replace creates a bounded undo capsule through the target adapter before
 commit. Adapters that cannot preserve enough state must say so before the user
-confirms the replacement.
+confirms the replacement. The request binds the target Activity ID, expected
+revision and descriptor digest as well as the incoming descriptor, Placement,
+Operation/correlation, devices, and undo expiry. The current bounded retention
+limit is 15 minutes. Full preserved state remains in a target-owned store; the
+source receives only a payload-free capsule reference. Undo is local,
+idempotent, expiry-checked, and restores a new Activity revision only if the
+exact replacement is still current. See
+`docs/adr/0011-bounded-replace-undo-capsule.md`.
 
 ### Atomic swap
 
@@ -553,4 +560,6 @@ spikes/ADRs:
 - persistence format after the simulator slice;
 - packaging/signing pipeline for the pinned Avalonia desktop shell;
 - per-platform Remote Window codec and capture implementation;
-- precise undo retention defaults and Activity descriptor size budgets.
+- persistence and cleanup policy for protected undo capsule storage beyond the
+  current 15-minute process-lifetime tracer; Activity descriptor size budgets
+  are already bounded by the core and each Adapter.

@@ -168,6 +168,344 @@ public static class ActivityControlMessageCodec
         }
     }
 
+    public static ControlMessage CreateReplace(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        ReplaceActivityCommand command,
+        DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(command);
+        TimeSpan untilDeadline = command.Context.Deadline - sentAt;
+        if (untilDeadline <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sentAt),
+                "An Activity Replace must be sent before its operation deadline.");
+        }
+
+        double ttlMilliseconds = Math.Ceiling(untilDeadline.TotalMilliseconds);
+        if (ttlMilliseconds > ControlMessage.MaximumTimeToLiveMilliseconds)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(command),
+                "An Activity Replace deadline exceeds the control envelope lifetime limit.");
+        }
+
+        string body = JsonSerializer.Serialize(new
+        {
+            operationId = command.Context.OperationId.ToString(),
+            deadline = command.Context.Deadline,
+            targetDeviceId = command.TargetPlacement.DeviceId.ToString(),
+            targetActivityId = command.TargetActivityId.ToString(),
+            expectedTargetRevision = command.ExpectedTargetRevision,
+            expectedTargetDescriptorDigest = command.ExpectedTargetDescriptorDigest,
+            targetSlot = command.TargetPlacement.Slot,
+            undoExpiresAt = command.UndoExpiresAt,
+            requestDigest = command.RequestDigest,
+            incomingActivity = new
+            {
+                id = command.IncomingDescriptor.Id.ToString(),
+                kind = command.IncomingDescriptor.Kind.Value,
+                originDeviceId = command.IncomingDescriptor.OriginDeviceId.ToString(),
+                title = command.IncomingDescriptor.Title,
+                payloadJson = command.IncomingDescriptor.PayloadJson,
+                payloadDigest = command.IncomingDescriptor.PayloadDigest,
+                descriptorDigest = command.IncomingDescriptor.DescriptorDigest,
+                sensitivity = ToWireName(command.IncomingDescriptor.Sensitivity),
+            },
+        });
+        return ControlMessage.Create(
+            version,
+            ControlMessageType.ActivityReplace,
+            Guid.NewGuid(),
+            command.Context.CorrelationId,
+            senderDeviceId,
+            sentAt,
+            TimeSpan.FromMilliseconds(ttlMilliseconds),
+            body);
+    }
+
+    public static ReplaceActivityCommand DecodeReplace(
+        ControlMessage message,
+        DeviceId expectedTargetDeviceId)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expectedTargetDeviceId);
+        if (message.Type != ControlMessageType.ActivityReplace)
+        {
+            throw new InvalidDataException("The control message is not an Activity Replace.");
+        }
+
+        try
+        {
+            JsonElement root = message.Body;
+            RequireOnly(
+                root,
+                "operationId",
+                "deadline",
+                "targetDeviceId",
+                "targetActivityId",
+                "expectedTargetRevision",
+                "expectedTargetDescriptorDigest",
+                "targetSlot",
+                "undoExpiresAt",
+                "requestDigest",
+                "incomingActivity");
+            OperationId operationId = OperationId.Parse(RequireString(root, "operationId"));
+            DateTimeOffset deadline = RequireDateTimeOffset(root, "deadline");
+            DateTimeOffset envelopeExpiry = message.SentAt.AddMilliseconds(
+                message.TimeToLiveMilliseconds);
+            if (deadline <= message.SentAt || deadline > envelopeExpiry)
+            {
+                throw new InvalidDataException(
+                    "The Replace deadline is outside the authenticated envelope lifetime.");
+            }
+
+            DeviceId targetDeviceId = DeviceId.Parse(
+                RequireString(root, "targetDeviceId"));
+            if (targetDeviceId != expectedTargetDeviceId)
+            {
+                throw new InvalidDataException("The Activity Replace targets another device.");
+            }
+
+            ActivityId targetActivityId = ActivityId.Parse(
+                RequireString(root, "targetActivityId"));
+            long expectedTargetRevision = RequireInt64(root, "expectedTargetRevision");
+            if (expectedTargetRevision < 1)
+            {
+                throw new InvalidDataException(
+                    "The expected target revision must be positive.");
+            }
+
+            string expectedTargetDescriptorDigest = RequireDigest(
+                root,
+                "expectedTargetDescriptorDigest");
+            string targetSlot = RequireString(root, "targetSlot");
+            DateTimeOffset undoExpiresAt = RequireDateTimeOffset(root, "undoExpiresAt");
+            if (undoExpiresAt <= message.SentAt
+                || undoExpiresAt - message.SentAt > ReplaceEndpoint.MaximumUndoRetention)
+            {
+                throw new InvalidDataException(
+                    "The Replace undo expiry is outside the supported retention window.");
+            }
+
+            string claimedRequestDigest = RequireDigest(root, "requestDigest");
+            JsonElement activity = Require(
+                root,
+                "incomingActivity",
+                JsonValueKind.Object);
+            RequireOnly(
+                activity,
+                "id",
+                "kind",
+                "originDeviceId",
+                "title",
+                "payloadJson",
+                "payloadDigest",
+                "descriptorDigest",
+                "sensitivity");
+            string claimedPayloadDigest = RequireDigest(activity, "payloadDigest");
+            string claimedDescriptorDigest = RequireDigest(activity, "descriptorDigest");
+            ActivityDescriptor incoming = ActivityDescriptor.Create(
+                ActivityId.Parse(RequireString(activity, "id")),
+                ActivityKind.Parse(RequireString(activity, "kind")),
+                DeviceId.Parse(RequireString(activity, "originDeviceId")),
+                RequireString(activity, "title"),
+                RequireString(activity, "payloadJson"),
+                ParseSensitivity(RequireString(activity, "sensitivity")));
+            RequireDigestMatch(
+                claimedPayloadDigest,
+                incoming.PayloadDigest,
+                "The incoming Activity payload digest does not match.");
+            RequireDigestMatch(
+                claimedDescriptorDigest,
+                incoming.DescriptorDigest,
+                "The incoming Activity descriptor digest does not match.");
+
+            ReplaceActivityCommand command = ReplaceActivityCommand.Create(
+                OperationContext.Create(
+                    operationId,
+                    message.CorrelationId,
+                    deadline),
+                targetActivityId,
+                expectedTargetRevision,
+                expectedTargetDescriptorDigest,
+                incoming,
+                ActivityPlacement.On(targetDeviceId, targetSlot),
+                undoExpiresAt);
+            RequireDigestMatch(
+                claimedRequestDigest,
+                command.RequestDigest,
+                "The Activity Replace request digest does not match.");
+            return command;
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException
+            or FormatException
+            or JsonException
+            or OverflowException)
+        {
+            throw new InvalidDataException(
+                "The Activity Replace body is malformed.",
+                exception);
+        }
+    }
+
+    public static ControlMessage CreateReplaceResult(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        ReplaceOperationResult result,
+        DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(result);
+        OperationReceipt receipt = result.Receipt;
+        if (receipt.Kind != OperationKind.Replace)
+        {
+            throw new ArgumentException(
+                "An Activity Replace result must contain a Replace receipt.",
+                nameof(result));
+        }
+
+        if (senderDeviceId != receipt.TargetDeviceId)
+        {
+            throw new ArgumentException(
+                "An Activity Replace result must be sent by its target device.",
+                nameof(senderDeviceId));
+        }
+
+        ValidateReplaceCapsuleBinding(result);
+        object? undoCapsule = result.UndoCapsule is UndoCapsuleReference capsule
+            ? new
+            {
+                id = capsule.Id.ToString(),
+                targetActivityId = capsule.TargetActivityId.ToString(),
+                expectedTargetRevision = capsule.ExpectedTargetRevision,
+                targetDescriptorDigest = capsule.TargetDescriptorDigest,
+                incomingActivityId = capsule.IncomingActivityId.ToString(),
+                incomingDescriptorDigest = capsule.IncomingDescriptorDigest,
+                expiresAt = capsule.ExpiresAt,
+            }
+            : null;
+        string body = JsonSerializer.Serialize(new
+        {
+            operationId = receipt.OperationId.ToString(),
+            status = ToWireName(receipt.Status),
+            sourceDeviceId = receipt.SourceDeviceId.ToString(),
+            targetDeviceId = receipt.TargetDeviceId.ToString(),
+            incomingActivityId = receipt.ActivityId.ToString(),
+            incomingActivityKind = receipt.ActivityKind?.Value,
+            incomingDescriptorDigest = receipt.DescriptorDigest,
+            occurredAt = receipt.OccurredAt,
+            failureCode = ToWireName(receipt.FailureCode),
+            undoCapsule,
+        });
+        return ControlMessage.Create(
+            version,
+            ControlMessageType.ActivityReplaceResult,
+            Guid.NewGuid(),
+            receipt.CorrelationId,
+            senderDeviceId,
+            sentAt,
+            ReceiptTimeToLive,
+            body);
+    }
+
+    public static ReplaceOperationResult DecodeReplaceResult(
+        ControlMessage message,
+        DeviceId expectedRecipientDeviceId,
+        CorrelationId expectedCorrelationId)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expectedRecipientDeviceId);
+        ArgumentNullException.ThrowIfNull(expectedCorrelationId);
+        if (message.Type != ControlMessageType.ActivityReplaceResult)
+        {
+            throw new InvalidDataException(
+                "The control message is not an Activity Replace result.");
+        }
+
+        if (message.CorrelationId != expectedCorrelationId)
+        {
+            throw new InvalidDataException(
+                "The Activity Replace result correlation does not match the pending request.");
+        }
+
+        try
+        {
+            JsonElement root = message.Body;
+            RequireOnly(
+                root,
+                "operationId",
+                "status",
+                "sourceDeviceId",
+                "targetDeviceId",
+                "incomingActivityId",
+                "incomingActivityKind",
+                "incomingDescriptorDigest",
+                "occurredAt",
+                "failureCode",
+                "undoCapsule");
+            OperationId operationId = OperationId.Parse(RequireString(root, "operationId"));
+            DeviceId sourceDeviceId = DeviceId.Parse(
+                RequireString(root, "sourceDeviceId"));
+            DeviceId targetDeviceId = DeviceId.Parse(
+                RequireString(root, "targetDeviceId"));
+            if (sourceDeviceId != expectedRecipientDeviceId
+                || targetDeviceId != message.SenderDeviceId)
+            {
+                throw new InvalidDataException(
+                    "The Activity Replace result participants do not match the authenticated channel.");
+            }
+
+            ActivityId incomingActivityId = ActivityId.Parse(
+                RequireString(root, "incomingActivityId"));
+            ActivityKind? incomingActivityKind = ReadOptionalString(
+                root,
+                "incomingActivityKind") is string kindValue
+                    ? ActivityKind.Parse(kindValue)
+                    : null;
+            string? incomingDescriptorDigest = ReadOptionalString(
+                root,
+                "incomingDescriptorDigest");
+            if (incomingDescriptorDigest is not null)
+            {
+                ValidateDigest(incomingDescriptorDigest, "incomingDescriptorDigest");
+            }
+
+            OperationReceipt receipt = OperationReceipt.FromRecordedResult(
+                operationId,
+                message.CorrelationId,
+                OperationKind.Replace,
+                ParseStatus(RequireString(root, "status")),
+                sourceDeviceId,
+                targetDeviceId,
+                incomingActivityId,
+                incomingActivityKind,
+                incomingDescriptorDigest,
+                RequireDateTimeOffset(root, "occurredAt"),
+                ParseFailureCode(RequireString(root, "failureCode")));
+            UndoCapsuleReference? capsule = DecodeUndoCapsule(
+                root,
+                operationId,
+                message.CorrelationId);
+            var result = new ReplaceOperationResult(receipt, capsule);
+            ValidateReplaceCapsuleBinding(result);
+            return result;
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException
+            or FormatException
+            or JsonException
+            or OverflowException)
+        {
+            throw new InvalidDataException(
+                "The Activity Replace result body is malformed.",
+                exception);
+        }
+    }
+
     public static ControlMessage CreateReceipt(
         ProtocolVersion version,
         DeviceId senderDeviceId,
@@ -325,6 +663,81 @@ public static class ActivityControlMessageCodec
         };
     }
 
+    private static UndoCapsuleReference? DecodeUndoCapsule(
+        JsonElement root,
+        OperationId operationId,
+        CorrelationId correlationId)
+    {
+        if (!root.TryGetProperty("undoCapsule", out JsonElement value))
+        {
+            throw new InvalidDataException(
+                "The required 'undoCapsule' field is missing.");
+        }
+
+        if (value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException(
+                "The 'undoCapsule' field has the wrong type.");
+        }
+
+        RequireOnly(
+            value,
+            "id",
+            "targetActivityId",
+            "expectedTargetRevision",
+            "targetDescriptorDigest",
+            "incomingActivityId",
+            "incomingDescriptorDigest",
+            "expiresAt");
+        long expectedTargetRevision = RequireInt64(value, "expectedTargetRevision");
+        if (expectedTargetRevision < 1)
+        {
+            throw new InvalidDataException(
+                "The undo capsule target revision must be positive.");
+        }
+
+        return new UndoCapsuleReference(
+            UndoCapsuleId.Parse(RequireString(value, "id")),
+            operationId,
+            correlationId,
+            ActivityId.Parse(RequireString(value, "targetActivityId")),
+            expectedTargetRevision,
+            RequireDigest(value, "targetDescriptorDigest"),
+            ActivityId.Parse(RequireString(value, "incomingActivityId")),
+            RequireDigest(value, "incomingDescriptorDigest"),
+            RequireDateTimeOffset(value, "expiresAt"));
+    }
+
+    private static void ValidateReplaceCapsuleBinding(ReplaceOperationResult result)
+    {
+        bool committed = result.Receipt.Status == OperationStatus.Committed;
+        if (committed != (result.UndoCapsule is not null))
+        {
+            throw new InvalidDataException(
+                "A committed Replace must include undo metadata and other outcomes must not.");
+        }
+
+        if (result.UndoCapsule is not UndoCapsuleReference capsule)
+        {
+            return;
+        }
+
+        if (capsule.OperationId != result.Receipt.OperationId
+            || capsule.CorrelationId != result.Receipt.CorrelationId
+            || capsule.IncomingActivityId != result.Receipt.ActivityId
+            || result.Receipt.DescriptorDigest is not string receiptDigest
+            || !DigestsEqual(capsule.IncomingDescriptorDigest, receiptDigest))
+        {
+            throw new InvalidDataException(
+                "The undo capsule metadata is not bound to the Replace receipt.");
+        }
+    }
+
     private static DateTimeOffset RequireDateTimeOffset(
         JsonElement parent,
         string name)
@@ -333,6 +746,14 @@ public static class ActivityControlMessageCodec
         return value.TryGetDateTimeOffset(out DateTimeOffset parsed)
             ? parsed
             : throw new InvalidDataException($"The '{name}' field is not a timestamp.");
+    }
+
+    private static long RequireInt64(JsonElement parent, string name)
+    {
+        JsonElement value = Require(parent, name, JsonValueKind.Number);
+        return value.TryGetInt64(out long parsed)
+            ? parsed
+            : throw new InvalidDataException($"The '{name}' field is not an integer.");
     }
 
     private static string RequireDigest(JsonElement parent, string name)
@@ -364,6 +785,11 @@ public static class ActivityControlMessageCodec
         }
     }
 
+    private static bool DigestsEqual(string first, string second) =>
+        CryptographicOperations.FixedTimeEquals(
+            Convert.FromHexString(first),
+            Convert.FromHexString(second));
+
     private static void RequireOnly(JsonElement value, params string[] names)
     {
         if (value.ValueKind != JsonValueKind.Object)
@@ -391,6 +817,7 @@ public static class ActivityControlMessageCodec
     {
         OperationKind.Handoff => "handoff",
         OperationKind.Move => "move",
+        OperationKind.Replace => "replace",
         _ => throw new ArgumentOutOfRangeException(
             nameof(kind),
             kind,
@@ -401,6 +828,7 @@ public static class ActivityControlMessageCodec
     {
         "handoff" => OperationKind.Handoff,
         "move" => OperationKind.Move,
+        "replace" => OperationKind.Replace,
         _ => throw new InvalidDataException("The Activity operation kind is unsupported."),
     };
 
@@ -459,6 +887,11 @@ public static class ActivityControlMessageCodec
         FailureCode.ReservationConflict => "reservation-conflict",
         FailureCode.ReservationExpired => "reservation-expired",
         FailureCode.DecisionConflict => "decision-conflict",
+        FailureCode.UndoUnavailable => "undo-unavailable",
+        FailureCode.UndoCapsuleInvalid => "undo-capsule-invalid",
+        FailureCode.UndoCapsuleExpired => "undo-capsule-expired",
+        FailureCode.UndoCapsuleNotFound => "undo-capsule-not-found",
+        FailureCode.UndoCapsuleConsumed => "undo-capsule-consumed",
         FailureCode.InternalFailure => "internal-failure",
         _ => throw new ArgumentOutOfRangeException(nameof(failureCode)),
     };
@@ -482,6 +915,11 @@ public static class ActivityControlMessageCodec
         "reservation-conflict" => FailureCode.ReservationConflict,
         "reservation-expired" => FailureCode.ReservationExpired,
         "decision-conflict" => FailureCode.DecisionConflict,
+        "undo-unavailable" => FailureCode.UndoUnavailable,
+        "undo-capsule-invalid" => FailureCode.UndoCapsuleInvalid,
+        "undo-capsule-expired" => FailureCode.UndoCapsuleExpired,
+        "undo-capsule-not-found" => FailureCode.UndoCapsuleNotFound,
+        "undo-capsule-consumed" => FailureCode.UndoCapsuleConsumed,
         "internal-failure" => FailureCode.InternalFailure,
         _ => throw new InvalidDataException("The failure code is unsupported."),
     };
