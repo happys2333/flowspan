@@ -121,6 +121,160 @@ public sealed class PersistentReplaceStateStore :
             ordered.Take(ReplaceRecoverySnapshot.MaximumRecords).ToImmutableArray());
     }
 
+    public ReplaceRestartRecoveryPlan GetRestartRecoveryPlan(
+        DeviceId targetDeviceId)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        ArgumentNullException.ThrowIfNull(targetDeviceId);
+
+        PersistedOperation[] operations;
+        PersistedUndoOperation[] undoOperations;
+        UndoCapsule[] capsules;
+        lock (snapshotGate)
+        {
+            operations = state.Operations.Values.ToArray();
+            undoOperations = state.UndoOperations.Values.ToArray();
+            capsules = state.Capsules.Values.ToArray();
+        }
+
+        bool unresolved = operations.Any(static operation =>
+                operation.Receipt is null
+                || operation.Receipt.Status == OperationStatus.Recovering)
+            || undoOperations.Any(static operation =>
+                operation.Result is null
+                || operation.Result.Status == OperationStatus.Recovering);
+        if (unresolved)
+        {
+            return new ReplaceRestartRecoveryPlan(true, [], []);
+        }
+
+        Dictionary<OperationId, PersistedOperation> operationById =
+            operations.ToDictionary(static operation => operation.OperationId);
+        var capsuleOperationIds = capsules
+            .Select(static capsule => capsule.OperationId)
+            .ToHashSet();
+        if (operations.Any(operation =>
+                operation.Receipt is { IsSuccess: true }
+                && !capsuleOperationIds.Contains(operation.OperationId)))
+        {
+            throw new InvalidDataException(
+                "A committed Replace receipt has no protected undo capsule.");
+        }
+
+        var capsuleIds = capsules
+            .Select(static capsule => capsule.Id)
+            .ToHashSet();
+        if (undoOperations.Any(operation =>
+                operation.Result?.Status == OperationStatus.Committed
+                && !capsuleIds.Contains(operation.CapsuleId)))
+        {
+            throw new InvalidDataException(
+                "A committed Replace undo has no protected undo capsule.");
+        }
+
+        foreach (UndoCapsule capsule in capsules)
+        {
+            if (!operationById.TryGetValue(
+                    capsule.OperationId,
+                    out PersistedOperation? operation)
+                || operation.Receipt is not { IsSuccess: true } receipt)
+            {
+                throw new InvalidDataException(
+                    "A protected undo capsule has no committed Replace receipt.");
+            }
+
+            if (!ReceiptMatchesCapsule(receipt, capsule, targetDeviceId))
+            {
+                throw new InvalidDataException(
+                    "A committed Replace receipt does not match its protected undo capsule.");
+            }
+        }
+
+        UndoCapsule[] committed = capsules
+            .Where(capsule =>
+                operationById.TryGetValue(
+                    capsule.OperationId,
+                    out PersistedOperation? operation)
+                && operation.Receipt is { IsSuccess: true } receipt
+                && ReceiptMatchesCapsule(receipt, capsule, targetDeviceId))
+            .OrderBy(
+                static capsule => capsule.ReplacementActivity.Descriptor.Id.ToString(),
+                StringComparer.Ordinal)
+            .ToArray();
+        var completedUndoCapsules = undoOperations
+            .Where(static operation =>
+                operation.Result?.Status == OperationStatus.Committed)
+            .Select(static operation => operation.CapsuleId)
+            .ToHashSet();
+        var attemptedUndoCapsules = undoOperations
+            .Select(static operation => operation.CapsuleId)
+            .ToHashSet();
+        var invalidatedReplacementCapsules = undoOperations
+            .Where(static operation => operation.Result?.FailureCode is
+                FailureCode.RevisionConflict
+                or FailureCode.UndoCapsuleConsumed)
+            .Select(static operation => operation.CapsuleId)
+            .ToHashSet();
+        var transitions = new List<(ActivityInstance Input, ActivityInstance Output)>();
+        foreach (UndoCapsule capsule in committed)
+        {
+            transitions.Add((capsule.OriginalActivity, capsule.ReplacementActivity));
+            if (completedUndoCapsules.Contains(capsule.Id))
+            {
+                transitions.Add((
+                    capsule.ReplacementActivity,
+                    ActivityInstance.Active(
+                        capsule.OriginalActivity.Descriptor,
+                        capsule.OriginalActivity.Placement,
+                        checked(capsule.ReplacementActivity.Revision + 1))));
+            }
+        }
+
+        var consumed = new HashSet<ActivityInstance>();
+        var produced = new HashSet<ActivityInstance>();
+        foreach ((ActivityInstance input, ActivityInstance output) in transitions)
+        {
+            if (!consumed.Add(input) || !produced.Add(output))
+            {
+                throw new InvalidDataException(
+                    "Replace restart history contains conflicting state transitions.");
+            }
+        }
+
+        HashSet<ActivityInstance> invalidatedReplacements = committed
+            .Where(capsule => invalidatedReplacementCapsules.Contains(capsule.Id))
+            .Select(static capsule => capsule.ReplacementActivity)
+            .ToHashSet();
+        ActivityInstance[] currentActivities = produced
+            .Where(activity =>
+                !consumed.Contains(activity)
+                && !invalidatedReplacements.Contains(activity))
+            .OrderBy(
+                static activity => activity.Descriptor.Id.ToString(),
+                StringComparer.Ordinal)
+            .ToArray();
+        if (currentActivities
+                .Select(static activity => activity.Descriptor.Id)
+                .Distinct()
+                .Count() != currentActivities.Length)
+        {
+            throw new InvalidDataException(
+                "Replace restart history contains duplicate current Activity IDs.");
+        }
+
+        var currentSet = currentActivities.ToHashSet();
+        return new ReplaceRestartRecoveryPlan(
+            false,
+            currentActivities.ToImmutableArray(),
+            committed
+                .Where(capsule => !attemptedUndoCapsules.Contains(capsule.Id))
+                .Where(capsule => currentSet.Contains(capsule.ReplacementActivity))
+                .Select(static capsule => new ReplaceRestartUndoCandidate(
+                    capsule.Id,
+                    capsule.ReplacementActivity))
+                .ToImmutableArray());
+    }
+
     public static async ValueTask<PersistentReplaceStateStore> OpenAsync(
         IReplaceStatePayloadStore payloadStore,
         CancellationToken cancellationToken = default)
@@ -630,6 +784,22 @@ public sealed class PersistentReplaceStateStore :
             capsule?.ExpiresAt,
             GetUndoAvailability(receipt, capsule, undoByCapsule, utcNow));
     }
+
+    private static bool ReceiptMatchesCapsule(
+        OperationReceipt receipt,
+        UndoCapsule capsule,
+        DeviceId targetDeviceId) =>
+        receipt.Kind == OperationKind.Replace
+        && receipt.OperationId == capsule.OperationId
+        && receipt.CorrelationId == capsule.CorrelationId
+        && receipt.SourceDeviceId == capsule.SourceDeviceId
+        && receipt.TargetDeviceId == targetDeviceId
+        && capsule.TargetDeviceId == targetDeviceId
+        && receipt.ActivityId == capsule.ReplacementActivity.Descriptor.Id
+        && receipt.ActivityKind == capsule.ReplacementActivity.Descriptor.Kind
+        && StringComparer.Ordinal.Equals(
+            receipt.DescriptorDigest,
+            capsule.ReplacementActivity.Descriptor.DescriptorDigest);
 
     private static ReplaceRecoveryRecord CreateUndoRecoveryRecord(
         PersistedUndoOperation operation,

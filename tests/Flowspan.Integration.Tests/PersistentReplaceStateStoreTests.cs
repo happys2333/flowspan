@@ -360,7 +360,6 @@ public sealed class PersistentReplaceStateStoreTests
         Assert.True(firstCatalog.TryAdd(expectedCapsule.OriginalActivity));
         var firstAdapter = new CountingReplaceAdapter();
         UndoReplaceResult firstUndo;
-        ActivityInstance restored;
         using (PersistentReplaceStateStore firstState =
                await PersistentReplaceStateStore.OpenAsync(payloadStore))
         using (var firstEndpoint = new ReplaceEndpoint(
@@ -387,17 +386,21 @@ public sealed class PersistentReplaceStateStoreTests
             Assert.True(firstCatalog.TryGet(
                 expectedCapsule.OriginalActivity.Descriptor.Id,
                 out ActivityInstance? committedRestore));
-            restored = Assert.IsType<ActivityInstance>(committedRestore);
+            Assert.IsType<ActivityInstance>(committedRestore);
         }
 
         Assert.Equal(OperationStatus.Committed, firstUndo.Status);
         Assert.Equal(1, firstAdapter.RestoreCount);
 
         var restartedCatalog = new InMemoryActivityCatalog();
-        Assert.True(restartedCatalog.TryAdd(restored));
         var restartedAdapter = new CountingReplaceAdapter();
         using PersistentReplaceStateStore restartedState =
             await PersistentReplaceStateStore.OpenAsync(payloadStore);
+        ReplaceRestartRecoveryPlan recoveryPlan =
+            restartedState.GetRestartRecoveryPlan(target);
+        Assert.Empty(recoveryPlan.UndoCandidates);
+        Assert.True(restartedCatalog.TryAdd(
+            Assert.Single(recoveryPlan.CurrentActivities)));
         using var restartedEndpoint = new ReplaceEndpoint(
             target,
             new TestClock(Now),
@@ -734,6 +737,367 @@ public sealed class PersistentReplaceStateStoreTests
         ReplaceRecoveryRecord expired = Assert.Single(
             state.GetRecoverySnapshot(Now.AddMinutes(11)).Records);
         Assert.Equal(ReplaceUndoAvailability.Expired, expired.UndoAvailability);
+    }
+
+    [Fact]
+    public async Task RestartPlanReconstructsExactCommittedReplacementAndUndoCandidate()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = CreateCapsule();
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            Assert.True(await state.TryAddCapsuleAsync(capsule));
+            await state.ExecuteOnceAsync(
+                capsule.OperationId,
+                new string('A', 64),
+                _ => ValueTask.FromResult(OperationReceipt.Committed(
+                    capsule.OperationId,
+                    capsule.CorrelationId,
+                    OperationKind.Replace,
+                    capsule.SourceDeviceId,
+                    capsule.TargetDeviceId,
+                    capsule.ReplacementActivity.Descriptor,
+                    Now)),
+                CancellationToken.None);
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        ReplaceRestartRecoveryPlan plan = restarted.GetRestartRecoveryPlan(
+            capsule.TargetDeviceId);
+
+        Assert.False(plan.IsBlockedByUnresolvedOperation);
+        Assert.Equal(
+            capsule.ReplacementActivity,
+            Assert.Single(plan.CurrentActivities));
+        ReplaceRestartUndoCandidate candidate = Assert.Single(plan.UndoCandidates);
+        Assert.Equal(capsule.Id, candidate.CapsuleId);
+        Assert.Equal(capsule.ReplacementActivity, candidate.ExactReplacement);
+    }
+
+    [Fact]
+    public async Task RestartPlanBlocksEveryCandidateAcrossAPersistedPendingBoundary()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = CreateCapsule();
+        OperationId unresolvedOperationId =
+            OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            Assert.True(await state.TryAddCapsuleAsync(capsule));
+            await state.ExecuteOnceAsync(
+                capsule.OperationId,
+                new string('A', 64),
+                _ => ValueTask.FromResult(OperationReceipt.Committed(
+                    capsule.OperationId,
+                    capsule.CorrelationId,
+                    OperationKind.Replace,
+                    capsule.SourceDeviceId,
+                    capsule.TargetDeviceId,
+                    capsule.ReplacementActivity.Descriptor,
+                    Now)),
+                CancellationToken.None);
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await state.ExecuteOnceAsync(
+                    unresolvedOperationId,
+                    new string('B', 64),
+                    _ => ValueTask.FromException<OperationReceipt>(
+                        new InvalidOperationException("Injected crash boundary.")),
+                    CancellationToken.None));
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        ReplaceRestartRecoveryPlan plan = restarted.GetRestartRecoveryPlan(
+            capsule.TargetDeviceId);
+
+        Assert.True(plan.IsBlockedByUnresolvedOperation);
+        Assert.Empty(plan.CurrentActivities);
+        Assert.Empty(plan.UndoCandidates);
+    }
+
+    [Fact]
+    public async Task RestartPlanReconstructsCommittedUndoWithoutAnotherCandidate()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = CreateCapsule();
+        OperationId undoOperationId =
+            OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        CorrelationId undoCorrelationId =
+            CorrelationId.Parse("99999999-9999-9999-9999-999999999999");
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            Assert.True(await state.TryAddCapsuleAsync(capsule));
+            await state.ExecuteOnceAsync(
+                capsule.OperationId,
+                new string('A', 64),
+                _ => ValueTask.FromResult(OperationReceipt.Committed(
+                    capsule.OperationId,
+                    capsule.CorrelationId,
+                    OperationKind.Replace,
+                    capsule.SourceDeviceId,
+                    capsule.TargetDeviceId,
+                    capsule.ReplacementActivity.Descriptor,
+                    Now)),
+                CancellationToken.None);
+            Assert.Equal(
+                UndoJournalPreparationStatus.Prepared,
+                (await state.PrepareUndoAsync(
+                    capsule.Id,
+                    undoOperationId,
+                    new string('B', 64))).Status);
+            await state.CompleteUndoAsync(
+                undoOperationId,
+                UndoReplaceResult.Committed(
+                    OperationContext.Create(
+                        undoOperationId,
+                        undoCorrelationId,
+                        Now.AddSeconds(30)),
+                    capsule.Id,
+                    Now.AddSeconds(1)));
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        ReplaceRestartRecoveryPlan plan = restarted.GetRestartRecoveryPlan(
+            capsule.TargetDeviceId);
+
+        Assert.False(plan.IsBlockedByUnresolvedOperation);
+        ActivityInstance restored = Assert.Single(plan.CurrentActivities);
+        Assert.Equal(capsule.OriginalActivity.Descriptor, restored.Descriptor);
+        Assert.Equal(capsule.OriginalActivity.Placement, restored.Placement);
+        Assert.Equal(capsule.ReplacementActivity.Revision + 1, restored.Revision);
+        Assert.Empty(plan.UndoCandidates);
+    }
+
+    [Fact]
+    public async Task RestartPlanDoesNotReconstructARecordedStaleReplacement()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = CreateCapsule();
+        OperationId undoOperationId =
+            OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            Assert.True(await state.TryAddCapsuleAsync(capsule));
+            await state.ExecuteOnceAsync(
+                capsule.OperationId,
+                new string('A', 64),
+                _ => ValueTask.FromResult(OperationReceipt.Committed(
+                    capsule.OperationId,
+                    capsule.CorrelationId,
+                    OperationKind.Replace,
+                    capsule.SourceDeviceId,
+                    capsule.TargetDeviceId,
+                    capsule.ReplacementActivity.Descriptor,
+                    Now)),
+                CancellationToken.None);
+            Assert.Equal(
+                UndoJournalPreparationStatus.Prepared,
+                (await state.PrepareUndoAsync(
+                    capsule.Id,
+                    undoOperationId,
+                    new string('B', 64))).Status);
+            await state.CompleteUndoAsync(
+                undoOperationId,
+                UndoReplaceResult.Rejected(
+                    OperationContext.Create(
+                        undoOperationId,
+                        CorrelationId.Parse(
+                            "99999999-9999-9999-9999-999999999999"),
+                        Now.AddSeconds(30)),
+                    capsule.Id,
+                    FailureCode.RevisionConflict,
+                    Now.AddSeconds(1)));
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        ReplaceRestartRecoveryPlan plan = restarted.GetRestartRecoveryPlan(
+            capsule.TargetDeviceId);
+
+        Assert.False(plan.IsBlockedByUnresolvedOperation);
+        Assert.Empty(plan.CurrentActivities);
+        Assert.Empty(plan.UndoCandidates);
+    }
+
+    [Fact]
+    public async Task RestartPlanKeepsOnlyTheExactFrontierOfChainedReplaces()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule first = CreateCapsule();
+        ActivityInstance finalReplacement = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("12121212-1212-1212-1212-121212121212"),
+                ActivityKind.Parse("workspace.note/v1"),
+                first.SourceDeviceId,
+                "Final note",
+                "{\"text\":\"final replacement\"}"),
+            first.ReplacementActivity.Placement,
+            revision: first.ReplacementActivity.Revision + 1);
+        UndoCapsule second = UndoCapsule.Create(
+            UndoCapsuleId.Parse("34343434-3434-3434-3434-343434343434"),
+            OperationContext.Create(
+                OperationId.Parse("56565656-5656-5656-5656-565656565656"),
+                CorrelationId.Parse("78787878-7878-7878-7878-787878787878"),
+                Now.AddSeconds(30)),
+            first.SourceDeviceId,
+            first.TargetDeviceId,
+            first.ReplacementActivity,
+            finalReplacement,
+            Now.AddSeconds(1),
+            Now.AddMinutes(10));
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            foreach (UndoCapsule capsule in new[] { first, second })
+            {
+                Assert.True(await state.TryAddCapsuleAsync(capsule));
+                await state.ExecuteOnceAsync(
+                    capsule.OperationId,
+                    new string(capsule == first ? 'A' : 'B', 64),
+                    _ => ValueTask.FromResult(OperationReceipt.Committed(
+                        capsule.OperationId,
+                        capsule.CorrelationId,
+                        OperationKind.Replace,
+                        capsule.SourceDeviceId,
+                        capsule.TargetDeviceId,
+                        capsule.ReplacementActivity.Descriptor,
+                        Now)),
+                    CancellationToken.None);
+            }
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        ReplaceRestartRecoveryPlan plan = restarted.GetRestartRecoveryPlan(
+            first.TargetDeviceId);
+
+        Assert.Equal(finalReplacement, Assert.Single(plan.CurrentActivities));
+        ReplaceRestartUndoCandidate candidate = Assert.Single(plan.UndoCandidates);
+        Assert.Equal(second.Id, candidate.CapsuleId);
+        Assert.Equal(finalReplacement, candidate.ExactReplacement);
+    }
+
+    [Fact]
+    public async Task RestartPlanFailsClosedWhenCommittedReceiptDoesNotMatchCapsule()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = CreateCapsule();
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            Assert.True(await state.TryAddCapsuleAsync(capsule));
+            await state.ExecuteOnceAsync(
+                capsule.OperationId,
+                new string('A', 64),
+                _ => ValueTask.FromResult(OperationReceipt.Committed(
+                    capsule.OperationId,
+                    capsule.CorrelationId,
+                    OperationKind.Replace,
+                    DeviceId.Parse("99999999-9999-9999-9999-999999999999"),
+                    capsule.TargetDeviceId,
+                    capsule.ReplacementActivity.Descriptor,
+                    Now)),
+                CancellationToken.None);
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        Assert.Throws<InvalidDataException>(() =>
+            restarted.GetRestartRecoveryPlan(capsule.TargetDeviceId));
+    }
+
+    [Fact]
+    public async Task RestartPlanFailsClosedOnAnOrphanedCapsule()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = CreateCapsule();
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            Assert.True(await state.TryAddCapsuleAsync(capsule));
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        Assert.Throws<InvalidDataException>(() =>
+            restarted.GetRestartRecoveryPlan(capsule.TargetDeviceId));
+    }
+
+    [Fact]
+    public async Task RestartPlanFailsClosedOnACommittedReceiptWithoutItsCapsule()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = CreateCapsule();
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            await state.ExecuteOnceAsync(
+                capsule.OperationId,
+                new string('A', 64),
+                _ => ValueTask.FromResult(OperationReceipt.Committed(
+                    capsule.OperationId,
+                    capsule.CorrelationId,
+                    OperationKind.Replace,
+                    capsule.SourceDeviceId,
+                    capsule.TargetDeviceId,
+                    capsule.ReplacementActivity.Descriptor,
+                    Now)),
+                CancellationToken.None);
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        Assert.Throws<InvalidDataException>(() =>
+            restarted.GetRestartRecoveryPlan(capsule.TargetDeviceId));
+    }
+
+    [Fact]
+    public async Task RestartPlanFailsClosedOnACommittedUndoWithoutItsCapsule()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = CreateCapsule();
+        UndoCapsuleId missingCapsuleId =
+            UndoCapsuleId.Parse("45454545-4545-4545-4545-454545454545");
+        OperationContext undoContext = OperationContext.Create(
+            OperationId.Parse("67676767-6767-6767-6767-676767676767"),
+            CorrelationId.Parse("89898989-8989-8989-8989-898989898989"),
+            Now.AddSeconds(30));
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            Assert.Equal(
+                UndoJournalPreparationStatus.Prepared,
+                (await state.PrepareUndoAsync(
+                    missingCapsuleId,
+                    undoContext.OperationId,
+                    new string('A', 64))).Status);
+            await state.CompleteUndoAsync(
+                undoContext.OperationId,
+                UndoReplaceResult.Committed(
+                    undoContext,
+                    missingCapsuleId,
+                    Now));
+        }
+
+        using PersistentReplaceStateStore restarted =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+
+        Assert.Throws<InvalidDataException>(() =>
+            restarted.GetRestartRecoveryPlan(capsule.TargetDeviceId));
     }
 
     [Fact]

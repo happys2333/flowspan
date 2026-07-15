@@ -655,6 +655,11 @@ public sealed class DeterministicUndoCapsuleIdSource : IUndoCapsuleIdSource
     }
 }
 
+public sealed class CryptographicUndoCapsuleIdSource : IUndoCapsuleIdSource
+{
+    public UndoCapsuleId CreateId() => UndoCapsuleId.From(Guid.NewGuid());
+}
+
 public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
 {
     public static readonly TimeSpan MaximumUndoRetention = TimeSpan.FromMinutes(15);

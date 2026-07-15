@@ -1,8 +1,8 @@
 # ADR 0011: Bounded Replace with a Target-Owned Undo Capsule
 
 Status: accepted for the `workspace.note/v1` tracer slice; durable state,
-query-only target inventory, and preview-only confirmation delivered;
-destructive desktop activation pending
+query-only target inventory, preview-only confirmation, protected recovery, and
+target-local visible undo delivered; destructive desktop activation pending
 
 Date: 2026-07-15
 
@@ -132,6 +132,44 @@ excluded. A pending entry written before capsule capture may contain only an
 Operation ID and is presented as incomplete rather than reconstructed from
 untrusted or unrelated state.
 
+### Target-local visible undo and restart reduction
+
+The visible undo slice keeps one private target-local `ReplaceEndpoint` beside
+the Desktop catalog and protected store, but it does not expose that endpoint to
+an authenticated session or compose a source-side destructive command. This
+reuses the existing exact-current, pending-before-Adapter, single-consume, and
+terminal-replay invariants without creating a second undo implementation.
+
+Because the Desktop catalog is currently process-memory state, startup reduces
+the protected terminal history to an exact state-transition graph for the
+descriptor-complete `workspace.note/v1` tracer. A committed Replace edge maps
+its captured original instance to its exact replacement. A committed undo edge
+maps that replacement to the preserved descriptor at the next revision. Only
+unambiguous local-target frontier instances are admitted to the empty startup
+catalog. A pending or `Recovering` Replace/undo entry blocks all reconstruction;
+receipt/capsule mismatch, an orphaned capsule or committed receipt/undo,
+conflicting graph edges, duplicate frontier Activity IDs, unsupported Adapter
+kinds, or a non-exact live catalog value fail closed. This does not rerun undo
+restore and is not a promise of arbitrary process-state recovery or a general
+Activity persistence layer.
+
+The UI exposes one action only for a terminal committed Replace whose capsule is
+unexpired, unconsumed, has no prior undo attempt, and still names the catalog's
+exact current replacement. Selection and recovery refresh revoke confirmation.
+The confirmation identifies the opaque capsule, original/replacement Activity
+IDs, and exact expiry. Pending, committed, rejected, failed, and recovering
+results are projected from the same protected journal; no outcome is inferred
+from a timeout or exception, and no completed attempt is silently retried under
+a new Operation ID.
+
+The Desktop service performs the same live eligibility preflight so a non-UI
+caller cannot bypass the selected recovery mapping. Unknown capsules, unreadable
+state, any global pending/`Recovering` boundary, and exact-current capsules that
+are no longer actionable stop before a new undo journal write. A known expired,
+consumed, or catalog-stale capsule is allowed through to the core endpoint only
+to preserve its precise rejection reason; none can cross the Adapter restore
+boundary.
+
 ## Consequences
 
 - Replace cannot accidentally inherit Handoff/Move's source-preserving or
@@ -141,10 +179,11 @@ untrusted or unrelated state.
   work; Remote Window is not silently substituted.
 - The durable-state module and Windows/macOS/Linux protected-key adapters now
   exist. Desktop composes a payload-free target query plus a preview-only,
-  snapshot-bound confirmation surface and a protected target-local read-only
-  recovery projection, but it still does not compose destructive Replace.
-  In-memory state remains available only for deterministic tests. Target-local
-  visible undo remains mandatory before product activation.
+  snapshot-bound confirmation surface, a protected target-local recovery
+  projection, and exact confirmed local undo, but it still does not compose
+  destructive Replace. In-memory state remains available only for deterministic
+  tests. Destructive source/target composition remains mandatory before product
+  activation.
 - Same-host loopback tests prove authenticated framing and state ordering, not
   physical LAN behavior or native application restoration.
 
@@ -173,6 +212,10 @@ untrusted or unrelated state.
   consumed capsule state, protected-store restart and failure, sanitized
   Desktop startup, keyboard list navigation, accessible names, and the locked
   destructive endpoint.
+- Target-local undo tests cover terminal-graph restart reduction, pending and
+  ambiguous fail-closed behavior, exact-current/expiry/consumption gating,
+  explicit confirmation revocation, every recorded outcome, and replay across a
+  reconstructed process without another Adapter restore.
 - The durable-state candidate covers protected-key restart, exact Replace and
   undo replay, pending recovery without duplicate Adapter calls, atomic save
   failure on both sides of destructive boundaries, authenticated-file and

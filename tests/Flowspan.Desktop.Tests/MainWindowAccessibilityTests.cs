@@ -61,7 +61,7 @@ public sealed class MainWindowAccessibilityTests
 
             Assert.True(viewModel.IsIdentityDetailsVisible);
             Assert.Equal("Hide identity details", toggle.Content);
-            window.Close();
+            window!.Close();
         }, CancellationToken.None);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -312,7 +312,7 @@ public sealed class MainWindowAccessibilityTests
     }
 
     [Fact]
-    public async Task ReplaceRecoveryRecordsAreNamedKeyboardNavigableAndReadOnly()
+    public async Task ReplaceRecoveryRecordsWithoutAnEligibleCapsuleRemainReadOnly()
     {
         var activities = new AccessibilityActivityService
         {
@@ -359,7 +359,9 @@ public sealed class MainWindowAccessibilityTests
             Assert.Contains("Replace recovery correlation ID", automationNames);
             Assert.Contains("Replace recovery capsule ID", automationNames);
             Assert.Contains("Replace recovery undo availability", automationNames);
-            Assert.Equal("TARGET-LOCAL REPLACE HISTORY — READ ONLY", status.Text);
+            Assert.Equal(
+                "TARGET-LOCAL REPLACE HISTORY — NO UNDO ACTION",
+                status.Text);
             Assert.Equal(2, records.ItemCount);
             Control first = Assert.IsAssignableFrom<Control>(
                 records.ContainerFromIndex(0));
@@ -371,6 +373,80 @@ public sealed class MainWindowAccessibilityTests
             Assert.False(destructiveReplace.IsEnabled);
             Assert.Equal("NOT SHARING", sharing.Text);
             window.Close();
+        }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task TargetLocalUndoIsNamedConfirmedAndActivatedByKeyboard()
+    {
+        var activities = new AccessibilityActivityService
+        {
+            ReplaceRecoveryResult = await CreateUndoableReplaceRecoveryResultAsync(),
+            UndoResult = UndoReplaceResult.Committed(
+                OperationContext.Create(
+                    OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                    CorrelationId.Parse("99999999-9999-9999-9999-999999999999"),
+                    new DateTimeOffset(2026, 7, 15, 12, 6, 0, TimeSpan.Zero)),
+                UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                new DateTimeOffset(2026, 7, 15, 12, 5, 1, TimeSpan.Zero)),
+        };
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            activityService: activities);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        MainWindow? window = null;
+
+        await session.Dispatch(() =>
+        {
+            window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            ListBox records = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("ReplaceRecoveryList"));
+            CheckBox confirmation = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("TargetLocalUndoConfirmationCheckBox"));
+            Button undo = Assert.IsType<Button>(
+                window.FindControl<Button>("TargetLocalUndoButton"));
+            TextBlock status = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("TargetLocalUndoStatusText"));
+
+            Assert.Equal(
+                "Target-local undo status",
+                status.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Activate the confirmed target-local undo",
+                undo.GetValue(AutomationProperties.NameProperty));
+            Control first = Assert.IsAssignableFrom<Control>(
+                records.ContainerFromIndex(0));
+            Assert.True(first.Focus());
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Assert.Equal(1, records.SelectedIndex);
+            Assert.True(confirmation.IsEnabled);
+            Assert.True(confirmation.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(viewModel.Activities.HasAcknowledgedTargetLocalUndo);
+            Assert.True(undo.IsEnabled);
+            Assert.True(undo.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        }, CancellationToken.None);
+
+        await activities.UndoRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await session.Dispatch(() =>
+        {
+            MainWindow shownWindow = window
+                ?? throw new InvalidOperationException("The undo test window was not shown.");
+            Assert.Equal(
+                "TARGET-LOCAL UNDO COMMITTED",
+                viewModel.Activities.TargetLocalUndoStatus);
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                shownWindow.FindControl<TextBlock>("SharingStatusText"));
+            Assert.Equal("NOT SHARING", sharing.Text);
+            shownWindow.Close();
         }, CancellationToken.None);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -712,6 +788,80 @@ public sealed class MainWindowAccessibilityTests
                 new DateTimeOffset(2026, 7, 15, 12, 5, 0, TimeSpan.Zero)));
     }
 
+    private static async Task<DesktopReplaceRecoveryResult>
+        CreateUndoableReplaceRecoveryResultAsync()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        using PersistentReplaceStateStore state =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+        DeviceId source =
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111");
+        DeviceId target =
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222");
+        ActivityInstance original = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                ActivityKind.Parse("workspace.note/v1"),
+                target,
+                "Private original",
+                "{\"text\":\"private original\"}"),
+            ActivityPlacement.On(target, "desktop"),
+            revision: 4);
+        ActivityInstance replacement = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                ActivityKind.Parse("workspace.note/v1"),
+                source,
+                "Private replacement",
+                "{\"text\":\"private replacement\"}"),
+            ActivityPlacement.On(target, "desktop"),
+            revision: 5);
+        UndoCapsule capsule = UndoCapsule.Create(
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            OperationContext.Create(
+                OperationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                CorrelationId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+                new DateTimeOffset(2026, 7, 15, 12, 0, 30, TimeSpan.Zero)),
+            source,
+            target,
+            original,
+            replacement,
+            new DateTimeOffset(2026, 7, 15, 12, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 7, 15, 12, 10, 0, TimeSpan.Zero));
+        Assert.True(await state.TryAddAsync(capsule));
+        await state.ExecuteOnceAsync(
+            capsule.OperationId,
+            new string('A', 64),
+            _ => ValueTask.FromResult(OperationReceipt.Committed(
+                capsule.OperationId,
+                capsule.CorrelationId,
+                OperationKind.Replace,
+                source,
+                target,
+                replacement.Descriptor,
+                new DateTimeOffset(2026, 7, 15, 12, 0, 1, TimeSpan.Zero))),
+            CancellationToken.None);
+        OperationId rejectedOperationId =
+            OperationId.Parse("01010101-0101-0101-0101-010101010101");
+        await state.ExecuteOnceAsync(
+            rejectedOperationId,
+            new string('B', 64),
+            _ => ValueTask.FromResult(OperationReceipt.Rejected(
+                rejectedOperationId,
+                CorrelationId.Parse("02020202-0202-0202-0202-020202020202"),
+                OperationKind.Replace,
+                source,
+                target,
+                replacement.Descriptor,
+                new DateTimeOffset(2026, 7, 15, 12, 4, 0, TimeSpan.Zero),
+                FailureCode.CapabilityDenied)),
+            CancellationToken.None);
+        return DesktopReplaceRecoveryResult.Available(
+            state.GetRecoverySnapshot(
+                new DateTimeOffset(2026, 7, 15, 12, 5, 0, TimeSpan.Zero)),
+            [capsule.Id]);
+    }
+
     private sealed class AccessibilityActivityService : IDesktopActivityService
     {
         private static readonly DeviceId LocalId =
@@ -726,6 +876,11 @@ public sealed class MainWindowAccessibilityTests
 
         public DesktopReplaceRecoveryResult ReplaceRecoveryResult { get; init; } =
             DesktopReplaceRecoveryResult.Unavailable;
+
+        public UndoReplaceResult? UndoResult { get; init; }
+
+        public TaskCompletionSource<UndoCapsuleId> UndoRequested { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         public DesktopActivitySnapshot CreateWorkspaceNote(
             string title,
@@ -819,6 +974,18 @@ public sealed class MainWindowAccessibilityTests
                         new string('A', 64),
                         "desktop"),
                 ]));
+        }
+
+        public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+            UndoCapsuleId capsuleId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            UndoRequested.TrySetResult(capsuleId);
+            return UndoResult is not null
+                ? ValueTask.FromResult(UndoResult)
+                : ValueTask.FromException<UndoReplaceResult>(
+                    new InvalidOperationException("No accessibility undo result was configured."));
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

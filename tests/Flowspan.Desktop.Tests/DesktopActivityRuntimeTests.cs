@@ -519,6 +519,236 @@ public sealed class DesktopActivityRuntimeTests
     }
 
     [Fact]
+    public async Task StartupReconstructsExactSemanticReplacementWithoutExposingPeerEndpoint()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = await CreateCommittedReplaceStateAsync(payloadStore);
+
+        using DeviceIdentity identity = DeviceIdentity.Generate(TargetId, "Target");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(identity, trust, payloadStore);
+
+        await runtime.InitializeAsync();
+
+        DesktopActivitySnapshot activity = Assert.Single(runtime.GetActivities());
+        Assert.Equal(capsule.ReplacementActivity.Descriptor.Id, activity.ActivityId);
+        Assert.Equal(capsule.ReplacementActivity.Descriptor.Title, activity.Title);
+        DesktopReplaceRecoveryResult recovery = runtime.GetReplaceRecoveryState();
+        Assert.Equal(capsule.Id, Assert.Single(recovery.UndoableCapsuleIds));
+        AuthenticatedActivitySessionHandler handler =
+            await runtime.GetSessionHandlerAsync();
+        Assert.False(handler.IsReplaceEndpointAvailable);
+        Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TargetLocalUndoAfterRestartRestoresOriginalAndRecordsConsumption()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = await CreateCommittedReplaceStateAsync(payloadStore);
+        using DeviceIdentity identity = DeviceIdentity.Generate(TargetId, "Target");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(identity, trust, payloadStore);
+        await runtime.InitializeAsync();
+
+        UndoReplaceResult result = await runtime.UndoReplaceAsync(capsule.Id);
+
+        Assert.Equal(OperationStatus.Committed, result.Status);
+        Assert.Equal(FailureCode.None, result.FailureCode);
+        DesktopActivitySnapshot activity = Assert.Single(runtime.GetActivities());
+        Assert.Equal(capsule.OriginalActivity.Descriptor.Id, activity.ActivityId);
+        Assert.Equal(capsule.OriginalActivity.Descriptor.Title, activity.Title);
+        DesktopReplaceRecoveryResult recovery = runtime.GetReplaceRecoveryState();
+        ReplaceRecoveryRecord replace = Assert.Single(
+            recovery.Records,
+            record => record.Kind == ReplaceRecoveryOperationKind.Replace);
+        ReplaceRecoveryRecord undo = Assert.Single(
+            recovery.Records,
+            record => record.Kind == ReplaceRecoveryOperationKind.Undo);
+        Assert.Equal(ReplaceUndoAvailability.Consumed, replace.UndoAvailability);
+        Assert.Equal(OperationStatus.Committed, undo.Status);
+        Assert.Empty(recovery.UndoableCapsuleIds);
+        AuthenticatedActivitySessionHandler handler =
+            await runtime.GetSessionHandlerAsync();
+        Assert.False(handler.IsReplaceEndpointAvailable);
+        Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
+
+        UndoReplaceResult consumed = await runtime.UndoReplaceAsync(capsule.Id);
+
+        Assert.Equal(OperationStatus.Rejected, consumed.Status);
+        Assert.Equal(FailureCode.UndoCapsuleConsumed, consumed.FailureCode);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task PersistedPendingBoundarySuppressesRestartCatalogAndUndoAction()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = await CreateCommittedReplaceStateAsync(payloadStore);
+        OperationId pendingOperationId =
+            OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await state.ExecuteOnceAsync(
+                    pendingOperationId,
+                    new string('B', 64),
+                    _ => ValueTask.FromException<OperationReceipt>(
+                        new InvalidOperationException("Injected crash boundary.")),
+                    CancellationToken.None));
+        }
+
+        using DeviceIdentity identity = DeviceIdentity.Generate(TargetId, "Target");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(identity, trust, payloadStore);
+
+        await runtime.InitializeAsync();
+
+        Assert.Empty(runtime.GetActivities());
+        DesktopReplaceRecoveryResult recovery = runtime.GetReplaceRecoveryState();
+        Assert.True(recovery.IsAvailable);
+        Assert.Empty(recovery.UndoableCapsuleIds);
+        Assert.Contains(
+            recovery.Records,
+            record => record.OperationId == pendingOperationId
+                && record.IsRecoveryRequired);
+        Assert.Contains(
+            recovery.Records,
+            record => record.CapsuleId == capsule.Id
+                && record.UndoAvailability == ReplaceUndoAvailability.Available);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task PendingBoundaryRejectsDirectTargetLocalUndoBeforeJournaling()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = await CreateCommittedReplaceStateAsync(payloadStore);
+        OperationId pendingOperationId =
+            OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await state.ExecuteOnceAsync(
+                    pendingOperationId,
+                    new string('B', 64),
+                    _ => ValueTask.FromException<OperationReceipt>(
+                        new InvalidOperationException("Injected crash boundary.")),
+                    CancellationToken.None));
+        }
+
+        using DeviceIdentity identity = DeviceIdentity.Generate(TargetId, "Target");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(identity, trust, payloadStore);
+        await runtime.InitializeAsync();
+
+        UndoReplaceResult result = await runtime.UndoReplaceAsync(capsule.Id);
+
+        Assert.Equal(OperationStatus.Failed, result.Status);
+        Assert.Equal(FailureCode.UndoUnavailable, result.FailureCode);
+        DesktopReplaceRecoveryResult recovery = runtime.GetReplaceRecoveryState();
+        Assert.DoesNotContain(
+            recovery.Records,
+            record => record.Kind == ReplaceRecoveryOperationKind.Undo);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ExpiredCapsuleReconstructsCurrentNoteButOffersNoUndoAction()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = await CreateCommittedReplaceStateAsync(payloadStore);
+        using DeviceIdentity identity = DeviceIdentity.Generate(TargetId, "Target");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(
+            identity,
+            trust,
+            payloadStore,
+            Now.AddMinutes(11));
+
+        await runtime.InitializeAsync();
+
+        Assert.Equal(
+            capsule.ReplacementActivity.Descriptor.Id,
+            Assert.Single(runtime.GetActivities()).ActivityId);
+        DesktopReplaceRecoveryResult recovery = runtime.GetReplaceRecoveryState();
+        Assert.Empty(recovery.UndoableCapsuleIds);
+        ReplaceRecoveryRecord replace = Assert.Single(recovery.Records);
+        Assert.Equal(ReplaceUndoAvailability.Expired, replace.UndoAvailability);
+
+        UndoReplaceResult result = await runtime.UndoReplaceAsync(capsule.Id);
+
+        Assert.Equal(OperationStatus.Rejected, result.Status);
+        Assert.Equal(FailureCode.UndoCapsuleExpired, result.FailureCode);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task KnownStaleCapsulePreservesRevisionConflictReason()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        UndoCapsule capsule = await CreateCommittedReplaceStateAsync(payloadStore);
+        OperationContext staleContext = OperationContext.Create(
+            OperationId.Parse("12121212-1212-1212-1212-121212121212"),
+            CorrelationId.Parse("13131313-1313-1313-1313-131313131313"),
+            Now.AddSeconds(30));
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(payloadStore))
+        {
+            UndoJournalPreparation prepared = await state.PrepareUndoAsync(
+                capsule.Id,
+                staleContext.OperationId,
+                new string('C', 64));
+            Assert.Equal(UndoJournalPreparationStatus.Prepared, prepared.Status);
+            await state.CompleteUndoAsync(
+                staleContext.OperationId,
+                UndoReplaceResult.Rejected(
+                    staleContext,
+                    capsule.Id,
+                    FailureCode.RevisionConflict,
+                    Now));
+        }
+
+        using DeviceIdentity identity = DeviceIdentity.Generate(TargetId, "Target");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(identity, trust, payloadStore);
+        await runtime.InitializeAsync();
+        Assert.Empty(runtime.GetActivities());
+        Assert.Empty(runtime.GetReplaceRecoveryState().UndoableCapsuleIds);
+
+        UndoReplaceResult result = await runtime.UndoReplaceAsync(capsule.Id);
+
+        Assert.Equal(OperationStatus.Rejected, result.Status);
+        Assert.Equal(FailureCode.RevisionConflict, result.FailureCode);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task UnknownCapsuleRejectsBeforeJournaling()
+    {
+        var payloadStore = new MemoryReplaceStatePayloadStore();
+        await CreateCommittedReplaceStateAsync(payloadStore);
+        UndoCapsuleId unknown =
+            UndoCapsuleId.Parse("14141414-1414-1414-1414-141414141414");
+        using DeviceIdentity identity = DeviceIdentity.Generate(TargetId, "Target");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(identity, trust, payloadStore);
+        await runtime.InitializeAsync();
+
+        UndoReplaceResult result = await runtime.UndoReplaceAsync(unknown);
+
+        Assert.Equal(OperationStatus.Failed, result.Status);
+        Assert.Equal(FailureCode.UndoUnavailable, result.FailureCode);
+        Assert.DoesNotContain(
+            runtime.GetReplaceRecoveryState().Records,
+            record => record.Kind == ReplaceRecoveryOperationKind.Undo);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
     public async Task ReplaceRecoveryLoadFailureKeepsOtherActivityWorkAvailable()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
@@ -544,7 +774,8 @@ public sealed class DesktopActivityRuntimeTests
     private static DesktopActivityRuntime CreateRuntime(
         DeviceIdentity identity,
         TrustSessionCoordinator trust,
-        IReplaceStatePayloadStore? replaceStatePayloadStore = null) => new(
+        IReplaceStatePayloadStore? replaceStatePayloadStore = null,
+        DateTimeOffset? utcNow = null) => new(
         cancellationToken =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -555,8 +786,59 @@ public sealed class DesktopActivityRuntimeTests
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(trust);
         },
-        new FixedTimeProvider(Now),
+        new FixedTimeProvider(utcNow ?? Now),
         replaceStatePayloadStore);
+
+    private static async Task<UndoCapsule> CreateCommittedReplaceStateAsync(
+        IReplaceStatePayloadStore payloadStore)
+    {
+        ActivityInstance original = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                ActivityKind.Parse("workspace.note/v1"),
+                TargetId,
+                "Original note",
+                "{\"text\":\"original body\"}"),
+            ActivityPlacement.On(TargetId, "desktop"),
+            revision: 4);
+        ActivityInstance replacement = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                ActivityKind.Parse("workspace.note/v1"),
+                SourceId,
+                "Incoming note",
+                "{\"text\":\"incoming body\"}"),
+            ActivityPlacement.On(TargetId, "desktop"),
+            revision: 5);
+        UndoCapsule capsule = UndoCapsule.Create(
+            UndoCapsuleId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            OperationContext.Create(
+                OperationId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+                CorrelationId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                Now.AddSeconds(30)),
+            SourceId,
+            TargetId,
+            original,
+            replacement,
+            Now,
+            Now.AddMinutes(10));
+        using PersistentReplaceStateStore state =
+            await PersistentReplaceStateStore.OpenAsync(payloadStore);
+        Assert.True(await state.TryAddAsync(capsule));
+        await state.ExecuteOnceAsync(
+            capsule.OperationId,
+            new string('A', 64),
+            _ => ValueTask.FromResult(OperationReceipt.Committed(
+                capsule.OperationId,
+                capsule.CorrelationId,
+                OperationKind.Replace,
+                SourceId,
+                TargetId,
+                replacement.Descriptor,
+                Now)),
+            CancellationToken.None);
+        return capsule;
+    }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

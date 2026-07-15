@@ -20,6 +20,7 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
     private InMemoryActivityCatalog? catalog;
     private AuthenticatedActivitySessionHandler? handler;
     private FlowspanNode? node;
+    private ReplaceEndpoint? replaceEndpoint;
     private PersistentReplaceStateStore? replaceState;
     private TrustSessionCoordinator? trust;
     private int disposed;
@@ -133,8 +134,36 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
 
         try
         {
+            FlowspanNode? currentNode = node;
+            InMemoryActivityCatalog? currentCatalog = catalog;
+            if (currentNode is null || currentCatalog is null)
+            {
+                return DesktopReplaceRecoveryResult.Unavailable;
+            }
+
+            ReplaceRecoverySnapshot snapshot =
+                current.GetRecoverySnapshot(timeProvider.GetUtcNow());
+            HashSet<UndoCapsuleId> availableCapsules = snapshot.Records
+                .Where(static record =>
+                    record.Kind == ReplaceRecoveryOperationKind.Replace
+                    && record.UndoAvailability == ReplaceUndoAvailability.Available
+                    && record.CapsuleId is not null)
+                .Select(static record => record.CapsuleId!)
+                .ToHashSet();
+            ReplaceRestartRecoveryPlan plan = current.GetRestartRecoveryPlan(
+                currentNode.DeviceId);
+            ImmutableArray<UndoCapsuleId> undoable = plan.UndoCandidates
+                .Where(candidate => availableCapsules.Contains(candidate.CapsuleId))
+                .Where(candidate => currentCatalog.TryGet(
+                    candidate.ExactReplacement.Descriptor.Id,
+                    out ActivityInstance? exact)
+                    && exact == candidate.ExactReplacement)
+                .Select(static candidate => candidate.CapsuleId)
+                .OrderBy(static capsuleId => capsuleId.ToString(), StringComparer.Ordinal)
+                .ToImmutableArray();
             return DesktopReplaceRecoveryResult.Available(
-                current.GetRecoverySnapshot(timeProvider.GetUtcNow()));
+                snapshot,
+                undoable);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -169,6 +198,91 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             "desktop",
             preparation.Context,
             linked.Token).ConfigureAwait(false);
+    }
+
+    public async ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        UndoCapsuleId capsuleId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capsuleId);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        OperationContext context = OperationContext.Create(
+            OperationId.From(Guid.NewGuid()),
+            CorrelationId.From(Guid.NewGuid()),
+            timeProvider.GetUtcNow().Add(OperationLifetime));
+        ReplaceEndpoint? current = replaceEndpoint;
+        if (current is null || !CanAttemptTargetLocalUndo(capsuleId))
+        {
+            return UndoReplaceResult.Failed(
+                context,
+                capsuleId,
+                FailureCode.UndoUnavailable,
+                timeProvider.GetUtcNow());
+        }
+
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+        try
+        {
+            return await current.UndoReplaceAsync(
+                capsuleId,
+                context,
+                linked.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            PublishChanged();
+        }
+    }
+
+    private bool CanAttemptTargetLocalUndo(UndoCapsuleId capsuleId)
+    {
+        PersistentReplaceStateStore? currentState = replaceState;
+        InMemoryActivityCatalog? currentCatalog = catalog;
+        FlowspanNode? currentNode = node;
+        if (currentState is null || currentCatalog is null || currentNode is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            DesktopReplaceRecoveryResult recovery = GetReplaceRecoveryState();
+            if (!recovery.IsAvailable)
+            {
+                return false;
+            }
+
+            if (recovery.UndoableCapsuleIds.Contains(capsuleId))
+            {
+                return true;
+            }
+
+            ReplaceRestartRecoveryPlan plan = currentState.GetRestartRecoveryPlan(
+                currentNode.DeviceId);
+            if (plan.IsBlockedByUnresolvedOperation
+                || !currentState.TryGet(capsuleId, out UndoCapsule? capsule)
+                || capsule is null)
+            {
+                return false;
+            }
+
+            if (capsule.ExpiresAt <= timeProvider.GetUtcNow())
+            {
+                return true;
+            }
+
+            return !currentCatalog.TryGet(
+                    capsule.ReplacementActivity.Descriptor.Id,
+                    out ActivityInstance? exact)
+                || exact != capsule.ReplacementActivity;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return false;
+        }
     }
 
     public async ValueTask<OperationReceipt> MoveAsync(
@@ -312,8 +426,9 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             TrustSessionCoordinator coordinator = await getTrust(linked.Token)
                 .ConfigureAwait(false);
             var newCatalog = new InMemoryActivityCatalog();
+            var workspaceNoteAdapter = new WorkspaceNoteAdapter();
             var adapterRegistry = new ActivityAdapterRegistry(
-                [new WorkspaceNoteAdapter()]);
+                [workspaceNoteAdapter]);
             var newNode = new FlowspanNode(
                 identity.DeviceId,
                 identity.DisplayName,
@@ -335,6 +450,7 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                 inventoryEndpoint,
                 coordinator);
             PersistentReplaceStateStore? newReplaceState = null;
+            ReplaceEndpoint? newReplaceEndpoint = null;
             if (replaceStatePayloadStore is not null)
             {
                 try
@@ -342,6 +458,38 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                     newReplaceState = await PersistentReplaceStateStore.OpenAsync(
                         replaceStatePayloadStore,
                         linked.Token).ConfigureAwait(false);
+                    ReplaceRestartRecoveryPlan recoveryPlan =
+                        newReplaceState.GetRestartRecoveryPlan(identity.DeviceId);
+                    foreach (ActivityInstance activity in recoveryPlan.CurrentActivities)
+                    {
+                        if (activity.Descriptor.Kind != workspaceNoteAdapter.Kind)
+                        {
+                            throw new InvalidDataException(
+                                "The protected Replace state contains an unsupported restart Activity kind.");
+                        }
+
+                        ResumeActivityResult resumed = await workspaceNoteAdapter
+                            .ResumeAsync(
+                                activity.Descriptor,
+                                activity.Placement,
+                                linked.Token)
+                            .ConfigureAwait(false);
+                        if (!resumed.Succeeded || !newCatalog.TryAdd(activity))
+                        {
+                            throw new InvalidDataException(
+                                "The protected Replace state could not reconstruct an exact semantic Activity frontier.");
+                        }
+                    }
+
+                    newReplaceEndpoint = new ReplaceEndpoint(
+                        identity.DeviceId,
+                        new TimeProviderClock(timeProvider),
+                        newCatalog,
+                        newReplaceState,
+                        adapterRegistry,
+                        newReplaceState,
+                        new CryptographicUndoCapsuleIdSource(),
+                        NullReceiptSink.Instance);
                 }
                 catch (OperationCanceledException) when (linked.IsCancellationRequested)
                 {
@@ -349,6 +497,9 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                 }
                 catch (Exception exception) when (exception is not OutOfMemoryException)
                 {
+                    newReplaceEndpoint?.Dispose();
+                    newReplaceState?.Dispose();
+                    newReplaceEndpoint = null;
                     newReplaceState = null;
                 }
             }
@@ -364,6 +515,7 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             }
             catch
             {
+                newReplaceEndpoint?.Dispose();
                 newReplaceState?.Dispose();
                 throw;
             }
@@ -371,6 +523,7 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             catalog = newCatalog;
             trust = coordinator;
             handler = newHandler;
+            replaceEndpoint = newReplaceEndpoint;
             replaceState = newReplaceState;
             Volatile.Write(ref node, newNode);
         }
@@ -411,6 +564,9 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             }
 
             Volatile.Write(ref node, null);
+            ReplaceEndpoint? currentReplaceEndpoint = replaceEndpoint;
+            replaceEndpoint = null;
+            currentReplaceEndpoint?.Dispose();
             PersistentReplaceStateStore? currentReplaceState = replaceState;
             replaceState = null;
             currentReplaceState?.Dispose();

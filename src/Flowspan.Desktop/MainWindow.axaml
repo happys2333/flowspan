@@ -748,7 +748,7 @@
                                     Content="DESTRUCTIVE REPLACE NOT ACTIVATED"
                                     IsEnabled="{Binding Activities.IsDestructiveReplaceAvailable}"
                                     AutomationProperties.Name="Destructive Replace is not activated"
-                                    AutomationProperties.HelpText="Blocked until receipt and recovery presentation plus target-local visible undo are complete." />
+                                    AutomationProperties.HelpText="Blocked until send-time preview revalidation, authenticated destructive composition, and receipt/capsule projection are complete." />
                           </StackPanel>
                         </Border>
                       </StackPanel>
@@ -761,7 +761,7 @@
                       <StackPanel Spacing="8">
                         <TextBlock Classes="label"
                                    Foreground="{StaticResource SafetyAmberBrush}"
-                                   Text="REPLACE RECOVERY / READ ONLY" />
+                                   Text="REPLACE RECOVERY / TARGET-LOCAL UNDO" />
                         <TextBlock x:Name="ReplaceRecoveryStatusText"
                                    Classes="label"
                                    Text="{Binding Activities.ReplaceRecoveryStatus}"
@@ -787,6 +787,7 @@
                         </Grid>
                         <ListBox x:Name="ReplaceRecoveryList"
                                  ItemsSource="{Binding Activities.ReplaceRecoveryItems}"
+                                 SelectedItem="{Binding Activities.SelectedReplaceRecoveryItem, Mode=TwoWay}"
                                  MaxHeight="260"
                                  AutomationProperties.Name="Target-local Replace and undo recovery records">
                           <ListBox.ItemTemplate>
@@ -844,6 +845,56 @@
                             </DataTemplate>
                           </ListBox.ItemTemplate>
                         </ListBox>
+                        <Border BorderBrush="{StaticResource SignalRedBrush}"
+                                BorderThickness="1"
+                                Padding="12"
+                                AutomationProperties.Name="Selected target-local undo action">
+                          <StackPanel Spacing="8">
+                            <TextBlock x:Name="TargetLocalUndoStatusText"
+                                       Classes="label"
+                                       Foreground="{StaticResource SignalRedBrush}"
+                                       Text="{Binding Activities.TargetLocalUndoStatus}"
+                                       TextWrapping="Wrap"
+                                       AutomationProperties.Name="Target-local undo status" />
+                            <TextBlock Text="{Binding Activities.TargetLocalUndoDescription}"
+                                       TextWrapping="Wrap"
+                                       AutomationProperties.Name="Target-local undo outcome guidance" />
+                            <TextBlock Classes="secondary"
+                                       FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                       FontSize="10"
+                                       Text="{Binding Activities.TargetLocalUndoConfirmationDescription}"
+                                       TextWrapping="Wrap"
+                                       AutomationProperties.Name="Exact target-local undo binding" />
+                            <CheckBox x:Name="TargetLocalUndoConfirmationCheckBox"
+                                      IsChecked="{Binding Activities.HasAcknowledgedTargetLocalUndo, Mode=TwoWay}"
+                                      IsEnabled="{Binding Activities.IsTargetLocalUndoConfirmationAvailable}"
+                                      AutomationProperties.Name="{Binding Activities.TargetLocalUndoConfirmationAutomationName}"
+                                      AutomationProperties.HelpText="Confirmation applies only to the selected capsule, both displayed opaque Activity IDs, exact current replacement, and displayed expiry.">
+                              <TextBlock Text="I reviewed this exact capsule and want to restore its preserved target-local semantic Activity."
+                                         TextWrapping="Wrap" />
+                            </CheckBox>
+                            <Button x:Name="TargetLocalUndoButton"
+                                    Content="UNDO SELECTED REPLACE"
+                                    Command="{Binding Activities.TargetLocalUndoCommand}"
+                                    IsEnabled="{Binding Activities.IsTargetLocalUndoAvailable}"
+                                    AutomationProperties.Name="Activate the confirmed target-local undo"
+                                    AutomationProperties.HelpText="Writes a protected pending record before one exact local Adapter restore. No remote request or sharing session is started." />
+                            <Grid ColumnDefinitions="*,*">
+                              <TextBlock Grid.Column="0"
+                                         Classes="secondary"
+                                         Text="{Binding Activities.TargetLocalUndoReason, StringFormat='Reason: {0}'}"
+                                         TextWrapping="Wrap"
+                                         AutomationProperties.Name="Target-local undo reason" />
+                              <TextBlock Grid.Column="1"
+                                         Classes="secondary"
+                                         FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                         FontSize="10"
+                                         Text="{Binding Activities.TargetLocalUndoOccurredAt, StringFormat='Outcome: {0}'}"
+                                         TextWrapping="Wrap"
+                                         AutomationProperties.Name="Target-local undo outcome time" />
+                            </Grid>
+                          </StackPanel>
+                        </Border>
                       </StackPanel>
                     </Border>
 

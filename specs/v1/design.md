@@ -213,11 +213,53 @@ After identity and Trust make the Activity workspace available, Desktop startup
 opens the protected Replace store as an independent failure domain. A key,
 authentication, schema, bounds, or I/O failure becomes a named Replace-recovery
 fault with platform-neutral guidance; normal note, Handoff, and Move work
-remains available, while destructive Replace stays locked. The current 7.3c.5
-slice is read-only: it exposes no recovery retry, undo command, `ReplaceAsync`,
-or production `IReplacePeer`. A later target-local undo surface will use only a
-terminal committed Replace item whose capsule is unconsumed and not expired;
-pending/expired/consumed states never become actions.
+remains available, while destructive Replace stays locked. The delivered 7.3c.5
+projection remains an immutable read model and exposes no recovery retry. The
+7.3c.6 composition adds only target-local undo for a terminal committed Replace
+item whose capsule is unconsumed and not expired; pending/expired/consumed states
+never become actions. It still exposes no source-side `ReplaceAsync` or
+production `IReplacePeer`.
+
+The 7.3c.6 target-local undo composition must also prove that the capsule's
+exact replacement is current after a Desktop restart. For the bounded
+`workspace.note/v1` tracer only, the protected store is reduced to a terminal
+state-transition graph: committed Replace records consume their captured
+original instance and produce their exact replacement; committed undo records
+consume that replacement and produce the restored descriptor at the next
+revision. Only unambiguous graph frontiers for the local target may repopulate
+the otherwise in-memory catalog. Any pending or `Recovering` Replace/undo
+boundary suppresses restart reconstruction and every action because its side of
+the destructive boundary is unknown. Conflicting transitions, participant or
+receipt mismatches, orphaned capsules or committed receipts/undos, unsupported
+kinds, and a catalog value other than the exact frontier fail closed rather than
+being guessed.
+
+An undo action is offered only when the selected recovery record names a
+terminal committed Replace, its capsule has no prior undo attempt, remains
+unexpired and unconsumed, and the catalog contains that exact replacement
+instance. Selection or snapshot change clears the confirmation latch. The
+confirmation names the capsule, both opaque Activity IDs, and exact expiry; the
+operation publishes pending state before awaiting the application port, then
+refreshes the same protected snapshot for every committed, rejected, failed, or
+recovering outcome. A completed attempt is not silently converted into a new
+operation. Desktop owns one private local `ReplaceEndpoint` so undo and the
+future destructive target share the same serialization and durable journal, but
+the authenticated session handler continues to receive `replacePeer: null` and
+the source-side destructive command remains absent until 7.3c.7.
+
+The Desktop service repeats the live eligibility check for callers that bypass
+the ViewModel. An unknown capsule, unavailable recovery state, any global
+pending/`Recovering` boundary, or an otherwise non-actionable exact-current
+capsule is rejected before a new undo journal entry. Known expired, consumed, or
+catalog-stale capsules still enter the core endpoint so it can return the exact
+`UndoCapsuleExpired`, `UndoCapsuleConsumed`, or `RevisionConflict` reason without
+performing Adapter restore work.
+
+This restart reduction is not a general Activity database and does not repeat
+Adapter restore work. It can reconstruct the descriptor-complete semantic note
+needed to check exact-current ownership during the capsule window; it does not
+claim recovery of application process memory, unsaved external state, or an
+unsupported Adapter.
 
 Transfer, Replace inventory, and destructive Replace share one atomic pending
 correlation reservation per authenticated session. A correlation ID cannot

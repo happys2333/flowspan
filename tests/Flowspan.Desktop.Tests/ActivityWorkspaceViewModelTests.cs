@@ -704,7 +704,7 @@ public sealed class ActivityWorkspaceViewModelTests
         await viewModel.InitializeAsync();
 
         Assert.Equal(
-            "TARGET-LOCAL REPLACE HISTORY — READ ONLY",
+            "TARGET-LOCAL REPLACE HISTORY — NO UNDO ACTION",
             viewModel.ReplaceRecoveryStatus);
         Assert.Equal(
             "1 TARGET-LOCAL REPLACE / UNDO RECORDS",
@@ -717,8 +717,8 @@ public sealed class ActivityWorkspaceViewModelTests
         Assert.Contains(LocalId.ToString(), item.Participants, StringComparison.Ordinal);
         Assert.Contains(TargetId.ToString(), item.Participants, StringComparison.Ordinal);
         Assert.Contains("2026-07-15T12:10:00.0000000+00:00", item.Undo);
-        Assert.Contains("AVAILABLE AT SNAPSHOT", item.Undo, StringComparison.Ordinal);
-        Assert.Contains("READ ONLY IN THIS BUILD", item.Undo, StringComparison.Ordinal);
+        Assert.Contains("UNCONSUMED AT SNAPSHOT", item.Undo, StringComparison.Ordinal);
+        Assert.Contains("EXACT CURRENT REPLACEMENT NOT PROVEN", item.Undo, StringComparison.Ordinal);
         string visible = string.Join(
             '\n',
             item.Kind,
@@ -735,6 +735,290 @@ public sealed class ActivityWorkspaceViewModelTests
         Assert.DoesNotContain("Incoming secret title", visible, StringComparison.Ordinal);
         Assert.DoesNotContain("secret body", visible, StringComparison.Ordinal);
         Assert.False(viewModel.IsDestructiveReplaceAvailable);
+    }
+
+    [Fact]
+    public async Task AvailableTargetLocalUndoRequiresSelectionAndExactConfirmation()
+    {
+        var service = new FakeActivityService
+        {
+            ReplaceRecoveryResult = await CreateReplaceRecoveryResultAsync(
+                undoable: true),
+        };
+        await using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance);
+        await viewModel.InitializeAsync();
+
+        DesktopReplaceRecoveryItem item = Assert.Single(
+            viewModel.ReplaceRecoveryItems);
+        Assert.True(item.CanUndo);
+        Assert.False(viewModel.IsTargetLocalUndoAvailable);
+        Assert.False(viewModel.HasAcknowledgedTargetLocalUndo);
+
+        viewModel.SelectedReplaceRecoveryItem = item;
+
+        Assert.True(viewModel.IsTargetLocalUndoConfirmationAvailable);
+        Assert.Contains(item.Capsule, viewModel.TargetLocalUndoConfirmationDescription);
+        Assert.Contains(item.Activities, viewModel.TargetLocalUndoConfirmationDescription);
+        Assert.Contains(
+            "2026-07-15T12:10:00.0000000+00:00",
+            viewModel.TargetLocalUndoConfirmationDescription);
+        Assert.DoesNotContain(
+            "Original secret title",
+            viewModel.TargetLocalUndoConfirmationDescription,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Incoming secret title",
+            viewModel.TargetLocalUndoConfirmationDescription,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "secret body",
+            viewModel.TargetLocalUndoConfirmationDescription,
+            StringComparison.Ordinal);
+        Assert.False(viewModel.IsTargetLocalUndoAvailable);
+
+        viewModel.HasAcknowledgedTargetLocalUndo = true;
+
+        Assert.True(viewModel.IsTargetLocalUndoAvailable);
+        Assert.Equal(
+            "TARGET-LOCAL UNDO CONFIRMED — READY",
+            viewModel.TargetLocalUndoStatus);
+    }
+
+    [Fact]
+    public async Task RecoveryRefreshRevokesTargetLocalUndoSelectionAndConfirmation()
+    {
+        var service = new FakeActivityService
+        {
+            ReplaceRecoveryResult =
+                await CreateReplaceRecoveryResultAsync(undoable: true),
+        };
+        await using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedReplaceRecoveryItem = Assert.Single(
+            viewModel.ReplaceRecoveryItems);
+        viewModel.HasAcknowledgedTargetLocalUndo = true;
+        Assert.True(viewModel.IsTargetLocalUndoAvailable);
+
+        service.SignalChanged();
+
+        Assert.Null(viewModel.SelectedReplaceRecoveryItem);
+        Assert.False(viewModel.HasAcknowledgedTargetLocalUndo);
+        Assert.False(viewModel.IsTargetLocalUndoAvailable);
+        Assert.Equal(
+            "TARGET-LOCAL UNDO — SELECT AN AVAILABLE CAPSULE",
+            viewModel.TargetLocalUndoStatus);
+    }
+
+    [Fact]
+    public async Task ConfirmedTargetLocalUndoPresentsCommittedOutcomeAndRefreshesState()
+    {
+        DesktopReplaceRecoveryResult initial =
+            await CreateReplaceRecoveryResultAsync(undoable: true);
+        DesktopReplaceRecoveryResult completed =
+            await CreateReplaceRecoveryResultAsync(consumed: true);
+        var service = new FakeActivityService
+        {
+            ReplaceRecoveryResult = initial,
+            ReplaceRecoveryResultAfterUndo = completed,
+            UndoResult = UndoReplaceResult.Committed(
+                OperationContext.Create(
+                    OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                    CorrelationId.Parse("99999999-9999-9999-9999-999999999999"),
+                    new DateTimeOffset(2026, 7, 15, 12, 1, 30, TimeSpan.Zero)),
+                UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                new DateTimeOffset(2026, 7, 15, 12, 1, 1, TimeSpan.Zero)),
+        };
+        await using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedReplaceRecoveryItem = Assert.Single(
+            viewModel.ReplaceRecoveryItems);
+        viewModel.HasAcknowledgedTargetLocalUndo = true;
+
+        await viewModel.UndoReplaceAsync();
+
+        Assert.Equal(
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            service.RequestedUndoCapsuleId);
+        Assert.Equal("TARGET-LOCAL UNDO COMMITTED", viewModel.TargetLocalUndoStatus);
+        Assert.Equal("none", viewModel.TargetLocalUndoReason);
+        Assert.Equal(
+            "2026-07-15T12:01:01.0000000+00:00",
+            viewModel.TargetLocalUndoOccurredAt);
+        Assert.Contains("consumed", viewModel.TargetLocalUndoDescription);
+        Assert.False(viewModel.HasAcknowledgedTargetLocalUndo);
+        Assert.False(viewModel.IsTargetLocalUndoAvailable);
+        Assert.DoesNotContain(
+            viewModel.ReplaceRecoveryItems,
+            static item => item.CanUndo);
+    }
+
+    [Fact]
+    public async Task PendingTargetLocalUndoDisablesDuplicateUntilRecordedOutcome()
+    {
+        UndoCapsuleId capsuleId =
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+        var pending = new TaskCompletionSource<UndoReplaceResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new FakeActivityService
+        {
+            ReplaceRecoveryResult =
+                await CreateReplaceRecoveryResultAsync(undoable: true),
+            ReplaceRecoveryResultAfterUndo =
+                await CreateReplaceRecoveryResultAsync(consumed: true),
+            PendingUndo = pending,
+        };
+        await using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedReplaceRecoveryItem = Assert.Single(
+            viewModel.ReplaceRecoveryItems);
+        viewModel.HasAcknowledgedTargetLocalUndo = true;
+
+        Task operation = viewModel.UndoReplaceAsync();
+        await service.UndoStarted.Task;
+
+        Assert.True(viewModel.IsBusy);
+        Assert.Equal(
+            "TARGET-LOCAL UNDO PENDING — DO NOT RETRY",
+            viewModel.TargetLocalUndoStatus);
+        Assert.False(viewModel.IsTargetLocalUndoAvailable);
+        Assert.False(viewModel.TargetLocalUndoCommand.CanExecute(null));
+
+        pending.TrySetResult(UndoReplaceResult.Committed(
+            OperationContext.Create(
+                OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                CorrelationId.Parse("99999999-9999-9999-9999-999999999999"),
+                new DateTimeOffset(2026, 7, 15, 12, 1, 30, TimeSpan.Zero)),
+            capsuleId,
+            new DateTimeOffset(2026, 7, 15, 12, 1, 1, TimeSpan.Zero)));
+        await operation;
+
+        Assert.False(viewModel.IsBusy);
+        Assert.Equal("TARGET-LOCAL UNDO COMMITTED", viewModel.TargetLocalUndoStatus);
+        Assert.False(viewModel.TargetLocalUndoCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task TargetLocalUndoExceptionIsMappedWithoutLeakingDetails()
+    {
+        const string canary = "UNDO_ADAPTER_EXCEPTION_SECRET_CANARY";
+        var service = new FakeActivityService
+        {
+            ReplaceRecoveryResult =
+                await CreateReplaceRecoveryResultAsync(undoable: true),
+            UndoException = new IOException(canary),
+        };
+        await using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedReplaceRecoveryItem = Assert.Single(
+            viewModel.ReplaceRecoveryItems);
+        viewModel.HasAcknowledgedTargetLocalUndo = true;
+
+        await viewModel.UndoReplaceAsync();
+
+        Assert.Equal(
+            "TARGET-LOCAL UNDO OUTCOME UNAVAILABLE — INSPECT RECOVERY",
+            viewModel.TargetLocalUndoStatus);
+        Assert.DoesNotContain(
+            canary,
+            viewModel.TargetLocalUndoStatus,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            canary,
+            viewModel.TargetLocalUndoDescription,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            canary,
+            viewModel.TargetLocalUndoReason,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        OperationStatus.Rejected,
+        FailureCode.UndoCapsuleExpired,
+        "TARGET-LOCAL UNDO REJECTED",
+        "expired",
+        "undo-capsule-expired")]
+    [InlineData(
+        OperationStatus.Rejected,
+        FailureCode.UndoCapsuleConsumed,
+        "TARGET-LOCAL UNDO REJECTED",
+        "already consumed",
+        "undo-capsule-consumed")]
+    [InlineData(
+        OperationStatus.Rejected,
+        FailureCode.RevisionConflict,
+        "TARGET-LOCAL UNDO REJECTED",
+        "no longer the exact current",
+        "revision-conflict")]
+    [InlineData(
+        OperationStatus.Failed,
+        FailureCode.UndoUnavailable,
+        "TARGET-LOCAL UNDO FAILED",
+        "did not complete",
+        "undo-unavailable")]
+    [InlineData(
+        OperationStatus.Recovering,
+        FailureCode.InternalFailure,
+        "TARGET-LOCAL UNDO OUTCOME UNCERTAIN — DUPLICATE DISABLED",
+        "pending record blocks duplicate",
+        "internal-failure")]
+    public async Task TargetLocalUndoPresentsEveryRecordedTerminalOutcome(
+        OperationStatus status,
+        FailureCode failureCode,
+        string expectedStatus,
+        string expectedDescription,
+        string expectedReason)
+    {
+        UndoCapsuleId capsuleId =
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+        OperationContext context = OperationContext.Create(
+            OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            CorrelationId.Parse("99999999-9999-9999-9999-999999999999"),
+            new DateTimeOffset(2026, 7, 15, 12, 1, 30, TimeSpan.Zero));
+        UndoReplaceResult result = UndoReplaceResult.FromRecordedResult(
+            context.OperationId,
+            context.CorrelationId,
+            capsuleId,
+            status,
+            failureCode,
+            new DateTimeOffset(2026, 7, 15, 12, 1, 1, TimeSpan.Zero));
+        var service = new FakeActivityService
+        {
+            ReplaceRecoveryResult =
+                await CreateReplaceRecoveryResultAsync(undoable: true),
+            ReplaceRecoveryResultAfterUndo =
+                await CreateReplaceRecoveryResultAsync(
+                    undoStatus: status,
+                    undoFailureCode: failureCode),
+            UndoResult = result,
+        };
+        await using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedReplaceRecoveryItem = Assert.Single(
+            viewModel.ReplaceRecoveryItems);
+        viewModel.HasAcknowledgedTargetLocalUndo = true;
+
+        await viewModel.UndoReplaceAsync();
+
+        Assert.Equal(expectedStatus, viewModel.TargetLocalUndoStatus);
+        Assert.Contains(expectedDescription, viewModel.TargetLocalUndoDescription);
+        Assert.Equal(expectedReason, viewModel.TargetLocalUndoReason);
+        Assert.DoesNotContain(
+            viewModel.ReplaceRecoveryItems,
+            static item => item.CanUndo);
     }
 
     [Fact]
@@ -808,7 +1092,11 @@ public sealed class ActivityWorkspaceViewModelTests
             });
 
     private static async Task<DesktopReplaceRecoveryResult>
-        CreateReplaceRecoveryResultAsync()
+        CreateReplaceRecoveryResultAsync(
+            bool undoable = false,
+            bool consumed = false,
+            OperationStatus? undoStatus = null,
+            FailureCode undoFailureCode = FailureCode.None)
     {
         var payloadStore = new MemoryReplaceStatePayloadStore();
         using PersistentReplaceStateStore state =
@@ -860,9 +1148,44 @@ public sealed class ActivityWorkspaceViewModelTests
                 incoming.Descriptor,
                 new DateTimeOffset(2026, 7, 15, 12, 0, 1, TimeSpan.Zero))),
             CancellationToken.None);
-        return DesktopReplaceRecoveryResult.Available(
-            state.GetRecoverySnapshot(
-                new DateTimeOffset(2026, 7, 15, 12, 1, 0, TimeSpan.Zero)));
+        OperationStatus? recordedUndoStatus = consumed
+            ? OperationStatus.Committed
+            : undoStatus;
+        if (recordedUndoStatus is not null)
+        {
+            OperationId undoOperationId =
+                OperationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+            Assert.Equal(
+                UndoJournalPreparationStatus.Prepared,
+                (await state.PrepareUndoAsync(
+                    capsule.Id,
+                    undoOperationId,
+                    new string('B', 64))).Status);
+            await state.CompleteUndoAsync(
+                undoOperationId,
+                UndoReplaceResult.FromRecordedResult(
+                    undoOperationId,
+                    CorrelationId.Parse(
+                        "99999999-9999-9999-9999-999999999999"),
+                    capsule.Id,
+                    recordedUndoStatus.Value,
+                    recordedUndoStatus == OperationStatus.Committed
+                        ? FailureCode.None
+                        : undoFailureCode,
+                    new DateTimeOffset(
+                        2026,
+                        7,
+                        15,
+                        12,
+                        1,
+                        1,
+                        TimeSpan.Zero)));
+        }
+        ReplaceRecoverySnapshot snapshot = state.GetRecoverySnapshot(
+            new DateTimeOffset(2026, 7, 15, 12, 1, 0, TimeSpan.Zero));
+        return undoable
+            ? DesktopReplaceRecoveryResult.Available(snapshot, [capsule.Id])
+            : DesktopReplaceRecoveryResult.Available(snapshot);
     }
 
     private sealed class FakeActivityService : IDesktopActivityService
@@ -886,6 +1209,20 @@ public sealed class ActivityWorkspaceViewModelTests
 
         public DesktopReplaceRecoveryResult ReplaceRecoveryResult { get; set; } =
             DesktopReplaceRecoveryResult.Unavailable;
+
+        public DesktopReplaceRecoveryResult? ReplaceRecoveryResultAfterUndo
+        { get; set; }
+
+        public UndoReplaceResult? UndoResult { get; set; }
+
+        public Exception? UndoException { get; set; }
+
+        public TaskCompletionSource<UndoReplaceResult>? PendingUndo { get; set; }
+
+        public TaskCompletionSource UndoStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public UndoCapsuleId? RequestedUndoCapsuleId { get; private set; }
 
         public Exception? ReplaceInventoryException { get; set; }
 
@@ -976,6 +1313,31 @@ public sealed class ActivityWorkspaceViewModelTests
             }
 
             return ValueTask.FromResult(ReplaceInventoryResult);
+        }
+
+        public async ValueTask<UndoReplaceResult> UndoReplaceAsync(
+            UndoCapsuleId capsuleId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RequestedUndoCapsuleId = capsuleId;
+            UndoStarted.TrySetResult();
+            if (UndoException is not null)
+            {
+                throw UndoException;
+            }
+
+            UndoReplaceResult result = PendingUndo is not null
+                ? await PendingUndo.Task.WaitAsync(cancellationToken)
+                : UndoResult
+                    ?? throw new InvalidOperationException(
+                        "No fake undo result was configured.");
+            if (ReplaceRecoveryResultAfterUndo is not null)
+            {
+                ReplaceRecoveryResult = ReplaceRecoveryResultAfterUndo;
+            }
+
+            return result;
         }
 
         private ValueTask<OperationReceipt> ExecuteAsync(

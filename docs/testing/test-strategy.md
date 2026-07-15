@@ -196,6 +196,25 @@ recovery, and visible local undo exist. Hosted runners and same-host evidence do
 not prove physical networking, native restoration, crash/power-loss behavior,
 or a shipped UI.
 
+The target-local visible-undo slice reduces terminal protected Replace history
+to unambiguous `workspace.note/v1` catalog frontiers on restart. Tests prove that
+pending/recovering or structurally conflicting history produces no reconstructed
+catalog and no action; only an exact unexpired, unconsumed frontier with no prior
+undo attempt can be confirmed. View-model and Headless tests cover selection,
+confirmation revocation, pending and terminal outcome text, keyboard operation,
+accessible names, and persistent `NOT SHARING`. Restart replay must return the
+recorded undo result with zero additional Adapter restore calls. This is semantic
+note recovery from the protected descriptor, not native application or power-loss
+evidence.
+
+The restart reducer also rejects one-sided committed receipts/undos, orphaned or
+mismatched capsules, and conflicting terminal transitions. A Desktop-service
+preflight proves that direct callers cannot journal through a global unresolved
+boundary or an unknown capsule while preserving the core endpoint's precise
+expired, consumed, and revision-conflict outcomes. Recovery and confirmation
+canaries prove that descriptor titles/payloads/digests and exception text do not
+enter the new visible undo strings.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source

@@ -134,3 +134,12 @@ public interface IReplaceRecoverySnapshotSource
 {
     public ReplaceRecoverySnapshot GetRecoverySnapshot(DateTimeOffset utcNow);
 }
+
+public sealed record ReplaceRestartUndoCandidate(
+    UndoCapsuleId CapsuleId,
+    ActivityInstance ExactReplacement);
+
+public sealed record ReplaceRestartRecoveryPlan(
+    bool IsBlockedByUnresolvedOperation,
+    ImmutableArray<ActivityInstance> CurrentActivities,
+    ImmutableArray<ReplaceRestartUndoCandidate> UndoCandidates);

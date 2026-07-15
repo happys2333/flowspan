@@ -58,21 +58,28 @@ public sealed record DesktopReplaceRecoveryResult(
     bool IsAvailable,
     DateTimeOffset? CapturedAt,
     bool IsTruncated,
-    ImmutableArray<ReplaceRecoveryRecord> Records)
+    ImmutableArray<ReplaceRecoveryRecord> Records,
+    ImmutableArray<UndoCapsuleId> UndoableCapsuleIds)
 {
     public static DesktopReplaceRecoveryResult Available(
         ReplaceRecoverySnapshot snapshot)
+        => Available(snapshot, []);
+
+    public static DesktopReplaceRecoveryResult Available(
+        ReplaceRecoverySnapshot snapshot,
+        ImmutableArray<UndoCapsuleId> undoableCapsuleIds)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         return new DesktopReplaceRecoveryResult(
             true,
             snapshot.CapturedAt,
             snapshot.IsTruncated,
-            snapshot.Records);
+            snapshot.Records,
+            undoableCapsuleIds);
     }
 
     public static DesktopReplaceRecoveryResult Unavailable { get; } =
-        new(false, null, false, []);
+        new(false, null, false, [], []);
 }
 
 public sealed record DesktopReplaceRecoveryItem(
@@ -86,7 +93,12 @@ public sealed record DesktopReplaceRecoveryItem(
     string Capsule,
     string Timestamp,
     string Undo,
-    bool IsRecoveryRequired);
+    bool IsRecoveryRequired,
+    UndoCapsuleId? UndoCapsuleId,
+    ActivityId? TargetActivityId,
+    ActivityId? IncomingActivityId,
+    DateTimeOffset? UndoExpiresAt,
+    bool CanUndo);
 
 public interface IDesktopActivityService : IAsyncDisposable
 {
@@ -131,6 +143,13 @@ public interface IDesktopActivityService : IAsyncDisposable
         ValueTask.FromException<DesktopReplaceTargetInventoryResult>(
             new PlatformNotSupportedException(
                 "Replace target inventory is not configured by this Activity service."));
+
+    public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        UndoCapsuleId capsuleId,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromException<UndoReplaceResult>(
+            new PlatformNotSupportedException(
+                "Target-local Replace undo is not configured by this Activity service."));
 }
 
 public sealed class ActivityWorkspaceViewModel :
@@ -142,6 +161,7 @@ public sealed class ActivityWorkspaceViewModel :
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly AsyncRelayCommand moveCommand;
     private readonly AsyncRelayCommand refreshReplaceTargetsCommand;
+    private readonly AsyncRelayCommand targetLocalUndoCommand;
     private readonly IDesktopActivityService service;
     private readonly IDesktopUiDispatcher dispatcher;
     private readonly RelayCommand createWorkspaceNoteCommand;
@@ -166,6 +186,14 @@ public sealed class ActivityWorkspaceViewModel :
     private string replaceRecoveryDescription =
         "Protected target-local Replace state has not been loaded.";
     private string replaceRecoveryStatus = "REPLACE RECOVERY STATE NOT LOADED";
+    private bool hasAcknowledgedTargetLocalUndo;
+    private DesktopReplaceRecoveryItem? selectedReplaceRecoveryItem;
+    private string targetLocalUndoDescription =
+        "Select an available committed Replace record and review its exact capsule binding.";
+    private string targetLocalUndoOccurredAt = string.Empty;
+    private string targetLocalUndoReason = string.Empty;
+    private string targetLocalUndoStatus =
+        "TARGET-LOCAL UNDO — SELECT AN AVAILABLE CAPSULE";
     private string undoDescription = string.Empty;
     private DesktopActivitySnapshot? selectedActivity;
     private DesktopReplaceTargetSnapshot? selectedReplaceTarget;
@@ -193,6 +221,9 @@ public sealed class ActivityWorkspaceViewModel :
         refreshReplaceTargetsCommand = new AsyncRelayCommand(
             RefreshReplaceTargetsAsync,
             CanRefreshReplaceTargets);
+        targetLocalUndoCommand = new AsyncRelayCommand(
+            UndoReplaceAsync,
+            CanUndoReplace);
         service.Changed += OnServiceChanged;
         Refresh();
         RefreshReplaceRecovery();
@@ -215,6 +246,8 @@ public sealed class ActivityWorkspaceViewModel :
     public ICommand MoveCommand => moveCommand;
 
     public ICommand RefreshReplaceTargetsCommand => refreshReplaceTargetsCommand;
+
+    public ICommand TargetLocalUndoCommand => targetLocalUndoCommand;
 
     public string CreationStatus
     {
@@ -269,11 +302,14 @@ public sealed class ActivityWorkspaceViewModel :
                 OnPropertyChanged(nameof(IsReplaceConfirmationAvailable));
                 OnPropertyChanged(nameof(IsReplaceInventoryAvailable));
                 OnPropertyChanged(nameof(IsDestructiveReplaceAvailable));
+                OnPropertyChanged(nameof(IsTargetLocalUndoConfirmationAvailable));
+                OnPropertyChanged(nameof(IsTargetLocalUndoAvailable));
                 OnPropertyChanged(nameof(IsNoteCreationAvailable));
                 createWorkspaceNoteCommand.NotifyCanExecuteChanged();
                 handoffCommand.NotifyCanExecuteChanged();
                 moveCommand.NotifyCanExecuteChanged();
                 refreshReplaceTargetsCommand.NotifyCanExecuteChanged();
+                targetLocalUndoCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -308,6 +344,82 @@ public sealed class ActivityWorkspaceViewModel :
         service.IsDestructiveReplaceAvailable
         && HasAcknowledgedReplace
         && IsReplaceConfirmationAvailable;
+
+    public bool IsTargetLocalUndoConfirmationAvailable =>
+        SelectedReplaceRecoveryItem is { CanUndo: true }
+        && ReplaceRecoveryItems.Contains(SelectedReplaceRecoveryItem)
+        && !IsBusy;
+
+    public bool IsTargetLocalUndoAvailable =>
+        HasAcknowledgedTargetLocalUndo
+        && IsTargetLocalUndoConfirmationAvailable;
+
+    public bool HasAcknowledgedTargetLocalUndo
+    {
+        get => hasAcknowledgedTargetLocalUndo;
+        set
+        {
+            bool accepted = value && IsTargetLocalUndoConfirmationAvailable;
+            if (SetProperty(ref hasAcknowledgedTargetLocalUndo, accepted))
+            {
+                if (!IsBusy)
+                {
+                    ApplyTargetLocalUndoSelectionState();
+                }
+
+                OnPropertyChanged(nameof(IsTargetLocalUndoAvailable));
+                OnPropertyChanged(nameof(TargetLocalUndoStatus));
+                targetLocalUndoCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public DesktopReplaceRecoveryItem? SelectedReplaceRecoveryItem
+    {
+        get => selectedReplaceRecoveryItem;
+        set
+        {
+            if (SetProperty(ref selectedReplaceRecoveryItem, value))
+            {
+                HasAcknowledgedTargetLocalUndo = false;
+                OnTargetLocalUndoSelectionChanged();
+            }
+        }
+    }
+
+    public string TargetLocalUndoConfirmationDescription =>
+        SelectedReplaceRecoveryItem is { } item
+            ? $"Undo capsule {item.Capsule}. {item.Activities}. Exact expiry: {item.UndoExpiresAt:O}. Restore is allowed only while the incoming Activity is still the exact current replacement."
+            : "Select one exact available target-local Replace record before confirming undo.";
+
+    public string TargetLocalUndoConfirmationAutomationName =>
+        SelectedReplaceRecoveryItem is { } item
+            ? $"Confirm target-local undo for capsule {item.Capsule}"
+            : "Confirm the selected target-local undo capsule";
+
+    public string TargetLocalUndoDescription
+    {
+        get => targetLocalUndoDescription;
+        private set => SetProperty(ref targetLocalUndoDescription, value);
+    }
+
+    public string TargetLocalUndoOccurredAt
+    {
+        get => targetLocalUndoOccurredAt;
+        private set => SetProperty(ref targetLocalUndoOccurredAt, value);
+    }
+
+    public string TargetLocalUndoReason
+    {
+        get => targetLocalUndoReason;
+        private set => SetProperty(ref targetLocalUndoReason, value);
+    }
+
+    public string TargetLocalUndoStatus
+    {
+        get => targetLocalUndoStatus;
+        private set => SetProperty(ref targetLocalUndoStatus, value);
+    }
 
     public bool IsReceiptVisible => ReceiptStatus.Length > 0;
 
@@ -678,6 +790,48 @@ public sealed class ActivityWorkspaceViewModel :
         }
     }
 
+    public async Task UndoReplaceAsync()
+    {
+        if (!CanUndoReplace())
+        {
+            return;
+        }
+
+        UndoCapsuleId capsuleId = SelectedReplaceRecoveryItem!.UndoCapsuleId!;
+        IsBusy = true;
+        TargetLocalUndoStatus = "TARGET-LOCAL UNDO PENDING — DO NOT RETRY";
+        TargetLocalUndoDescription =
+            $"The protected journal reserved capsule {capsuleId}. Waiting for one exact local restore outcome; duplicate action is disabled.";
+        TargetLocalUndoReason = "operation-in-progress";
+        TargetLocalUndoOccurredAt = string.Empty;
+        try
+        {
+            UndoReplaceResult result = await service.UndoReplaceAsync(
+                capsuleId,
+                lifetimeCancellation.Token).ConfigureAwait(true);
+            RefreshReplaceRecovery();
+            ApplyTargetLocalUndoResult(result);
+        }
+        catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            RefreshReplaceRecovery();
+            TargetLocalUndoStatus =
+                "TARGET-LOCAL UNDO OUTCOME UNAVAILABLE — INSPECT RECOVERY";
+            TargetLocalUndoDescription =
+                "The application port did not return a verified outcome. Inspect the protected pending/terminal recovery record before any further action; Flowspan will not guess or repeat Adapter work.";
+            TargetLocalUndoReason = "undo-unavailable";
+            TargetLocalUndoOccurredAt = string.Empty;
+        }
+        finally
+        {
+            HasAcknowledgedTargetLocalUndo = false;
+            IsBusy = false;
+        }
+    }
+
     private void ApplyReplaceInventoryResult(
         DesktopReplaceTargetInventoryResult result,
         DesktopReplaceTargetSnapshot? previousTarget)
@@ -726,6 +880,7 @@ public sealed class ActivityWorkspaceViewModel :
 
         if (!result.IsAvailable)
         {
+            SelectedReplaceRecoveryItem = null;
             ReplaceRecoveryItems.Clear();
             ReplaceRecoveryCapturedAt = string.Empty;
             ReplaceRecoveryCoverage = "RECOVERY RECORD COUNT UNAVAILABLE";
@@ -736,9 +891,16 @@ public sealed class ActivityWorkspaceViewModel :
             return;
         }
 
+        HashSet<UndoCapsuleId> undoableCapsules = result.UndoableCapsuleIds.ToHashSet();
+        SelectedReplaceRecoveryItem = null;
         Replace(
             ReplaceRecoveryItems,
-            result.Records.Select(CreateReplaceRecoveryItem).ToImmutableArray());
+            result.Records
+                .Select(record => CreateReplaceRecoveryItem(
+                    record,
+                    record.CapsuleId is not null
+                    && undoableCapsules.Contains(record.CapsuleId)))
+                .ToImmutableArray());
         ReplaceRecoveryCapturedAt = result.CapturedAt?.ToString("O")
             ?? string.Empty;
         ReplaceRecoveryCoverage = result.IsTruncated
@@ -759,16 +921,26 @@ public sealed class ActivityWorkspaceViewModel :
             ReplaceRecoveryDescription =
                 "No protected Replace or undo records are stored on this device. Destructive Replace remains locked in this build.";
         }
+        else if (ReplaceRecoveryItems.Any(static item => item.CanUndo))
+        {
+            int available = ReplaceRecoveryItems.Count(static item => item.CanUndo);
+            ReplaceRecoveryStatus =
+                $"TARGET-LOCAL UNDO AVAILABLE — {available} EXACT CAPSULES";
+            ReplaceRecoveryDescription =
+                "Select one exact committed Replace record, review both opaque Activity IDs and its expiry, then confirm one target-local semantic restore. Destructive Replace remains locked.";
+        }
         else
         {
-            ReplaceRecoveryStatus = "TARGET-LOCAL REPLACE HISTORY — READ ONLY";
+            ReplaceRecoveryStatus =
+                "TARGET-LOCAL REPLACE HISTORY — NO UNDO ACTION";
             ReplaceRecoveryDescription =
-                "Recorded outcomes and exact capsule availability are shown without Activity content. This build exposes no Replace, recovery, or undo command.";
+                "Recorded outcomes and capsule state are shown without Activity content. No record is both unattempted and the exact current unexpired replacement; destructive Replace remains locked.";
         }
     }
 
     private static DesktopReplaceRecoveryItem CreateReplaceRecoveryItem(
-        ReplaceRecoveryRecord record)
+        ReplaceRecoveryRecord record,
+        bool canUndo)
     {
         string kind = record.Kind switch
         {
@@ -817,8 +989,10 @@ public sealed class ActivityWorkspaceViewModel :
         };
         string undo = record.UndoAvailability switch
         {
+            ReplaceUndoAvailability.Available when canUndo =>
+                $"UNDO AVAILABLE — EXPIRES {record.UndoExpiresAt:O} — SELECT AND CONFIRM THIS EXACT CAPSULE",
             ReplaceUndoAvailability.Available =>
-                $"UNDO AVAILABLE AT SNAPSHOT — EXPIRES {record.UndoExpiresAt:O} — READ ONLY IN THIS BUILD",
+                $"CAPSULE UNCONSUMED AT SNAPSHOT — EXPIRES {record.UndoExpiresAt:O} — LOCAL UNDO LOCKED: EXACT CURRENT REPLACEMENT NOT PROVEN",
             ReplaceUndoAvailability.Expired =>
                 $"UNDO EXPIRED AT {record.UndoExpiresAt:O}",
             ReplaceUndoAvailability.PendingOperation =>
@@ -841,7 +1015,12 @@ public sealed class ActivityWorkspaceViewModel :
                 ?? "NO CAPSULE ID RECORDED",
             timestamp,
             undo,
-            record.IsRecoveryRequired);
+            record.IsRecoveryRequired,
+            record.CapsuleId,
+            record.TargetActivityId,
+            record.IncomingActivityId,
+            record.UndoExpiresAt,
+            canUndo);
     }
 
     private void ReconcileRefreshedReplaceTarget(
@@ -984,6 +1163,13 @@ public sealed class ActivityWorkspaceViewModel :
 
     private bool CanRefreshReplaceTargets() => CanHandoff();
 
+    private bool CanUndoReplace() =>
+        Volatile.Read(ref disposed) == 0
+        && !IsBusy
+        && HasAcknowledgedTargetLocalUndo
+        && SelectedReplaceRecoveryItem?.UndoCapsuleId is not null
+        && IsTargetLocalUndoConfirmationAvailable;
+
     private void ClearReceipt()
     {
         ReceiptStatus = string.Empty;
@@ -1022,6 +1208,88 @@ public sealed class ActivityWorkspaceViewModel :
         OnPropertyChanged(nameof(IsReplaceConfirmationAvailable));
         OnPropertyChanged(nameof(ReplaceActivationStatus));
         OnPropertyChanged(nameof(IsDestructiveReplaceAvailable));
+    }
+
+    private void OnTargetLocalUndoSelectionChanged()
+    {
+        if (!IsBusy)
+        {
+            ApplyTargetLocalUndoSelectionState();
+        }
+
+        OnPropertyChanged(nameof(IsTargetLocalUndoConfirmationAvailable));
+        OnPropertyChanged(nameof(IsTargetLocalUndoAvailable));
+        OnPropertyChanged(nameof(TargetLocalUndoConfirmationDescription));
+        OnPropertyChanged(nameof(TargetLocalUndoConfirmationAutomationName));
+        OnPropertyChanged(nameof(TargetLocalUndoStatus));
+        targetLocalUndoCommand.NotifyCanExecuteChanged();
+    }
+
+    private void ApplyTargetLocalUndoSelectionState()
+    {
+        TargetLocalUndoReason = string.Empty;
+        TargetLocalUndoOccurredAt = string.Empty;
+        if (SelectedReplaceRecoveryItem is null)
+        {
+            TargetLocalUndoStatus =
+                "TARGET-LOCAL UNDO — SELECT AN AVAILABLE CAPSULE";
+            TargetLocalUndoDescription =
+                "Select an available committed Replace record and review its exact capsule binding.";
+        }
+        else if (!SelectedReplaceRecoveryItem.CanUndo)
+        {
+            TargetLocalUndoStatus =
+                "TARGET-LOCAL UNDO NOT AVAILABLE FOR THIS RECORD";
+            TargetLocalUndoDescription =
+                "This record is pending, expired, consumed, already attempted, unsupported, or no longer the exact current replacement. No action is available.";
+        }
+        else if (HasAcknowledgedTargetLocalUndo)
+        {
+            TargetLocalUndoStatus = "TARGET-LOCAL UNDO CONFIRMED — READY";
+            TargetLocalUndoDescription =
+                "The exact capsule binding is confirmed. Activating undo will reserve one durable operation before Adapter restore.";
+        }
+        else
+        {
+            TargetLocalUndoStatus =
+                "TARGET-LOCAL UNDO — EXACT CONFIRMATION REQUIRED";
+            TargetLocalUndoDescription =
+                "Review the capsule, both opaque Activity IDs, and exact expiry, then confirm this one target-local action.";
+        }
+    }
+
+    private void ApplyTargetLocalUndoResult(UndoReplaceResult result)
+    {
+        TargetLocalUndoStatus = result.Status switch
+        {
+            OperationStatus.Committed => "TARGET-LOCAL UNDO COMMITTED",
+            OperationStatus.Rejected => "TARGET-LOCAL UNDO REJECTED",
+            OperationStatus.Failed => "TARGET-LOCAL UNDO FAILED",
+            OperationStatus.Recovering =>
+                "TARGET-LOCAL UNDO OUTCOME UNCERTAIN — DUPLICATE DISABLED",
+            _ => "TARGET-LOCAL UNDO OUTCOME UNAVAILABLE",
+        };
+        TargetLocalUndoDescription = (result.Status, result.FailureCode) switch
+        {
+            (OperationStatus.Committed, _) =>
+                "The preserved semantic Activity was restored at a new revision and the protected capsule is recorded as consumed.",
+            (_, FailureCode.UndoCapsuleExpired) =>
+                "The exact capsule expired before restore began. No Adapter restore was performed.",
+            (_, FailureCode.UndoCapsuleConsumed) =>
+                "The exact capsule was already consumed. No duplicate Adapter restore was performed.",
+            (_, FailureCode.RevisionConflict) =>
+                "The replacement is no longer the exact current Activity revision. Flowspan did not overwrite newer state.",
+            (_, FailureCode.OperationInProgress) =>
+                "A protected pending boundary already owns this capsule. Inspect recovery; Adapter work was not repeated.",
+            (OperationStatus.Recovering, _) =>
+                "The durable terminal write or destructive boundary is uncertain. The pending record blocks duplicate restore until explicit recovery exists.",
+            (OperationStatus.Failed, _) =>
+                "The Adapter did not complete the semantic restore. The terminal failure is recorded and this UI does not silently retry it.",
+            _ =>
+                "The protected undo request was not committed. The recorded reason is shown; no outcome is inferred.",
+        };
+        TargetLocalUndoReason = ToReasonCode(result.FailureCode);
+        TargetLocalUndoOccurredAt = result.OccurredAt.ToString("O");
     }
 
     private void InvalidateReplaceInventory()
