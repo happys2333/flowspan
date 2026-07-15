@@ -318,9 +318,9 @@ means its linked evidence exists; it does not imply the entire product works.
     and terminal records, and consumption; reconstructed-process tests prevent
     duplicate destructive Adapter work; and OS-credential-backed authenticated
     files fail closed. All 472 tests, Secret Scan, and CodeQL pass on the exact
-    commit's hosted Windows, macOS, and Ubuntu matrix. Commands, run/job IDs,
-    platform-API coverage, stress results, and explicit physical/native limits
-    are recorded in
+    implementation commit `3652c9b` and evidence commit `8137e57` across hosted
+    Windows, macOS, and Ubuntu. Commands, run/job IDs, platform-API coverage,
+    stress results, and explicit physical/native limits are recorded in
     [protected Replace recovery evidence](../../docs/evidence/2026-07-15-protected-replace-recovery-state.md).
     Desktop target inventory, destructive preview, explicit confirmation,
     recovery, visible undo, and physical/native product evidence remain open.

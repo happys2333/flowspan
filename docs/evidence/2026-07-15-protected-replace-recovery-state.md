@@ -171,6 +171,35 @@ and Analyze C# job
 [`87318198704`](https://github.com/happys2333/flowspan/actions/runs/29405003828/job/87318198704)
 completed successfully. CodeQL scanned 163/163 C# files and uploaded the result.
 
+## Hosted results for the evidence commit
+
+The evidence and task-status commit
+`8137e57b8bc0637ad4dffd5d856d47616187cfe0` was independently verified by CI
+run
+[`29406106500`](https://github.com/happys2333/flowspan/actions/runs/29406106500):
+
+- Windows job
+  [`87321838792`](https://github.com/happys2333/flowspan/actions/runs/29406106500/job/87321838792):
+  success;
+- macOS job
+  [`87321838785`](https://github.com/happys2333/flowspan/actions/runs/29406106500/job/87321838785):
+  success;
+- Ubuntu job
+  [`87321838796`](https://github.com/happys2333/flowspan/actions/runs/29406106500/job/87321838796):
+  success;
+- Secret Scan job
+  [`87321838799`](https://github.com/happys2333/flowspan/actions/runs/29406106500/job/87321838799):
+  success.
+
+CodeQL run
+[`29406106294`](https://github.com/happys2333/flowspan/actions/runs/29406106294)
+and Analyze C# job
+[`87321838275`](https://github.com/happys2333/flowspan/actions/runs/29406106294/job/87321838275)
+also completed successfully and scanned 163/163 C# files. Thus both the exact
+implementation commit and the commit that records subtasks 7.3c.1/7.3c.2 as
+complete passed the same hosted gates. The closure commit that adds this second
+result remains subject to those gates before its status is treated as final.
+
 ## Remaining before the Replace release criterion can pass
 
 - an authorized remote target Activity inventory and exact snapshot selection;
