@@ -5,6 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.VisualTree;
 using Flowspan.Application;
 using Flowspan.Domain;
 using Flowspan.Protocol;
@@ -345,6 +346,19 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "Target-local Replace and undo recovery records",
                 records.GetValue(AutomationProperties.NameProperty));
+            string[] automationNames = window.GetVisualDescendants()
+                .OfType<Control>()
+                .Select(control => control.GetValue(AutomationProperties.NameProperty))
+                .Where(static name => !string.IsNullOrEmpty(name))
+                .ToArray()!;
+            Assert.Contains("Replace recovery guidance", automationNames);
+            Assert.Contains("Replace recovery record coverage", automationNames);
+            Assert.Contains("Replace recovery snapshot time", automationNames);
+            Assert.Contains("Replace recovery record state", automationNames);
+            Assert.Contains("Replace recovery Operation ID", automationNames);
+            Assert.Contains("Replace recovery correlation ID", automationNames);
+            Assert.Contains("Replace recovery capsule ID", automationNames);
+            Assert.Contains("Replace recovery undo availability", automationNames);
             Assert.Equal("TARGET-LOCAL REPLACE HISTORY — READ ONLY", status.Text);
             Assert.Equal(2, records.ItemCount);
             Control first = Assert.IsAssignableFrom<Control>(
