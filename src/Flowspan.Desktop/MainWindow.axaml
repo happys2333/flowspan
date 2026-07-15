@@ -618,6 +618,142 @@
                       </StackPanel>
                     </Border>
 
+                    <Border BorderBrush="{StaticResource SignalRedBrush}"
+                            BorderThickness="4,1,1,1"
+                            Padding="14"
+                            AutomationProperties.Name="Preview-only destructive Replace workflow">
+                      <StackPanel Spacing="10">
+                        <TextBlock Classes="label"
+                                   Foreground="{StaticResource SignalRedBrush}"
+                                   Text="REPLACE / PREVIEW ONLY" />
+                        <TextBlock Classes="secondary"
+                                   Text="Query a purpose-scoped, payload-free target inventory. This build does not activate destructive Replace from the desktop."
+                                   TextWrapping="Wrap" />
+                        <Button x:Name="ReviewReplaceTargetsButton"
+                                Content="LOAD / REFRESH REPLACE TARGETS"
+                                Command="{Binding Activities.RefreshReplaceTargetsCommand}"
+                                IsEnabled="{Binding Activities.IsReplaceInventoryAvailable}"
+                                AutomationProperties.Name="Load or refresh Replace target inventory"
+                                AutomationProperties.HelpText="Queries eligible same-kind target snapshots from the selected authenticated device. It sends no destructive Replace request." />
+                        <TextBlock x:Name="ReplaceInventoryStatusText"
+                                   Classes="label"
+                                   Text="{Binding Activities.ReplaceInventoryStatus}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Replace target inventory status" />
+                        <TextBlock Classes="secondary"
+                                   Text="{Binding Activities.ReplaceInventoryDescription}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Replace target inventory recovery guidance" />
+                        <Grid ColumnDefinitions="5*,7*">
+                          <TextBlock Grid.Column="0"
+                                     Classes="secondary"
+                                     FontSize="11"
+                                     Text="{Binding Activities.ReplaceInventoryCoverage}"
+                                     TextWrapping="Wrap"
+                                     AutomationProperties.Name="Replace target inventory coverage" />
+                          <TextBlock Grid.Column="1"
+                                     Classes="secondary"
+                                     FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                     FontSize="10"
+                                     Text="{Binding Activities.ReplaceInventoryCapturedAt, StringFormat='Captured: {0}'}"
+                                     TextWrapping="Wrap"
+                                     AutomationProperties.Name="Replace target inventory capture time" />
+                        </Grid>
+                        <ListBox x:Name="ReplaceTargetList"
+                                 ItemsSource="{Binding Activities.ReplaceTargets}"
+                                 SelectedItem="{Binding Activities.SelectedReplaceTarget, Mode=TwoWay}"
+                                 MaxHeight="190"
+                                 AutomationProperties.Name="Replace-eligible Activities on selected target device">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DesktopReplaceTargetSnapshot">
+                              <Grid Margin="8" ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="3">
+                                  <TextBlock FontWeight="SemiBold"
+                                             Text="{Binding Title}"
+                                             TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary"
+                                             FontSize="11"
+                                             Text="{Binding Kind}" />
+                                  <TextBlock Classes="secondary"
+                                             FontSize="11"
+                                             Text="{Binding PlacementSlot, StringFormat='Placement: {0}'}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1"
+                                            Margin="12,0,0,0"
+                                            HorizontalAlignment="Right"
+                                            Spacing="3">
+                                  <TextBlock Classes="label"
+                                             Text="{Binding Revision, StringFormat='REV {0}'}" />
+                                  <TextBlock Classes="secondary"
+                                             FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                             FontSize="9"
+                                             Text="{Binding DescriptorDigest}"
+                                             MaxWidth="150"
+                                             TextTrimming="CharacterEllipsis"
+                                             AutomationProperties.Name="Target descriptor digest" />
+                                </StackPanel>
+                              </Grid>
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <Border IsVisible="{Binding Activities.IsReplacePreviewVisible}"
+                                BorderBrush="{StaticResource SignalRedBrush}"
+                                BorderThickness="1"
+                                Padding="12"
+                                AutomationProperties.Name="Exact destructive Replace comparison">
+                          <StackPanel Spacing="10">
+                            <TextBlock Classes="label"
+                                       Foreground="{StaticResource SignalRedBrush}"
+                                       Text="{Binding Activities.ReplacePreviewStatus}"
+                                       TextWrapping="Wrap"
+                                       AutomationProperties.Name="Replace preview status" />
+                            <Grid ColumnDefinitions="5*,Auto,7*">
+                              <StackPanel Grid.Column="0" Spacing="4">
+                                <TextBlock Classes="label" Text="INCOMING" />
+                                <TextBlock x:Name="ReplaceIncomingDescriptionText"
+                                           Text="{Binding Activities.ReplaceIncomingDescription}"
+                                           TextWrapping="Wrap"
+                                           AutomationProperties.Name="Incoming Replace Activity" />
+                              </StackPanel>
+                              <Border Grid.Column="1"
+                                      Margin="10,0"
+                                      BorderBrush="{StaticResource SignalRedBrush}"
+                                      BorderThickness="1,0,0,0" />
+                              <StackPanel Grid.Column="2" Spacing="4">
+                                <TextBlock Classes="label"
+                                           Foreground="{StaticResource SignalRedBrush}"
+                                           Text="REPLACED TARGET" />
+                                <TextBlock x:Name="ReplaceTargetDescriptionText"
+                                           Text="{Binding Activities.ReplaceTargetDescription}"
+                                           TextWrapping="Wrap"
+                                           AutomationProperties.Name="Exact Activity that would be replaced" />
+                              </StackPanel>
+                            </Grid>
+                            <CheckBox x:Name="ReplaceConfirmationCheckBox"
+                                      IsChecked="{Binding Activities.HasAcknowledgedReplace, Mode=TwoWay}"
+                                      IsEnabled="{Binding Activities.IsReplaceConfirmationAvailable}"
+                                      AutomationProperties.Name="{Binding Activities.ReplaceConfirmationAutomationName}"
+                                      AutomationProperties.HelpText="Confirmation applies only to the currently displayed device, target Activity ID, revision, and descriptor digest and is revoked on refresh.">
+                              <TextBlock Text="{Binding Activities.ReplaceConfirmationDescription}"
+                                         TextWrapping="Wrap" />
+                            </CheckBox>
+                            <TextBlock x:Name="ReplaceActivationStatusText"
+                                       Classes="label"
+                                       Foreground="{StaticResource SignalRedBrush}"
+                                       Text="{Binding Activities.ReplaceActivationStatus}"
+                                       TextWrapping="Wrap"
+                                       AutomationProperties.Name="Destructive Replace activation status" />
+                            <Button x:Name="DestructiveReplaceButton"
+                                    Content="DESTRUCTIVE REPLACE NOT ACTIVATED"
+                                    IsEnabled="{Binding Activities.IsDestructiveReplaceAvailable}"
+                                    AutomationProperties.Name="Destructive Replace is not activated"
+                                    AutomationProperties.HelpText="Blocked until receipt and recovery presentation plus target-local visible undo are complete." />
+                          </StackPanel>
+                        </Border>
+                      </StackPanel>
+                    </Border>
+
                     <Border IsVisible="{Binding Activities.IsReceiptVisible}"
                             BorderBrush="{StaticResource CoolGrayBrush}"
                             BorderThickness="1"

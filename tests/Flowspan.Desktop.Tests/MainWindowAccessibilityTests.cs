@@ -222,6 +222,94 @@ public sealed class MainWindowAccessibilityTests
     }
 
     [Fact]
+    public async Task ReplacePreviewConfirmationIsKeyboardOperableButActivationStaysLocked()
+    {
+        var activities = new AccessibilityActivityService();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            activityService: activities);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            TextBox title = Assert.IsType<TextBox>(
+                window.FindControl<TextBox>("WorkspaceNoteTitleTextBox"));
+            TextBox body = Assert.IsType<TextBox>(
+                window.FindControl<TextBox>("WorkspaceNoteBodyTextBox"));
+            Button create = Assert.IsType<Button>(
+                window.FindControl<Button>("CreateWorkspaceNoteButton"));
+            Button loadTargets = Assert.IsType<Button>(
+                window.FindControl<Button>("ReviewReplaceTargetsButton"));
+            ListBox replaceTargets = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("ReplaceTargetList"));
+            TextBlock incoming = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ReplaceIncomingDescriptionText"));
+            TextBlock replaced = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ReplaceTargetDescriptionText"));
+            CheckBox confirmation = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("ReplaceConfirmationCheckBox"));
+            TextBlock activationStatus = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ReplaceActivationStatusText"));
+            Button destructiveReplace = Assert.IsType<Button>(
+                window.FindControl<Button>("DestructiveReplaceButton"));
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
+
+            Assert.Equal(
+                "Load or refresh Replace target inventory",
+                loadTargets.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Replace-eligible Activities on selected target device",
+                replaceTargets.GetValue(AutomationProperties.NameProperty));
+            Assert.False(loadTargets.IsEnabled);
+            Assert.False(destructiveReplace.IsEnabled);
+
+            title.Text = "Incoming note";
+            body.Text = "portable body";
+            Assert.True(create.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            viewModel.Activities.SelectedTarget = Assert.Single(
+                viewModel.Activities.Targets);
+            Assert.True(loadTargets.IsEnabled);
+            Assert.True(loadTargets.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.Equal(2, replaceTargets.ItemCount);
+            Control replaceTargetItem = Assert.IsAssignableFrom<Control>(
+                replaceTargets.ContainerFromIndex(0));
+            Assert.True(replaceTargetItem.Focus());
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+
+            Assert.NotNull(viewModel.Activities.SelectedReplaceTarget);
+            Assert.Contains("Incoming note", incoming.Text);
+            Assert.Contains("Existing target", replaced.Text);
+            Assert.Contains("revision 4", replaced.Text);
+            Assert.Equal(
+                "Confirm replacing Existing target on Peer desk with Incoming note",
+                confirmation.GetValue(AutomationProperties.NameProperty));
+            Assert.True(confirmation.IsEnabled);
+            Assert.True(confirmation.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.True(viewModel.Activities.HasAcknowledgedReplace);
+            Assert.Equal(
+                "PREVIEW CONFIRMED — DESTRUCTIVE REPLACE NOT ACTIVATED",
+                activationStatus.Text);
+            Assert.False(destructiveReplace.IsEnabled);
+            Assert.Equal("NOT SHARING", sharing.Text);
+            window.Close();
+        }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task PairingConfirmationRequiresKeyboardCodeAcknowledgement()
     {
         using DeviceIdentity peer = DeviceIdentity.Generate(
@@ -591,6 +679,36 @@ public sealed class MainWindowAccessibilityTests
             descriptor = null;
             Changed?.Invoke();
             return ValueTask.FromResult(receipt);
+        }
+
+        public ValueTask<DesktopReplaceTargetInventoryResult> GetReplaceTargetsAsync(
+            ActivityId incomingActivityId,
+            DeviceId targetDeviceId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new DesktopReplaceTargetInventoryResult(
+                FailureCode.None,
+                false,
+                new DateTimeOffset(2026, 7, 15, 12, 0, 0, TimeSpan.Zero),
+                [
+                    new DesktopReplaceTargetSnapshot(
+                        TargetId,
+                        ActivityId.Parse("33333333-3333-3333-3333-333333333333"),
+                        "Other target",
+                        "workspace.note/v1",
+                        2,
+                        new string('B', 64),
+                        "desktop"),
+                    new DesktopReplaceTargetSnapshot(
+                        TargetId,
+                        ActivityId.Parse("44444444-4444-4444-4444-444444444444"),
+                        "Existing target",
+                        "workspace.note/v1",
+                        4,
+                        new string('A', 64),
+                        "desktop"),
+                ]));
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

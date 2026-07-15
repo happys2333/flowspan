@@ -1,7 +1,8 @@
 # ADR 0011: Bounded Replace with a Target-Owned Undo Capsule
 
-Status: accepted for the `workspace.note/v1` tracer slice; durable state and
-query-only target inventory delivered; destructive desktop activation pending
+Status: accepted for the `workspace.note/v1` tracer slice; durable state,
+query-only target inventory, and preview-only confirmation delivered;
+destructive desktop activation pending
 
 Date: 2026-07-15
 
@@ -129,10 +130,11 @@ remain structured and must not cross a destructive boundary unnoticed.
 - Adapters that cannot prove an honest semantic capsule fail before destructive
   work; Remote Window is not silently substituted.
 - The durable-state module and Windows/macOS/Linux protected-key adapters now
-  exist, and Desktop composes only a payload-free target query. It still does
-  not compose destructive Replace. In-memory state remains available only for
-  deterministic tests. Destructive preview/confirmation, startup recovery
-  presentation, and local undo remain mandatory before product activation.
+  exist. Desktop composes a payload-free target query plus a preview-only,
+  snapshot-bound confirmation surface, but it still does not compose
+  destructive Replace. In-memory state remains available only for deterministic
+  tests. Receipt/recovery presentation, startup recovery presentation, and
+  target-local visible undo remain mandatory before product activation.
 - Same-host loopback tests prove authenticated framing and state ordering, not
   physical LAN behavior or native application restoration.
 
@@ -152,6 +154,10 @@ remain structured and must not cross a destructive boundary unnoticed.
   schema/purpose/time binding, global pending correlation exclusion,
   acknowledgement loss, and a real encrypted loopback query without catalog
   mutation.
+- Desktop tests cover explicit query, incoming/target comparison, bounded
+  coverage and capture time, confirmation revocation, stale revision/digest or
+  missing-target refresh, late-result rejection, sanitized recovery, keyboard
+  operation, accessible names/state, and the uncomposed destructive capability.
 - The durable-state candidate covers protected-key restart, exact Replace and
   undo replay, pending recovery without duplicate Adapter calls, atomic save
   failure on both sides of destructive boundaries, authenticated-file and

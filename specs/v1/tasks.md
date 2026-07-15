@@ -349,6 +349,13 @@ means its linked evidence exists; it does not imply the entire product works.
       `activity.replace`; disclose only bounded, payload-free, normal-sensitivity
       same-kind target snapshots; bind correlation/target/kind/deadline; and
       preserve stale ID/revision/digest rejection before destructive work.
+    - [ ] 7.3c.4 Add a keyboard-operable preview-only Desktop Replace flow.
+      Query and refresh inventory explicitly; compare the incoming Activity with
+      one exact target snapshot; revoke confirmation on every relevant change;
+      name stale revision/digest refresh and sanitized failure recovery; and keep
+      production `IReplacePeer` uncomposed until receipt/recovery and target-local
+      undo surfaces exist.
+      - _Requirements: R4.7-R4.10, R10.1-R10.4_
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

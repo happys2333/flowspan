@@ -842,6 +842,9 @@ public sealed class AuthenticatedActivitySessionHandler :
 
     public event Action? Changed;
 
+    public bool IsReplaceEndpointAvailable =>
+        Volatile.Read(ref disposed) == 0 && replacePeer is not null;
+
     public IReadOnlyList<DeviceId> GetConnectedPeers()
     {
         if (Volatile.Read(ref disposed) != 0)

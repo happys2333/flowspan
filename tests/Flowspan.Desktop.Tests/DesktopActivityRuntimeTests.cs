@@ -413,6 +413,10 @@ public sealed class DesktopActivityRuntimeTests
             await source.GetReplaceTargetsAsync(incoming.ActivityId, TargetId);
 
         Assert.True(result.IsSuccess);
+        Assert.False(
+            ((IDesktopActivityService)source).IsDestructiveReplaceAvailable);
+        Assert.False(
+            ((IDesktopActivityService)target).IsDestructiveReplaceAvailable);
         DesktopReplaceTargetSnapshot snapshot = Assert.Single(result.Targets);
         Assert.Equal(existing.ActivityId, snapshot.ActivityId);
         Assert.Equal("Existing target", snapshot.Title);

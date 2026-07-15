@@ -180,6 +180,22 @@ endpoint may be composed before the destructive Replace endpoint; desktop
 Replace remains unavailable until preview, explicit confirmation,
 receipt/recovery, and target-local undo surfaces are complete.
 
+The desktop preview is a separate presentation state machine over the query-only
+inventory port. `NotLoaded -> Loading -> Ready|Empty|Failed` owns a bounded,
+payload-free collection. Selecting a source Activity or peer invalidates the
+collection. A Ready choice creates a comparison view containing the incoming
+title/kind and the target device, title, kind, placement, revision, and
+descriptor digest. Confirmation is a local latch bound to that exact displayed
+snapshot; every query, source/peer change, or target selection change clears it.
+A refresh may preserve the selected ID for orientation only when revision and
+digest are unchanged, but still requires confirmation again. A missing target
+or changed revision/digest produces a named stale-preview state and no
+destructive call. Query failures are mapped to bounded recovery guidance and
+never expose exception, payload, or transport details. The current preview-only
+slice exposes no `ReplaceAsync` desktop service method and continues composing
+`AuthenticatedActivitySessionHandler` with `replacePeer: null`, so confirming a
+preview cannot cross the destructive boundary.
+
 Transfer, Replace inventory, and destructive Replace share one atomic pending
 correlation reservation per authenticated session. A correlation ID cannot
 identify two concurrent Activity operations even when their message types

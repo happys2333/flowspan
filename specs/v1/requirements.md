@@ -117,6 +117,20 @@ interfaces.
 - R4.8: When a target Activity changes after inventory capture, Replace shall
   reject the stale ID/revision/descriptor-digest selection before capture,
   resume, or target mutation and require the user to refresh the preview.
+- R4.9: While a user prepares Replace, when an incoming Activity and an
+  authenticated target device are selected, the desktop shall disclose the
+  incoming title and kind beside the selected target title, kind, placement,
+  revision, and descriptor digest; it shall require an explicit confirmation
+  bound to that exact snapshot before a destructive Replace can become
+  eligible.
+- R4.10: When the incoming Activity, target device, or selected target snapshot
+  changes, or when target inventory is refreshed, the desktop shall revoke any
+  prior Replace confirmation. If the same target ID disappears or returns with
+  another revision or descriptor digest, the desktop shall identify the stale
+  preview, require a fresh selection and confirmation, and send no destructive
+  request. Until receipt/recovery and target-local undo surfaces are available,
+  the production desktop shall keep destructive Replace unavailable even after
+  preview confirmation.
 
 ### R5 — Atomic swap
 

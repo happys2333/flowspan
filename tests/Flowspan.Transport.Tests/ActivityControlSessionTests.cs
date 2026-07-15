@@ -873,6 +873,8 @@ public sealed class ActivityControlSessionTests
         await using var targetHandler = new AuthenticatedActivitySessionHandler(
             target,
             new FixedTimeProvider(Now));
+        Assert.False(sourceHandler.IsReplaceEndpointAvailable);
+        Assert.False(targetHandler.IsReplaceEndpointAvailable);
         using var stop = new CancellationTokenSource();
         Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
         Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
@@ -984,6 +986,8 @@ public sealed class ActivityControlSessionTests
             target,
             replaceEndpoint,
             new FixedTimeProvider(Now));
+        Assert.False(sourceHandler.IsReplaceEndpointAvailable);
+        Assert.True(targetHandler.IsReplaceEndpointAvailable);
         using var stop = new CancellationTokenSource();
         Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
         Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
@@ -1069,6 +1073,8 @@ public sealed class ActivityControlSessionTests
             replacePeer: null,
             replaceInventoryPeer: inventoryEndpoint,
             new FixedTimeProvider(Now));
+        Assert.False(sourceHandler.IsReplaceEndpointAvailable);
+        Assert.False(targetHandler.IsReplaceEndpointAvailable);
         using var stop = new CancellationTokenSource();
         Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
         Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();

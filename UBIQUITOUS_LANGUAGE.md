@@ -18,6 +18,7 @@ screens or arbitrary process migration.
 | **Replace** | An operation that preserves eligible target state before installing an incoming Activity in its Placement. | Overwrite |
 | **Replace Target Inventory** | A purpose-scoped authenticated preview query that returns only bounded, eligible, same-kind, payload-free target choices for one incoming Activity kind. | Remote Activity browser, catalog sync |
 | **Replace Target Snapshot** | The target ID, revision, descriptor digest, kind, normal-sensitivity title, and Placement slot captured for preview and later stale-selection detection; it grants no mutation authority. | Backup, live handle |
+| **Replace Preview** | A local comparison and confirmation state bound to one incoming Activity, peer, and exact Replace Target Snapshot. It grants no mutation authority and is revoked by participant, snapshot, or inventory-refresh changes. | Replace command, authorization |
 | **Undo Capsule** | A target-owned, expiring preservation of the exact pre-Replace semantic state plus bindings needed for one safe compensating undo. | Backup, rollback promise |
 | **Swap** | One atomic transaction that exchanges two Activity Placements or changes neither. | Two moves |
 | **Mirror** | An Activity presentation on multiple devices while authoritative execution remains on one host. | Copy, sync |
@@ -85,6 +86,10 @@ screens or arbitrary process migration.
   different-kind, or unsupported Activities do not appear. A later **Replace**
   must revalidate the chosen ID, revision, and descriptor digest before
   destructive work.
+- A **Replace Preview** may retain an unchanged target selection across a fresh
+  inventory query for orientation, but it always revokes confirmation. A missing
+  or changed snapshot requires a fresh selection; confirmation alone never
+  authorizes or sends **Replace**.
 
 ## Example dialogue
 
