@@ -322,8 +322,16 @@ means its linked evidence exists; it does not imply the entire product works.
     Windows, macOS, and Ubuntu. Commands, run/job IDs, platform-API coverage,
     stress results, and explicit physical/native limits are recorded in
     [protected Replace recovery evidence](../../docs/evidence/2026-07-15-protected-replace-recovery-state.md).
-    Desktop target inventory, destructive preview, explicit confirmation,
-    recovery, visible undo, and physical/native product evidence remain open.
+    The query-only target-inventory sub-slice is complete at implementation
+    commit `23d1ba4`: it filters to bounded payload-free same-kind targets,
+    rechecks directional grants, binds strict authenticated query/results, and
+    composes no destructive endpoint. All 516 tests, Secret Scan, and CodeQL
+    pass on that exact implementation commit across hosted Windows, macOS, and
+    Ubuntu. Commands, run/job IDs, stress results, and explicit physical/native
+    limits are recorded in
+    [Replace target inventory evidence](../../docs/evidence/2026-07-15-replace-target-inventory.md).
+    Destructive preview, explicit confirmation, recovery, visible undo, and
+    physical/native product evidence remain open.
     The earlier core/protocol evidence is recorded in
     [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
     Consequently 7.3c and the parent task are not complete. See
@@ -336,7 +344,7 @@ means its linked evidence exists; it does not imply the entire product works.
       process state, pending recovery without duplicate Adapter work, atomic
       failure ordering, expiry cleanup, and supported-platform storage
       contracts. Do not mark 7.3c complete until the desktop flow is composed.
-    - [ ] 7.3c.3 Add a purpose-scoped authenticated Replace target inventory.
+    - [x] 7.3c.3 Add a purpose-scoped authenticated Replace target inventory.
       Require source-side `activity.receive` and target-side
       `activity.replace`; disclose only bounded, payload-free, normal-sensitivity
       same-kind target snapshots; bind correlation/target/kind/deadline; and

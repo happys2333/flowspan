@@ -156,6 +156,13 @@ implementation convenience.
   supported-platform storage contracts. Ubuntu uses a fake Secret Service
   runner, and the desktop Replace flow remains deliberately uncomposed, so the
   Replace product criterion is still unchecked.
+- [2026-07-15 purpose-scoped Replace target inventory](../evidence/2026-07-15-replace-target-inventory.md):
+  516 local and exact-implementation-commit hosted tests prove directional
+  authorization, bounded same-kind payload-free target projection, strict
+  query/result binding, global pending-correlation exclusion, acknowledgement
+  loss, same-host encrypted loopback, and query-only Desktop composition.
+  Destructive preview/confirmation/recovery/undo and physical/native product
+  evidence remain open, so the Replace product criterion is still unchecked.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product
