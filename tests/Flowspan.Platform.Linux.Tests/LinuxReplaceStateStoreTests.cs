@@ -7,6 +7,54 @@ namespace Flowspan.Platform.Linux.Tests;
 public sealed class LinuxReplaceStateStoreTests
 {
     [Fact]
+    public async Task SwapEndpointSecretServiceKeyAndFileUseIndependentPurpose()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-linux-swap-endpoint-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "swap-endpoint-state.fsef");
+        string keyLockPath = Path.Combine(directory, "swap-endpoint-key.lock");
+        byte[] payload = "LINUX-SWAP-ENDPOINT-PLAINTEXT-CANARY"u8.ToArray();
+        using var runner = new FakeSecretToolRunner();
+        try
+        {
+            var first = new LinuxSwapEndpointStatePayloadStore(
+                statePath,
+                runner,
+                keyLockPath);
+            await first.SaveAsync(payload);
+
+            Assert.DoesNotContain(
+                "LINUX-SWAP-ENDPOINT-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(statePath)),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                payload,
+                await new LinuxSwapEndpointStatePayloadStore(
+                    statePath,
+                    runner,
+                    keyLockPath).LoadAsync());
+            Assert.NotEqual(
+                LinuxSwapEndpointStatePayloadStore.GetDefaultStatePath(),
+                LinuxSwapStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
+                LinuxSwapEndpointStateKeyStore.GetDefaultCoordinationLockPath(),
+                LinuxSwapStateKeyStore.GetDefaultCoordinationLockPath());
+            Assert.NotEqual(
+                LinuxSwapEndpointStateKeyStore.DefaultAccount,
+                LinuxSwapStateKeyStore.DefaultAccount);
+            Assert.Contains(runner.Arguments, static arguments =>
+                arguments.Contains("swap-endpoint-state-key", StringComparer.Ordinal));
+            Assert.DoesNotContain(runner.Arguments, static arguments =>
+                arguments.Contains("swap-state-key", StringComparer.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SwapSecretServiceKeyAndAuthenticatedFileUseIndependentPurpose()
     {
         string directory = Path.Combine(

@@ -18,7 +18,8 @@ for end-user installation. The repository currently includes:
   test strategy, task tracker, and release checklist;
 - a warning-free .NET 10 solution with an independent domain core;
 - a deterministic two-node Semantic Handoff and journaled-coordinator Atomic Swap
-  simulator;
+  simulator, plus bounded protected per-Device Swap endpoint journals with
+  exact restart reduction contracts;
 - capability denial, descriptor validation, idempotent retry, operation-ID
   conflict, protocol negotiation, and diagnostic-redaction tests;
 - provisional, review-gated identity, pairing, trust, HKDF, and encrypted-frame
@@ -86,7 +87,9 @@ simulator uses fixed device, operation, and clock values. A successful run
 prints protocol `1.0`, `Source preserved: True`, `Target resumed: True`,
 `Atomic swap committed: True`, and a redacted operation receipt containing a
 descriptor digest but no Activity text. Its Swap endpoints and catalog remain
-process-memory tracers; protected endpoint restart is not yet implemented.
+process-memory tracers. Separate application and platform contracts implement
+protected endpoint restart; the simulator does not yet compose that persistence
+or substitute for physical restart evidence.
 
 ## Repository map
 

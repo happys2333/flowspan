@@ -164,9 +164,23 @@ release criterion.
 | T11 | Strict version/bounds/order/digest decoding rejects tamper; AES-256-GCM authenticates a Swap-specific `FSSF` file; the independent random key is held under Swap-specific DPAPI, Keychain, or Secret Service identifiers. Failed saves do not publish candidate state in memory, permanently block that journal instance, and require reopen so an ambiguously persisted Commit cannot be overwritten by Abort. | Abrupt power-loss/filesystem testing, rollback detection, live Linux desktop Secret Service, and independent storage review. |
 | T18 | Abort-before-Prepare creates an idempotent participant tombstone, delayed Prepare cannot reopen it, and a Prepared Activity excludes an overlapping Swap. Any decision-delivery uncertainty remains `Recovering`; no single endpoint result is presented as atomic success. | Durable endpoint journal/reducer, explicit Desktop exact-selection confirmation, native Adapter eligibility, and user-visible recovery. |
 
-This slice protects only the coordinator transaction. Endpoint reservations and
-the Activity catalog remain process-memory state, so the v1 atomic-Swap release
-criterion stays open even after hosted contracts pass.
+The 3.3a evidence protects only the coordinator transaction. Task 3.3b below
+adds the endpoint boundary; the Activity catalog, authenticated wire, product UI,
+and physical restart evidence remain outside both slices.
+
+### 5.8 Task 3.3b durable atomic-Swap endpoint evidence plan
+
+| Threat | Required implementation evidence | Remaining evidence |
+| --- | --- | --- |
+| T04 | Persist Prepared before acknowledgement and persist the exact Device/token-bound Commit or Abort before catalog mutation or acknowledgement. Reconstructed duplicate/reordered decisions are idempotent, Abort-before-Prepare remains a tombstone, and any overlapping Activity stays blocked until a recorded Commit has reached its exact replacement state. | Authenticated Swap wire schema, Trust/capability replay tests, sleep/wake, and physical cross-device packet loss. |
+| T10 | Store the complete original and incoming Activity only in the private endpoint journal needed for restart reduction. Canary tests verify that protected files contain no plaintext and coordinator records, receipts, discovery, and diagnostics remain payload-free. | Packaged crash-dump, diagnostic-export, retention/deletion UI, and native filesystem inspection. |
+| T11 | Strict version/bounds/order/enum/UTC/digest/participant decoding rejects hostile state. A purpose-separated `FSEF` AES-256-GCM file uses independent DPAPI, Keychain, or Secret Service identifiers; any save exception forces reopen before another write. | Abrupt power-loss/filesystem testing, rollback detection, live Linux desktop Secret Service, and independent storage review. |
+| T18 | Commit reduction accepts only the exact original-to-replacement transition or the exact already-applied replacement. Any other catalog state remains `Recovering / RevisionConflict`; Prepared never guesses Abort after restart. | Persistent native Activity catalog protocol, explicit Desktop exact-selection and recovery UI, representative Adapter eligibility, and physical restart evidence. |
+
+This slice protects endpoint recovery content but is not a general Activity or
+application-process database. Hosted platform contracts and local macOS
+Keychain evidence do not satisfy physical-device, abrupt-termination, or native
+application recovery gates, so the v1 atomic-Swap release criterion stays open.
 
 ## 6. Security state machine rules
 

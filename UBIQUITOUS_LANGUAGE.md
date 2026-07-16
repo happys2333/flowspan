@@ -24,6 +24,7 @@ screens or arbitrary process migration.
 | **Swap** | One atomic transaction that exchanges two Activity Placements or changes neither. | Two moves |
 | **Swap Transaction Intent** | A bounded, payload-free coordinator record written before Prepare that binds one Operation, deadline, both expected Activity snapshots, and both device-owned reservation tokens. | Draft decision, retry cache |
 | **Swap Decision** | The one durable Commit or Abort outcome for a Swap, bound to both Device/token participants; an Abort also records its reason. | Message response, local guess |
+| **Swap Endpoint Journal** | A bounded, Device-owned protected record of Prepared reservations, exact local/incoming Activity snapshots, and terminal Swap Decisions used for deterministic restart reduction. | Coordinator log, Activity database |
 | **Mirror** | An Activity presentation on multiple devices while authoritative execution remains on one host. | Copy, sync |
 | **Placement** | The desired device and presentation location of an Activity. | Screen ownership |
 
@@ -87,6 +88,10 @@ screens or arbitrary process migration.
 - A **Swap Decision** binds each reservation token to its participant Device.
   Commit exchanges both Placements or remains recovering; Abort preserves both
   originals and blocks a delayed Prepare through an endpoint tombstone.
+- A **Swap Endpoint Journal** persists Prepared before acknowledgement and a
+  **Swap Decision** before local catalog mutation. It contains protected private
+  recovery content and never becomes discovery, diagnostics, or coordinator
+  metadata.
 - A committed **Replace** has one target-owned **Undo Capsule**. Its payload
   never travels back to the source; only bound, payload-free availability
   metadata may appear in an authenticated result.

@@ -6,6 +6,92 @@ namespace Flowspan.Platform.MacOS.Tests;
 public sealed class MacOSReplaceStateStoreTests
 {
     [Fact]
+    public async Task SwapEndpointKeychainKeyAndFileUseIndependentPurpose()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-macos-swap-endpoint-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "swap-endpoint-state.fsef");
+        byte[] payload = "MACOS-SWAP-ENDPOINT-PLAINTEXT-CANARY"u8.ToArray();
+        var keychain = new FakeMacOSKeychain();
+        try
+        {
+            var first = new MacOSSwapEndpointStatePayloadStore(statePath, keychain);
+            await first.SaveAsync(payload);
+
+            Assert.DoesNotContain(
+                "MACOS-SWAP-ENDPOINT-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(statePath)),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                payload,
+                await new MacOSSwapEndpointStatePayloadStore(
+                    statePath,
+                    keychain).LoadAsync());
+            Assert.NotEqual(
+                MacOSSwapEndpointStatePayloadStore.GetDefaultStatePath(),
+                MacOSSwapStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
+                MacOSSwapEndpointStateKeyStore.DefaultService,
+                MacOSSwapStateKeyStore.DefaultService);
+            Assert.NotEqual(
+                MacOSSwapEndpointStateKeyStore.DefaultAccount,
+                MacOSSwapStateKeyStore.DefaultAccount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProductionSwapEndpointKeyUsesSecurityFrameworkOnMacOSOnly()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-macos-native-swap-endpoint-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "swap-endpoint-state.fsef");
+        string service = $"app.flowspan.tests.swap-endpoint-state.{Guid.NewGuid():N}";
+        const string account = "native-key";
+        var keychain = new SecurityFrameworkKeychain();
+        var store = new MacOSSwapEndpointStatePayloadStore(
+            statePath,
+            new MacOSSwapEndpointStateKeyStore(keychain, service, account));
+        byte[] payload = "MACOS-NATIVE-SWAP-ENDPOINT-STATE"u8.ToArray();
+        try
+        {
+            if (!OperatingSystem.IsMacOS())
+            {
+                await Assert.ThrowsAsync<PlatformNotSupportedException>(async () =>
+                    await store.SaveAsync(payload));
+                return;
+            }
+
+            await store.SaveAsync(payload);
+            Assert.Equal(
+                payload,
+                await new MacOSSwapEndpointStatePayloadStore(
+                    statePath,
+                    new MacOSSwapEndpointStateKeyStore(
+                        keychain,
+                        service,
+                        account)).LoadAsync());
+        }
+        finally
+        {
+            if (OperatingSystem.IsMacOS())
+            {
+                keychain.DeleteGenericPassword(service, account);
+            }
+
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task SwapKeychainKeyAndAuthenticatedFileUseIndependentPurpose()
     {
         string directory = Path.Combine(

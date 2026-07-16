@@ -184,6 +184,24 @@ remains a controlled invocation contract. Endpoint persistence, authenticated
 wire messages, capability authorization, Desktop recovery, physical LAN loss,
 and abrupt power failure remain later evidence.
 
+The task 3.3b endpoint slice writes one Device-bound reservation with complete
+original and incoming Activity snapshots before Prepared can be acknowledged,
+then writes the participant-bound Commit or Abort before catalog mutation or
+acknowledgement. Restart tests reconstruct Prepared, Commit, Abort, and
+Abort-before-Prepare records; prove exact-original reduction, exact
+already-applied replay, conflict recovery, unresolved overlap exclusion, and
+coordinator-plus-two-endpoint convergence after dropped delivery. Fault tests
+inject saves before and after publication and require reopen after every
+ambiguous outcome. Hostile payload cases cover unknown fields, Device mismatch,
+duplicate and noncanonical record order, record/byte bounds, enum and UTC
+violations, request/descriptor/decision digest tamper, and participant-token
+mismatch. The protected `FSEF` file and independent Windows/macOS/Linux key
+purposes have shared and platform contract tests; only the matching host may
+claim its native credential API. The Activity catalog remains an external
+Adapter boundary, while authenticated Swap transport, Desktop recovery,
+physical LAN interruption, abrupt process termination, and power loss remain
+later evidence.
+
 The task 7.3c tracer keeps Replace separate from Activity transfer. Application
 tests require an exact target ID/revision/digest and prove capture or store
 failure blocks before incoming resume, successful Replace stores a 15-minute

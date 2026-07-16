@@ -340,12 +340,19 @@ is applied.
 
 The first durable-core slice persists coordinator intent and decision records in
 a separate authenticated atomic file whose random key is held by DPAPI,
-Keychain, or Secret Service, and hardens the deterministic endpoint state
-machine. It deliberately keeps endpoint reservations and Activity catalogs in
-memory. Protected endpoint journals,
-authenticated protocol messages, capability checks, Desktop exact-confirmation,
-and visible recovery are later slices and are required before the v1 Swap
-criterion can pass.
+Keychain, or Secret Service. The endpoint durability slice adds one bounded,
+Device-bound journal per participant. It persists the full original and incoming
+Activity snapshots before returning Prepared, persists Commit or Abort before
+catalog mutation or acknowledgement, and reduces Commit after restart only from
+the exact original or exact already-replaced catalog state. The endpoint file
+uses its own `FSEF` AES-256-GCM envelope, path, and DPAPI/Keychain/Secret Service
+key purpose; an ambiguous save requires reopening before another write.
+
+The Activity catalog remains an external authoritative Adapter boundary rather
+than a general process-state database. Authenticated Swap protocol messages,
+capability checks, Desktop exact-confirmation and visible recovery, and physical
+restart evidence are later slices and are required before the v1 Swap criterion
+can pass.
 
 ### Mirror and driver lease
 
