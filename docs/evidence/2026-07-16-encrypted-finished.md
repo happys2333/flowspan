@@ -17,8 +17,10 @@ Branch: `codex/v1-foundation`
 
 Implementation commit: `2bcc05cd0e49bbdbba787bcc0a493961e4da2656`.
 
-Task 4.3a remains open until this evidence update and the task-status commit pass
-Windows, macOS, and Ubuntu CI, Secret Scan, and CodeQL.
+Evidence commit: `fd73fa74cb60db026e0e3effa915d23abd0c3f48`.
+
+Task 4.3a becomes final when its task-status commit passes Windows, macOS, and
+Ubuntu CI, Secret Scan, and CodeQL.
 
 ## Local environment and commands
 
@@ -164,7 +166,8 @@ warnings as errors, ran all tests, validated Desktop composition in explicit
 TEST MODE, ran the protocol-1.2 simulator, and uploaded test evidence.
 [CodeQL run `29493934922`](https://github.com/happys2333/flowspan/actions/runs/29493934922),
 job [`87606341332`](https://github.com/happys2333/flowspan/actions/runs/29493934922/job/87606341332),
-also passed for the same commit.
+also passed for the same commit, scanned 189/189 C# files, and uploaded the
+result.
 
 Downloaded test artifacts were Windows `8373631228`, Linux `8373607574`, and
 macOS `8373607515`. Each contains 11 TRX files. Independently summing their
@@ -178,6 +181,22 @@ aborted=0 inconclusive=0 notExecuted=0
 The implementation gate is therefore proved by downloaded test records rather
 than inferred only from a green workflow badge. Hosted runners remain CI
 evidence, not physical two-device or independent cryptographic-review evidence.
+
+Evidence commit `fd73fa74cb60db026e0e3effa915d23abd0c3f48` also passed
+[CI run `29494260925`](https://github.com/happys2333/flowspan/actions/runs/29494260925):
+
+- macOS job [`87607380333`](https://github.com/happys2333/flowspan/actions/runs/29494260925/job/87607380333);
+- Windows job [`87607380575`](https://github.com/happys2333/flowspan/actions/runs/29494260925/job/87607380575);
+- Ubuntu job [`87607380330`](https://github.com/happys2333/flowspan/actions/runs/29494260925/job/87607380330);
+- Secret Scan job [`87607380282`](https://github.com/happys2333/flowspan/actions/runs/29494260925/job/87607380282).
+
+[CodeQL run `29494260905`](https://github.com/happys2333/flowspan/actions/runs/29494260905),
+job [`87607379994`](https://github.com/happys2333/flowspan/actions/runs/29494260905/job/87607379994),
+passed for the evidence commit, scanned 189/189 C# files, and uploaded the
+result. Downloaded Windows artifact `8373749877`, Linux artifact `8373728011`,
+and macOS artifact `8373738334` each contained 11 TRX files; each OS
+independently summed to 734 total, executed, and passed with zero failed, error,
+timeout, aborted, inconclusive, or not-executed results.
 
 ## Remaining limits
 

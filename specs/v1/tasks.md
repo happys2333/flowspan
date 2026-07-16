@@ -194,7 +194,7 @@ means its linked evidence exists; it does not imply the entire product works.
     handshake are implemented with tamper, replay, downgrade, expiry, key
     substitution, and hostile-length tests; live rekey and broader hostile-peer
     testing remain open.
-  - [-] 4.3a Add protocol-1.2 bidirectional encrypted Finished before control
+  - [x] 4.3a Add protocol-1.2 bidirectional encrypted Finished before control
     upgrade; bind role, transcript hash, session ID, direction, epoch, and
     sequence; preserve an explicit 1.0/1.1 compatibility path; add canonical
     fixture, tamper/binding/timeout negatives, and real loopback evidence.
@@ -209,8 +209,10 @@ means its linked evidence exists; it does not imply the entire product works.
       Standards and Spec reviews report 0 findings, and four relevant
       fresh-process groups pass 20/20. Implementation commit `2bcc05c` passes
       Windows, macOS, and Ubuntu CI, Secret Scan, CodeQL, and independently
-      summed 734/734 downloaded TRX evidence. The item remains open until this
-      evidence update and the task-status commit pass the same hosted gates.
+      summed 734/734 downloaded TRX evidence. Evidence commit `fd73fa7` passes
+      CI run `29494260925`, CodeQL run `29494260905`, Secret Scan, and a second
+      independently summed 734/734 TRX set on all three OSes. This status becomes
+      final when the task-status commit passes the same hosted gates.
     - _Requirements: R8.3, R9.1, R12.3_
   - [ ] 4.3b Freeze and implement bounded live rekey with monotonic epochs,
     simultaneous-request resolution, key erasure, replay/gap rejection, and
