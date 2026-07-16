@@ -77,7 +77,8 @@ public sealed class SecureControlChannel : IAsyncDisposable
         CancellationToken operationToken = operationCancellation.Token;
         Task completion;
         uint targetEpoch;
-        bool sendRequest;
+        bool sendUpdate;
+        bool requestPeerUpdate;
         lock (rekeyGate)
         {
             ThrowIfUnavailable();
@@ -85,32 +86,49 @@ public sealed class SecureControlChannel : IAsyncDisposable
             {
                 targetEpoch = pending;
                 completion = pendingRekeyCompletion!.Task;
-                sendRequest = false;
+                sendUpdate = false;
+                requestPeerUpdate = true;
             }
             else
             {
-                if (session.SendEpoch != session.ReceiveEpoch
-                    || session.SendEpoch == uint.MaxValue)
+                uint sendEpoch = session.SendEpoch;
+                uint receiveEpoch = session.ReceiveEpoch;
+                if (sendEpoch == uint.MaxValue)
                 {
                     throw new InvalidOperationException(
                         "A new live rekey requires matching non-exhausted local epochs.");
                 }
 
-                targetEpoch = session.SendEpoch + 1;
+                if (sendEpoch == receiveEpoch)
+                {
+                    targetEpoch = sendEpoch + 1;
+                    requestPeerUpdate = true;
+                }
+                else if (receiveEpoch == sendEpoch + 1)
+                {
+                    targetEpoch = receiveEpoch;
+                    requestPeerUpdate = false;
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "A new live rekey requires matching non-exhausted local epochs.");
+                }
+
                 pendingRekeyEpoch = targetEpoch;
                 pendingRekeyCompletion = new TaskCompletionSource(
                     TaskCreationOptions.RunContinuationsAsynchronously);
                 completion = pendingRekeyCompletion.Task;
-                sendRequest = true;
+                sendUpdate = true;
             }
         }
 
         try
         {
-            if (sendRequest)
+            if (sendUpdate)
             {
                 await SendKeyUpdateIfBehindAsync(
-                    requestPeerUpdate: true,
+                    requestPeerUpdate,
                     targetEpoch,
                     operationToken).ConfigureAwait(false);
                 TryCompletePendingRekey();

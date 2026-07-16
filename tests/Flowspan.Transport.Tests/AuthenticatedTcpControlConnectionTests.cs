@@ -92,21 +92,38 @@ public sealed class AuthenticatedTcpControlConnectionTests
         await using AuthenticatedTcpControlConnection responder = await accept;
         for (uint epoch = 2; epoch <= 4; epoch++)
         {
-            Task<ControlMessage> responderReceive = responder.ReceiveAsync().AsTask();
-            Task<ControlMessage> initiatorReceive = initiator.ReceiveAsync().AsTask();
-            if (epoch == 2)
+            Task<ControlMessage> responderReceive;
+            Task<ControlMessage> initiatorReceive;
+            if (epoch == 3)
             {
-                await initiator.RekeyAsync(TimeSpan.FromSeconds(2));
-            }
-            else if (epoch == 3)
-            {
-                await Task.WhenAll(
-                    initiator.RekeyAsync(TimeSpan.FromSeconds(2)).AsTask(),
-                    responder.RekeyAsync(TimeSpan.FromSeconds(2)).AsTask());
+                Task initiatorRekey = initiator.RekeyAsync(
+                    TimeSpan.FromSeconds(2)).AsTask();
+                Task responderRekey = responder.RekeyAsync(
+                    TimeSpan.FromSeconds(2)).AsTask();
+                await WaitForSendEpochAsync(
+                    initiator,
+                    initiatorRekey,
+                    expectedEpoch: epoch);
+                await WaitForSendEpochAsync(
+                    responder,
+                    responderRekey,
+                    expectedEpoch: epoch);
+                responderReceive = responder.ReceiveAsync().AsTask();
+                initiatorReceive = initiator.ReceiveAsync().AsTask();
+                await Task.WhenAll(initiatorRekey, responderRekey);
             }
             else
             {
-                await responder.RekeyAsync(TimeSpan.FromSeconds(2));
+                responderReceive = responder.ReceiveAsync().AsTask();
+                initiatorReceive = initiator.ReceiveAsync().AsTask();
+                if (epoch == 2)
+                {
+                    await initiator.RekeyAsync(TimeSpan.FromSeconds(2));
+                }
+                else
+                {
+                    await responder.RekeyAsync(TimeSpan.FromSeconds(2));
+                }
             }
 
             Assert.Equal(epoch, initiator.SecureSendEpoch);

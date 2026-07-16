@@ -126,6 +126,43 @@ public sealed class SecureControlChannelConcurrencyTests
     }
 
     [Fact]
+    public async Task LocalRekeyCoalescesWithAuthenticatedPeerRequestInProgress()
+    {
+        (SecureFrameSession initiator, SecureFrameSession responder) =
+            CreateSessions();
+        using SecureFrameSession initiatorOwner = initiator;
+        initiator.AdvanceSendEpoch(nextEpoch: 2);
+        responder.AdvanceReceiveEpoch(nextEpoch: 2);
+        var stream = new MemoryStream();
+        await using var channel = new SecureControlChannel(
+            stream,
+            responder,
+            liveRekeyEnabled: true);
+
+        await channel.RekeyAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal<uint>(2, responder.SendEpoch);
+        Assert.Equal<uint>(2, responder.ReceiveEpoch);
+        byte[] wire = stream.ToArray();
+        int frameLength = BinaryPrimitives.ReadInt32BigEndian(
+            wire.AsSpan(0, sizeof(int)));
+        Assert.Equal(sizeof(int) + frameLength, wire.Length);
+        byte[] plaintext = initiator.Decrypt(
+            wire.AsSpan(sizeof(int), frameLength));
+        try
+        {
+            SecureSessionKeyUpdate response =
+                SecureSessionKeyUpdateCodec.Decode(plaintext);
+            Assert.False(response.RequestPeerUpdate);
+            Assert.Equal<uint>(2, response.NextEpoch);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    [Fact]
     public async Task LegacyChannelFaultsAtUsageBoundWithoutSendingKeyUpdate()
     {
         (SecureFrameSession sender, SecureFrameSession receiver) =
