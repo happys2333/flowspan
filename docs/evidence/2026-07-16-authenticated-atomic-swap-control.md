@@ -15,10 +15,12 @@ behavior, or migration of arbitrary application process state.
 
 Branch: `codex/v1-foundation`
 
-The exact implementation commit and hosted run identifiers are intentionally
-pending until this local candidate is committed and pushed. Task 3.3c remains
-open until the same exact commit passes Windows, macOS, and Ubuntu CI, Secret
-Scan, CodeQL, and downloaded TRX counter verification.
+Verified implementation commit:
+`72f87de46a5accd609dcd932a9d1a3b5fe585bcd`
+
+Task 3.3c remains open until the evidence-closure commit containing the hosted
+results below passes the same Windows, macOS, and Ubuntu CI, Secret Scan, and
+CodeQL workflows.
 
 The protocol and security decision is recorded in
 [ADR 0014](../adr/0014-authenticated-atomic-swap-control.md).
@@ -160,13 +162,51 @@ The review specifically rechecked fail-closed security, protocol 1.0/1.1
 compatibility, exact pending-owner cleanup, session close races, journal v2
 strictness, clean-room boundaries, Desktop non-exposure, and evidence honesty.
 
-## Hosted evidence pending
+## Hosted results for the implementation commit
 
-No Windows, Linux, or hosted macOS result is claimed by this local section.
-After the branch is pushed, this document must record the exact commit, CI and
-CodeQL run/job IDs, Secret Scan result, artifact IDs, and independently summed
-TRX counters for all three operating systems. A documentation closure commit
-must then pass those same workflows before task 3.3c is final.
+GitHub Actions CI run
+[`29484373333`](https://github.com/happys2333/flowspan/actions/runs/29484373333)
+completed successfully for exact implementation commit
+`72f87de46a5accd609dcd932a9d1a3b5fe585bcd`:
+
+- Windows job
+  [`87575241019`](https://github.com/happys2333/flowspan/actions/runs/29484373333/job/87575241019):
+  success;
+- Ubuntu job
+  [`87575241041`](https://github.com/happys2333/flowspan/actions/runs/29484373333/job/87575241041):
+  success;
+- macOS job
+  [`87575241080`](https://github.com/happys2333/flowspan/actions/runs/29484373333/job/87575241080):
+  success;
+- Secret Scan job
+  [`87575241076`](https://github.com/happys2333/flowspan/actions/runs/29484373333/job/87575241076):
+  success.
+
+Every OS job passed locked restore, format verification, warning-as-error
+Release build, the full test command, explicit TEST MODE composition, the
+deterministic protocol-1.1 simulator, and artifact upload. The downloaded
+artifacts were:
+
+- Windows artifact `8369847178`, `test-results-Windows`;
+- Linux artifact `8369806312`, `test-results-Linux`;
+- macOS artifact `8369793874`, `test-results-macOS`.
+
+Each artifact contains 11 TRX files. Directly summing the `Counters` attributes
+produced 701 total, 701 executed, 701 passed, 0 failed, and 0 not executed tests
+on each OS. Thus the hosted count comes from downloaded test evidence rather
+than only the job conclusion. Logs from every OS also contain
+`Flowspan desktop composition validation passed in explicit TEST MODE.`,
+protocol `1.1`, `Source preserved: True`, `Target resumed: True`, and
+`Atomic swap committed: True`.
+
+CodeQL run
+[`29484373352`](https://github.com/happys2333/flowspan/actions/runs/29484373352)
+and Analyze C# job
+[`87575240903`](https://github.com/happys2333/flowspan/actions/runs/29484373352/job/87575240903)
+completed successfully. CodeQL scanned 185/185 C# files and uploaded the result.
+
+The evidence-closure commit containing this section remains subject to the same
+CI, Secret Scan, CodeQL, and downloaded-TRX gates before task 3.3c is final.
 
 ## Remaining work and explicit limits
 
@@ -180,5 +220,7 @@ must then pass those same workflows before task 3.3c is final.
 - The current tracer Activity does not migrate arbitrary application processes
   or private in-process state.
 
-Therefore this local evidence does not yet close task 3.3c. Parent task 3.3,
-task 3.4, the Atomic Swap release criterion, and Flowspan v1 remain open.
+Therefore the implementation commit has closed its local and hosted gates, but
+task 3.3c remains open until the evidence-closure HEAD passes the same gates.
+Parent task 3.3, task 3.4, the Atomic Swap release criterion, and Flowspan v1
+remain open.

@@ -109,10 +109,12 @@ means its linked evidence exists; it does not imply the entire product works.
       TEST MODE composition, protocol-1.1 simulator, dependency query, final
       Standards/Spec review, and honest evidence limits are recorded in
       [authenticated Atomic Swap control evidence](../../docs/evidence/2026-07-16-authenticated-atomic-swap-control.md).
-      The item remains open until the implementation branch is pushed and the
-      Windows/macOS/Ubuntu matrix, Secret Scan, CodeQL, and downloaded TRX counts
-      close on the exact commit and evidence-closure HEAD. Desktop Swap
-      confirmation/recovery and physical two-device evidence remain later work.
+      Exact implementation commit `72f87de` passes CI run `29484373333` on
+      Windows, macOS, and Ubuntu, Secret Scan, CodeQL run `29484373352`, and
+      downloaded TRX verification at 701 passed and 0 failed per OS. The item
+      remains open until the evidence-closure HEAD passes the same workflows.
+      Desktop Swap confirmation/recovery and physical two-device evidence remain
+      later work.
     - _Requirements: R2.5, R5.1-R5.6, R8.3-R8.4, R9.1-R9.2_
   - _Requirements: R5_
 - [-] 3.4 Add generated transition/property cases and deterministic drop,
