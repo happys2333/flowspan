@@ -23,6 +23,42 @@ public sealed class ActivityControlSessionTests
         DeviceId.Parse("22222222-2222-2222-2222-222222222222");
 
     [Fact]
+    public async Task CanceledRunNormalizesConnectionEofToCancellation()
+    {
+        var connection = new CancellationEndsWithEofActivityControlConnection(
+            LocalId,
+            PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        await connection.ReadStarted.WaitAsync(TimeSpan.FromSeconds(1));
+
+        stop.Cancel();
+
+        OperationCanceledException failure =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+        Assert.IsType<EndOfStreamException>(failure.InnerException);
+    }
+
+    [Fact]
+    public async Task RunningSessionPreservesConnectionEof()
+    {
+        var connection = new ImmediateEofActivityControlConnection(LocalId, PeerId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+
+        EndOfStreamException failure = await Assert.ThrowsAsync<EndOfStreamException>(
+            () => session.RunAsync().AsTask());
+
+        Assert.Equal("The peer closed the control channel.", failure.Message);
+    }
+
+    [Fact]
     public async Task OutboundTransferWaitsForMatchingPayloadFreeReceipt()
     {
         var connection = new FakeActivityControlConnection(LocalId, PeerId);
@@ -1270,6 +1306,63 @@ public sealed class ActivityControlSessionTests
         }
 
         public void ReleaseValidation() => releaseValidation.TrySetResult();
+
+        public ValueTask SendAsync(
+            ControlMessage message,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    }
+
+    private sealed class CancellationEndsWithEofActivityControlConnection(
+        DeviceId localDeviceId,
+        DeviceId peerDeviceId) : IActivityControlConnection
+    {
+        private readonly TaskCompletionSource readStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public DeviceId LocalDeviceId { get; } = localDeviceId;
+
+        public DeviceId PeerDeviceId { get; } = peerDeviceId;
+
+        public ProtocolVersion ProtocolVersion { get; } = new(1, 0);
+
+        public Task ReadStarted => readStarted.Task;
+
+        public async ValueTask<ControlMessage> ReadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            readStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw new EndOfStreamException(
+                    "The peer closed while the local session was stopping.");
+            }
+
+            throw new InvalidOperationException("An infinite delay unexpectedly completed.");
+        }
+
+        public ValueTask SendAsync(
+            ControlMessage message,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    }
+
+    private sealed class ImmediateEofActivityControlConnection(
+        DeviceId localDeviceId,
+        DeviceId peerDeviceId) : IActivityControlConnection
+    {
+        public DeviceId LocalDeviceId { get; } = localDeviceId;
+
+        public DeviceId PeerDeviceId { get; } = peerDeviceId;
+
+        public ProtocolVersion ProtocolVersion { get; } = new(1, 0);
+
+        public ValueTask<ControlMessage> ReadAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<ControlMessage>(
+                new EndOfStreamException("The peer closed the control channel."));
 
         public ValueTask SendAsync(
             ControlMessage message,

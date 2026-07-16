@@ -167,6 +167,13 @@ internal sealed class ActivityControlSession :
                 }
             }
         }
+        catch (IOException exception) when (linked.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                "The Activity control session was stopped.",
+                exception,
+                linked.Token);
+        }
         finally
         {
             Volatile.Write(ref stopped, 1);
