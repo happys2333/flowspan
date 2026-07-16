@@ -89,18 +89,19 @@ means its linked evidence exists; it does not imply the entire product works.
       This status becomes final only after the evidence/closure HEAD passes the
       same workflows. Activity-catalog durability, authenticated protocol
       composition, Desktop UX, and physical/native evidence remain open.
-  - [ ] 3.3c Compose exact Activity snapshot, Prepare, and durable decision over
+  - [x] 3.3c Compose exact Activity snapshot, Prepare, and durable decision over
     the authenticated control session. Add an independent `activity.swap`
     grant; deny new disclosure and reservation without it; permit only exact
     already-recorded decision convergence after revocation; bind every response
     to its pending Operation/correlation/participant/digest; and prove a
     coordinator using one local and one real encrypted loopback endpoint.
-    - Current candidate implements protocol-1.1 gating, six frozen JSON/frame/hash
-      fixtures, strict hostile decoding, Operation/correlation/peer-bound endpoint
-      journal v2, exact Prepare replay after expiry/revocation, sensitive direct-
-      Prepare rejection, deterministic send/response deadlines with receive-point
-      and envelope-expiry rechecks, shared pending correlation cleanup, and one
-      authenticated encrypted-loopback coordinator.
+    - Complete at implementation commit `72f87de`. The slice adds protocol-1.1
+      gating, six frozen JSON/frame/hash fixtures, strict hostile decoding,
+      Operation/correlation/peer-bound endpoint journal v2, exact Prepare replay
+      after expiry/revocation, sensitive direct-Prepare rejection, deterministic
+      send/response deadlines with receive-point and envelope-expiry rechecks,
+      shared pending correlation cleanup, and one authenticated encrypted-loopback
+      coordinator.
       Non-cooperative send, exact correlation-owner cleanup, strict required
       journal fields/canonical time, representable committed revisions, terminal-
       decision headroom, and pre-cancelled missing-file load are covered by
@@ -111,10 +112,12 @@ means its linked evidence exists; it does not imply the entire product works.
       [authenticated Atomic Swap control evidence](../../docs/evidence/2026-07-16-authenticated-atomic-swap-control.md).
       Exact implementation commit `72f87de` passes CI run `29484373333` on
       Windows, macOS, and Ubuntu, Secret Scan, CodeQL run `29484373352`, and
-      downloaded TRX verification at 701 passed and 0 failed per OS. The item
-      remains open until the evidence-closure HEAD passes the same workflows.
-      Desktop Swap confirmation/recovery and physical two-device evidence remain
-      later work.
+      downloaded TRX verification at 701 passed and 0 failed per OS. Evidence
+      commit `95d845d` passes the same gates in CI run `29484969933` and CodeQL
+      run `29484970378`, with independently summed 701/701 TRX results per OS.
+      This status becomes final only after the task-status HEAD passes the same
+      workflows. Desktop Swap confirmation/recovery and physical two-device
+      evidence remain later work.
     - _Requirements: R2.5, R5.1-R5.6, R8.3-R8.4, R9.1-R9.2_
   - _Requirements: R5_
 - [-] 3.4 Add generated transition/property cases and deterministic drop,

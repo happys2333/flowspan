@@ -18,9 +18,9 @@ Branch: `codex/v1-foundation`
 Verified implementation commit:
 `72f87de46a5accd609dcd932a9d1a3b5fe585bcd`
 
-Task 3.3c remains open until the evidence-closure commit containing the hosted
-results below passes the same Windows, macOS, and Ubuntu CI, Secret Scan, and
-CodeQL workflows.
+Task 3.3c's implementation and evidence commits have passed the required hosted
+gates below. Its completed task status becomes final only after the commit
+containing that status passes the same workflows.
 
 The protocol and security decision is recorded in
 [ADR 0014](../adr/0014-authenticated-atomic-swap-control.md).
@@ -205,8 +205,40 @@ and Analyze C# job
 [`87575240903`](https://github.com/happys2333/flowspan/actions/runs/29484373352/job/87575240903)
 completed successfully. CodeQL scanned 185/185 C# files and uploaded the result.
 
-The evidence-closure commit containing this section remains subject to the same
-CI, Secret Scan, CodeQL, and downloaded-TRX gates before task 3.3c is final.
+The evidence-closure commit and its same-gate verification are recorded below.
+
+## Hosted results for the evidence commit
+
+Evidence commit `95d845d72907bf7677158b77e57e7851bc080d61` passed CI run
+[`29484969933`](https://github.com/happys2333/flowspan/actions/runs/29484969933):
+
+- Windows job
+  [`87577171342`](https://github.com/happys2333/flowspan/actions/runs/29484969933/job/87577171342):
+  success;
+- Ubuntu job
+  [`87577171357`](https://github.com/happys2333/flowspan/actions/runs/29484969933/job/87577171357):
+  success;
+- macOS job
+  [`87577171457`](https://github.com/happys2333/flowspan/actions/runs/29484969933/job/87577171457):
+  success;
+- Secret Scan job
+  [`87577171444`](https://github.com/happys2333/flowspan/actions/runs/29484969933/job/87577171444):
+  success.
+
+The downloaded Windows artifact `8370056377`, Linux artifact `8370036974`, and
+macOS artifact `8370042646` each contained 11 TRX files. Direct counter sums
+again produced 701 total, 701 executed, 701 passed, 0 failed, and 0 not executed
+tests on every hosted OS.
+
+CodeQL run
+[`29484970378`](https://github.com/happys2333/flowspan/actions/runs/29484970378)
+and Analyze C# job
+[`87577172947`](https://github.com/happys2333/flowspan/actions/runs/29484970378/job/87577172947)
+also completed successfully, scanned 185/185 C# files, and uploaded the result.
+Thus the implementation and evidence commits passed the same hosted gates.
+
+The task-status commit containing this section remains subject to those same
+workflows before its completed checkbox is treated as final.
 
 ## Remaining work and explicit limits
 
@@ -220,7 +252,7 @@ CI, Secret Scan, CodeQL, and downloaded-TRX gates before task 3.3c is final.
 - The current tracer Activity does not migrate arbitrary application processes
   or private in-process state.
 
-Therefore the implementation commit has closed its local and hosted gates, but
-task 3.3c remains open until the evidence-closure HEAD passes the same gates.
-Parent task 3.3, task 3.4, the Atomic Swap release criterion, and Flowspan v1
-remain open.
+Therefore task 3.3c has closed its implementation and evidence gates. Its
+completed status becomes final only after the task-status HEAD passes the same
+workflows. Parent task 3.3, task 3.4, the Atomic Swap release criterion, and
+Flowspan v1 remain open.
