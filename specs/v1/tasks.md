@@ -72,8 +72,19 @@ means its linked evidence exists; it does not imply the entire product works.
       This status becomes final only after the evidence/closure HEAD passes the
       same workflows. Endpoint durability, authenticated protocol composition,
       Desktop UX, and physical/native evidence remain open.
-  - [ ] 3.3b Persist protected endpoint reservations, terminal decisions, and
+  - [x] 3.3b Persist protected endpoint reservations, terminal decisions, and
     restart reduction before composing Swap over an authenticated channel.
+    - Complete at implementation commit `0f59891`: Prepared and terminal
+      decisions persist before acknowledgement or catalog mutation; restart
+      reduction accepts only exact catalog evidence; unresolved work excludes
+      overlap; and purpose-separated authenticated files fail closed. All 632
+      tests, Secret Scan, and CodeQL pass on the exact implementation commit
+      across hosted Windows, macOS, and Ubuntu; downloaded TRX counters and
+      explicit limits are recorded in
+      [durable Atomic Swap endpoint evidence](../../docs/evidence/2026-07-16-durable-atomic-swap-endpoints.md).
+      This status becomes final only after the evidence/closure HEAD passes the
+      same workflows. Activity-catalog durability, authenticated protocol
+      composition, Desktop UX, and physical/native evidence remain open.
   - _Requirements: R5_
 - [-] 3.4 Add generated transition/property cases and deterministic drop,
   duplicate, delay, disconnect, and journal-failure tests.
