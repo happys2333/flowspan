@@ -15,10 +15,10 @@ release blockers. This slice does not claim those gaps are closed.
 
 Branch: `codex/v1-foundation`
 
-The implementation commit and hosted run identifiers are pending. Task 4.3a
-remains open until the implementation, evidence, and task-status commits pass
-Windows, macOS, and Ubuntu CI, Secret Scan, CodeQL, and downloaded TRX
-verification.
+Implementation commit: `2bcc05cd0e49bbdbba787bcc0a493961e4da2656`.
+
+Task 4.3a remains open until this evidence update and the task-status commit pass
+Windows, macOS, and Ubuntu CI, Secret Scan, and CodeQL.
 
 ## Local environment and commands
 
@@ -149,11 +149,35 @@ feature gate, canonical value/codec, session-identifier export, pre-upgrade
 sequence assertion, and production 1.2 advertisement each failed before its
 minimal behavior was added.
 
-## Hosted evidence pending
+## Hosted exact-commit evidence
 
-No Windows, Linux, or hosted macOS result is claimed yet. After push, this file
-must record exact commits, CI/CodeQL run and job IDs, Secret Scan, downloaded
-artifact IDs, and independent TRX sums before task 4.3a can close.
+Implementation commit `2bcc05cd0e49bbdbba787bcc0a493961e4da2656`
+passed [CI run `29493934859`](https://github.com/happys2333/flowspan/actions/runs/29493934859):
+
+- macOS job [`87606341153`](https://github.com/happys2333/flowspan/actions/runs/29493934859/job/87606341153);
+- Windows job [`87606341162`](https://github.com/happys2333/flowspan/actions/runs/29493934859/job/87606341162);
+- Ubuntu job [`87606341306`](https://github.com/happys2333/flowspan/actions/runs/29493934859/job/87606341306);
+- Secret Scan job [`87606341168`](https://github.com/happys2333/flowspan/actions/runs/29493934859/job/87606341168).
+
+Each OS job restored locked dependencies, verified formatting, built with
+warnings as errors, ran all tests, validated Desktop composition in explicit
+TEST MODE, ran the protocol-1.2 simulator, and uploaded test evidence.
+[CodeQL run `29493934922`](https://github.com/happys2333/flowspan/actions/runs/29493934922),
+job [`87606341332`](https://github.com/happys2333/flowspan/actions/runs/29493934922/job/87606341332),
+also passed for the same commit.
+
+Downloaded test artifacts were Windows `8373631228`, Linux `8373607574`, and
+macOS `8373607515`. Each contains 11 TRX files. Independently summing their
+`Counters` attributes produced the same result on every OS:
+
+```text
+total=734 executed=734 passed=734 failed=0 error=0 timeout=0
+aborted=0 inconclusive=0 notExecuted=0
+```
+
+The implementation gate is therefore proved by downloaded test records rather
+than inferred only from a green workflow badge. Hosted runners remain CI
+evidence, not physical two-device or independent cryptographic-review evidence.
 
 ## Remaining limits
 
