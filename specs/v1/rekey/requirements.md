@@ -52,9 +52,10 @@ compatibility evidence. It does not add a new identity ceremony or trust grant.
 
 ### RK4 — Bounded usage
 
-- Before encrypting 1,048,576 frames under one directional AES-GCM key, a
-  protocol 1.3 sender shall reserve the final permitted old-epoch frame for
-  KeyUpdate and rotate before sending more application data.
+- Before encrypting 1,048,576 frames or protecting 1 GiB of application
+  plaintext under one directional AES-GCM key, a protocol 1.3 sender shall
+  reserve one bounded old-epoch frame for KeyUpdate and rotate before sending
+  more application data.
 - When an implementation cannot complete the reserved KeyUpdate, it shall close
   the channel instead of exceeding the bound.
 - Sequence and epoch exhaustion shall be explicit failures; neither counter may
@@ -65,12 +66,13 @@ compatibility evidence. It does not add a new identity ceremony or trust grant.
 - When a caller requests a full-connection rekey, Flowspan shall update its send
   direction and request that the peer update the other direction within a
   bounded deadline.
-- When a peer requests an update from an epoch already superseded locally, the
-  existing later local epoch shall satisfy the request without an unnecessary
-  extra rotation.
-- When both peers request rekey concurrently, their directional updates shall
-  commute: each endpoint shall reach matching send/receive epochs without
-  deadlock, epoch rollback, or unbounded response ping-pong.
+- When a peer requests target epoch `N`, if the local send direction is at
+  `N-1`, Flowspan shall send one non-requesting update to `N`; if it is already
+  at `N` or later, that existing epoch shall satisfy the request without an
+  unnecessary extra rotation; a gap larger than one shall fail closed.
+- When both peers request the same next epoch concurrently, their directional
+  updates shall commute: each endpoint shall reach matching send/receive epochs
+  without deadlock, epoch rollback, a second rotation, or response ping-pong.
 - While one local request is pending, duplicate local requests shall coalesce or
   fail with a structured busy result; they shall not create overlapping epoch
   ownership.

@@ -21,23 +21,24 @@ commit would add failure states without improving record ordering.
 
 - Protocol 1.3 is the first minor version with live KeyUpdate. Adding it to 1.2
   would violate the repository's exact-minor feature policy.
-- Each direction advances independently. The KeyUpdate is encrypted under the
-  old key and is the last old-epoch frame; the next frame uses `epoch + 1` and
-  sequence zero.
-- The canonical 14-byte `FSK1` plaintext carries a request flag, exact next send
-  epoch, and the peer epoch observed by the sender.
+- The traffic keys remain direction-independent but every active update asks the
+  connection to converge on one target epoch. The KeyUpdate is encrypted under
+  the old key and is the last old-epoch frame; the next frame uses the target
+  epoch and sequence zero.
+- The canonical 10-byte `FSR1` plaintext carries a request flag and exact next
+  epoch.
 - The receiver accepts only an authenticated exact-next transition. It never
   tries multiple keys and rejects a new epoch before KeyUpdate or an old epoch
   after it.
 - The next 32-byte key is HKDF-SHA-256 over the current directional key, salted
   by the session identifier and domain-separated by context, direction, and next
   epoch. The old key is erased on successful installation.
-- A directional key protects at most 1,048,576 frames. Protocol 1.3 reserves the
-  final permitted old-epoch frame for KeyUpdate; lower protocol versions close
-  and reconnect at the bound.
-- A requested peer update is satisfied when the local send epoch is already
-  later than the requester's observed peer epoch. This resolves crossed requests
-  without an extra rotation or response loop. An observed future epoch is fatal.
+- A directional key protects at most 1,048,576 frames and 1 GiB of application
+  plaintext. Protocol 1.3 reserves bounded transition overhead for KeyUpdate;
+  lower protocol versions close and reconnect at the bound.
+- A requested target epoch is satisfied when the local send epoch is already at
+  or beyond it. This resolves crossed requests without an extra rotation or
+  response loop; a target gap larger than one is fatal.
 - A post-write cancellation, timeout, or interruption closes the channel and
   recovers through a fresh signed handshake. Partial rekey state is never resumed
   across connections.
@@ -53,7 +54,7 @@ key-usage bounds, and deletion of superseded secrets:
 <https://www.rfc-editor.org/rfc/rfc8446.html>.
 
 Flowspan does not use TLS wire formats, labels, source code, or state-machine
-implementation. `FSK1`, the observed-peer-epoch conflict rule, the `FSE1` epoch
+implementation. `FSR1`, the target-epoch conflict rule, the `FSE1` epoch
 integration, and all code/tests are clean-room Flowspan work.
 
 ## Alternatives considered

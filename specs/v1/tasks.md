@@ -218,7 +218,8 @@ means its linked evidence exists; it does not imply the entire product works.
     simultaneous-request resolution, key erasure, replay/gap rejection, and
     interruption recovery.
     - Requirements, design, executable tasks, protocol-1.3 version boundary,
-      14-byte `FSK1` wire shape, directional HKDF chain, `2^20` frame bound,
+      10-byte `FSR1` wire shape, directional HKDF chain, `2^20` frame plus 1 GiB
+      plaintext bounds,
       crossed-request rule, and reconnect-only interruption recovery are frozen
       in [the rekey specification](rekey/requirements.md),
       [design](rekey/design.md), [tasks](rekey/tasks.md), and ADR 0015.

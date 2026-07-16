@@ -8,7 +8,7 @@
 
 - [ ] 2. Add canonical protocol and derivation primitives
   - Add the protocol-1.3 feature gate without advertising it in production yet.
-  - Implement the bounded 14-byte KeyUpdate codec and frozen golden fixture/hash.
+  - Implement the bounded 10-byte KeyUpdate codec and frozen golden fixture/hash.
   - Implement the directional next-key derivation and fixed test vector.
   - _Requirements: RK1–RK3, RK7_
 
@@ -20,7 +20,7 @@
 
 - [ ] 4. Build the deterministic two-peer rekey transaction
   - Model requesting, responding, crossed requests, coalesced local requests,
-    impossible future observation, and timeout/close outcomes.
+    epoch gaps, and timeout/close outcomes.
   - Add property traces for repeated transitions and simultaneous requests.
   - _Requirements: RK5–RK6, RK7_
 

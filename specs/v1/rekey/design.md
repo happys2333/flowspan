@@ -5,10 +5,10 @@ Status: proposed for task 4.3b
 ## Design summary
 
 Protocol 1.3 keeps the existing authenticated handshake and encrypted Finished,
-then permits either traffic direction to advance independently. A KeyUpdate is
-an internal encrypted control plaintext, not an Activity `ControlMessage`. It is
-the final frame under the old directional key; the next frame in that direction
-uses the next epoch at sequence zero.
+then evolves the two independent traffic keys toward one shared target epoch. A
+KeyUpdate is an internal encrypted control plaintext, not an Activity
+`ControlMessage`. It is the final frame under the old directional key; the next
+frame in that direction uses the target epoch at sequence zero.
 
 This follows the public TLS 1.3 KeyUpdate safety shape—old-key update record,
 independent directional traffic secrets, and reject-new-before-update—while
@@ -26,22 +26,19 @@ using a clean-room Flowspan wire format and key schedule. RFC 8446 sections
 
 ## Wire format
 
-The KeyUpdate plaintext is exactly 14 bytes and is protected by the ordinary
+The KeyUpdate plaintext is exactly 10 bytes and is protected by the ordinary
 `FSE1` frame for the sender's current epoch and sequence:
 
 ```text
-4 bytes magic "FSK1"
+4 bytes magic "FSR1"
 u8 kind = 1
-u8 request_peer_update = 0 or 1
-u32 next_send_epoch, big-endian
-u32 observed_peer_epoch, big-endian
+u8 flags: bit 0 requests peer update; all other bits zero
+u32 next_epoch, big-endian
 ```
 
-`next_send_epoch` must equal the receiver's current receive epoch plus one.
-`observed_peer_epoch` is the sender's current receive epoch at creation time. It
-lets the recipient decide whether its send direction already advanced beyond
-the epoch the requester observed. Unknown kind/flag, trailing data, zero epoch,
-overflow, or impossible future observation is fatal.
+`next_epoch` must equal the receiver's current receive epoch plus one and be at
+least two. Unknown kind/flag bits, trailing data, zero/one epoch, overflow, or an
+epoch gap is fatal.
 
 No operation ID is needed: each direction has one strictly ordered epoch chain,
 and the channel permits at most one locally awaited peer-update request. AEAD
@@ -56,7 +53,7 @@ handshake-derived key frozen in ADR 0003. For `nextEpoch = currentEpoch + 1`:
 
 ```text
 salt = session identifier (16 bytes)
-info = UTF8("FLOWSPAN-TRAFFIC-UPDATE-V1")
+info = UTF8("FLOWSPAN-REKEY-V1")
        || u8(direction)
        || u32_big_endian(nextEpoch)
 nextKey = HKDF-SHA256(currentKey, salt, info, 32 bytes)
@@ -73,15 +70,16 @@ material after any interrupted transition.
 
 ## Usage bound
 
-Flowspan limits each directional key to at most 1,048,576 encrypted frames. The
-default protocol-1.3 channel initiates KeyUpdate before application traffic would
-consume the last available old-epoch frame. Tests inject a small bound through an
-internal profile; production callers cannot raise the bound.
+Flowspan limits each directional key to at most 1,048,576 encrypted frames and
+1 GiB of protected application plaintext. The default protocol-1.3 channel
+initiates KeyUpdate before application traffic would exceed either threshold.
+One bounded KeyUpdate frame is reserved as transition overhead. Tests inject
+small limits through an internal profile; production callers cannot raise them.
 
 This is deliberately below the roughly `2^24.5` full-size-record AES-GCM bound
 discussed by RFC 8446 section 5.5. Flowspan permits plaintexts up to 256 KiB, so
-the lower `2^20` frame limit preserves additional margin and makes the limit
-independent of application message mix.
+the lower `2^20` frame limit plus the byte limit preserves additional margin for
+Flowspan's larger maximum plaintext.
 
 ## State and concurrency
 
@@ -92,38 +90,39 @@ The two protectors remain independent.
 `SecureControlChannel` continues to serialize writes and reads with its existing
 gates:
 
-1. `SendAsync` acquires the send gate. If the usage threshold is reached, it
-   writes a non-requesting KeyUpdate under the old key, flushes it, advances the
-   sender, then writes the application message under the new key.
+1. `SendAsync` acquires the send gate. If the usage threshold would be exceeded,
+   it starts or joins one full-connection update, writes a requesting KeyUpdate
+   under the old key, flushes it, advances the sender, then writes the
+   application message under the new key.
 2. `ReceiveAsync` acquires the receive gate and loops. It decrypts exactly under
    the current receive epoch. If plaintext is KeyUpdate, it validates the
    message, advances the receiver, signals any satisfied local request, sends a
    response when required, and continues until an application message is ready.
-3. `RekeyAsync` permits one pending local full-connection request. It sends a
-   requesting KeyUpdate, advances the sender, and waits for `ReceiveAsync` to
-   observe the peer's update within the configured deadline. A live production
+3. `RekeyAsync` permits one pending local target epoch. It sends a requesting
+   KeyUpdate, advances the sender, and waits for `ReceiveAsync` to observe the
+   peer reaching that epoch within the configured deadline. A live production
    control session already owns one continuous receive loop.
 
-When a peer requests an update:
+When a peer requests target epoch `N`:
 
-- if `localSendEpoch == observed_peer_epoch`, send one non-requesting KeyUpdate;
-- if `localSendEpoch > observed_peer_epoch`, a crossed or earlier local update
-  already satisfies the request, so do not rotate again;
-- if `localSendEpoch < observed_peer_epoch`, fault the channel as impossible
-  future state.
+- if `localSendEpoch == N - 1`, send one non-requesting KeyUpdate to `N`;
+- if `localSendEpoch >= N`, a crossed or earlier local update already satisfies
+  the request, so do not rotate again;
+- if `localSendEpoch < N - 1`, fault the channel as an epoch gap.
 
-Thus simultaneous requests cross safely and each direction advances once. A
-frame already holding the send gate may finish under the old epoch before the
-response; ordered TCP keeps it before the response KeyUpdate.
+Thus simultaneous requests for the same next epoch cross safely and each
+direction advances once. A frame already holding the send gate may finish under
+the old epoch before the response; ordered TCP keeps it before the response
+KeyUpdate.
 
 ```mermaid
 sequenceDiagram
     participant A as "Peer A"
     participant B as "Peer B"
-    A->>B: "KeyUpdate(next=2, observedPeer=1, request=1) under A epoch 1"
+    A->>B: "KeyUpdate(next=2, request=1) under A epoch 1"
     Note over A: "A send becomes epoch 2"
     Note over B: "B receive becomes epoch 2"
-    B->>A: "KeyUpdate(next=2, observedPeer=2, request=0) under B epoch 1"
+    B->>A: "KeyUpdate(next=2, request=0) under B epoch 1"
     Note over B: "B send becomes epoch 2"
     Note over A: "A receive becomes epoch 2; request completes"
 ```
@@ -150,9 +149,9 @@ epoch-one session. No rekey journal or cross-connection resume token exists.
 
 ## Verification matrix
 
-- Golden 14-byte KeyUpdate fixture/hash and next-key derivation vector.
+- Golden 10-byte KeyUpdate fixture/hash and next-key derivation vector.
 - Model/property traces for two peers across repeated and simultaneous updates.
-- Wrong flag/kind/length/epoch/observed epoch; replay, gap, early-new, late-old;
+- Wrong flag/kind/length/epoch; replay, gap, early-new, late-old;
   AEAD tamper without state advance.
 - Threshold boundary, epoch/sequence exhaustion, old-key erasure, repeated
   update, duplicate local request, and cancellation before/after write.

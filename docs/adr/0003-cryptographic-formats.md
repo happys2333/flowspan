@@ -323,6 +323,70 @@ advancing the counter. A key epoch must rotate well before sequence exhaustion;
 the initial implementation rejects exhaustion and does not yet implement live
 rotation.
 
+## Live traffic-key update (protocol 1.3)
+
+Protocol 1.3 retains the protocol-1.2 Finished exchange and adds live,
+direction-independent traffic-key evolution toward one connection target epoch.
+It follows the public TLS 1.3 KeyUpdate pattern at the concept level, without
+copying an implementation: a sender authenticates one update record with its
+current traffic key, then erases that key and begins the target epoch at sequence
+zero. No new identity, Trust, or Capability authority is created. This first
+version does not claim post-compromise security because it evolves the existing
+traffic key rather than performing another ECDH exchange.
+
+The update plaintext is exactly 10 bytes:
+
+```text
+4 bytes magic "FSR1"
+u8(kind = 1, traffic-key update)
+u8(flags: bit 0 requests a peer-direction update; all other bits zero)
+u32 next epoch, big-endian (current epoch + 1, minimum 2)
+```
+
+For `next epoch = 2` with the peer-update flag set, the complete bytes are
+`46535231010100000002`; their SHA-256 is
+`919E1A6CECA322B61A0F98612E55C0584189AE166CC6685E8FB775FBDAD71F45`.
+The plaintext is carried inside the sender's final `FSE1` frame under the current
+key and epoch. Only after that complete length-prefixed frame is flushed does the
+sender derive and install the next key. The receiver decrypts and strictly
+decodes the record under its current receive state, requires exactly
+`current epoch + 1`, then installs the matching receive key before accepting
+another frame. Update records are transport control and are never exposed as
+Activity `ControlMessage` values.
+
+For each direction:
+
+```text
+salt = 16-byte session identifier
+info = UTF8("FLOWSPAN-REKEY-V1") || u8(direction) || u32(next epoch)
+next = HKDF-SHA256(current traffic key, salt, info, 32 bytes)
+```
+
+With a current key of byte `11` repeated 32 times, session identifier byte `22`
+repeated 16 times, initiator-to-responder direction `1`, and next epoch `2`, the
+next key is
+`E1CEE8A87F7D1A22645CE8968C7226F68E7A790AF3C2D07DE8C0D80B80902591`.
+Derivation occurs while the old key remains usable; successful installation
+zeroes the old key before publishing the new epoch. Derivation or installation
+failure faults and destroys the whole session.
+
+The peer-update flag asks the receiver to advance its own send direction to the
+named target epoch. If its send epoch is lower by exactly one, it sends one
+update with the flag clear. If its send epoch is already equal or higher because
+both peers requested simultaneously, it sends nothing. Therefore simultaneous
+requests converge without a second rotation or response ping-pong. A target
+epoch gap, overflow, replayed old epoch, skipped frame sequence, malformed
+record, authentication failure, or update write/flush failure faults the
+connection and erases its live traffic keys.
+
+For protocol 1.3, a sender updates before application traffic would exceed
+either 1,048,576 protected frames or 1 GiB of protected plaintext in the current
+epoch. The already-authenticated Finished frame counts toward epoch 1. One
+bounded update record is reserved as transition overhead at the policy boundary.
+Protocol 1.0 through 1.2 never receive this record; 1.2 remains a Finished-capable
+compatibility path but closes and reconnects at the usage bound. Protocol 1.0
+and 1.1 retain their stronger legacy warning.
+
 ## Verification requirements
 
 - RFC 5869 HKDF-SHA-256 test case 1.
@@ -341,6 +405,10 @@ rotation.
 - Protocol-1.2 Finished codec golden/hash fixture, wrong role/transcript/session,
   AEAD tamper, omission/timeout, first-control sequence, legacy 1.1 compatibility,
   and direct TCP loopback tests.
+- Protocol-1.3 rekey codec and key-schedule golden vectors; single-initiator,
+  simultaneous, automatic frame/byte-threshold, and repeated epoch updates;
+  old-key erasure, old-epoch replay, epoch/sequence gap, malformed flags,
+  write/flush/disconnect, cancellation, and authenticated loopback tests.
 - AEAD round trip, independent directional keys, tamper, replay, sequence gap,
   wrong session/direction, malformed length, and maximum-size tests.
 - Windows/macOS/Linux CI execution, followed by real-machine credential-store
@@ -348,8 +416,8 @@ rotation.
 
 ## Known gaps and release blockers
 
-- No key rotation/rekey protocol exists; task 4.3b must freeze and implement a
-  bounded epoch transition before v1.
+- The protocol-1.3 key-evolution format remains provisional until task 4.3b is
+  implemented, independently reviewed, and supported by exact-commit evidence.
 - No independent security review has approved these formats.
 - Desktop pairing UI and physical two-device SAS evidence are not yet
   implemented. Protocol-1.2 Finished remains provisional until its task evidence
