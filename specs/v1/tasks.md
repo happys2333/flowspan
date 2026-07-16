@@ -365,9 +365,10 @@ means its linked evidence exists; it does not imply the entire product works.
     command, target Replace and local undo serialize before journal creation,
     and the UI projects committed, rejected, recovery-blocked, and uncertain
     outcomes without removing the source. All 579 tests, two 20-process stress
-    groups, Secret Scan, and CodeQL pass on that exact implementation commit
-    across hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, downloaded
-    TRX counts, and explicit physical/native limits are recorded in
+    groups, Secret Scan, and CodeQL pass on that exact implementation commit and
+    evidence commit `57bde44` across hosted Windows, macOS, and Ubuntu.
+    Commands, run/job IDs, downloaded TRX counts, and explicit physical/native
+    limits are recorded in
     [Desktop semantic Replace evidence](../../docs/evidence/2026-07-16-desktop-semantic-replace.md).
     Physical/native product evidence remains open.
     The earlier core/protocol evidence is recorded in

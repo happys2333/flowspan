@@ -168,6 +168,30 @@ completed successfully from 2026-07-16T01:17:08Z through
 2026-07-16T01:20:19Z, including locked restore, analyzed-source build, and
 analysis.
 
+## Hosted evidence-commit verification
+
+The evidence and task-status commit
+`57bde4462442bd26b1423023c31a90f5677c87dd` was independently verified by
+[CI run 29464037893](https://github.com/happys2333/flowspan/actions/runs/29464037893)
+from 2026-07-16T01:24:31Z through 2026-07-16T01:27:13Z:
+
+| Job | Job ID | Result |
+| --- | ---: | --- |
+| Windows | 87513302480 | success |
+| macOS | 87513302525 | success |
+| Ubuntu | 87513302468 | success |
+| Secret Scan | 87513302465 | success |
+
+Every OS job again passed locked restore, format, warning-as-error build, all 579
+tests, TEST MODE composition, deterministic simulator, and evidence upload.
+
+[CodeQL run 29464037951](https://github.com/happys2333/flowspan/actions/runs/29464037951)
+and Analyze C# job `87513302725` also completed successfully for the exact
+evidence commit from 2026-07-16T01:24:35Z through 2026-07-16T01:27:52Z. Thus the
+implementation and the commit recording task 7.3c.7 both passed the same hosted
+gates. The closure commit that records this second result remains subject to
+those gates before its status is treated as final.
+
 ## Explicit limits
 
 - Same-host encrypted loopback and hosted runners do not prove operation between
