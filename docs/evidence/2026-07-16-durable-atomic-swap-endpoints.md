@@ -224,10 +224,36 @@ completed successfully. CodeQL scanned 180/180 C# files and uploaded the result.
 
 ## Hosted results for the evidence commit
 
-The evidence and task-status commit is not yet independently gated. Its exact
-SHA and CI/CodeQL run and job IDs will be recorded in a follow-up closure commit.
-Task 3.3b is not treated as final until that closure commit itself passes the
-same final-HEAD workflows.
+The evidence and task-status commit
+`c9e3125d3df0a86656e502e4f9f70894f3ad9624` was independently verified by CI
+run
+[`29469102251`](https://github.com/happys2333/flowspan/actions/runs/29469102251):
+
+- Windows job
+  [`87528518993`](https://github.com/happys2333/flowspan/actions/runs/29469102251/job/87528518993):
+  success;
+- Ubuntu job
+  [`87528519014`](https://github.com/happys2333/flowspan/actions/runs/29469102251/job/87528519014):
+  success;
+- macOS job
+  [`87528518998`](https://github.com/happys2333/flowspan/actions/runs/29469102251/job/87528518998):
+  success;
+- Secret Scan job
+  [`87528519000`](https://github.com/happys2333/flowspan/actions/runs/29469102251/job/87528519000):
+  success.
+
+The downloaded Windows artifact `8364133927`, Linux artifact `8364121907`, and
+macOS artifact `8364117184` each contained 11 TRX files. Direct counter sums
+again produced 632 passed and 0 failed tests on every hosted OS.
+
+CodeQL run
+[`29469102202`](https://github.com/happys2333/flowspan/actions/runs/29469102202)
+and Analyze C# job
+[`87528518741`](https://github.com/happys2333/flowspan/actions/runs/29469102202/job/87528518741)
+also completed successfully, scanned 180/180 C# files, and uploaded the result.
+Thus both the implementation and evidence commits passed the same hosted gates.
+The closure commit that records these second results remains subject to those
+gates before task 3.3b is treated as final.
 
 ## Remaining work and explicit limits
 
