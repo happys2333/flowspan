@@ -252,8 +252,89 @@ and Analyze C# job
 [`87528518741`](https://github.com/happys2333/flowspan/actions/runs/29469102202/job/87528518741)
 also completed successfully, scanned 180/180 C# files, and uploaded the result.
 Thus both the implementation and evidence commits passed the same hosted gates.
-The closure commit that records these second results remains subject to those
-gates before task 3.3b is treated as final.
+
+## Closure race, diagnosis, and repair
+
+The first documentation closure commit
+`589e9f987b2d9ecb6d25da9acf18267f6f3d667c` triggered CI run
+[`29469290059`](https://github.com/happys2333/flowspan/actions/runs/29469290059).
+Windows job
+[`87529045009`](https://github.com/happys2333/flowspan/actions/runs/29469290059/job/87529045009),
+macOS job
+[`87529045007`](https://github.com/happys2333/flowspan/actions/runs/29469290059/job/87529045007),
+and Secret Scan job
+[`87529045017`](https://github.com/happys2333/flowspan/actions/runs/29469290059/job/87529045017)
+passed. Ubuntu job
+[`87529045058`](https://github.com/happys2333/flowspan/actions/runs/29469290059/job/87529045058)
+failed only
+`DesktopActivityRuntimeTests.AuthenticatedRuntimesExchangeNoteAndExposeOnlyEligibleLiveTarget`:
+the test expected cancellation during simultaneous two-ended shutdown but one
+end observed `EndOfStreamException` first. CodeQL run
+[`29469290073`](https://github.com/happys2333/flowspan/actions/runs/29469290073)
+and Analyze C# job
+[`87529045130`](https://github.com/happys2333/flowspan/actions/runs/29469290073/job/87529045130)
+passed.
+
+The failure was an existing authenticated control-session teardown race rather
+than an endpoint-journal atomicity failure. Both ends shared a cancellation
+token. Canceling both handlers could make one secure channel fault and close
+its stream before the other handler observed its own cancellation, producing
+EOF even though local stop had already been requested. The endpoint
+implementation and evidence commits had passed the same Ubuntu test, and the
+failing test does not exercise Swap endpoint persistence.
+
+Repair commit `06c659f5e79d5ffee3174491ba66cd7090bb1b4a` adds a deterministic
+connection double that returns EOF only after its read token is canceled. The
+test failed before the repair with raw `EndOfStreamException` and passes after
+`ActivityControlSession` normalizes an I/O termination to
+`OperationCanceledException` only when its linked local cancellation is already
+requested. A negative contract proves that an EOF while the session is still
+running remains `EndOfStreamException`, so ordinary peer disconnect is not
+hidden.
+
+Local repair verification passed:
+
+- locked restore, format verification, patch-whitespace check, and a Release
+  build with 0 warnings and 0 errors;
+- all 634 tests with 0 failed and 0 skipped, including 158 Desktop and 139
+  Transport tests;
+- the exact formerly failing Desktop test in 100/100 fresh testhost processes;
+- all four real authenticated loopback session tests;
+- explicit TEST MODE composition and the deterministic simulator;
+- direct/transitive NuGet vulnerability audit with no known vulnerable package
+  in any of the 24 projects.
+
+GitHub Actions CI run
+[`29469818397`](https://github.com/happys2333/flowspan/actions/runs/29469818397)
+passed for the exact repair commit:
+
+- Windows job
+  [`87530564435`](https://github.com/happys2333/flowspan/actions/runs/29469818397/job/87530564435):
+  success;
+- Ubuntu job
+  [`87530564449`](https://github.com/happys2333/flowspan/actions/runs/29469818397/job/87530564449):
+  success;
+- macOS job
+  [`87530564432`](https://github.com/happys2333/flowspan/actions/runs/29469818397/job/87530564432):
+  success;
+- Secret Scan job
+  [`87530564423`](https://github.com/happys2333/flowspan/actions/runs/29469818397/job/87530564423):
+  success.
+
+The downloaded Windows artifact `8364396551`, Linux artifact `8364378923`, and
+macOS artifact `8364375147` each contained 11 TRX files. Directly summing their
+counters produced 634 passed, 0 failed, and 0 not executed on each hosted OS.
+Each job also passed locked restore, format verification, warning-as-error
+Release build, explicit TEST MODE composition, simulator, and artifact upload.
+
+CodeQL run
+[`29469818419`](https://github.com/happys2333/flowspan/actions/runs/29469818419)
+and Analyze C# job
+[`87530564407`](https://github.com/happys2333/flowspan/actions/runs/29469818419/job/87530564407)
+completed successfully and uploaded the result.
+
+The documentation closure commit containing this section remains subject to
+the same CI, Secret Scan, and CodeQL gates before task 3.3b is treated as final.
 
 ## Remaining work and explicit limits
 

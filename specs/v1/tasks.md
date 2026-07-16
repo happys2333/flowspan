@@ -80,7 +80,11 @@ means its linked evidence exists; it does not imply the entire product works.
       overlap; and purpose-separated authenticated files fail closed. All 632
       tests, Secret Scan, and CodeQL pass on the exact implementation commit
       `0f59891` and evidence commit `c9e3125` across hosted Windows, macOS, and
-      Ubuntu; downloaded TRX counters and explicit limits are recorded in
+      Ubuntu. The first closure run exposed an existing concurrent session-stop
+      EOF race; deterministic cancellation contracts and the minimal fix at
+      `06c659f` pass all 634 tests and the same hosted gates on all three OSes.
+      Downloaded TRX counters, run IDs, diagnosis, and explicit limits are
+      recorded in
       [durable Atomic Swap endpoint evidence](../../docs/evidence/2026-07-16-durable-atomic-swap-endpoints.md).
       This status becomes final only after the evidence/closure HEAD passes the
       same workflows. Activity-catalog durability, authenticated protocol
