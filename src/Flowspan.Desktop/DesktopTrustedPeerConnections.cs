@@ -30,9 +30,16 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
     PeerReconnectStopReason? StopReason,
     string? ConflictingFingerprint)
 {
+    public ImmutableArray<ProtocolVersion> ActiveProtocolVersions { get; init; } = [];
+
     public bool HasIdentityWarning =>
         ConflictingFingerprint is not null
         || StopReason == PeerReconnectStopReason.CandidateIdentityChanged;
+
+    public bool IsLegacyCompatibilityMode =>
+        State == DesktopTrustedPeerConnectionState.AuthenticatedIdle
+        && ActiveProtocolVersions.Any(static version =>
+            version < ProtocolFeatures.SecureSessionFinishedMinimumVersion);
 
     public string StatusLabel => State switch
     {
@@ -41,6 +48,9 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
         DesktopTrustedPeerConnectionState.WaitingForInbound =>
             "WAITING FOR INBOUND AUTHENTICATION",
         DesktopTrustedPeerConnectionState.Authenticating => "AUTHENTICATING",
+        DesktopTrustedPeerConnectionState.AuthenticatedIdle
+            when IsLegacyCompatibilityMode =>
+                "AUTHENTICATED — LEGACY COMPATIBILITY / IDLE / NOT SHARING",
         DesktopTrustedPeerConnectionState.AuthenticatedIdle =>
             "AUTHENTICATED — IDLE / NOT SHARING",
         DesktopTrustedPeerConnectionState.Retrying => "RETRYING LOCALLY",
@@ -73,6 +83,9 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
             "This Device ID waits on the shared authenticated listener to avoid a duplicate connection.",
         DesktopTrustedPeerConnectionState.Authenticating =>
             "Verifying the signed offer, identity transcript, and current Capability grant.",
+        DesktopTrustedPeerConnectionState.AuthenticatedIdle
+            when IsLegacyCompatibilityMode =>
+                $"DEGRADED SECURITY — protocol {string.Join(", ", ActiveProtocolVersions)} uses legacy compatibility without encrypted Finished. The encrypted control channel is idle; no Activity is being shared.",
         DesktopTrustedPeerConnectionState.AuthenticatedIdle =>
             "The encrypted control channel is idle. No Activity is being shared.",
         DesktopTrustedPeerConnectionState.Retrying => RetryDelay is TimeSpan delay
@@ -382,10 +395,19 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         }
     }
 
-    internal IDisposable TrackAuthenticatedSession(DeviceId peerDeviceId)
+    internal IDisposable TrackAuthenticatedSession(
+        DeviceId peerDeviceId,
+        ProtocolVersion protocolVersion)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (protocolVersion.Major < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(protocolVersion),
+                "An authenticated session requires an initialized protocol version.");
+        }
+
         lock (gate)
         {
             if (!peers.TryGetValue(peerDeviceId, out PeerState? state))
@@ -409,10 +431,15 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
             }
 
             state.ActiveSessions++;
+            state.ActiveProtocolVersions[protocolVersion] =
+                state.ActiveProtocolVersions.GetValueOrDefault(protocolVersion) + 1;
         }
 
         PublishChanged();
-        return new AuthenticatedSessionLease(this, peerDeviceId);
+        return new AuthenticatedSessionLease(
+            this,
+            peerDeviceId,
+            protocolVersion);
     }
 
     public async ValueTask DisposeAsync()
@@ -565,7 +592,9 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         }
     }
 
-    private void ReleaseAuthenticatedSession(DeviceId peerDeviceId)
+    private void ReleaseAuthenticatedSession(
+        DeviceId peerDeviceId,
+        ProtocolVersion protocolVersion)
     {
         bool changed = false;
         lock (gate)
@@ -574,6 +603,18 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
                 && state.ActiveSessions > 0)
             {
                 state.ActiveSessions--;
+                int versionSessions =
+                    state.ActiveProtocolVersions.GetValueOrDefault(protocolVersion);
+                if (versionSessions <= 1)
+                {
+                    state.ActiveProtocolVersions.Remove(protocolVersion);
+                }
+                else
+                {
+                    state.ActiveProtocolVersions[protocolVersion] =
+                        versionSessions - 1;
+                }
+
                 changed = true;
             }
         }
@@ -677,6 +718,8 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
 
     private sealed class PeerState(TrustedPeerSnapshot peer)
     {
+        public Dictionary<ProtocolVersion, int> ActiveProtocolVersions { get; } = [];
+
         public int ActiveSessions { get; set; }
 
         public string? ConflictingFingerprint { get; set; }
@@ -696,15 +739,20 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         public PeerReconnectStopReason? StopReason { get; set; }
 
         public DesktopTrustedPeerConnectionSnapshot CreateSnapshot() => new(
-            Peer.DeviceId,
-            Peer.DisplayName,
-            Peer.Fingerprint,
-            ActiveSessions > 0
-                ? DesktopTrustedPeerConnectionState.AuthenticatedIdle
-                : State,
-            ActiveSessions > 0 ? null : RetryDelay,
-            StopReason,
-            ConflictingFingerprint);
+                Peer.DeviceId,
+                Peer.DisplayName,
+                Peer.Fingerprint,
+                ActiveSessions > 0
+                    ? DesktopTrustedPeerConnectionState.AuthenticatedIdle
+                    : State,
+                ActiveSessions > 0 ? null : RetryDelay,
+                StopReason,
+                ConflictingFingerprint)
+        {
+            ActiveProtocolVersions = ActiveProtocolVersions.Keys
+                    .Order()
+                    .ToImmutableArray(),
+        };
     }
 
     private sealed class TrackingSessionHandler(
@@ -718,7 +766,8 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         {
             ArgumentNullException.ThrowIfNull(connection);
             using IDisposable lease = owner.TrackAuthenticatedSession(
-                connection.PeerIdentity.DeviceId);
+                connection.PeerIdentity.DeviceId,
+                connection.ProtocolVersion);
             await inner.RunAsync(connection, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -756,7 +805,8 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
 
     private sealed class AuthenticatedSessionLease(
         DesktopTrustedPeerConnectionCoordinator owner,
-        DeviceId peerDeviceId) : IDisposable
+        DeviceId peerDeviceId,
+        ProtocolVersion protocolVersion) : IDisposable
     {
         private DesktopTrustedPeerConnectionCoordinator? owner = owner;
 
@@ -764,7 +814,7 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         {
             DesktopTrustedPeerConnectionCoordinator? current =
                 Interlocked.Exchange(ref owner, null);
-            current?.ReleaseAuthenticatedSession(peerDeviceId);
+            current?.ReleaseAuthenticatedSession(peerDeviceId, protocolVersion);
         }
     }
 
@@ -951,6 +1001,7 @@ internal sealed class SystemDesktopPeerReconnectLoopFactory :
                     Capability.ActivityReplace,
                     Capability.ActivitySwap),
                 [
+                    ProtocolFeatures.SecureSessionFinishedMinimumVersion,
                     ProtocolFeatures.ActivitySwapMinimumVersion,
                     new ProtocolVersion(1, 0),
                 ],

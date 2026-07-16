@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Net;
 using System.Net.Sockets;
 using Flowspan.Domain;
+using Flowspan.Protocol;
 using Flowspan.Security;
 using Flowspan.Transport;
 
@@ -125,6 +126,9 @@ public sealed class DesktopLocalPairingRuntimeTests
 
         Assert.InRange(boundPort, 1, ushort.MaxValue);
         Assert.Equal(boundPort, offer.Port);
+        Assert.Contains(
+            ProtocolFeatures.SecureSessionFinishedMinimumVersion,
+            offer.ProtocolVersions);
         Assert.True(offer.Verify(identity.PublicIdentity, DateTimeOffset.UtcNow));
         Assert.Equal(1, dns.StartCount);
 

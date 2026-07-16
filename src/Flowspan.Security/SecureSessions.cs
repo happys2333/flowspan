@@ -234,6 +234,12 @@ public sealed class SecureFrameSession : IDisposable
 
     public ulong NextReceiveSequence => receiver.Sequence;
 
+    public byte[] ExportSessionIdentifier()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        return Convert.FromHexString(SessionIdentifier);
+    }
+
     public byte[] Encrypt(ReadOnlySpan<byte> plaintext)
     {
         ObjectDisposedException.ThrowIf(disposed, this);

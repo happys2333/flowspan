@@ -39,9 +39,15 @@ public static class ProtocolFeatures
 {
     public static ProtocolVersion ActivitySwapMinimumVersion { get; } = new(1, 1);
 
+    public static ProtocolVersion SecureSessionFinishedMinimumVersion { get; } = new(1, 2);
+
     public static bool SupportsActivitySwap(ProtocolVersion version) =>
         version.Major == ActivitySwapMinimumVersion.Major
         && version.Minor >= ActivitySwapMinimumVersion.Minor;
+
+    public static bool RequiresSecureSessionFinished(ProtocolVersion version) =>
+        version.Major == SecureSessionFinishedMinimumVersion.Major
+        && version.Minor >= SecureSessionFinishedMinimumVersion.Minor;
 }
 
 public readonly record struct ProtocolNegotiationResult(

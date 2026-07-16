@@ -111,6 +111,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     "The local pairing listener did not expose an IP endpoint.");
             ProtocolVersion[] versions =
             [
+                ProtocolFeatures.SecureSessionFinishedMinimumVersion,
                 ProtocolFeatures.ActivitySwapMinimumVersion,
                 new ProtocolVersion(1, 0),
             ];

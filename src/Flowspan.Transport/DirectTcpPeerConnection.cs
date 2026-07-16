@@ -5,7 +5,19 @@ using Flowspan.Security;
 
 namespace Flowspan.Transport;
 
-public sealed class DirectTcpPeerConnection : IAsyncDisposable
+internal interface IAuthenticatedHandshakeTransport : IAsyncDisposable
+{
+    public ValueTask SendHandshakeAsync(
+        ReadOnlyMemory<byte> message,
+        CancellationToken cancellationToken);
+
+    public ValueTask<byte[]> ReceiveHandshakeAsync(
+        CancellationToken cancellationToken);
+}
+
+public sealed class DirectTcpPeerConnection :
+    IAsyncDisposable,
+    IAuthenticatedHandshakeTransport
 {
     private readonly TcpClient client;
     private readonly Lock gate = new();
@@ -144,6 +156,15 @@ public sealed class DirectTcpPeerConnection : IAsyncDisposable
             return ValueTask.CompletedTask;
         }
     }
+
+    ValueTask<byte[]> IAuthenticatedHandshakeTransport.ReceiveHandshakeAsync(
+        CancellationToken cancellationToken) =>
+        ReceiveHandshakeAsync(cancellationToken);
+
+    ValueTask IAuthenticatedHandshakeTransport.SendHandshakeAsync(
+        ReadOnlyMemory<byte> message,
+        CancellationToken cancellationToken) =>
+        SendHandshakeAsync(message, cancellationToken);
 
     private static IPEndPoint RequireEndpoint(EndPoint? endpoint, string kind) =>
         endpoint as IPEndPoint

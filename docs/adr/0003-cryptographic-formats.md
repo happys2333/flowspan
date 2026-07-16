@@ -230,9 +230,10 @@ immediately before capability registration.
 Every handshake wire message is itself prefixed by a signed 32-bit big-endian
 TCP frame length bounded to 1..4096. Either parse, identity, version, signature,
 or cancellation failure closes the candidate socket. After both sides validate
-the peer authentication, the same socket is upgraded to encrypted control
-frames. The first encrypted control message also provides key possession
-confirmation; there is not yet a separate encrypted Finished message.
+the peer authentication, protocol 1.0 and 1.1 upgrade the same socket to
+encrypted control frames; their first control message provides only implicit
+key-possession confirmation. Protocol 1.2 adds the explicit Finished exchange
+defined below before upgrade.
 The transport applies a 10-second default handshake timeout after TCP accept or
 connect; callers may reduce it or increase it to at most two minutes.
 The authenticated connection rejects every outbound or inbound control message
@@ -253,6 +254,43 @@ okm[64..80]  session identifier
 
 The implementation must erase raw secret and derived key arrays when their
 owner is disposed.
+
+## Encrypted Finished exchange (protocol 1.2)
+
+Protocol 1.2 adds explicit bidirectional key confirmation before a direct TCP
+connection can be exposed as an authenticated control channel. Protocol 1.0 and
+1.1 retain the original four-message compatibility path; when both peers offer
+1.2, the signed highest-common-version transcript requires this exchange and a
+network attacker cannot remove 1.2 from either offer without invalidating an
+identity signature.
+
+After the four signed handshake messages and session-key derivation, the
+initiator sends one encrypted Finished frame and waits for the responder's
+encrypted Finished. The responder verifies the initiator frame before sending
+its own. The outer frame is the existing `FSE1` epoch-1 AEAD frame at sequence
+zero in that direction. Its plaintext is:
+
+```text
+4 bytes magic "FSH1"
+u8(kind = 3)
+u8(role: 1 initiator, 2 responder)
+bytes(handshake transcript hash, exactly 32 bytes)
+bytes(session identifier, exactly 16 bytes)
+```
+
+The role, transcript hash, and session identifier must all match the local
+authenticated handshake state using fixed-time comparisons for byte fields.
+Malformed plaintext, wrong role, wrong transcript/session binding, AEAD failure,
+missing Finished, or timeout closes the connection before upgrade. Successful
+Finished consumes secure-frame sequence zero, so the first control message uses
+sequence one. Finished proves possession of the derived directional traffic key;
+it does not create new authority beyond the signed identity transcript and
+current Trust Record.
+
+The production desktop advertises 1.2 before 1.1 and 1.0. A peer that negotiates
+1.0 or 1.1 remains interoperable but is explicitly a legacy session without the
+new Finished evidence. Removing that compatibility path is a release-policy
+decision separate from this wire addition.
 
 ## Encrypted frame v1
 
@@ -300,6 +338,9 @@ rotation.
 - Authenticated-handshake transcript/wire round trip, highest-common-version,
   claimed-ID/key substitution, altered-version signature, direct TCP loopback,
   and two-current-peer shared-listener tests.
+- Protocol-1.2 Finished codec golden/hash fixture, wrong role/transcript/session,
+  AEAD tamper, omission/timeout, first-control sequence, legacy 1.1 compatibility,
+  and direct TCP loopback tests.
 - AEAD round trip, independent directional keys, tamper, replay, sequence gap,
   wrong session/direction, malformed length, and maximum-size tests.
 - Windows/macOS/Linux CI execution, followed by real-machine credential-store
@@ -307,10 +348,12 @@ rotation.
 
 ## Known gaps and release blockers
 
-- No key rotation/rekey protocol exists.
+- No key rotation/rekey protocol exists; task 4.3b must freeze and implement a
+  bounded epoch transition before v1.
 - No independent security review has approved these formats.
-- Desktop pairing UI, physical two-device SAS evidence, and an explicit
-  encrypted Finished exchange are not yet implemented.
+- Desktop pairing UI and physical two-device SAS evidence are not yet
+  implemented. Protocol-1.2 Finished remains provisional until its task evidence
+  and independent security review close.
 - The platform credential-store adapters remain provisional and do not yet have
   the complete real-machine Windows/macOS/Linux acceptance evidence.
 - In-memory identities are test/simulator infrastructure only, and the listener

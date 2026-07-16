@@ -315,12 +315,108 @@ public sealed class SessionHandshakeAuthentication
     }
 }
 
+public sealed class SessionHandshakeFinished
+{
+    public const int SessionIdentifierLength = 16;
+    public const int TranscriptHashLength = SHA256.HashSizeInBytes;
+    private readonly byte[] sessionIdentifier;
+    private readonly byte[] transcriptHash;
+
+    private SessionHandshakeFinished(
+        SecureSessionRole role,
+        byte[] transcriptHash,
+        byte[] sessionIdentifier)
+    {
+        Role = role;
+        this.transcriptHash = transcriptHash;
+        this.sessionIdentifier = sessionIdentifier;
+    }
+
+    public SecureSessionRole Role { get; }
+
+    public static SessionHandshakeFinished Create(
+        SecureSessionRole role,
+        ReadOnlySpan<byte> transcriptHash,
+        ReadOnlySpan<byte> sessionIdentifier)
+    {
+        if (!Enum.IsDefined(role))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(role),
+                role,
+                "Unknown Finished role.");
+        }
+
+        if (transcriptHash.Length != TranscriptHashLength)
+        {
+            throw new ArgumentException(
+                $"A Finished transcript hash must contain {TranscriptHashLength} bytes.",
+                nameof(transcriptHash));
+        }
+
+        if (sessionIdentifier.Length != SessionIdentifierLength)
+        {
+            throw new ArgumentException(
+                $"A Finished session identifier must contain {SessionIdentifierLength} bytes.",
+                nameof(sessionIdentifier));
+        }
+
+        return new SessionHandshakeFinished(
+            role,
+            transcriptHash.ToArray(),
+            sessionIdentifier.ToArray());
+    }
+
+    public bool Matches(
+        SecureSessionRole expectedRole,
+        ReadOnlySpan<byte> expectedTranscriptHash,
+        ReadOnlySpan<byte> expectedSessionIdentifier)
+    {
+        if (Role != expectedRole
+            || expectedTranscriptHash.Length != TranscriptHashLength
+            || expectedSessionIdentifier.Length != SessionIdentifierLength)
+        {
+            return false;
+        }
+
+        bool transcriptMatches = CryptographicOperations.FixedTimeEquals(
+            transcriptHash,
+            expectedTranscriptHash);
+        bool sessionMatches = CryptographicOperations.FixedTimeEquals(
+            sessionIdentifier,
+            expectedSessionIdentifier);
+        return transcriptMatches & sessionMatches;
+    }
+
+    internal ReadOnlySpan<byte> SessionIdentifier => sessionIdentifier;
+
+    internal ReadOnlySpan<byte> TranscriptHash => transcriptHash;
+
+    internal static SessionHandshakeFinished Import(
+        SecureSessionRole role,
+        ReadOnlySpan<byte> transcriptHash,
+        ReadOnlySpan<byte> sessionIdentifier)
+    {
+        try
+        {
+            return Create(role, transcriptHash, sessionIdentifier);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidDataException(
+                "The Finished binding lengths are invalid.",
+                exception);
+        }
+    }
+}
+
 public enum SessionHandshakeFailure
 {
     NoCommonProtocolVersion,
     LocalIdentityMismatch,
     PeerIdentityChanged,
     InvalidPeerSignature,
+    InvalidPeerFinished,
     EphemeralKeyMismatch,
     PeerNotTrusted,
 }
@@ -331,6 +427,12 @@ public sealed class SessionHandshakeException : CryptographicException
         SessionHandshakeFailure failure,
         string message)
         : base(message) => Failure = failure;
+
+    public SessionHandshakeException(
+        SessionHandshakeFailure failure,
+        string message,
+        Exception innerException)
+        : base(message, innerException) => Failure = failure;
 
     public SessionHandshakeFailure Failure { get; }
 }

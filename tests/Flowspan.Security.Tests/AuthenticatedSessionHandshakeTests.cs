@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 using System.Text;
 using Flowspan.Domain;
 using Flowspan.Protocol;
@@ -245,6 +247,74 @@ public sealed class AuthenticatedSessionHandshakeTests
         Assert.Equal(original.ExportHash(), decodedTranscript.ExportHash());
         Assert.Equal(new ProtocolVersion(1, 1), session.ProtocolVersion);
         Assert.Equal(responderIdentity.DeviceId, session.PeerIdentity.DeviceId);
+    }
+
+    [Fact]
+    public void FinishedWireFormatIsCanonicalAndPreservesBindings()
+    {
+        byte[] transcriptHash = Enumerable.Repeat((byte)0x11, 32).ToArray();
+        byte[] sessionIdentifier = Enumerable.Repeat((byte)0x22, 16).ToArray();
+        SessionHandshakeFinished finished = SessionHandshakeFinished.Create(
+            SecureSessionRole.Initiator,
+            transcriptHash,
+            sessionIdentifier);
+
+        byte[] encoded = SessionHandshakeWireCodec.EncodeFinished(finished);
+        SessionHandshakeFinished decoded =
+            SessionHandshakeWireCodec.DecodeFinished(encoded);
+
+        Assert.Equal(
+            Convert.FromHexString(
+                "46534831030100000020"
+                + "1111111111111111111111111111111111111111111111111111111111111111"
+                + "00000010"
+                + "22222222222222222222222222222222"),
+            encoded);
+        Assert.Equal(
+            "FD15E6104A00DCB7F7809FE39B71BBB9DA3F673A511DC3EB6F77F7ED7068BDAF",
+            Convert.ToHexString(SHA256.HashData(encoded)));
+        Assert.True(decoded.Matches(
+            SecureSessionRole.Initiator,
+            transcriptHash,
+            sessionIdentifier));
+        Assert.False(decoded.Matches(
+            SecureSessionRole.Responder,
+            transcriptHash,
+            sessionIdentifier));
+        byte[] wrongTranscript = (byte[])transcriptHash.Clone();
+        wrongTranscript[0] ^= 0x01;
+        Assert.False(decoded.Matches(
+            SecureSessionRole.Initiator,
+            wrongTranscript,
+            sessionIdentifier));
+        byte[] wrongSession = (byte[])sessionIdentifier.Clone();
+        wrongSession[0] ^= 0x01;
+        Assert.False(decoded.Matches(
+            SecureSessionRole.Initiator,
+            transcriptHash,
+            wrongSession));
+    }
+
+    [Fact]
+    public void FinishedWireRejectsNonCanonicalShape()
+    {
+        SessionHandshakeFinished finished = SessionHandshakeFinished.Create(
+            SecureSessionRole.Initiator,
+            new byte[SessionHandshakeFinished.TranscriptHashLength],
+            new byte[SessionHandshakeFinished.SessionIdentifierLength]);
+        byte[] encoded = SessionHandshakeWireCodec.EncodeFinished(finished);
+        byte[] trailing = [.. encoded, 0x00];
+        byte[] shortHash = (byte[])encoded.Clone();
+        BinaryPrimitives.WriteUInt32BigEndian(shortHash.AsSpan(6), 31);
+        byte[] unknownRole = (byte[])encoded.Clone();
+        unknownRole[5] = 0xff;
+
+        Assert.Throws<InvalidDataException>(() =>
+            SessionHandshakeWireCodec.DecodeFinished(trailing));
+        Assert.Throws<InvalidDataException>(() =>
+            SessionHandshakeWireCodec.DecodeFinished(shortHash));
+        Assert.Throws<InvalidDataException>(() =>
+            SessionHandshakeWireCodec.DecodeFinished(unknownRole));
     }
 
     [Fact]

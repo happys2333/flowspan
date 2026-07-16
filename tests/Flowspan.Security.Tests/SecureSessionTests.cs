@@ -105,6 +105,36 @@ public sealed class SecureSessionTests
         Assert.Equal(plaintext, decrypted);
     }
 
+    [Fact]
+    public void EncryptedFinishedConfirmsDirectionalKeyAtSequenceZero()
+    {
+        using SessionPair pair = SessionPair.Create();
+        byte[] transcriptHash = SHA256.HashData(
+            Encoding.UTF8.GetBytes("authenticated handshake transcript"));
+        SessionHandshakeFinished finished = SessionHandshakeFinished.Create(
+            SecureSessionRole.Initiator,
+            transcriptHash,
+            pair.Initiator.ExportSessionIdentifier());
+        byte[] plaintext = SessionHandshakeWireCodec.EncodeFinished(finished);
+        byte[] frame = pair.Initiator.Encrypt(plaintext);
+        byte[] tampered = (byte[])frame.Clone();
+        tampered[^1] ^= 0x01;
+
+        Assert.ThrowsAny<CryptographicException>(() =>
+            pair.Responder.Decrypt(tampered));
+        Assert.Equal<ulong>(0, pair.Responder.NextReceiveSequence);
+
+        SessionHandshakeFinished decoded = SessionHandshakeWireCodec.DecodeFinished(
+            pair.Responder.Decrypt(frame));
+
+        Assert.True(decoded.Matches(
+            SecureSessionRole.Initiator,
+            transcriptHash,
+            pair.Responder.ExportSessionIdentifier()));
+        Assert.Equal<ulong>(1, pair.Initiator.NextSendSequence);
+        Assert.Equal<ulong>(1, pair.Responder.NextReceiveSequence);
+    }
+
     private sealed class SessionPair : IDisposable
     {
         private SessionPair(

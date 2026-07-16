@@ -79,6 +79,27 @@ overload is isolated, profiles enforce the hard total bound, and cancellation
 must drain both branches. These remain same-host transport and decision-double
 tests.
 
+The task 4.3a secure-session slice adds protocol 1.2 above the existing 1.0/1.1
+compatibility path. A frozen 62-byte `FSH1` Finished plaintext and SHA-256 hash
+bind role, authenticated transcript, and 16-byte session identifier. Each peer
+then protects that plaintext as its epoch-1 `FSE1` sequence-zero frame before
+control upgrade. Security tests cover exact encoding, wrong role/transcript/
+session, malformed lengths, trailing data, AEAD tamper without counter advance,
+and the resulting sequence-one control boundary. A narrow Finished-transaction
+transport seam injects initiator and responder send failure, missing receive,
+AEAD tamper, and valid-ciphertext binding mismatch; every failure must destroy
+the authenticated frame session and close the transport. If transport cleanup
+also fails, the result must preserve both the primary and cleanup causes. Real
+TCP tests cover both Finished directions, omission under the whole-handshake
+deadline, tampered
+or wrongly bound peer Finished as a structured authentication failure, inbound
+socket close, and the rule that failed responder authentication never reaches
+Trust registration or the session handler. Legacy 1.1 stays at sequence zero
+and the desktop snapshot explicitly names its degraded legacy-compatibility
+mode. A production desktop reconnect loop negotiates 1.2 on loopback; these
+results prove same-process key confirmation, not independent cryptographic
+review, physical interception resistance, or live rekey.
+
 Desktop-shell tests keep the production XAML and view model behind Avalonia's
 headless platform while retaining the repository's xUnit v2 runner. They cover
 protected/degraded identity presentation, redacted startup failure, explicit
@@ -119,7 +140,8 @@ authenticated channel. Candidate-source tests reconstruct the public key only
 from current Trust and require the signed offer to verify before returning an
 endpoint. A same-process loopback theory composes the production reconnect
 supervisor, authenticated connector, listener, both Trust coordinators, and both
-handlers with complementary one-way grants in either Device ID ordering; both
+handlers with complementary one-way Capability directions under the deterministic
+smaller-Device-ID connector election; both
 peers must say `AUTHENTICATED — IDLE / NOT SHARING`. Security and transport tests
 separately prove explicit all-of versus any-of admission and that an any-of
 session drains only after its final alternative is removed. Headless tests verify

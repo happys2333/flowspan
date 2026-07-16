@@ -194,6 +194,26 @@ means its linked evidence exists; it does not imply the entire product works.
     handshake are implemented with tamper, replay, downgrade, expiry, key
     substitution, and hostile-length tests; explicit Finished/rekey and broader
     hostile-peer testing remain open.
+  - [-] 4.3a Add protocol-1.2 bidirectional encrypted Finished before control
+    upgrade; bind role, transcript hash, session ID, direction, epoch, and
+    sequence; preserve an explicit 1.0/1.1 compatibility path; add canonical
+    fixture, tamper/binding/timeout negatives, and real loopback evidence.
+    - Current candidate freezes a 62-byte Finished plaintext and golden hash,
+      consumes each direction's epoch-1 sequence zero before control upgrade,
+      maps tamper/binding failure to `InvalidPeerFinished`, bounds omission by
+      the handshake deadline, and makes production discovery/reconnect prefer
+      protocol 1.2 while keeping tested 1.1 compatibility. All 734 local tests
+      pass; commands, proof mapping, and explicit rekey/review/physical limits
+      are recorded in
+      [encrypted Finished evidence](../../docs/evidence/2026-07-16-encrypted-finished.md).
+      Standards and Spec reviews report 0 findings, and four relevant
+      fresh-process groups pass 20/20. The item remains open until exact-commit
+      hosted gates, downloaded TRX counts, and evidence/task-status closure pass.
+    - _Requirements: R8.3, R9.1, R12.3_
+  - [ ] 4.3b Freeze and implement bounded live rekey with monotonic epochs,
+    simultaneous-request resolution, key erasure, replay/gap rejection, and
+    interruption recovery.
+    - _Requirements: R8.3-R8.4, R9.1, R12.3_
   - _Requirements: R8.3, R9.1_
 - [-] 4.4 Implement Windows Credential Manager/DPAPI, macOS Keychain, and Linux
   Secret Service adapters with marked degraded-mode behavior.

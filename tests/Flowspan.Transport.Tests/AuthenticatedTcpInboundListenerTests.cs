@@ -15,6 +15,62 @@ public sealed class AuthenticatedTcpInboundListenerTests
     private static readonly CapabilityGrant Required =
         CapabilityGrant.Of(Capability.ActivityReceive);
 
+    [Theory]
+    [InlineData(ManualInitiatorFinishedBehavior.Omit)]
+    [InlineData(ManualInitiatorFinishedBehavior.Tamper)]
+    [InlineData(ManualInitiatorFinishedBehavior.WrongBinding)]
+    public async Task ProtocolOnePointTwoInvalidInitiatorFinishedNeverRunsHandler(
+        ManualInitiatorFinishedBehavior behavior)
+    {
+        using DeviceIdentity serverIdentity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Server");
+        using DeviceIdentity peerIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Laptop");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(CreateTrust(peerIdentity));
+        await using var trustSessions = new TrustSessionCoordinator(trustStore);
+        using var socket = new TcpListener(IPAddress.Loopback, 0);
+        socket.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(socket.LocalEndpoint);
+        var profile = new AuthenticatedInboundSessionProfile(
+            Required,
+            [ProtocolFeatures.SecureSessionFinishedMinimumVersion],
+            maximumConcurrentSessions: 1,
+            handshakeTimeout: TimeSpan.FromMilliseconds(300));
+        var handler = new RecordingHandler();
+        var listener = new AuthenticatedTcpInboundListener(
+            socket,
+            serverIdentity,
+            trustSessions,
+            profile,
+            handler);
+        var failureSeen = new TaskCompletionSource<InboundSessionFailure>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        listener.SessionFaulted += failure => failureSeen.TrySetResult(failure);
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        Task running = listener.RunAsync(stop.Token).AsTask();
+        Task peer = ManualProtocol12Initiator.RunUntilServerClosesAsync(
+            endpoint,
+            peerIdentity,
+            serverIdentity.PublicIdentity,
+            behavior,
+            stop.Token);
+
+        InboundSessionFailure failure = await failureSeen.Task.WaitAsync(
+            TimeSpan.FromSeconds(2));
+        await peer;
+
+        Assert.Equal(InboundSessionFailureStage.Authentication, failure.Stage);
+        Assert.Null(failure.PeerDeviceId);
+        Assert.IsType<IncomingPeerAuthenticationException>(failure.Exception);
+        Assert.Equal(0, handler.RunCount);
+
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+    }
+
     [Fact]
     public async Task RealListenerAuthenticatesTwoDifferentTrustedPeers()
     {
@@ -546,5 +602,20 @@ public sealed class AuthenticatedTcpInboundListenerTests
             AuthenticatedTcpControlConnection connection,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Fake sessions own their run behavior.");
+    }
+
+    private sealed class RecordingHandler : IAuthenticatedControlSessionHandler
+    {
+        private int runCount;
+
+        public int RunCount => Volatile.Read(ref runCount);
+
+        public ValueTask RunAsync(
+            AuthenticatedTcpControlConnection connection,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref runCount);
+            return ValueTask.CompletedTask;
+        }
     }
 }

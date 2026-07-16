@@ -11,6 +11,7 @@ public static class SessionHandshakeWireCodec
 {
     public const int MaximumMessageBytes = 4 * 1024;
     private const byte AuthenticationKind = 2;
+    private const byte FinishedKind = 3;
     private const byte HelloKind = 1;
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("FSH1");
 
@@ -168,6 +169,48 @@ public static class SessionHandshakeWireCodec
         {
             throw new InvalidDataException(
                 "The session authentication message is malformed.",
+                exception);
+        }
+    }
+
+    public static byte[] EncodeFinished(SessionHandshakeFinished finished)
+    {
+        ArgumentNullException.ThrowIfNull(finished);
+        var writer = new SessionHandshakeBuffer();
+        writer.WriteRaw(Magic);
+        writer.WriteByte(FinishedKind);
+        writer.WriteByte(ToWireRole(finished.Role));
+        writer.WriteBytes(finished.TranscriptHash);
+        writer.WriteBytes(finished.SessionIdentifier);
+        return EnforceEncodedLimit(writer.ToArray());
+    }
+
+    public static SessionHandshakeFinished DecodeFinished(
+        ReadOnlySpan<byte> message)
+    {
+        ValidateMessageSize(message);
+        try
+        {
+            var reader = new SessionHandshakeWireReader(message);
+            reader.RequireMagic(Magic);
+            reader.RequireKind(FinishedKind);
+            SecureSessionRole role = FromWireRole(reader.ReadByte());
+            byte[] transcriptHash = reader.ReadBytes(
+                maximumBytes: SessionHandshakeFinished.TranscriptHashLength);
+            byte[] sessionIdentifier = reader.ReadBytes(
+                maximumBytes: SessionHandshakeFinished.SessionIdentifierLength);
+            reader.RequireEnd();
+            return SessionHandshakeFinished.Import(
+                role,
+                transcriptHash,
+                sessionIdentifier);
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException
+            or OverflowException)
+        {
+            throw new InvalidDataException(
+                "The Finished message is malformed.",
                 exception);
         }
     }

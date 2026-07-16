@@ -49,4 +49,17 @@ public sealed class ProtocolNegotiatorTests
 
         Assert.Equal(ProtocolFeatures.ActivitySwapMinimumVersion, result.Version);
     }
+
+    [Fact]
+    public void EncryptedFinishedRequiresNegotiatedProtocolOnePointTwo()
+    {
+        Assert.False(ProtocolFeatures.RequiresSecureSessionFinished(
+            new ProtocolVersion(1, 1)));
+        Assert.True(ProtocolFeatures.RequiresSecureSessionFinished(
+            new ProtocolVersion(1, 2)));
+        Assert.True(ProtocolFeatures.RequiresSecureSessionFinished(
+            new ProtocolVersion(1, 3)));
+        Assert.False(ProtocolFeatures.RequiresSecureSessionFinished(
+            new ProtocolVersion(2, 0)));
+    }
 }

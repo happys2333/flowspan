@@ -32,6 +32,12 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
 
     public IPEndPoint LocalEndPoint { get; }
 
+    internal ulong NextSecureReceiveSequence =>
+        authenticatedSession.SecureFrames.NextReceiveSequence;
+
+    internal ulong NextSecureSendSequence =>
+        authenticatedSession.SecureFrames.NextSendSequence;
+
     public PublicDeviceIdentity PeerIdentity => authenticatedSession.PeerIdentity;
 
     public ProtocolVersion ProtocolVersion => authenticatedSession.ProtocolVersion;
@@ -345,7 +351,25 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             trustedPeer.PeerIdentity,
             agreement,
             peerAuthentication);
-        return Upgrade(connection, authenticated, localIdentity.DeviceId);
+        try
+        {
+            if (ProtocolFeatures.RequiresSecureSessionFinished(
+                authenticated.ProtocolVersion))
+            {
+                await AuthenticatedSessionFinishedExchange.ConfirmAsInitiatorAsync(
+                    connection,
+                    authenticated,
+                    transcript,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return Upgrade(connection, authenticated, localIdentity.DeviceId);
+        }
+        catch
+        {
+            authenticated.Dispose();
+            throw;
+        }
     }
 
     private static async ValueTask<AuthenticatedTcpControlConnection>
@@ -389,6 +413,16 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
                 connection,
                 SessionHandshakeWireCodec.EncodeAuthentication(localAuthentication),
                 cancellationToken).ConfigureAwait(false);
+            if (ProtocolFeatures.RequiresSecureSessionFinished(
+                authenticated.ProtocolVersion))
+            {
+                await AuthenticatedSessionFinishedExchange.ConfirmAsResponderAsync(
+                    connection,
+                    authenticated,
+                    transcript,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             return Upgrade(connection, authenticated, localIdentity.DeviceId);
         }
         catch
@@ -464,6 +498,16 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
                 connection,
                 SessionHandshakeWireCodec.EncodeAuthentication(localAuthentication),
                 cancellationToken).ConfigureAwait(false);
+            if (ProtocolFeatures.RequiresSecureSessionFinished(
+                authenticated.ProtocolVersion))
+            {
+                await AuthenticatedSessionFinishedExchange.ConfirmAsResponderAsync(
+                    connection,
+                    authenticated,
+                    transcript,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             return Upgrade(connection, authenticated, localIdentity.DeviceId);
         }
         catch

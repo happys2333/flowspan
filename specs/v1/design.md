@@ -504,14 +504,27 @@ TCP. Missing/expired candidates are
 transient; absent trust, identity change, capability denial, incompatible
 protocol, and authentication failure are structured permanent stop reasons.
 
-After the TCP handshake, the attempt registers its live control session through
-`TrustSessionCoordinator` before handing the connection to the injected control
-session handler. Registration failure closes the connection without exposing a
-session. Peer revocation, capability downgrade, supervisor/network cancellation,
-or local shutdown cancels the handler and disposes the connection; a later
-supervisor iteration performs a new discovery/trust lookup and handshake. Tests
-use signed candidates and real loopback TCP for the success path while faulting
-the ports at the trust, registration, handler, and cancellation boundaries.
+After the signed TCP handshake, protocol 1.2 derives its directional AEAD keys
+but does not expose a control channel yet. The initiator sends an encrypted
+role/transcript/session-bound Finished at epoch 1, sequence 0; the responder
+verifies it before returning its own Finished at its sequence 0. Only then does
+the attempt register its live control session through `TrustSessionCoordinator`
+and hand the connection to the injected control session handler, so the first
+control message in either direction uses sequence 1. Protocol 1.0/1.1 retain a
+named legacy four-message compatibility path; the signed highest-common-version
+transcript prevents removal of mutually offered 1.2 without signature failure.
+While such a legacy session is active, the desktop connection snapshot names
+`LEGACY COMPATIBILITY` and explains that encrypted Finished is absent; it must
+not present the same security status as a protocol-1.2 session.
+Malformed, substituted, tampered, missing, or late Finished closes before
+registration.
+
+Registration failure closes the connection without exposing a session. Peer
+revocation, capability downgrade, supervisor/network cancellation, or local
+shutdown cancels the handler and disposes the connection; a later supervisor
+iteration performs a new discovery/trust lookup and handshake. Tests use signed
+candidates and real loopback TCP for the success path while faulting the ports at
+the Finished, trust, registration, handler, and cancellation boundaries.
 
 The inbound side accepts multiple paired peers through one TCP listener. The
 initiator's claimed Device ID is parsed from the first bounded hello only to
