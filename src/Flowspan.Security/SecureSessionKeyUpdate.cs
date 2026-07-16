@@ -63,6 +63,10 @@ public static class SecureSessionKeyUpdateCodec
             encoded[5] == RequestPeerUpdateFlag,
             nextEpoch);
     }
+
+    public static bool IsKeyUpdate(ReadOnlySpan<byte> encoded) =>
+        encoded.Length >= Magic.Length
+        && encoded[..Magic.Length].SequenceEqual(Magic);
 }
 
 public static class SecureSessionEpochKeyDerivation

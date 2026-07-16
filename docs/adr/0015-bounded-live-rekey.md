@@ -1,6 +1,6 @@
 # ADR 0015: Protocol 1.3 bounded directional live rekey
 
-- Status: Proposed for task 4.3b
+- Status: Accepted for v1 implementation; independent security review pending
 - Date: 2026-07-16
 - Decision owners: Flowspan maintainers
 - Review gate: independent cryptographic/security review required before v1

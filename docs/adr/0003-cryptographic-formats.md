@@ -287,10 +287,11 @@ sequence one. Finished proves possession of the derived directional traffic key;
 it does not create new authority beyond the signed identity transcript and
 current Trust Record.
 
-The production desktop advertises 1.2 before 1.1 and 1.0. A peer that negotiates
-1.0 or 1.1 remains interoperable but is explicitly a legacy session without the
-new Finished evidence. Removing that compatibility path is a release-policy
-decision separate from this wire addition.
+The production desktop advertises protocol 1.3, 1.2, 1.1, and 1.0. Negotiation
+prefers 1.3, while 1.2 retains encrypted Finished and reconnects at the key-usage
+bound. A peer that negotiates 1.0 or 1.1 remains interoperable but is explicitly
+a legacy session without the new Finished evidence. Removing that compatibility
+path is a release-policy decision separate from this wire addition.
 
 ## Encrypted frame v1
 
@@ -319,9 +320,8 @@ u32(ciphertext length)
 
 The receiver accepts exactly its next expected sequence. Replay, gap, wrong
 direction/session/epoch, malformed length, or tag failure is rejected without
-advancing the counter. A key epoch must rotate well before sequence exhaustion;
-the initial implementation rejects exhaustion and does not yet implement live
-rotation.
+advancing the counter. Protocol 1.3 rotates before the bounded frame or plaintext
+limit; older negotiated versions fault and close instead of exceeding it.
 
 ## Live traffic-key update (protocol 1.3)
 
@@ -416,8 +416,8 @@ and 1.1 retain their stronger legacy warning.
 
 ## Known gaps and release blockers
 
-- The protocol-1.3 key-evolution format remains provisional until task 4.3b is
-  implemented, independently reviewed, and supported by exact-commit evidence.
+- The protocol-1.3 key-evolution format remains provisional until it is
+  independently reviewed and supported by exact-commit hosted evidence.
 - No independent security review has approved these formats.
 - Desktop pairing UI and physical two-device SAS evidence are not yet
   implemented. Protocol-1.2 Finished remains provisional until its task evidence

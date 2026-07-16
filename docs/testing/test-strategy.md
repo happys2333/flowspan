@@ -108,10 +108,12 @@ owner. Transport tests inject update write, flush, decode, authentication,
 disconnect, cancellation, timeout, and cleanup failures. Deterministic duplex
 tests cover unilateral request/response, crossed-request suppression, repeated
 updates, and automatic 2^20-frame/1-GiB thresholds through reduced injected
-limits. A real authenticated protocol-1.3 loopback must rekey both directions
-and continue carrying bound control messages; 1.2 must remain interoperable and
-reconnect rather than exceed the bound. Hosted results remain contract evidence,
-not independent cryptographic review or physical hostile-LAN evidence.
+limits. A real authenticated protocol-1.3 loopback repeatedly rekeys both
+directions, includes crossed requests, and continues carrying identity/version-
+bound control messages. The production profile prefers 1.3; 1.2 remains
+interoperable, is presented separately from 1.0/1.1 legacy mode, and reconnects
+rather than exceeding the bound. Hosted results remain contract evidence, not
+independent cryptographic review or physical hostile-LAN evidence.
 
 Desktop-shell tests keep the production XAML and view model behind Avalonia's
 headless platform while retaining the repository's xUnit v2 runner. They cover

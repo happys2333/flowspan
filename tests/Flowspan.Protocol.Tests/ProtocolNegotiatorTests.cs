@@ -75,4 +75,25 @@ public sealed class ProtocolNegotiatorTests
         Assert.False(ProtocolFeatures.SupportsLiveRekey(
             new ProtocolVersion(2, 0)));
     }
+
+    [Fact]
+    public void ProductionProfileAdvertisesAllV1MinorsAndPrefersLiveRekey()
+    {
+        Assert.Equal(
+            [
+                new ProtocolVersion(1, 0),
+                new ProtocolVersion(1, 1),
+                new ProtocolVersion(1, 2),
+                new ProtocolVersion(1, 3),
+            ],
+            ProtocolFeatures.ProductionSupportedVersions.ToArray());
+
+        ProtocolNegotiationResult result = ProtocolNegotiator.Negotiate(
+            ProtocolFeatures.ProductionSupportedVersions,
+            [new ProtocolVersion(1, 2), new ProtocolVersion(1, 3)]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(new ProtocolVersion(1, 3), result.Version);
+        Assert.True(ProtocolFeatures.SupportsLiveRekey(result.Version));
+    }
 }

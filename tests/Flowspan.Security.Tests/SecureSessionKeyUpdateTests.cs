@@ -5,6 +5,22 @@ namespace Flowspan.Security.Tests;
 
 public sealed class SecureSessionKeyUpdateTests
 {
+    [Theory]
+    [InlineData("00535231010100000002")]
+    [InlineData("46535231020100000002")]
+    [InlineData("46535231010200000002")]
+    [InlineData("465352310101000000")]
+    [InlineData("4653523101010000000200")]
+    [InlineData("46535231010100000000")]
+    [InlineData("46535231010100000001")]
+    public void MalformedKeyUpdateEncodingsAreRejected(string encodedHex)
+    {
+        byte[] encoded = Convert.FromHexString(encodedHex);
+
+        Assert.Throws<InvalidDataException>(() =>
+            SecureSessionKeyUpdateCodec.Decode(encoded));
+    }
+
     [Fact]
     public void CanonicalRequestHasFrozenBytesAndHash()
     {
@@ -104,5 +120,33 @@ public sealed class SecureSessionKeyUpdateTests
         Assert.True(first.CompletesLocalRequest);
         Assert.False(second.SendResponse);
         Assert.True(second.CompletesLocalRequest);
+    }
+
+    [Theory]
+    [InlineData(false, 2, 1, 1, -1)]
+    [InlineData(true, 3, 2, 1, -1)]
+    [InlineData(true, 2, 1, 1, 3)]
+    [InlineData(true, 3, 1, 2, -1)]
+    [InlineData(true, uint.MaxValue, uint.MaxValue, uint.MaxValue, -1)]
+    public void InvalidPeerUpdateTransitionsAreRejected(
+        bool requestPeerUpdate,
+        uint nextEpoch,
+        uint localSendEpoch,
+        uint localReceiveEpoch,
+        int pendingLocalEpoch)
+    {
+        SecureSessionKeyUpdate update = SecureSessionKeyUpdate.Create(
+            requestPeerUpdate,
+            nextEpoch);
+        uint? pending = pendingLocalEpoch < 0
+            ? null
+            : checked((uint)pendingLocalEpoch);
+
+        Assert.Throws<InvalidDataException>(() =>
+            SecureSessionRekeyRules.EvaluatePeerUpdate(
+                update,
+                localSendEpoch,
+                localReceiveEpoch,
+                pending));
     }
 }

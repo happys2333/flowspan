@@ -1,6 +1,7 @@
 # Protocol 1.3 Live Rekey Requirements
 
-Status: approved v1 security scope, implementation pending
+Status: implementation candidate; exact-commit local/hosted evidence and
+independent security review pending
 
 ## Problem and scope
 
@@ -34,8 +35,13 @@ compatibility evidence. It does not add a new identity ceremony or trust grant.
 - While receiving in epoch `N`, when a valid KeyUpdate declares epoch `N+1`, the
   endpoint shall authenticate and validate the complete old-epoch frame before
   changing its receiver to epoch `N+1`, sequence zero.
-- When a frame declares an old, repeated, skipped, zero, or otherwise unexpected
-  epoch, Flowspan shall reject it without advancing epoch or sequence state.
+- When an `FSE1` frame header declares an old, repeated, skipped, zero, or
+  otherwise unexpected epoch, Flowspan shall reject it without advancing epoch
+  or sequence state.
+- When a current-epoch `FSE1` frame authenticates but its enclosed KeyUpdate is
+  malformed or violates the transition rules, Flowspan may consume that
+  authenticated old-epoch record sequence, but shall not advance the key epoch;
+  it shall destroy the session and never reuse the consumed sequence.
 - When a new-epoch frame arrives before its old-epoch KeyUpdate, Flowspan shall
   close the channel; it shall never probe both old and new keys.
 

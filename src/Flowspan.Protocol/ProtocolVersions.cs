@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Flowspan.Protocol;
 
 public readonly record struct ProtocolVersion : IComparable<ProtocolVersion>
@@ -42,6 +44,14 @@ public static class ProtocolFeatures
     public static ProtocolVersion SecureSessionFinishedMinimumVersion { get; } = new(1, 2);
 
     public static ProtocolVersion SecureSessionRekeyMinimumVersion { get; } = new(1, 3);
+
+    public static ImmutableArray<ProtocolVersion> ProductionSupportedVersions { get; } =
+    [
+        new ProtocolVersion(1, 0),
+        ActivitySwapMinimumVersion,
+        SecureSessionFinishedMinimumVersion,
+        SecureSessionRekeyMinimumVersion,
+    ];
 
     public static bool SupportsActivitySwap(ProtocolVersion version) =>
         version.Major == ActivitySwapMinimumVersion.Major

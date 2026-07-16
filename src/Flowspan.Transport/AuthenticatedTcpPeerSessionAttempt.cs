@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using Flowspan.Domain;
 using Flowspan.Protocol;
 using Flowspan.Security;
@@ -317,7 +318,10 @@ public sealed class AuthenticatedTcpPeerSessionAttempt :
                         StopReasonFor(revocableSession.StopReason.Value));
                 }
                 catch (Exception exception) when (
-                    exception is IOException or SocketException or TimeoutException)
+                    exception is IOException
+                        or SocketException
+                        or TimeoutException
+                        or CryptographicException)
                 {
                     return revocableSession.StopReason is TrustSessionStopReason reason
                         ? PeerSessionAttemptResult.PermanentlyRejected(

@@ -1,6 +1,7 @@
 # Protocol 1.3 Live Rekey Design
 
-Status: proposed for task 4.3b
+Status: implemented candidate for task 4.3b; exact-commit local/hosted evidence
+and independent security review pending
 
 ## Design summary
 
@@ -39,6 +40,14 @@ u32 next_epoch, big-endian
 `next_epoch` must equal the receiver's current receive epoch plus one and be at
 least two. Unknown kind/flag bits, trailing data, zero/one epoch, overflow, or an
 epoch gap is fatal.
+
+`FSE1` authenticates before its enclosed plaintext is classified. A valid
+current-epoch frame therefore consumes its old-epoch record sequence before
+KeyUpdate parsing. If that plaintext is malformed or violates the transition
+rules, the receive epoch does not advance and the whole channel is destroyed;
+the consumed sequence is never rolled back on a reusable session. By contrast,
+an unexpected epoch or sequence in the `FSE1` header is rejected before record
+state advances.
 
 No operation ID is needed: each direction has one strictly ordered epoch chain,
 and the channel permits at most one locally awaited peer-update request. AEAD

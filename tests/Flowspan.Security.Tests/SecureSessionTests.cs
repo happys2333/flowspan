@@ -157,6 +157,59 @@ public sealed class SecureSessionTests
     }
 
     [Fact]
+    public void EarlyNewEpochFrameIsRejectedWithoutLosingLastOldEpochFrame()
+    {
+        using SessionPair pair = SessionPair.Create();
+        byte[] oldFrame = pair.Initiator.Encrypt("old"u8);
+        pair.Initiator.AdvanceSendEpoch(nextEpoch: 2);
+        byte[] earlyNewFrame = pair.Initiator.Encrypt("new"u8);
+
+        Assert.Throws<InvalidDataException>(() =>
+            pair.Responder.Decrypt(earlyNewFrame));
+        Assert.Equal<uint>(1, pair.Responder.ReceiveEpoch);
+        Assert.Equal<ulong>(0, pair.Responder.NextReceiveSequence);
+        Assert.Equal("old"u8.ToArray(), pair.Responder.Decrypt(oldFrame));
+
+        pair.Responder.AdvanceReceiveEpoch(nextEpoch: 2);
+        Assert.Equal("new"u8.ToArray(), pair.Responder.Decrypt(earlyNewFrame));
+    }
+
+    [Fact]
+    public void LateOldEpochFrameIsRejectedWithoutLosingFirstNewEpochFrame()
+    {
+        using SessionPair pair = SessionPair.Create();
+        byte[] firstOldFrame = pair.Initiator.Encrypt("first-old"u8);
+        byte[] lateOldFrame = pair.Initiator.Encrypt("late-old"u8);
+        Assert.Equal("first-old"u8.ToArray(),
+            pair.Responder.Decrypt(firstOldFrame));
+
+        pair.Initiator.AdvanceSendEpoch(nextEpoch: 2);
+        pair.Responder.AdvanceReceiveEpoch(nextEpoch: 2);
+        byte[] newFrame = pair.Initiator.Encrypt("new"u8);
+
+        Assert.Throws<InvalidDataException>(() =>
+            pair.Responder.Decrypt(lateOldFrame));
+        Assert.Equal<uint>(2, pair.Responder.ReceiveEpoch);
+        Assert.Equal<ulong>(0, pair.Responder.NextReceiveSequence);
+        Assert.Equal("new"u8.ToArray(), pair.Responder.Decrypt(newFrame));
+    }
+
+    [Theory]
+    [InlineData(1u)]
+    [InlineData(3u)]
+    public void InvalidEpochTransitionDoesNotAdvanceSenderState(uint nextEpoch)
+    {
+        using SessionPair pair = SessionPair.Create();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            pair.Initiator.AdvanceSendEpoch(nextEpoch));
+        Assert.Equal<uint>(1, pair.Initiator.SendEpoch);
+        Assert.Equal<ulong>(0, pair.Initiator.NextSendSequence);
+        Assert.Equal("valid"u8.ToArray(), pair.Responder.Decrypt(
+            pair.Initiator.Encrypt("valid"u8)));
+    }
+
+    [Fact]
     public void ProtectedPlaintextByteCountsResetWithDirectionalEpoch()
     {
         using SessionPair pair = SessionPair.Create();
@@ -197,8 +250,58 @@ public sealed class SecureSessionTests
         }
     }
 
+    [Fact]
+    public void HardPerEpochPlaintextByteBoundCannotOverflowAndResetsAfterRekey()
+    {
+        (SecureFrameSession initiator, SecureFrameSession responder) =
+            CreateBoundedSessions(
+                maximumFramesPerEpoch: 4,
+                maximumPlaintextBytesPerEpoch: 10);
+        using (initiator)
+        using (responder)
+        {
+            Assert.Throws<CryptographicException>(() =>
+                initiator.Encrypt("12345678901"u8));
+            Assert.Equal<ulong>(0, initiator.SendPlaintextBytes);
+
+            byte[] first = initiator.Encrypt("123456"u8);
+            byte[] second = initiator.Encrypt("7890"u8);
+            Assert.Equal("123456"u8.ToArray(), responder.Decrypt(first));
+            Assert.Equal("7890"u8.ToArray(), responder.Decrypt(second));
+            Assert.Throws<CryptographicException>(() => initiator.Encrypt("x"u8));
+            Assert.Equal<ulong>(10, initiator.SendPlaintextBytes);
+
+            initiator.AdvanceSendEpoch(nextEpoch: 2);
+            responder.AdvanceReceiveEpoch(nextEpoch: 2);
+
+            byte[] after = initiator.Encrypt("after"u8);
+            Assert.Equal("after"u8.ToArray(), responder.Decrypt(after));
+        }
+    }
+
+    [Fact]
+    public void RekeyReservationUsesInjectedPlaintextLimitAndKeyUpdateSize()
+    {
+        (SecureFrameSession initiator, SecureFrameSession responder) =
+            CreateBoundedSessions(
+                maximumFramesPerEpoch: 4,
+                maximumPlaintextBytesPerEpoch: 100);
+        using (initiator)
+        using (responder)
+        {
+            byte[] frame = initiator.Encrypt(new byte[80]);
+            _ = responder.Decrypt(frame);
+
+            Assert.False(initiator.ShouldRekeyBeforeSend(10));
+            Assert.True(initiator.ShouldRekeyBeforeSend(11));
+        }
+    }
+
     private static (SecureFrameSession Initiator, SecureFrameSession Responder)
-        CreateBoundedSessions(ulong maximumFramesPerEpoch)
+        CreateBoundedSessions(
+            ulong maximumFramesPerEpoch,
+            ulong maximumPlaintextBytesPerEpoch =
+                SecureFrameSession.MaximumPlaintextBytesPerEpoch)
     {
         byte[] firstKey = Enumerable.Repeat((byte)0x11, 32).ToArray();
         byte[] secondKey = Enumerable.Repeat((byte)0x22, 32).ToArray();
@@ -210,14 +313,16 @@ public sealed class SecureSessionTests
                 secondKey,
                 SecureFrameDirection.ResponderToInitiator,
                 sessionIdentifier,
-                maximumFramesPerEpoch),
+                maximumFramesPerEpoch,
+                maximumPlaintextBytesPerEpoch),
             new SecureFrameSession(
                 secondKey,
                 SecureFrameDirection.ResponderToInitiator,
                 firstKey,
                 SecureFrameDirection.InitiatorToResponder,
                 sessionIdentifier,
-                maximumFramesPerEpoch));
+                maximumFramesPerEpoch,
+                maximumPlaintextBytesPerEpoch));
     }
 
     private sealed class SessionPair : IDisposable

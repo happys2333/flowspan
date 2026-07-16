@@ -44,16 +44,8 @@ source.AddLocalActivity(ActivityInstance.Active(
     ActivityPlacement.On(source.DeviceId)));
 
 ProtocolNegotiationResult negotiation = ProtocolNegotiator.Negotiate(
-    [
-        ProtocolFeatures.SecureSessionFinishedMinimumVersion,
-        ProtocolFeatures.ActivitySwapMinimumVersion,
-        new ProtocolVersion(1, 0),
-    ],
-    [
-        ProtocolFeatures.SecureSessionFinishedMinimumVersion,
-        ProtocolFeatures.ActivitySwapMinimumVersion,
-        new ProtocolVersion(1, 0),
-    ]);
+    ProtocolFeatures.ProductionSupportedVersions,
+    ProtocolFeatures.ProductionSupportedVersions);
 if (!negotiation.Succeeded)
 {
     throw new InvalidOperationException("The simulator nodes have no common protocol version.");

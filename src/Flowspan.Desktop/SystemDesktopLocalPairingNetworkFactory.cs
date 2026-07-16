@@ -110,11 +110,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 ?? throw new InvalidOperationException(
                     "The local pairing listener did not expose an IP endpoint.");
             ProtocolVersion[] versions =
-            [
-                ProtocolFeatures.SecureSessionFinishedMinimumVersion,
-                ProtocolFeatures.ActivitySwapMinimumVersion,
-                new ProtocolVersion(1, 0),
-            ];
+                ProtocolFeatures.ProductionSupportedVersions.ToArray();
             var sessionProfile = new AuthenticatedInboundSessionProfile(
                 CapabilityGrant.Of(
                     Capability.ActivityOffer,

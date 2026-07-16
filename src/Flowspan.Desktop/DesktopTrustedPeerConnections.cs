@@ -41,6 +41,13 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
         && ActiveProtocolVersions.Any(static version =>
             version < ProtocolFeatures.SecureSessionFinishedMinimumVersion);
 
+    public bool IsReconnectAtKeyLimitMode =>
+        State == DesktopTrustedPeerConnectionState.AuthenticatedIdle
+        && !IsLegacyCompatibilityMode
+        && ActiveProtocolVersions.Any(static version =>
+            ProtocolFeatures.RequiresSecureSessionFinished(version)
+            && !ProtocolFeatures.SupportsLiveRekey(version));
+
     public string StatusLabel => State switch
     {
         DesktopTrustedPeerConnectionState.WaitingForPeer =>
@@ -51,6 +58,9 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
         DesktopTrustedPeerConnectionState.AuthenticatedIdle
             when IsLegacyCompatibilityMode =>
                 "AUTHENTICATED — LEGACY COMPATIBILITY / IDLE / NOT SHARING",
+        DesktopTrustedPeerConnectionState.AuthenticatedIdle
+            when IsReconnectAtKeyLimitMode =>
+                "AUTHENTICATED — ENCRYPTED FINISHED / RECONNECT-AT-KEY-LIMIT / IDLE / NOT SHARING",
         DesktopTrustedPeerConnectionState.AuthenticatedIdle =>
             "AUTHENTICATED — IDLE / NOT SHARING",
         DesktopTrustedPeerConnectionState.Retrying => "RETRYING LOCALLY",
@@ -86,8 +96,11 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
         DesktopTrustedPeerConnectionState.AuthenticatedIdle
             when IsLegacyCompatibilityMode =>
                 $"DEGRADED SECURITY — protocol {string.Join(", ", ActiveProtocolVersions)} uses legacy compatibility without encrypted Finished. The encrypted control channel is idle; no Activity is being shared.",
+        DesktopTrustedPeerConnectionState.AuthenticatedIdle
+            when IsReconnectAtKeyLimitMode =>
+                $"Protocol {string.Join(", ", ActiveProtocolVersions)} verifies encrypted Finished but predates live rekey. Flowspan closes and establishes a fresh authenticated connection at the traffic-key usage limit; the channel is idle and no Activity is being shared.",
         DesktopTrustedPeerConnectionState.AuthenticatedIdle =>
-            "The encrypted control channel is idle. No Activity is being shared.",
+            "The encrypted control channel supports bounded live rekey and is idle. No Activity is being shared.",
         DesktopTrustedPeerConnectionState.Retrying => RetryDelay is TimeSpan delay
             ? $"A transient local failure is using bounded retry ({delay.TotalSeconds:0.###} seconds)."
             : "A transient local failure is using bounded retry.",
@@ -1000,11 +1013,7 @@ internal sealed class SystemDesktopPeerReconnectLoopFactory :
                     Capability.ActivityReceive,
                     Capability.ActivityReplace,
                     Capability.ActivitySwap),
-                [
-                    ProtocolFeatures.SecureSessionFinishedMinimumVersion,
-                    ProtocolFeatures.ActivitySwapMinimumVersion,
-                    new ProtocolVersion(1, 0),
-                ],
+                ProtocolFeatures.ProductionSupportedVersions,
                 capabilityMatch: CapabilityRequirementMatch.Any);
             var attempt = new AuthenticatedTcpPeerSessionAttempt(
                 profile,

@@ -213,6 +213,7 @@ public sealed class SecureSessionKeyMaterial : IDisposable
 public sealed class SecureFrameSession : IDisposable
 {
     public const ulong MaximumFramesPerEpoch = 1_048_576;
+    public const ulong MaximumPlaintextBytesPerEpoch = 1024UL * 1024 * 1024;
     private readonly SecureFrameProtector receiver;
     private readonly SecureFrameProtector sender;
     private bool disposed;
@@ -223,18 +224,21 @@ public sealed class SecureFrameSession : IDisposable
         ReadOnlySpan<byte> receiveKey,
         SecureFrameDirection receiveDirection,
         ReadOnlySpan<byte> sessionIdentifier,
-        ulong maximumFramesPerEpoch = MaximumFramesPerEpoch)
+        ulong maximumFramesPerEpoch = MaximumFramesPerEpoch,
+        ulong maximumPlaintextBytesPerEpoch = MaximumPlaintextBytesPerEpoch)
     {
         sender = new SecureFrameProtector(
             sendKey,
             sendDirection,
             sessionIdentifier,
-            maximumFramesPerEpoch);
+            maximumFramesPerEpoch,
+            maximumPlaintextBytesPerEpoch);
         receiver = new SecureFrameProtector(
             receiveKey,
             receiveDirection,
             sessionIdentifier,
-            maximumFramesPerEpoch);
+            maximumFramesPerEpoch,
+            maximumPlaintextBytesPerEpoch);
         SessionIdentifier = Convert.ToHexString(sessionIdentifier);
     }
 
@@ -251,6 +255,15 @@ public sealed class SecureFrameSession : IDisposable
     public uint SendEpoch => sender.Epoch;
 
     public ulong SendPlaintextBytes => sender.PlaintextBytes;
+
+    public bool ShouldRekeyBeforeSend(int nextPlaintextBytes)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nextPlaintextBytes);
+        return sender.ShouldReserveEpochTransition(
+            nextPlaintextBytes,
+            SecureSessionKeyUpdateCodec.EncodedLength);
+    }
 
     public byte[] ExportSessionIdentifier()
     {
@@ -312,15 +325,20 @@ internal sealed class SecureFrameProtector : IDisposable
     private readonly SecureFrameDirection direction;
     private readonly Lock gate = new();
     private readonly ulong maximumFramesPerEpoch;
+    private readonly ulong maximumPlaintextBytesPerEpoch;
     private readonly byte[] sessionIdentifier;
     private bool disposed;
+    private uint epoch = 1;
     private byte[] key;
+    private ulong plaintextBytes;
+    private ulong sequence;
 
     public SecureFrameProtector(
         ReadOnlySpan<byte> key,
         SecureFrameDirection direction,
         ReadOnlySpan<byte> sessionIdentifier,
-        ulong maximumFramesPerEpoch)
+        ulong maximumFramesPerEpoch,
+        ulong maximumPlaintextBytesPerEpoch)
     {
         if (key.Length != 32)
         {
@@ -341,17 +359,53 @@ internal sealed class SecureFrameProtector : IDisposable
                 $"A secure-session epoch must permit 1 to {SecureFrameSession.MaximumFramesPerEpoch} frames.");
         }
 
+        if (maximumPlaintextBytesPerEpoch is < 1
+            or > SecureFrameSession.MaximumPlaintextBytesPerEpoch)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumPlaintextBytesPerEpoch),
+                $"A secure-session epoch must permit 1 to {SecureFrameSession.MaximumPlaintextBytesPerEpoch} plaintext bytes.");
+        }
+
         this.key = key.ToArray();
         this.direction = direction;
         this.sessionIdentifier = sessionIdentifier.ToArray();
         this.maximumFramesPerEpoch = maximumFramesPerEpoch;
+        this.maximumPlaintextBytesPerEpoch = maximumPlaintextBytesPerEpoch;
     }
 
-    public uint Epoch { get; private set; } = 1;
+    public uint Epoch
+    {
+        get
+        {
+            lock (gate)
+            {
+                return epoch;
+            }
+        }
+    }
 
-    public ulong PlaintextBytes { get; private set; }
+    public ulong PlaintextBytes
+    {
+        get
+        {
+            lock (gate)
+            {
+                return plaintextBytes;
+            }
+        }
+    }
 
-    public ulong Sequence { get; private set; }
+    public ulong Sequence
+    {
+        get
+        {
+            lock (gate)
+            {
+                return sequence;
+            }
+        }
+    }
 
     public byte[] Encrypt(ReadOnlySpan<byte> plaintext)
     {
@@ -365,26 +419,29 @@ internal sealed class SecureFrameProtector : IDisposable
 
         lock (gate)
         {
-            EnsureSequenceAvailable();
-            ulong sequence = Sequence;
+            ObjectDisposedException.ThrowIf(disposed, this);
+            EnsureUsageAvailable(plaintext.Length);
+            ulong currentSequence = sequence;
             byte[] frame = GC.AllocateUninitializedArray<byte>(
                 HeaderLength + plaintext.Length + TagLength);
             Magic.CopyTo(frame, 0);
-            BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(4), Epoch);
-            BinaryPrimitives.WriteUInt64BigEndian(frame.AsSpan(8), sequence);
+            BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(4), epoch);
+            BinaryPrimitives.WriteUInt64BigEndian(frame.AsSpan(8), currentSequence);
             BinaryPrimitives.WriteUInt32BigEndian(
                 frame.AsSpan(16),
                 checked((uint)plaintext.Length));
             Span<byte> ciphertext = frame.AsSpan(HeaderLength, plaintext.Length);
             Span<byte> tag = frame.AsSpan(HeaderLength + plaintext.Length, TagLength);
             Span<byte> nonce = stackalloc byte[12];
-            WriteNonce(nonce, sequence);
-            byte[] associatedData = CreateAssociatedData(sequence, plaintext.Length);
+            WriteNonce(nonce, currentSequence);
+            byte[] associatedData = CreateAssociatedData(
+                currentSequence,
+                plaintext.Length);
             using var cipher = new AesGcm(key, TagLength);
             cipher.Encrypt(nonce, plaintext, ciphertext, tag, associatedData);
             CryptographicOperations.ZeroMemory(associatedData);
-            PlaintextBytes = checked(PlaintextBytes + (ulong)plaintext.Length);
-            Sequence++;
+            plaintextBytes = checked(plaintextBytes + (ulong)plaintext.Length);
+            sequence++;
             return frame;
         }
     }
@@ -409,18 +466,20 @@ internal sealed class SecureFrameProtector : IDisposable
 
         lock (gate)
         {
-            EnsureSequenceAvailable();
-            if (epoch != Epoch)
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (epoch != this.epoch)
             {
                 throw new InvalidDataException(
                     "The secure frame epoch is a replay or gap.");
             }
 
-            if (sequence != Sequence)
+            if (sequence != this.sequence)
             {
                 throw new InvalidDataException(
                     "The secure frame sequence is a replay or gap.");
             }
+
+            EnsureUsageAvailable(checked((int)ciphertextLength));
 
             ReadOnlySpan<byte> ciphertext = frame.Slice(HeaderLength, checked((int)ciphertextLength));
             ReadOnlySpan<byte> tag = frame.Slice(
@@ -434,9 +493,9 @@ internal sealed class SecureFrameProtector : IDisposable
             {
                 using var cipher = new AesGcm(key, TagLength);
                 cipher.Decrypt(nonce, ciphertext, tag, plaintext, associatedData);
-                PlaintextBytes = checked(
-                    PlaintextBytes + (ulong)ciphertextLength);
-                Sequence++;
+                plaintextBytes = checked(
+                    plaintextBytes + (ulong)ciphertextLength);
+                this.sequence++;
                 return plaintext;
             }
             catch
@@ -457,7 +516,7 @@ internal sealed class SecureFrameProtector : IDisposable
         lock (gate)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            if (Epoch == uint.MaxValue || nextEpoch != Epoch + 1)
+            if (epoch == uint.MaxValue || nextEpoch != epoch + 1)
             {
                 throw new InvalidOperationException(
                     "A secure frame epoch must advance by exactly one.");
@@ -479,9 +538,26 @@ internal sealed class SecureFrameProtector : IDisposable
                 nextEpoch);
             CryptographicOperations.ZeroMemory(key);
             key = nextKey;
-            Epoch = nextEpoch;
-            PlaintextBytes = 0;
-            Sequence = 0;
+            epoch = nextEpoch;
+            plaintextBytes = 0;
+            sequence = 0;
+        }
+    }
+
+    public bool ShouldReserveEpochTransition(
+        int nextPlaintextBytes,
+        int transitionPlaintextBytes)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            ulong requiredBytes = checked(
+                (ulong)nextPlaintextBytes + (ulong)transitionPlaintextBytes);
+            return sequence >= maximumFramesPerEpoch - 1
+                || requiredBytes > maximumPlaintextBytesPerEpoch
+                || plaintextBytes
+                    > maximumPlaintextBytesPerEpoch - requiredBytes;
         }
     }
 
@@ -518,7 +594,7 @@ internal sealed class SecureFrameProtector : IDisposable
         sessionIdentifier.CopyTo(associatedData, offset);
         offset += sessionIdentifier.Length;
         associatedData[offset++] = (byte)direction;
-        BinaryPrimitives.WriteUInt32BigEndian(associatedData.AsSpan(offset), Epoch);
+        BinaryPrimitives.WriteUInt32BigEndian(associatedData.AsSpan(offset), epoch);
         offset += sizeof(uint);
         BinaryPrimitives.WriteUInt64BigEndian(associatedData.AsSpan(offset), sequence);
         offset += sizeof(ulong);
@@ -530,16 +606,24 @@ internal sealed class SecureFrameProtector : IDisposable
 
     private void WriteNonce(Span<byte> nonce, ulong sequence)
     {
-        BinaryPrimitives.WriteUInt32BigEndian(nonce, Epoch);
+        BinaryPrimitives.WriteUInt32BigEndian(nonce, epoch);
         BinaryPrimitives.WriteUInt64BigEndian(nonce[sizeof(uint)..], sequence);
     }
 
-    private void EnsureSequenceAvailable()
+    private void EnsureUsageAvailable(int plaintextLength)
     {
-        if (Sequence >= maximumFramesPerEpoch)
+        if (sequence >= maximumFramesPerEpoch)
         {
             throw new CryptographicException(
                 "The secure frame epoch usage bound is exhausted; rekey or reconnect is required.");
+        }
+
+        ulong requestedBytes = checked((ulong)plaintextLength);
+        if (requestedBytes > maximumPlaintextBytesPerEpoch
+            || plaintextBytes > maximumPlaintextBytesPerEpoch - requestedBytes)
+        {
+            throw new CryptographicException(
+                "The secure frame epoch plaintext bound is exhausted; rekey or reconnect is required.");
         }
     }
 }

@@ -588,8 +588,11 @@ public sealed class AuthenticatedTcpPeerSessionAttemptTests
         Assert.Equal(PeerReconnectStopReason.PeerNotTrusted, result.StopReason);
     }
 
-    [Fact]
-    public async Task IoFailureAfterAuthenticationIsSessionEndNotConnectFailure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransportOrUsageBoundFailureAfterAuthenticationEndsSession(
+        bool usageBoundFailure)
     {
         using DeviceIdentity localIdentity = DeviceIdentity.Generate(
             DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
@@ -619,7 +622,9 @@ public sealed class AuthenticatedTcpPeerSessionAttemptTests
             trustSessions,
             new TestCandidateSource(CreateCandidate(peerIdentity, endPoint.Port)),
             new SystemAuthenticatedTcpConnector(),
-            new FailingSessionHandler(new IOException("Peer disconnected.")),
+            new FailingSessionHandler(usageBoundFailure
+                ? new CryptographicException("Traffic-key usage bound reached.")
+                : new IOException("Peer disconnected.")),
             new FixedTimeProvider(Now));
 
         PeerSessionAttemptResult result = await attempt.RunAsync();

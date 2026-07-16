@@ -51,6 +51,182 @@ public sealed class AuthenticatedTcpControlConnectionTests
         Assert.Equal<ulong>(1, initiator.NextSecureReceiveSequence);
         Assert.Equal<ulong>(1, responder.NextSecureSendSequence);
         Assert.Equal<ulong>(1, responder.NextSecureReceiveSequence);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await initiator.RekeyAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task ProtocolOnePointThreeRepeatedAndCrossedRekeysKeepTrafficBound()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Laptop");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        var initiatorTrust = new TrustRecord(
+            responderIdentity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.None);
+        var responderTrust = new TrustRecord(
+            initiatorIdentity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.None);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        ProtocolVersion version = ProtocolFeatures.SecureSessionRekeyMinimumVersion;
+        Task<AuthenticatedTcpControlConnection> accept =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                responderIdentity,
+                responderTrust,
+                [version]).AsTask();
+
+        await using AuthenticatedTcpControlConnection initiator =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                initiatorIdentity,
+                initiatorTrust,
+                [version]);
+        await using AuthenticatedTcpControlConnection responder = await accept;
+        for (uint epoch = 2; epoch <= 4; epoch++)
+        {
+            Task<ControlMessage> responderReceive = responder.ReceiveAsync().AsTask();
+            Task<ControlMessage> initiatorReceive = initiator.ReceiveAsync().AsTask();
+            if (epoch == 2)
+            {
+                await initiator.RekeyAsync(TimeSpan.FromSeconds(2));
+            }
+            else if (epoch == 3)
+            {
+                await Task.WhenAll(
+                    initiator.RekeyAsync(TimeSpan.FromSeconds(2)).AsTask(),
+                    responder.RekeyAsync(TimeSpan.FromSeconds(2)).AsTask());
+            }
+            else
+            {
+                await responder.RekeyAsync(TimeSpan.FromSeconds(2));
+            }
+
+            Assert.Equal(epoch, initiator.SecureSendEpoch);
+            Assert.Equal(epoch, initiator.SecureReceiveEpoch);
+            Assert.Equal(epoch, responder.SecureSendEpoch);
+            Assert.Equal(epoch, responder.SecureReceiveEpoch);
+            ControlMessage request = ControlMessage.Create(
+                version,
+                ControlMessageType.Hello,
+                Guid.Parse($"00000000-0000-0000-0000-{epoch:000000000000}"),
+                CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                initiatorIdentity.DeviceId,
+                new DateTimeOffset(2026, 7, 16, 12, 0, checked((int)epoch), TimeSpan.Zero),
+                TimeSpan.FromSeconds(30),
+                $"{{\"epoch\":{epoch}}}");
+            ControlMessage response = ControlMessage.Create(
+                version,
+                ControlMessageType.Hello,
+                Guid.Parse($"00000000-0000-0000-0001-{epoch:000000000000}"),
+                CorrelationId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+                responderIdentity.DeviceId,
+                new DateTimeOffset(2026, 7, 16, 12, 1, checked((int)epoch), TimeSpan.Zero),
+                TimeSpan.FromSeconds(30),
+                $"{{\"epoch\":{epoch}}}");
+            await initiator.SendAsync(request);
+            await responder.SendAsync(response);
+
+            Assert.Equal(request.BodyDigest, (await responderReceive).BodyDigest);
+            Assert.Equal(response.BodyDigest, (await initiatorReceive).BodyDigest);
+        }
+    }
+
+    [Fact]
+    public async Task InterruptedProtocolOnePointThreeRekeyRequiresFreshHandshake()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Laptop");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        var initiatorTrust = new TrustRecord(
+            responderIdentity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.None);
+        var responderTrust = new TrustRecord(
+            initiatorIdentity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.None);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        ProtocolVersion version = ProtocolFeatures.SecureSessionRekeyMinimumVersion;
+
+        Task<AuthenticatedTcpControlConnection> firstAccept =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                responderIdentity,
+                responderTrust,
+                [version]).AsTask();
+        await using (AuthenticatedTcpControlConnection firstInitiator =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                initiatorIdentity,
+                initiatorTrust,
+                [version]))
+        await using (AuthenticatedTcpControlConnection firstResponder =
+            await firstAccept)
+        {
+            Task failedReceive = firstInitiator.ReceiveAsync().AsTask();
+            Task failedRekey = firstInitiator.RekeyAsync(
+                TimeSpan.FromSeconds(2)).AsTask();
+            await WaitForSendEpochAsync(
+                firstInitiator,
+                failedRekey,
+                expectedEpoch: 2);
+
+            await firstResponder.DisposeAsync();
+
+            await Assert.ThrowsAnyAsync<IOException>(async () =>
+                await failedReceive);
+            await Assert.ThrowsAnyAsync<IOException>(async () =>
+                await failedRekey);
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await firstInitiator.SendAsync(CreateMessage(
+                    version,
+                    initiatorIdentity.DeviceId,
+                    "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                    "{\"stale\":true}")));
+        }
+
+        Task<AuthenticatedTcpControlConnection> freshAccept =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                responderIdentity,
+                responderTrust,
+                [version]).AsTask();
+        await using AuthenticatedTcpControlConnection freshInitiator =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                initiatorIdentity,
+                initiatorTrust,
+                [version]);
+        await using AuthenticatedTcpControlConnection freshResponder =
+            await freshAccept;
+
+        Assert.Equal<uint>(1, freshInitiator.SecureSendEpoch);
+        Assert.Equal<uint>(1, freshInitiator.SecureReceiveEpoch);
+        Assert.Equal<uint>(1, freshResponder.SecureSendEpoch);
+        Assert.Equal<uint>(1, freshResponder.SecureReceiveEpoch);
+        Assert.Equal<ulong>(1, freshInitiator.NextSecureSendSequence);
+        Assert.Equal<ulong>(1, freshResponder.NextSecureReceiveSequence);
+        ControlMessage freshMessage = CreateMessage(
+            version,
+            initiatorIdentity.DeviceId,
+            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            "{\"freshHandshake\":true}");
+        Task<ControlMessage> freshReceive = freshResponder.ReceiveAsync().AsTask();
+        await freshInitiator.SendAsync(freshMessage);
+        Assert.Equal(freshMessage.BodyDigest, (await freshReceive).BodyDigest);
     }
 
     [Fact]
@@ -465,6 +641,44 @@ public sealed class AuthenticatedTcpControlConnectionTests
         {
             CryptographicOperations.ZeroMemory(message);
         }
+    }
+
+    private static ControlMessage CreateMessage(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        string messageId,
+        string bodyJson) => ControlMessage.Create(
+            version,
+            ControlMessageType.Hello,
+            Guid.Parse(messageId),
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            senderDeviceId,
+            new DateTimeOffset(2026, 7, 16, 12, 0, 0, TimeSpan.Zero),
+            TimeSpan.FromSeconds(30),
+            bodyJson);
+
+    private static async Task WaitForSendEpochAsync(
+        AuthenticatedTcpControlConnection connection,
+        Task rekey,
+        uint expectedEpoch)
+    {
+        for (int attempt = 0; attempt < 10_000; attempt++)
+        {
+            if (connection.SecureSendEpoch == expectedEpoch)
+            {
+                return;
+            }
+
+            if (rekey.IsCompleted)
+            {
+                await rekey;
+            }
+
+            await Task.Yield();
+        }
+
+        throw new TimeoutException(
+            $"The rekey did not commit send epoch {expectedEpoch} during the bounded scheduler trace.");
     }
 
     private enum ManualFinishedResponse

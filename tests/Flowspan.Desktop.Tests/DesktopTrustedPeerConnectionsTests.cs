@@ -183,7 +183,7 @@ public sealed class DesktopTrustedPeerConnectionsTests
 
         using (connections.TrackAuthenticatedSession(
                    remote.DeviceId,
-                   ProtocolFeatures.SecureSessionFinishedMinimumVersion))
+                   ProtocolFeatures.SecureSessionRekeyMinimumVersion))
         {
             DesktopTrustedPeerConnectionSnapshot authenticated =
                 Assert.Single(connections.GetSnapshot());
@@ -192,6 +192,8 @@ public sealed class DesktopTrustedPeerConnectionsTests
                 authenticated.State);
             Assert.Contains("NOT SHARING", authenticated.StatusLabel);
             Assert.False(authenticated.IsLegacyCompatibilityMode);
+            Assert.False(authenticated.IsReconnectAtKeyLimitMode);
+            Assert.Contains("live rekey", authenticated.StatusDescription);
             connections.NotifyCandidatesChanged();
             Assert.Equal(0, loop.DiscoverySignalCount);
         }
@@ -201,6 +203,35 @@ public sealed class DesktopTrustedPeerConnectionsTests
             Assert.Single(connections.GetSnapshot());
         Assert.Equal(DesktopTrustedPeerConnectionState.Retrying, retry.State);
         Assert.Equal(TimeSpan.FromSeconds(2), retry.RetryDelay);
+    }
+
+    [Fact]
+    public async Task ProtocolOnePointTwoNamesReconnectAtKeyLimitMode()
+    {
+        using DeviceIdentity local = CreateIdentity("11111111", "Local");
+        using DeviceIdentity remote = CreateIdentity("22222222", "Remote");
+        await using var trust = new TrustSessionCoordinator(
+            CreateTrustStore(remote, Capability.ActivityOffer));
+        var loops = new FakeReconnectLoopFactory();
+        await using var connections = new DesktopTrustedPeerConnectionCoordinator(
+            local.DeviceId,
+            trust,
+            static () => [],
+            loops);
+        connections.Start();
+
+        using IDisposable session = connections.TrackAuthenticatedSession(
+            remote.DeviceId,
+            ProtocolFeatures.SecureSessionFinishedMinimumVersion);
+        DesktopTrustedPeerConnectionSnapshot snapshot =
+            Assert.Single(connections.GetSnapshot());
+
+        Assert.False(snapshot.IsLegacyCompatibilityMode);
+        Assert.True(snapshot.IsReconnectAtKeyLimitMode);
+        Assert.Contains("ENCRYPTED FINISHED", snapshot.StatusLabel);
+        Assert.Contains("RECONNECT-AT-KEY-LIMIT", snapshot.StatusLabel);
+        Assert.Contains("predates live rekey", snapshot.StatusDescription);
+        Assert.Contains("fresh authenticated connection", snapshot.StatusDescription);
     }
 
     [Theory]
@@ -474,11 +505,7 @@ public sealed class DesktopTrustedPeerConnectionsTests
             CapabilityGrant.Of(
                 Capability.ActivityOffer,
                 Capability.ActivityReceive),
-            [
-                ProtocolFeatures.SecureSessionFinishedMinimumVersion,
-                ProtocolFeatures.ActivitySwapMinimumVersion,
-                new ProtocolVersion(1, 0),
-            ],
+            ProtocolFeatures.ProductionSupportedVersions,
             capabilityMatch: CapabilityRequirementMatch.Any);
         var inbound = new AuthenticatedTcpInboundListener(
             socket,
@@ -493,11 +520,7 @@ public sealed class DesktopTrustedPeerConnectionsTests
         SignedDiscoveryOffer offer = SignedDiscoveryOffer.Create(
             listenerIdentity,
             port,
-            [
-                ProtocolFeatures.SecureSessionFinishedMinimumVersion,
-                ProtocolFeatures.ActivitySwapMinimumVersion,
-                new ProtocolVersion(1, 0),
-            ],
+            ProtocolFeatures.ProductionSupportedVersions,
             now,
             TimeSpan.FromMinutes(1),
             Enumerable.Repeat((byte)0x55, SignedDiscoveryOffer.NonceLength).ToArray());
@@ -543,11 +566,11 @@ public sealed class DesktopTrustedPeerConnectionsTests
                 "NOT SHARING",
                 Assert.Single(listenerConnections.GetSnapshot()).StatusLabel);
             Assert.Equal(
-                ProtocolFeatures.SecureSessionFinishedMinimumVersion,
+                ProtocolFeatures.SecureSessionRekeyMinimumVersion,
                 await connectorSession.ProtocolVersion.Task.WaitAsync(
                     TimeSpan.FromSeconds(1)));
             Assert.Equal(
-                ProtocolFeatures.SecureSessionFinishedMinimumVersion,
+                ProtocolFeatures.SecureSessionRekeyMinimumVersion,
                 await listenerSession.ProtocolVersion.Task.WaitAsync(
                     TimeSpan.FromSeconds(1)));
         }

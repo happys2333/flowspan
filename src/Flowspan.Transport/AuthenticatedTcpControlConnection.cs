@@ -38,9 +38,28 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
     internal ulong NextSecureSendSequence =>
         authenticatedSession.SecureFrames.NextSendSequence;
 
+    internal uint SecureReceiveEpoch =>
+        authenticatedSession.SecureFrames.ReceiveEpoch;
+
+    internal uint SecureSendEpoch =>
+        authenticatedSession.SecureFrames.SendEpoch;
+
     public PublicDeviceIdentity PeerIdentity => authenticatedSession.PeerIdentity;
 
     public ProtocolVersion ProtocolVersion => authenticatedSession.ProtocolVersion;
+
+    public ValueTask RekeyAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ProtocolFeatures.SupportsLiveRekey(ProtocolVersion))
+        {
+            throw new InvalidOperationException(
+                "Live rekey requires negotiated protocol 1.3 or later.");
+        }
+
+        return channel.RekeyAsync(timeout, cancellationToken);
+    }
 
     public IPEndPoint RemoteEndPoint { get; }
 
@@ -52,9 +71,9 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
         if (message.Version != ProtocolVersion
             || message.SenderDeviceId != PeerIdentity.DeviceId)
         {
-            channel.RejectPeerMessage();
-            throw new InvalidDataException(
+            var failure = new InvalidDataException(
                 "The control message is not bound to the authenticated peer and negotiated version.");
+            throw channel.RejectPeerMessage(failure);
         }
 
         return message;
@@ -597,7 +616,9 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
         try
         {
             SecureControlChannel channel = connection.UpgradeToSecureControl(
-                authenticated.SecureFrames);
+                authenticated.SecureFrames,
+                ProtocolFeatures.SupportsLiveRekey(
+                    authenticated.ProtocolVersion));
             return new AuthenticatedTcpControlConnection(
                 authenticated,
                 channel,

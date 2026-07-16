@@ -82,7 +82,9 @@ public sealed class DirectTcpPeerConnection :
         }
     }
 
-    public SecureControlChannel UpgradeToSecureControl(SecureFrameSession session)
+    public SecureControlChannel UpgradeToSecureControl(
+        SecureFrameSession session,
+        bool liveRekeyEnabled = false)
     {
         ArgumentNullException.ThrowIfNull(session);
         lock (gate)
@@ -94,7 +96,10 @@ public sealed class DirectTcpPeerConnection :
                     "A direct TCP connection can be upgraded only once.");
             }
 
-            var channel = new SecureControlChannel(client.GetStream(), session);
+            var channel = new SecureControlChannel(
+                client.GetStream(),
+                session,
+                liveRekeyEnabled);
             upgraded = true;
             return channel;
         }

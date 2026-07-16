@@ -126,8 +126,8 @@ public sealed class DesktopLocalPairingRuntimeTests
 
         Assert.InRange(boundPort, 1, ushort.MaxValue);
         Assert.Equal(boundPort, offer.Port);
-        Assert.Contains(
-            ProtocolFeatures.SecureSessionFinishedMinimumVersion,
+        Assert.Equal<ProtocolVersion>(
+            ProtocolFeatures.ProductionSupportedVersions,
             offer.ProtocolVersions);
         Assert.True(offer.Verify(identity.PublicIdentity, DateTimeOffset.UtcNow));
         Assert.Equal(1, dns.StartCount);
