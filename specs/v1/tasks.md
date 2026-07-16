@@ -214,9 +214,15 @@ means its linked evidence exists; it does not imply the entire product works.
       independently summed 734/734 TRX set on all three OSes. This status becomes
       final when the task-status commit passes the same hosted gates.
     - _Requirements: R8.3, R9.1, R12.3_
-  - [ ] 4.3b Freeze and implement bounded live rekey with monotonic epochs,
+  - [-] 4.3b Freeze and implement bounded live rekey with monotonic epochs,
     simultaneous-request resolution, key erasure, replay/gap rejection, and
     interruption recovery.
+    - Requirements, design, executable tasks, protocol-1.3 version boundary,
+      14-byte `FSK1` wire shape, directional HKDF chain, `2^20` frame bound,
+      crossed-request rule, and reconnect-only interruption recovery are frozen
+      in [the rekey specification](rekey/requirements.md),
+      [design](rekey/design.md), [tasks](rekey/tasks.md), and ADR 0015.
+      Implementation and all delivery evidence remain open.
     - _Requirements: R8.3-R8.4, R9.1, R12.3_
   - _Requirements: R8.3, R9.1_
 - [-] 4.4 Implement Windows Credential Manager/DPAPI, macOS Keychain, and Linux
