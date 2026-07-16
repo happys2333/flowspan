@@ -22,6 +22,8 @@ screens or arbitrary process migration.
 | **Replace Recovery Snapshot** | A bounded, immutable, target-local, payload-free projection of known Replace/undo journal state, ordered to expose unresolved destructive boundaries before terminal history. | Log dump, remote history |
 | **Undo Capsule** | A target-owned, expiring preservation of the exact pre-Replace semantic state plus bindings needed for one safe compensating undo. | Backup, rollback promise |
 | **Swap** | One atomic transaction that exchanges two Activity Placements or changes neither. | Two moves |
+| **Swap Transaction Intent** | A bounded, payload-free coordinator record written before Prepare that binds one Operation, deadline, both expected Activity snapshots, and both device-owned reservation tokens. | Draft decision, retry cache |
+| **Swap Decision** | The one durable Commit or Abort outcome for a Swap, bound to both Device/token participants; an Abort also records its reason. | Message response, local guess |
 | **Mirror** | An Activity presentation on multiple devices while authoritative execution remains on one host. | Copy, sync |
 | **Placement** | The desired device and presentation location of an Activity. | Screen ownership |
 
@@ -79,6 +81,12 @@ screens or arbitrary process migration.
   may describe Placements for Activities or Groups.
 - An **Operation** produces one terminal **Operation Receipt** and may reference
   one or more expiring **Reservations** before commitment.
+- A **Swap Transaction Intent** precedes both endpoint Prepare requests. If it
+  is reconstructed without a **Swap Decision**, recovery records Abort before
+  contacting either participant; it never guesses Commit.
+- A **Swap Decision** binds each reservation token to its participant Device.
+  Commit exchanges both Placements or remains recovering; Abort preserves both
+  originals and blocks a delayed Prepare through an endpoint tombstone.
 - A committed **Replace** has one target-owned **Undo Capsule**. Its payload
   never travels back to the source; only bound, payload-free availability
   metadata may appear in an authenticated result.

@@ -17,7 +17,8 @@ for end-user installation. The repository currently includes:
 - approved v1 requirements, architecture, ADRs, domain glossary, threat model,
   test strategy, task tracker, and release checklist;
 - a warning-free .NET 10 solution with an independent domain core;
-- a deterministic two-node semantic handoff simulator;
+- a deterministic two-node Semantic Handoff and journaled-coordinator Atomic Swap
+  simulator;
 - capability denial, descriptor validation, idempotent retry, operation-ID
   conflict, protocol negotiation, and diagnostic-redaction tests;
 - provisional, review-gated identity, pairing, trust, HKDF, and encrypted-frame
@@ -82,8 +83,10 @@ dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
 Desktop validation uses an explicitly degraded in-memory identity, prints TEST
 MODE, and exits; it never substitutes for production platform storage. The
 simulator uses fixed device, operation, and clock values. A successful run
-prints protocol `1.0`, `Source preserved: True`, `Target resumed: True`, and a
-redacted operation receipt containing a descriptor digest but no Activity text.
+prints protocol `1.0`, `Source preserved: True`, `Target resumed: True`,
+`Atomic swap committed: True`, and a redacted operation receipt containing a
+descriptor digest but no Activity text. Its Swap endpoints and catalog remain
+process-memory tracers; protected endpoint restart is not yet implemented.
 
 ## Repository map
 

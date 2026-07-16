@@ -7,6 +7,54 @@ namespace Flowspan.Platform.Linux.Tests;
 public sealed class LinuxReplaceStateStoreTests
 {
     [Fact]
+    public async Task SwapSecretServiceKeyAndAuthenticatedFileUseIndependentPurpose()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-linux-swap-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "swap-state.fssf");
+        string keyLockPath = Path.Combine(directory, "swap-key.lock");
+        byte[] payload = "LINUX-SWAP-PLAINTEXT-CANARY"u8.ToArray();
+        using var runner = new FakeSecretToolRunner();
+        try
+        {
+            var first = new LinuxSwapStatePayloadStore(
+                statePath,
+                runner,
+                keyLockPath);
+            await first.SaveAsync(payload);
+
+            Assert.DoesNotContain(
+                "LINUX-SWAP-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(statePath)),
+                StringComparison.Ordinal);
+            byte[]? restored = await new LinuxSwapStatePayloadStore(
+                statePath,
+                runner,
+                keyLockPath).LoadAsync();
+
+            Assert.Equal(payload, restored);
+            Assert.NotEqual(
+                LinuxSwapStatePayloadStore.GetDefaultStatePath(),
+                LinuxReplaceStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
+                LinuxSwapStateKeyStore.GetDefaultCoordinationLockPath(),
+                LinuxReplaceStateKeyStore.GetDefaultCoordinationLockPath());
+            Assert.NotEqual(
+                LinuxSwapStateKeyStore.DefaultAccount,
+                LinuxReplaceStateKeyStore.DefaultAccount);
+            Assert.Contains(runner.Arguments, static arguments =>
+                arguments.Contains("swap-state-key", StringComparer.Ordinal));
+            Assert.DoesNotContain(runner.Arguments, static arguments =>
+                arguments.Contains("replace-state-key", StringComparer.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SecretServiceKeyAndAuthenticatedFileRoundTripWithoutPlaintext()
     {
         string directory = Path.Combine(
@@ -57,6 +105,8 @@ public sealed class LinuxReplaceStateStoreTests
 
         public int StoreCount { get; private set; }
 
+        public List<IReadOnlyList<string>> Arguments { get; } = [];
+
         public ReadOnlyMemory<byte> StoredBase64 => storedBase64;
 
         public ValueTask<SecretToolProcessResult> RunAsync(
@@ -64,6 +114,7 @@ public sealed class LinuxReplaceStateStoreTests
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Arguments.Add(invocation.Arguments);
             return ValueTask.FromResult(invocation.Verb switch
             {
                 "lookup" => storedBase64 is null

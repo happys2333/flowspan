@@ -169,6 +169,21 @@ enabled Move control by keyboard and verifies operation-neutral automation names
 These layers do not replace physical two-device interruption, packaged native
 accessibility, or arbitrary application Adapter evidence.
 
+The task 3.3a Swap core writes a payload-free coordinator intent before either
+Prepare and writes a participant-bound Commit/Abort before decision delivery.
+Generated two-participant cases cover prepare/decision drop, acknowledgement
+loss, duplication, delayed expiry, reordered Abort, overlapping reservation,
+Operation reuse, and recovery without a mixed terminal state. Persistence tests
+reconstruct undecided and committed journals, inject intent/decision save
+failure both before and after an atomic write, require reopen after every
+ambiguous save, reject digest/shape/bounds tamper, and pin cross-platform request
+and decision digests. The production payload contract uses a Swap-specific
+AES-256-GCM atomic file and independent DPAPI, Keychain, or Secret Service key;
+native DPAPI/Keychain tests run only on matching hosts and Linux Secret Service
+remains a controlled invocation contract. Endpoint persistence, authenticated
+wire messages, capability authorization, Desktop recovery, physical LAN loss,
+and abrupt power failure remain later evidence.
+
 The task 7.3c tracer keeps Replace separate from Activity transfer. Application
 tests require an exact target ID/revision/digest and prove capture or store
 failure blocks before incoming resume, successful Replace stores a 15-minute

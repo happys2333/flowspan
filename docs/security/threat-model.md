@@ -155,6 +155,19 @@ unchanged. Hosted final-HEAD, physical/native recovery, and native accessibility
 claims remain pending; this candidate alone does not satisfy the v1 Replace
 release criterion.
 
+### 5.7 Task 3.3a durable atomic-Swap coordinator evidence plan
+
+| Threat | Required implementation evidence | Remaining evidence |
+| --- | --- | --- |
+| T04 | Persist one exact Operation/correlation/deadline and both Device/Activity/revision/digest/token bindings before Prepare. Persist one participant-bound Commit or reason-bearing Abort before delivery. Exact replay returns the same decision; different Operation content conflicts; undecided restart can only record Abort. | Authenticated wire schema, Trust/capability replay tests, physical cross-device packet loss, sleep/wake, and endpoint restart. |
+| T10 | The coordinator record excludes title, descriptor payload, payload digest, and exception text. Canary tests inspect both canonical plaintext and protected files. | Packaged crash dump, diagnostic export, and recovery-UI inspection. |
+| T11 | Strict version/bounds/order/digest decoding rejects tamper; AES-256-GCM authenticates a Swap-specific `FSSF` file; the independent random key is held under Swap-specific DPAPI, Keychain, or Secret Service identifiers. Failed saves do not publish candidate state in memory, permanently block that journal instance, and require reopen so an ambiguously persisted Commit cannot be overwritten by Abort. | Abrupt power-loss/filesystem testing, rollback detection, live Linux desktop Secret Service, and independent storage review. |
+| T18 | Abort-before-Prepare creates an idempotent participant tombstone, delayed Prepare cannot reopen it, and a Prepared Activity excludes an overlapping Swap. Any decision-delivery uncertainty remains `Recovering`; no single endpoint result is presented as atomic success. | Durable endpoint journal/reducer, explicit Desktop exact-selection confirmation, native Adapter eligibility, and user-visible recovery. |
+
+This slice protects only the coordinator transaction. Endpoint reservations and
+the Activity catalog remain process-memory state, so the v1 atomic-Swap release
+criterion stays open even after hosted contracts pass.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

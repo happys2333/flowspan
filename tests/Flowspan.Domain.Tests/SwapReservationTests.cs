@@ -30,7 +30,7 @@ public sealed class SwapReservationTests
             Operation,
             SwapDecisionOutcome.Commit,
             Now.AddSeconds(1),
-            [FirstToken, SecondToken]);
+            [Participant(first, FirstToken), Participant(second, SecondToken)]);
 
         SwapReservation committed = prepared.ApplyDecision(decision);
         ActivityInstance replacement = committed.CreateCommittedReplacement();
@@ -55,7 +55,7 @@ public sealed class SwapReservationTests
             Operation,
             SwapDecisionOutcome.Commit,
             Now.AddSeconds(3),
-            [FirstToken, SecondToken]);
+            [Participant(first, FirstToken), Participant(second, SecondToken)]);
 
         Assert.Throws<InvalidOperationException>(() => prepared.ApplyDecision(late));
         Assert.Equal(SwapReservationPhase.Prepared, prepared.Phase);
@@ -75,7 +75,7 @@ public sealed class SwapReservationTests
             Operation,
             SwapDecisionOutcome.Commit,
             Now.AddSeconds(1),
-            [FirstToken, SecondToken]);
+            [Participant(first, FirstToken), Participant(second, SecondToken)]);
 
         SwapReservation recovered = prepared.ApplyDecision(timely);
 
@@ -96,7 +96,8 @@ public sealed class SwapReservationTests
             Operation,
             SwapDecisionOutcome.Abort,
             Now.AddSeconds(1),
-            [FirstToken]);
+            [Participant(first, FirstToken), Participant(second, SecondToken)],
+            FailureCode.RevisionConflict);
         SwapReservation aborted = prepared.ApplyDecision(abort);
 
         Assert.Same(aborted, aborted.ApplyDecision(abort));
@@ -105,23 +106,66 @@ public sealed class SwapReservationTests
             Operation,
             SwapDecisionOutcome.Commit,
             Now.AddSeconds(1),
-            [FirstToken, SecondToken]);
+            [Participant(first, FirstToken), Participant(second, SecondToken)]);
         Assert.Throws<InvalidOperationException>(() => aborted.ApplyDecision(commit));
     }
 
     [Fact]
     public void CommitDecisionRequiresTwoDistinctReservations()
     {
+        (ActivityInstance first, ActivityInstance second) = CreateActivities();
         Assert.Throws<ArgumentException>(() => SwapDecision.Create(
             Operation,
             SwapDecisionOutcome.Commit,
             Now,
-            [FirstToken]));
+            [Participant(first, FirstToken)]));
         Assert.Throws<ArgumentException>(() => SwapDecision.Create(
             Operation,
             SwapDecisionOutcome.Commit,
             Now,
-            [FirstToken, FirstToken]));
+            [Participant(first, FirstToken), Participant(second, FirstToken)]));
+        Assert.Throws<ArgumentException>(() => SwapDecision.Create(
+            Operation,
+            SwapDecisionOutcome.Commit,
+            Now,
+            [Participant(first, FirstToken), Participant(first, SecondToken)]));
+    }
+
+    [Fact]
+    public void AbortRequiresAndBindsFailureReason()
+    {
+        (ActivityInstance first, ActivityInstance second) = CreateActivities();
+        SwapDecisionParticipant[] participants =
+        [
+            Participant(first, FirstToken),
+            Participant(second, SecondToken),
+        ];
+
+        Assert.Throws<ArgumentException>(() => SwapDecision.Create(
+            Operation,
+            SwapDecisionOutcome.Abort,
+            Now,
+            participants));
+
+        SwapDecision revisionAbort = SwapDecision.Create(
+            Operation,
+            SwapDecisionOutcome.Abort,
+            Now,
+            participants,
+            FailureCode.RevisionConflict);
+        SwapDecision unavailableAbort = SwapDecision.Create(
+            Operation,
+            SwapDecisionOutcome.Abort,
+            Now,
+            participants,
+            FailureCode.PeerUnavailable);
+
+        Assert.Equal(FailureCode.RevisionConflict, revisionAbort.FailureCode);
+        Assert.NotEqual(revisionAbort.Digest, unavailableAbort.Digest);
+        Assert.True(revisionAbort.TryGetReservationToken(
+            first.Placement.DeviceId,
+            out SwapReservationToken? token));
+        Assert.Equal(FirstToken, token);
     }
 
     [Fact]
@@ -144,6 +188,53 @@ public sealed class SwapReservationTests
             second,
             Now.AddSeconds(30)));
     }
+
+    [Fact]
+    public void PrepareRequestDigestCoversBothPlacements()
+    {
+        (ActivityInstance first, ActivityInstance second) = CreateActivities();
+        SwapReservation prepared = SwapReservation.Prepare(
+            Operation,
+            FirstToken,
+            first,
+            second,
+            Now.AddSeconds(30));
+        ActivityInstance changedPlacement = ActivityInstance.Active(
+            first.Descriptor,
+            ActivityPlacement.On(first.Placement.DeviceId, "other-slot"),
+            first.Revision);
+
+        Assert.False(prepared.MatchesRequest(
+            changedPlacement,
+            second,
+            Now.AddSeconds(30)));
+    }
+
+    [Fact]
+    public void DecisionTokenMustBeBoundToReservationDevice()
+    {
+        (ActivityInstance first, ActivityInstance second) = CreateActivities();
+        SwapReservation prepared = SwapReservation.Prepare(
+            Operation,
+            FirstToken,
+            first,
+            second,
+            Now.AddSeconds(30));
+        SwapDecision swappedBindings = SwapDecision.Create(
+            Operation,
+            SwapDecisionOutcome.Commit,
+            Now.AddSeconds(1),
+            [Participant(first, SecondToken), Participant(second, FirstToken)]);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            prepared.ApplyDecision(swappedBindings));
+    }
+
+    private static SwapDecisionParticipant Participant(
+        ActivityInstance activity,
+        SwapReservationToken token) => SwapDecisionParticipant.Create(
+            activity.Placement.DeviceId,
+            token);
 
     private static (ActivityInstance First, ActivityInstance Second) CreateActivities()
     {

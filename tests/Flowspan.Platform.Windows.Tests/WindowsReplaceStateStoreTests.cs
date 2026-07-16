@@ -6,6 +6,50 @@ namespace Flowspan.Platform.Windows.Tests;
 public sealed class WindowsReplaceStateStoreTests
 {
     [Fact]
+    public async Task SwapDpapiKeyAndAuthenticatedFileUseIndependentPurpose()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-windows-swap-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "swap-state.fssf");
+        string keyPath = Path.Combine(directory, "swap-state-key.dpapi");
+        byte[] payload = "WINDOWS-SWAP-PLAINTEXT-CANARY"u8.ToArray();
+        var protector = new FakeWindowsDataProtector();
+        try
+        {
+            var first = new WindowsSwapStatePayloadStore(
+                statePath,
+                keyPath,
+                protector);
+            await first.SaveAsync(payload);
+
+            Assert.DoesNotContain(
+                "WINDOWS-SWAP-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(statePath)),
+                StringComparison.Ordinal);
+            byte[]? restored = await new WindowsSwapStatePayloadStore(
+                statePath,
+                keyPath,
+                protector).LoadAsync();
+
+            Assert.Equal(payload, restored);
+            Assert.NotEqual(
+                WindowsSwapStatePayloadStore.GetDefaultStatePath(),
+                WindowsReplaceStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
+                WindowsSwapStateKeyStore.GetDefaultKeyPath(),
+                WindowsReplaceStateKeyStore.GetDefaultKeyPath());
+            Assert.NotEqual(
+                WindowsSwapStateKeyStore.ProtectionContext,
+                WindowsReplaceStateKeyStore.ProtectionContext);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DpapiKeyAndAuthenticatedFileRoundTripWithoutPlaintext()
     {
         string directory = Path.Combine(
@@ -80,6 +124,41 @@ public sealed class WindowsReplaceStateStoreTests
             await store.SaveAsync(payload);
             byte[]? restored = await store.LoadAsync();
             Assert.Equal(payload, restored);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProductionSwapKeyStoreUsesCurrentUserDpapiOnWindowsOnly()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-windows-native-swap-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "swap-state.fssf");
+        string keyPath = Path.Combine(directory, "swap-state-key.dpapi");
+        var store = new WindowsSwapStatePayloadStore(
+            statePath,
+            keyPath,
+            new CurrentUserDpapiProtector(
+                $"Flowspan.Tests.SwapState.{Guid.NewGuid():N}"));
+        byte[] payload = "WINDOWS-NATIVE-SWAP-STATE"u8.ToArray();
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                await Assert.ThrowsAsync<PlatformNotSupportedException>(async () =>
+                    await store.SaveAsync(payload));
+                return;
+            }
+
+            await store.SaveAsync(payload);
+            Assert.Equal(payload, await store.LoadAsync());
         }
         finally
         {

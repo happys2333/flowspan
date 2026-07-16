@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -25,19 +26,45 @@ public enum SwapDecisionOutcome
     Abort,
 }
 
+public sealed record SwapDecisionParticipant
+{
+    private SwapDecisionParticipant(
+        DeviceId deviceId,
+        SwapReservationToken reservationToken)
+    {
+        DeviceId = deviceId;
+        ReservationToken = reservationToken;
+    }
+
+    public DeviceId DeviceId { get; }
+
+    public SwapReservationToken ReservationToken { get; }
+
+    public static SwapDecisionParticipant Create(
+        DeviceId deviceId,
+        SwapReservationToken reservationToken)
+    {
+        ArgumentNullException.ThrowIfNull(deviceId);
+        ArgumentNullException.ThrowIfNull(reservationToken);
+        return new SwapDecisionParticipant(deviceId, reservationToken);
+    }
+}
+
 public sealed record SwapDecision
 {
     private SwapDecision(
         OperationId operationId,
         SwapDecisionOutcome outcome,
         DateTimeOffset decidedAt,
-        ImmutableArray<SwapReservationToken> reservationTokens,
+        FailureCode failureCode,
+        ImmutableArray<SwapDecisionParticipant> participants,
         string digest)
     {
         OperationId = operationId;
         Outcome = outcome;
         DecidedAt = decidedAt;
-        ReservationTokens = reservationTokens;
+        FailureCode = failureCode;
+        Participants = participants;
         Digest = digest;
     }
 
@@ -47,7 +74,14 @@ public sealed record SwapDecision
 
     public DateTimeOffset DecidedAt { get; }
 
-    public ImmutableArray<SwapReservationToken> ReservationTokens { get; }
+    public FailureCode FailureCode { get; }
+
+    public ImmutableArray<SwapDecisionParticipant> Participants { get; }
+
+    public ImmutableArray<SwapReservationToken> ReservationTokens =>
+        Participants
+            .Select(static participant => participant.ReservationToken)
+            .ToImmutableArray();
 
     public string Digest { get; }
 
@@ -55,27 +89,51 @@ public sealed record SwapDecision
         OperationId operationId,
         SwapDecisionOutcome outcome,
         DateTimeOffset decidedAt,
-        IEnumerable<SwapReservationToken> reservationTokens)
+        IEnumerable<SwapDecisionParticipant> participants,
+        FailureCode failureCode = FailureCode.None)
     {
         ArgumentNullException.ThrowIfNull(operationId);
-        ArgumentNullException.ThrowIfNull(reservationTokens);
-
-        ImmutableArray<SwapReservationToken> tokens = reservationTokens
-            .Distinct()
-            .OrderBy(static token => token.ToString(), StringComparer.Ordinal)
-            .ToImmutableArray();
-        if (tokens.IsDefaultOrEmpty)
+        ArgumentNullException.ThrowIfNull(participants);
+        if (!Enum.IsDefined(outcome))
         {
-            throw new ArgumentException(
-                "A swap decision must identify at least one reservation.",
-                nameof(reservationTokens));
+            throw new ArgumentOutOfRangeException(nameof(outcome));
         }
 
-        if (outcome == SwapDecisionOutcome.Commit && tokens.Length != 2)
+        if (!Enum.IsDefined(failureCode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(failureCode));
+        }
+
+        if (decidedAt.Offset != TimeSpan.Zero)
         {
             throw new ArgumentException(
-                "A swap commit decision must identify exactly two reservations.",
-                nameof(reservationTokens));
+                "A swap decision timestamp must be UTC.",
+                nameof(decidedAt));
+        }
+
+        if ((outcome == SwapDecisionOutcome.Commit) != (failureCode == FailureCode.None))
+        {
+            throw new ArgumentException(
+                "A swap Commit has no failure code and an Abort requires one.",
+                nameof(failureCode));
+        }
+
+        ImmutableArray<SwapDecisionParticipant> ordered = participants
+            .OrderBy(
+                static participant => participant.DeviceId.ToString(),
+                StringComparer.Ordinal)
+            .ToImmutableArray();
+        if (ordered.Length != 2
+            || ordered.Select(static participant => participant.DeviceId)
+                .Distinct()
+                .Count() != 2
+            || ordered.Select(static participant => participant.ReservationToken)
+                .Distinct()
+                .Count() != 2)
+        {
+            throw new ArgumentException(
+                "A swap decision must identify exactly two distinct Device/token participants.",
+                nameof(participants));
         }
 
         string material = string.Join(
@@ -83,16 +141,39 @@ public sealed record SwapDecision
             operationId.ToString(),
             outcome.ToString(),
             decidedAt.ToString("O", CultureInfo.InvariantCulture),
-            string.Join('\n', tokens.Select(static token => token.ToString())));
+            failureCode.ToString(),
+            string.Join(
+                '\n',
+                ordered.Select(static participant => string.Join(
+                    '\n',
+                    participant.DeviceId.ToString(),
+                    participant.ReservationToken.ToString()))));
         string digest = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(material)));
-        return new SwapDecision(operationId, outcome, decidedAt, tokens, digest);
+        return new SwapDecision(
+            operationId,
+            outcome,
+            decidedAt,
+            failureCode,
+            ordered,
+            digest);
     }
 
     public bool Includes(SwapReservationToken token)
     {
         ArgumentNullException.ThrowIfNull(token);
-        return ReservationTokens.Contains(token);
+        return Participants.Any(participant => participant.ReservationToken == token);
+    }
+
+    public bool TryGetReservationToken(
+        DeviceId deviceId,
+        [NotNullWhen(true)] out SwapReservationToken? reservationToken)
+    {
+        ArgumentNullException.ThrowIfNull(deviceId);
+        SwapDecisionParticipant? participant = Participants.FirstOrDefault(
+            candidate => candidate.DeviceId == deviceId);
+        reservationToken = participant?.ReservationToken;
+        return reservationToken is not null;
     }
 }
 
@@ -166,6 +247,21 @@ public sealed record SwapReservation
                 nameof(incomingActivity));
         }
 
+        if (originalActivity.Placement.DeviceId
+            == incomingActivity.Placement.DeviceId)
+        {
+            throw new ArgumentException(
+                "A swap reservation must exchange Activities from different devices.",
+                nameof(incomingActivity));
+        }
+
+        if (expiresAt.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "A swap reservation expiry must be UTC.",
+                nameof(expiresAt));
+        }
+
         string digest = ComputeRequestDigest(
             operationId,
             originalActivity,
@@ -200,7 +296,11 @@ public sealed record SwapReservation
     public SwapReservation ApplyDecision(SwapDecision decision)
     {
         ArgumentNullException.ThrowIfNull(decision);
-        if (decision.OperationId != OperationId || !decision.Includes(Token))
+        if (decision.OperationId != OperationId
+            || !decision.TryGetReservationToken(
+                OriginalActivity.Placement.DeviceId,
+                out SwapReservationToken? participantToken)
+            || participantToken != Token)
         {
             throw new InvalidOperationException(
                 "The swap decision does not match this reservation.");
@@ -260,9 +360,13 @@ public sealed record SwapReservation
             originalActivity.Descriptor.Id.ToString(),
             originalActivity.Descriptor.DescriptorDigest,
             originalActivity.Revision.ToString(CultureInfo.InvariantCulture),
+            originalActivity.Placement.DeviceId.ToString(),
+            originalActivity.Placement.Slot,
             incomingActivity.Descriptor.Id.ToString(),
             incomingActivity.Descriptor.DescriptorDigest,
             incomingActivity.Revision.ToString(CultureInfo.InvariantCulture),
+            incomingActivity.Placement.DeviceId.ToString(),
+            incomingActivity.Placement.Slot,
             expiresAt.ToString("O", CultureInfo.InvariantCulture));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
     }

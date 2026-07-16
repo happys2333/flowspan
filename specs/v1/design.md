@@ -321,6 +321,32 @@ commit decision remains applicable if delivery arrives later. This blocking
 trade-off preserves atomicity and is deliberately closer to a small two-phase
 commit protocol than two independent moves.
 
+The coordinator also persists a bounded, payload-free transaction intent before
+the first Prepare can leave the process. That intent binds the Operation and
+correlation IDs, deadline, both Device and Activity IDs, expected revisions and
+descriptor digests, and the two device-bound reservation tokens. A reconstructed
+intent with no decision is never resumed toward Commit: recovery first records a
+durable Abort decision and then drives that decision to both participants. This
+conservative rule covers cancellation, process termination, and decision-store
+failure without guessing that no endpoint prepared.
+
+Commit and Abort decisions bind each reservation token to its participant Device
+ID and include the Abort reason in the decision digest. An endpoint accepts only
+its own binding. An Abort that arrives before Prepare is an idempotent terminal
+tombstone for that Operation and token, so a delayed or reordered Prepare cannot
+reopen the transaction. A participant with an unresolved Prepared reservation
+rejects another Operation for the same local Activity until the recorded decision
+is applied.
+
+The first durable-core slice persists coordinator intent and decision records in
+a separate authenticated atomic file whose random key is held by DPAPI,
+Keychain, or Secret Service, and hardens the deterministic endpoint state
+machine. It deliberately keeps endpoint reservations and Activity catalogs in
+memory. Protected endpoint journals,
+authenticated protocol messages, capability checks, Desktop exact-confirmation,
+and visible recovery are later slices and are required before the v1 Swap
+criterion can pass.
+
 ### Mirror and driver lease
 
 Mirror keeps authoritative execution on one host. Video/audio/cursor data are

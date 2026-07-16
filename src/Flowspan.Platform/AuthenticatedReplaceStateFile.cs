@@ -4,10 +4,18 @@ using Flowspan.Application;
 
 namespace Flowspan.Platform;
 
-public interface IReplaceStateKeyStore
+public interface IAuthenticatedStateKeyStore
 {
     public ValueTask<byte[]> GetOrCreateKeyAsync(
         CancellationToken cancellationToken = default);
+}
+
+public interface IReplaceStateKeyStore : IAuthenticatedStateKeyStore
+{
+}
+
+public interface ISwapStateKeyStore : IAuthenticatedStateKeyStore
+{
 }
 
 public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
@@ -18,19 +26,49 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
     private const int NonceBytes = 12;
     private const int TagBytes = 16;
     private const int HeaderBytes = 4 + sizeof(byte) + NonceBytes + sizeof(int);
-    private static readonly byte[] Magic = "FSRF"u8.ToArray();
+    private static readonly byte[] ReplaceMagic = "FSRF"u8.ToArray();
     private static readonly TimeSpan LockRetryDelay = TimeSpan.FromMilliseconds(10);
-    private readonly IReplaceStateKeyStore keyStore;
+    private readonly IAuthenticatedStateKeyStore keyStore;
+    private readonly byte[] magic;
+    private readonly int maximumPayloadBytes;
+    private readonly string stateName;
     private readonly string storagePath;
 
     public AuthenticatedReplaceStateFile(
         string storagePath,
         IReplaceStateKeyStore keyStore)
+        : this(
+            storagePath,
+            keyStore,
+            ReplaceMagic,
+            PersistentReplaceStateStore.MaximumPayloadBytes,
+            "Replace")
+    {
+    }
+
+    internal AuthenticatedReplaceStateFile(
+        string storagePath,
+        IAuthenticatedStateKeyStore keyStore,
+        ReadOnlySpan<byte> magic,
+        int maximumPayloadBytes,
+        string stateName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
         ArgumentNullException.ThrowIfNull(keyStore);
+        if (magic.Length != 4)
+        {
+            throw new ArgumentException(
+                "An authenticated state file magic value must contain four bytes.",
+                nameof(magic));
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumPayloadBytes, 1);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stateName);
         this.storagePath = Path.GetFullPath(storagePath);
         this.keyStore = keyStore;
+        this.magic = magic.ToArray();
+        this.maximumPayloadBytes = maximumPayloadBytes;
+        this.stateName = stateName;
     }
 
     public async ValueTask<byte[]?> LoadAsync(
@@ -50,12 +88,12 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
                     Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
                 });
             long maximumEnvelopeBytes =
-                HeaderBytes + PersistentReplaceStateStore.MaximumPayloadBytes + TagBytes;
+                HeaderBytes + maximumPayloadBytes + TagBytes;
             if (stream.Length is < HeaderBytes + 1 + TagBytes
                 || stream.Length > maximumEnvelopeBytes)
             {
                 throw new InvalidDataException(
-                    "The authenticated Replace state file has an invalid length.");
+                    $"The authenticated {stateName} state file has an invalid length.");
             }
 
             envelope = new byte[checked((int)stream.Length)];
@@ -73,11 +111,11 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
         {
             {
                 ReadOnlySpan<byte> header = envelope.AsSpan(0, HeaderBytes);
-                if (!header[..Magic.Length].SequenceEqual(Magic)
-                    || header[Magic.Length] != CurrentFormatVersion)
+                if (!header[..magic.Length].SequenceEqual(magic)
+                    || header[magic.Length] != CurrentFormatVersion)
                 {
                     throw new InvalidDataException(
-                        "The authenticated Replace state file has an unsupported header.");
+                        $"The authenticated {stateName} state file has an unsupported header.");
                 }
 
             }
@@ -85,11 +123,11 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
             int ciphertextLength = BinaryPrimitives.ReadInt32BigEndian(
                 envelope.AsSpan(HeaderBytes - sizeof(int), sizeof(int)));
             if (ciphertextLength is < 1
-                || ciphertextLength > PersistentReplaceStateStore.MaximumPayloadBytes
+                || ciphertextLength > maximumPayloadBytes
                 || envelope.Length != HeaderBytes + ciphertextLength + TagBytes)
             {
                 throw new InvalidDataException(
-                    "The authenticated Replace state ciphertext has an invalid length.");
+                    $"The authenticated {stateName} state ciphertext has an invalid length.");
             }
 
             byte[] key = await LoadKeyAsync(cancellationToken).ConfigureAwait(false);
@@ -101,7 +139,7 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
                     ReadOnlySpan<byte> header = envelope.AsSpan(0, HeaderBytes);
                     using var cipher = new AesGcm(key, TagBytes);
                     cipher.Decrypt(
-                        header.Slice(Magic.Length + sizeof(byte), NonceBytes),
+                        header.Slice(magic.Length + sizeof(byte), NonceBytes),
                         envelope.AsSpan(HeaderBytes, ciphertextLength),
                         envelope.AsSpan(HeaderBytes + ciphertextLength, TagBytes),
                         plaintext,
@@ -112,7 +150,7 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
                 {
                     CryptographicOperations.ZeroMemory(plaintext);
                     throw new InvalidDataException(
-                        "The authenticated Replace state file failed integrity verification.",
+                        $"The authenticated {stateName} state file failed integrity verification.",
                         exception);
                 }
             }
@@ -132,11 +170,11 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
         CancellationToken cancellationToken = default)
     {
         if (payload.IsEmpty
-            || payload.Length > PersistentReplaceStateStore.MaximumPayloadBytes)
+            || payload.Length > maximumPayloadBytes)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(payload),
-                $"A Replace state payload must contain 1 to {PersistentReplaceStateStore.MaximumPayloadBytes} bytes.");
+                $"A {stateName} state payload must contain 1 to {maximumPayloadBytes} bytes.");
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -145,9 +183,9 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
         try
         {
             Span<byte> header = envelope.AsSpan(0, HeaderBytes);
-            Magic.CopyTo(header);
-            header[Magic.Length] = CurrentFormatVersion;
-            Span<byte> nonce = header.Slice(Magic.Length + sizeof(byte), NonceBytes);
+            magic.CopyTo(header);
+            header[magic.Length] = CurrentFormatVersion;
+            Span<byte> nonce = header.Slice(magic.Length + sizeof(byte), NonceBytes);
             RandomNumberGenerator.Fill(nonce);
             BinaryPrimitives.WriteInt32BigEndian(
                 header[(HeaderBytes - sizeof(int))..],
@@ -179,7 +217,7 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
         {
             CryptographicOperations.ZeroMemory(key);
             throw new InvalidDataException(
-                $"A Replace state key must contain exactly {KeyBytes} bytes.");
+                $"A {stateName} state key must contain exactly {KeyBytes} bytes.");
         }
 
         return key;
@@ -191,7 +229,7 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
     {
         string directory = Path.GetDirectoryName(storagePath)
             ?? throw new InvalidOperationException(
-                "The authenticated Replace state path has no parent directory.");
+                $"The authenticated {stateName} state path has no parent directory.");
         Directory.CreateDirectory(directory);
         SetOwnerOnlyDirectoryMode(directory);
         await using FileStream coordinationLock = await AcquireLockAsync(
@@ -257,7 +295,7 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
         }
 
         throw new IOException(
-            "Timed out waiting for exclusive access to the authenticated Replace state file.",
+            $"Timed out waiting for exclusive access to the authenticated {stateName} state file.",
             lastFailure);
     }
 
@@ -267,7 +305,7 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
             && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {
             throw new IOException(
-                "The authenticated Replace state path cannot be a reparse point.");
+                "An authenticated state path cannot be a reparse point.");
         }
     }
 

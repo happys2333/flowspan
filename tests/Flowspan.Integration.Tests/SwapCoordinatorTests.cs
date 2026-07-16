@@ -17,8 +17,10 @@ public sealed class SwapCoordinatorTests
 
         Assert.True(result.IsSuccess);
         fixture.AssertSwapped();
-        Assert.True(fixture.Decisions.TryGet(fixture.Context.OperationId, out SwapDecision? decision));
-        Assert.Equal(SwapDecisionOutcome.Commit, decision.Outcome);
+        Assert.True(fixture.Transactions.TryGet(
+            fixture.Context.OperationId,
+            out SwapCoordinatorTransaction? transaction));
+        Assert.Equal(SwapDecisionOutcome.Commit, transaction.Decision?.Outcome);
     }
 
     [Fact]
@@ -40,8 +42,10 @@ public sealed class SwapCoordinatorTests
             fixture.Context.OperationId,
             out SwapReservation? reservation));
         Assert.Equal(SwapReservationPhase.Aborted, reservation.Phase);
-        Assert.True(fixture.Decisions.TryGet(fixture.Context.OperationId, out SwapDecision? decision));
-        Assert.Equal(SwapDecisionOutcome.Abort, decision.Outcome);
+        Assert.True(fixture.Transactions.TryGet(
+            fixture.Context.OperationId,
+            out SwapCoordinatorTransaction? transaction));
+        Assert.Equal(SwapDecisionOutcome.Abort, transaction.Decision?.Outcome);
     }
 
     [Fact]
@@ -69,11 +73,11 @@ public sealed class SwapCoordinatorTests
             out SwapReservation? secondReservation));
         Assert.Equal(SwapReservationPhase.Aborted, firstReservation.Phase);
         Assert.Equal(SwapReservationPhase.Aborted, secondReservation.Phase);
-        Assert.True(fixture.Decisions.TryGet(
+        Assert.True(fixture.Transactions.TryGet(
             fixture.Context.OperationId,
-            out SwapDecision? decision));
-        Assert.Equal(SwapDecisionOutcome.Abort, decision.Outcome);
-        Assert.Equal(2, decision.ReservationTokens.Length);
+            out SwapCoordinatorTransaction? transaction));
+        Assert.Equal(SwapDecisionOutcome.Abort, transaction.Decision?.Outcome);
+        Assert.Equal(2, transaction.Decision?.ReservationTokens.Length);
     }
 
     [Fact]
@@ -168,12 +172,512 @@ public sealed class SwapCoordinatorTests
         fixture.AssertSwapped();
     }
 
+    [Fact]
+    public async Task IntentSaveFailureTouchesNeitherEndpoint()
+    {
+        var payloadStore = new TestSwapStatePayloadStore { FailNextSave = true };
+        using PersistentSwapTransactionJournal transactions =
+            await PersistentSwapTransactionJournal.OpenAsync(payloadStore);
+        Fixture fixture = new(transactions);
+        var first = new CountingChannel(fixture.FirstEndpoint);
+        var second = new CountingChannel(fixture.SecondEndpoint);
+
+        SwapCoordinatorResult result = await fixture.ExecuteAsync(first, second);
+
+        Assert.Equal(OperationStatus.Failed, result.Status);
+        Assert.Equal(FailureCode.InternalFailure, result.FailureCode);
+        Assert.Equal(0, first.PrepareCount);
+        Assert.Equal(0, second.PrepareCount);
+        Assert.Equal(0, first.DecisionCount);
+        Assert.Equal(0, second.DecisionCount);
+        fixture.AssertOriginals();
+    }
+
+    [Fact]
+    public async Task DecisionSaveFailureRequiresReloadThenRecoveryAborts()
+    {
+        var payloadStore = new TestSwapStatePayloadStore { FailOnSaveAttempt = 2 };
+        Fixture fixture;
+        DirectSwapEndpointChannel first;
+        DirectSwapEndpointChannel second;
+        using (PersistentSwapTransactionJournal transactions =
+               await PersistentSwapTransactionJournal.OpenAsync(payloadStore))
+        {
+            fixture = new Fixture(transactions);
+            first = new DirectSwapEndpointChannel(fixture.FirstEndpoint);
+            second = new DirectSwapEndpointChannel(fixture.SecondEndpoint);
+
+            SwapCoordinatorResult uncertain = await fixture.ExecuteAsync(first, second);
+
+            Assert.Equal(OperationStatus.Recovering, uncertain.Status);
+            Assert.Equal(FailureCode.InternalFailure, uncertain.FailureCode);
+            fixture.AssertOriginals();
+            Assert.True(fixture.FirstEndpoint.TryGetReservation(
+                fixture.Context.OperationId,
+                out SwapReservation? firstPrepared));
+            Assert.True(fixture.SecondEndpoint.TryGetReservation(
+                fixture.Context.OperationId,
+                out SwapReservation? secondPrepared));
+            Assert.Equal(SwapReservationPhase.Prepared, firstPrepared.Phase);
+            Assert.Equal(SwapReservationPhase.Prepared, secondPrepared.Phase);
+
+            SwapCoordinatorResult blocked = await fixture.ExecuteAsync(first, second);
+            Assert.Equal(OperationStatus.Recovering, blocked.Status);
+            Assert.Equal(FailureCode.InternalFailure, blocked.FailureCode);
+        }
+
+        using PersistentSwapTransactionJournal restarted =
+            await PersistentSwapTransactionJournal.OpenAsync(payloadStore);
+        var recoveredCoordinator = new SwapCoordinator(
+            new TestClock(Fixture.Now),
+            restarted,
+            new DeterministicSwapTokenSource([]));
+        SwapCoordinatorResult recovered = await recoveredCoordinator.RecoverAsync(
+            fixture.Context.OperationId,
+            first,
+            second);
+
+        Assert.Equal(OperationStatus.Rejected, recovered.Status);
+        Assert.Equal(FailureCode.OperationInProgress, recovered.FailureCode);
+        fixture.AssertOriginals();
+        Assert.True(restarted.TryGet(
+            fixture.Context.OperationId,
+            out SwapCoordinatorTransaction? transaction));
+        Assert.Equal(SwapDecisionOutcome.Abort, transaction.Decision?.Outcome);
+    }
+
+    [Fact]
+    public async Task AmbiguousPostWriteFailureReloadsCommittedDecisionWithoutAbortOverwrite()
+    {
+        var payloadStore = new TestSwapStatePayloadStore
+        {
+            FailAfterWriteOnSaveAttempt = 2,
+        };
+        Fixture fixture;
+        DirectSwapEndpointChannel first;
+        DirectSwapEndpointChannel second;
+        using (PersistentSwapTransactionJournal firstJournal =
+               await PersistentSwapTransactionJournal.OpenAsync(payloadStore))
+        {
+            fixture = new Fixture(firstJournal);
+            first = new DirectSwapEndpointChannel(fixture.FirstEndpoint);
+            second = new DirectSwapEndpointChannel(fixture.SecondEndpoint);
+
+            SwapCoordinatorResult uncertain = await fixture.ExecuteAsync(first, second);
+            SwapCoordinatorResult blocked = await fixture.ExecuteAsync(first, second);
+
+            Assert.Equal(OperationStatus.Recovering, uncertain.Status);
+            Assert.Equal(FailureCode.InternalFailure, uncertain.FailureCode);
+            Assert.Equal(OperationStatus.Recovering, blocked.Status);
+            fixture.AssertOriginals();
+        }
+
+        using PersistentSwapTransactionJournal restarted =
+            await PersistentSwapTransactionJournal.OpenAsync(payloadStore);
+        Assert.True(restarted.TryGet(
+            fixture.Context.OperationId,
+            out SwapCoordinatorTransaction? transaction));
+        Assert.Equal(SwapDecisionOutcome.Commit, transaction.Decision?.Outcome);
+        var recoveredCoordinator = new SwapCoordinator(
+            new TestClock(Fixture.Now),
+            restarted,
+            new DeterministicSwapTokenSource([]));
+
+        SwapCoordinatorResult recovered = await recoveredCoordinator.RecoverAsync(
+            fixture.Context.OperationId,
+            first,
+            second);
+
+        Assert.Equal(OperationStatus.Committed, recovered.Status);
+        fixture.AssertSwapped();
+    }
+
+    [Fact]
+    public async Task ReconstructedUndecidedIntentCanOnlyRecoverToAbort()
+    {
+        var payloadStore = new TestSwapStatePayloadStore();
+        Fixture fixture;
+        using (PersistentSwapTransactionJournal firstJournal =
+               await PersistentSwapTransactionJournal.OpenAsync(payloadStore))
+        {
+            fixture = new Fixture(firstJournal);
+            var first = new DirectSwapEndpointChannel(fixture.FirstEndpoint);
+            var throwingSecond = new ThrowPrepareChannel(fixture.SecondEndpoint);
+
+            SwapCoordinatorResult uncertain = await fixture.ExecuteAsync(
+                first,
+                throwingSecond);
+
+            Assert.Equal(OperationStatus.Recovering, uncertain.Status);
+            Assert.Equal(FailureCode.InternalFailure, uncertain.FailureCode);
+            Assert.True(fixture.FirstEndpoint.TryGetReservation(
+                fixture.Context.OperationId,
+                out SwapReservation? reservation));
+            Assert.Equal(SwapReservationPhase.Prepared, reservation.Phase);
+        }
+
+        using PersistentSwapTransactionJournal restarted =
+            await PersistentSwapTransactionJournal.OpenAsync(payloadStore);
+        var recoveredCoordinator = new SwapCoordinator(
+            new TestClock(Fixture.Now),
+            restarted,
+            new DeterministicSwapTokenSource([]));
+
+        SwapCoordinatorResult recovered = await recoveredCoordinator.RecoverAsync(
+            fixture.Context.OperationId,
+            new DirectSwapEndpointChannel(fixture.FirstEndpoint),
+            new DirectSwapEndpointChannel(fixture.SecondEndpoint));
+
+        Assert.Equal(OperationStatus.Rejected, recovered.Status);
+        Assert.Equal(FailureCode.OperationInProgress, recovered.FailureCode);
+        fixture.AssertOriginals();
+        Assert.True(restarted.TryGet(
+            fixture.Context.OperationId,
+            out SwapCoordinatorTransaction? transaction));
+        Assert.Equal(SwapDecisionOutcome.Abort, transaction.Decision?.Outcome);
+    }
+
+    [Fact]
+    public async Task DurableCommitDecisionRecoversAfterCoordinatorReconstruction()
+    {
+        var payloadStore = new TestSwapStatePayloadStore();
+        Fixture fixture;
+        DeterministicSwapEndpointChannel firstChannel;
+        using (PersistentSwapTransactionJournal firstJournal =
+               await PersistentSwapTransactionJournal.OpenAsync(payloadStore))
+        {
+            fixture = new Fixture(firstJournal);
+            firstChannel = new DeterministicSwapEndpointChannel(
+                fixture.FirstEndpoint,
+                [ActivityDeliveryFault.DropBeforeDelivery]);
+
+            SwapCoordinatorResult uncertain = await fixture.ExecuteAsync(
+                firstChannel,
+                new DirectSwapEndpointChannel(fixture.SecondEndpoint));
+
+            Assert.Equal(OperationStatus.Recovering, uncertain.Status);
+            Assert.Equal(FailureCode.PeerUnavailable, uncertain.FailureCode);
+        }
+
+        using PersistentSwapTransactionJournal restarted =
+            await PersistentSwapTransactionJournal.OpenAsync(payloadStore);
+        var recoveredCoordinator = new SwapCoordinator(
+            new TestClock(Fixture.Now),
+            restarted,
+            new DeterministicSwapTokenSource([]));
+
+        SwapCoordinatorResult recovered = await recoveredCoordinator.RecoverAsync(
+            fixture.Context.OperationId,
+            firstChannel,
+            new DirectSwapEndpointChannel(fixture.SecondEndpoint));
+
+        Assert.Equal(OperationStatus.Committed, recovered.Status);
+        fixture.AssertSwapped();
+    }
+
+    [Fact]
+    public async Task AbortBeforePrepareCreatesIdempotentTombstone()
+    {
+        Fixture fixture = new();
+        SwapCoordinatorTransaction transaction = SwapCoordinatorTransaction.Create(
+            fixture.Context,
+            fixture.FirstActivity,
+            Fixture.FirstToken,
+            fixture.SecondActivity,
+            Fixture.SecondToken);
+        SwapDecision abort = transaction.CreateDecision(
+            SwapDecisionOutcome.Abort,
+            Fixture.Now.AddSeconds(1),
+            FailureCode.PeerUnavailable);
+        var command = new SwapPrepareCommand(
+            fixture.Context.OperationId,
+            Fixture.FirstToken,
+            fixture.FirstActivity,
+            fixture.SecondActivity,
+            fixture.Context.Deadline);
+
+        SwapApplyResult applied = await fixture.FirstEndpoint.ApplyDecisionAsync(
+            abort,
+            default);
+        SwapApplyResult replay = await fixture.FirstEndpoint.ApplyDecisionAsync(
+            abort,
+            default);
+        SwapPrepareResult delayedPrepare = await fixture.FirstEndpoint.PrepareAsync(
+            command,
+            default);
+
+        Assert.True(applied.Applied);
+        Assert.Equal(SwapReservationPhase.Aborted, applied.Phase);
+        Assert.True(replay.Applied);
+        Assert.False(delayedPrepare.Prepared);
+        Assert.Equal(FailureCode.DecisionConflict, delayedPrepare.FailureCode);
+        fixture.AssertOriginals();
+    }
+
+    [Fact]
+    public async Task PreparedActivityExcludesAnotherOperationUntilAbort()
+    {
+        Fixture fixture = new();
+        var firstCommand = new SwapPrepareCommand(
+            fixture.Context.OperationId,
+            Fixture.FirstToken,
+            fixture.FirstActivity,
+            fixture.SecondActivity,
+            fixture.Context.Deadline);
+        OperationId secondOperation =
+            OperationId.Parse("12121212-1212-1212-1212-121212121212");
+        SwapReservationToken thirdToken = SwapReservationToken.From(
+            Guid.Parse("13131313-1313-1313-1313-131313131313"));
+        var overlapping = new SwapPrepareCommand(
+            secondOperation,
+            thirdToken,
+            fixture.FirstActivity,
+            fixture.SecondActivity,
+            fixture.Context.Deadline);
+
+        Assert.True((await fixture.FirstEndpoint.PrepareAsync(
+            firstCommand,
+            default)).Prepared);
+        SwapPrepareResult conflict = await fixture.FirstEndpoint.PrepareAsync(
+            overlapping,
+            default);
+        Assert.False(conflict.Prepared);
+        Assert.Equal(FailureCode.ReservationConflict, conflict.FailureCode);
+
+        SwapCoordinatorTransaction transaction = SwapCoordinatorTransaction.Create(
+            fixture.Context,
+            fixture.FirstActivity,
+            Fixture.FirstToken,
+            fixture.SecondActivity,
+            Fixture.SecondToken);
+        SwapDecision abort = transaction.CreateDecision(
+            SwapDecisionOutcome.Abort,
+            Fixture.Now.AddSeconds(1),
+            FailureCode.OperationInProgress);
+        Assert.True((await fixture.FirstEndpoint.ApplyDecisionAsync(
+            abort,
+            default)).Applied);
+        Assert.True((await fixture.FirstEndpoint.PrepareAsync(
+            overlapping,
+            default)).Prepared);
+    }
+
+    [Fact]
+    public async Task PrepareRejectsIncomingActivityIdAlreadyPresentOnEndpoint()
+    {
+        Fixture fixture = new();
+        Assert.True(fixture.FirstCatalog.TryAdd(ActivityInstance.Active(
+            fixture.SecondActivity.Descriptor,
+            ActivityPlacement.On(fixture.FirstEndpoint.DeviceId),
+            fixture.SecondActivity.Revision)));
+        var command = new SwapPrepareCommand(
+            fixture.Context.OperationId,
+            Fixture.FirstToken,
+            fixture.FirstActivity,
+            fixture.SecondActivity,
+            fixture.Context.Deadline);
+
+        SwapPrepareResult result = await fixture.FirstEndpoint.PrepareAsync(
+            command,
+            default);
+
+        Assert.False(result.Prepared);
+        Assert.Equal(FailureCode.RevisionConflict, result.FailureCode);
+        Assert.False(fixture.FirstEndpoint.TryGetReservation(
+            fixture.Context.OperationId,
+            out _));
+    }
+
+    [Fact]
+    public async Task SameOperationWithDifferentParticipantsIsRejectedAsConflict()
+    {
+        Fixture fixture = new();
+        var first = new DirectSwapEndpointChannel(fixture.FirstEndpoint);
+        var second = new DirectSwapEndpointChannel(fixture.SecondEndpoint);
+        await fixture.ExecuteAsync(first, second);
+
+        SwapCoordinatorResult conflict = await fixture.Coordinator.ExecuteAsync(
+            fixture.Context,
+            first,
+            fixture.FirstActivity.Descriptor.Id,
+            second,
+            ActivityId.Parse("99999999-9999-9999-9999-999999999999"));
+
+        Assert.Equal(OperationStatus.Rejected, conflict.Status);
+        Assert.Equal(FailureCode.OperationIdConflict, conflict.FailureCode);
+        fixture.AssertSwapped();
+    }
+
+    [Theory]
+    [InlineData(ActivityDeliveryFault.DropBeforeDelivery)]
+    [InlineData(ActivityDeliveryFault.DropAcknowledgement)]
+    [InlineData(ActivityDeliveryFault.DuplicateDelivery)]
+    public async Task GeneratedDecisionFaultsConvergeWithoutMixedFinalState(
+        ActivityDeliveryFault fault)
+    {
+        for (int faultedParticipant = 0; faultedParticipant < 2; faultedParticipant++)
+        {
+            Fixture fixture = new();
+            ISwapEndpointChannel first = faultedParticipant == 0
+                ? new DeterministicSwapEndpointChannel(
+                    fixture.FirstEndpoint,
+                    [fault])
+                : new DirectSwapEndpointChannel(fixture.FirstEndpoint);
+            ISwapEndpointChannel second = faultedParticipant == 1
+                ? new DeterministicSwapEndpointChannel(
+                    fixture.SecondEndpoint,
+                    [fault])
+                : new DirectSwapEndpointChannel(fixture.SecondEndpoint);
+
+            SwapCoordinatorResult initial = await fixture.ExecuteAsync(first, second);
+            SwapCoordinatorResult recovered = await fixture.Coordinator.RecoverAsync(
+                fixture.Context.OperationId,
+                first,
+                second);
+
+            Assert.Equal(
+                fault == ActivityDeliveryFault.DuplicateDelivery
+                    ? OperationStatus.Committed
+                    : OperationStatus.Recovering,
+                initial.Status);
+            Assert.Equal(OperationStatus.Committed, recovered.Status);
+            fixture.AssertSwapped();
+        }
+    }
+
+    [Theory]
+    [InlineData(ActivityDeliveryFault.DropBeforeDelivery)]
+    [InlineData(ActivityDeliveryFault.DropAcknowledgement)]
+    [InlineData(ActivityDeliveryFault.DuplicateDelivery)]
+    public async Task GeneratedPrepareFaultsCommitOrAbortBothParticipants(
+        ActivityDeliveryFault fault)
+    {
+        for (int faultedParticipant = 0; faultedParticipant < 2; faultedParticipant++)
+        {
+            Fixture fixture = new();
+            ISwapEndpointChannel first = faultedParticipant == 0
+                ? new DeterministicSwapEndpointChannel(
+                    fixture.FirstEndpoint,
+                    [fault],
+                    [])
+                : new DirectSwapEndpointChannel(fixture.FirstEndpoint);
+            ISwapEndpointChannel second = faultedParticipant == 1
+                ? new DeterministicSwapEndpointChannel(
+                    fixture.SecondEndpoint,
+                    [fault],
+                    [])
+                : new DirectSwapEndpointChannel(fixture.SecondEndpoint);
+
+            SwapCoordinatorResult result = await fixture.ExecuteAsync(first, second);
+
+            if (fault == ActivityDeliveryFault.DuplicateDelivery)
+            {
+                Assert.Equal(OperationStatus.Committed, result.Status);
+                fixture.AssertSwapped();
+            }
+            else
+            {
+                Assert.Equal(OperationStatus.Rejected, result.Status);
+                fixture.AssertOriginals();
+                Assert.True(fixture.Transactions.TryGet(
+                    fixture.Context.OperationId,
+                    out SwapCoordinatorTransaction? transaction));
+                Assert.Equal(SwapDecisionOutcome.Abort, transaction.Decision?.Outcome);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DelayPastReservationDeadlineDurablyAbortsBothParticipants()
+    {
+        var clock = new MutableClock(Fixture.Now);
+        Fixture fixture = new(clock: clock);
+        var delayedSecond = new AdvanceClockAfterPrepareChannel(
+            fixture.SecondEndpoint,
+            clock,
+            fixture.Context.Deadline.AddTicks(1));
+
+        SwapCoordinatorResult result = await fixture.ExecuteAsync(
+            new DirectSwapEndpointChannel(fixture.FirstEndpoint),
+            delayedSecond);
+
+        Assert.Equal(OperationStatus.Rejected, result.Status);
+        Assert.Equal(FailureCode.ReservationExpired, result.FailureCode);
+        fixture.AssertOriginals();
+        Assert.True(fixture.Transactions.TryGet(
+            fixture.Context.OperationId,
+            out SwapCoordinatorTransaction? transaction));
+        Assert.Equal(SwapDecisionOutcome.Abort, transaction.Decision?.Outcome);
+    }
+
+    [Fact]
+    public async Task ExhaustiveGeneratedFaultMatrixPreservesAtomicTerminalInvariant()
+    {
+        ActivityDeliveryFault[] faults = Enum.GetValues<ActivityDeliveryFault>();
+        foreach (ActivityDeliveryFault firstPrepareFault in faults)
+        {
+            foreach (ActivityDeliveryFault secondPrepareFault in faults)
+            {
+                foreach (ActivityDeliveryFault firstDecisionFault in faults)
+                {
+                    foreach (ActivityDeliveryFault secondDecisionFault in faults)
+                    {
+                        Fixture fixture = new();
+                        var first = new DeterministicSwapEndpointChannel(
+                            fixture.FirstEndpoint,
+                            [firstPrepareFault],
+                            [firstDecisionFault]);
+                        var second = new DeterministicSwapEndpointChannel(
+                            fixture.SecondEndpoint,
+                            [secondPrepareFault],
+                            [secondDecisionFault]);
+
+                        await fixture.ExecuteAsync(first, second);
+                        SwapCoordinatorResult recovered =
+                            await fixture.Coordinator.RecoverAsync(
+                                fixture.Context.OperationId,
+                                first,
+                                second);
+                        SwapCoordinatorResult replay =
+                            await fixture.Coordinator.RecoverAsync(
+                                fixture.Context.OperationId,
+                                first,
+                                second);
+
+                        Assert.True(fixture.Transactions.TryGet(
+                            fixture.Context.OperationId,
+                            out SwapCoordinatorTransaction? transaction));
+                        Assert.NotNull(transaction.Decision);
+                        if (transaction.Decision.Outcome
+                            == SwapDecisionOutcome.Commit)
+                        {
+                            Assert.Equal(OperationStatus.Committed, recovered.Status);
+                            Assert.Equal(OperationStatus.Committed, replay.Status);
+                            fixture.AssertSwapped();
+                        }
+                        else
+                        {
+                            Assert.Equal(OperationStatus.Rejected, recovered.Status);
+                            Assert.Equal(OperationStatus.Rejected, replay.Status);
+                            fixture.AssertOriginals();
+                        }
+
+                        Assert.Equal(recovered.DecisionDigest, replay.DecisionDigest);
+                    }
+                }
+            }
+        }
+    }
+
     private sealed class Fixture
     {
-        private static readonly DateTimeOffset Now =
+        public static DateTimeOffset Now { get; } =
             new(2026, 7, 13, 8, 0, 0, TimeSpan.Zero);
 
-        public Fixture()
+        public Fixture(
+            ISwapTransactionJournal? transactions = null,
+            ISwapTokenSource? tokenSource = null,
+            IClock? clock = null)
         {
             DeviceId firstDevice =
                 DeviceId.Parse("11111111-1111-1111-1111-111111111111");
@@ -190,22 +694,20 @@ public sealed class SwapCoordinatorTests
                 "Second",
                 "second");
 
-            var firstCatalog = new InMemoryActivityCatalog();
-            var secondCatalog = new InMemoryActivityCatalog();
-            firstCatalog.TryAdd(FirstActivity);
-            secondCatalog.TryAdd(SecondActivity);
-            FirstEndpoint = new InMemorySwapEndpoint(firstDevice, firstCatalog);
-            SecondEndpoint = new InMemorySwapEndpoint(secondDevice, secondCatalog);
-            Decisions = new InMemorySwapDecisionJournal();
+            FirstCatalog = new InMemoryActivityCatalog();
+            SecondCatalog = new InMemoryActivityCatalog();
+            FirstCatalog.TryAdd(FirstActivity);
+            SecondCatalog.TryAdd(SecondActivity);
+            FirstEndpoint = new InMemorySwapEndpoint(firstDevice, FirstCatalog);
+            SecondEndpoint = new InMemorySwapEndpoint(secondDevice, SecondCatalog);
+            Transactions = transactions ?? new InMemorySwapTransactionJournal();
             Coordinator = new SwapCoordinator(
-                new TestClock(Now),
-                Decisions,
-                new DeterministicSwapTokenSource(
+                clock ?? new TestClock(Now),
+                Transactions,
+                tokenSource ?? new DeterministicSwapTokenSource(
                 [
-                    SwapReservationToken.From(
-                        Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")),
-                    SwapReservationToken.From(
-                        Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff")),
+                    FirstToken,
+                    SecondToken,
                 ]));
             Context = OperationContext.Create(
                 OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
@@ -221,7 +723,19 @@ public sealed class SwapCoordinatorTests
 
         public InMemorySwapEndpoint SecondEndpoint { get; }
 
-        public InMemorySwapDecisionJournal Decisions { get; }
+        public InMemoryActivityCatalog FirstCatalog { get; }
+
+        public InMemoryActivityCatalog SecondCatalog { get; }
+
+        public static SwapReservationToken FirstToken { get; } =
+            SwapReservationToken.From(
+                Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"));
+
+        public static SwapReservationToken SecondToken { get; } =
+            SwapReservationToken.From(
+                Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"));
+
+        public ISwapTransactionJournal Transactions { get; }
 
         public SwapCoordinator Coordinator { get; }
 
@@ -275,6 +789,106 @@ public sealed class SwapCoordinatorTests
     private sealed class TestClock(DateTimeOffset utcNow) : IClock
     {
         public DateTimeOffset UtcNow { get; } = utcNow;
+    }
+
+    private sealed class MutableClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+    }
+
+    private sealed class AdvanceClockAfterPrepareChannel(
+        ISwapEndpoint target,
+        MutableClock clock,
+        DateTimeOffset advancedTime) : ISwapEndpointChannel
+    {
+        public DeviceId TargetDeviceId => target.DeviceId;
+
+        public bool TryGetActivity(
+            ActivityId activityId,
+            [NotNullWhen(true)] out ActivityInstance? activity) =>
+            target.TryGetActivity(activityId, out activity);
+
+        public async ValueTask<SwapDeliveryResult<SwapPrepareResult>> PrepareAsync(
+            SwapPrepareCommand command,
+            CancellationToken cancellationToken)
+        {
+            SwapPrepareResult response = await target.PrepareAsync(
+                command,
+                cancellationToken);
+            clock.UtcNow = advancedTime;
+            return SwapDelivery.Acknowledged(response);
+        }
+
+        public async ValueTask<SwapDeliveryResult<SwapApplyResult>> ApplyDecisionAsync(
+            SwapDecision decision,
+            CancellationToken cancellationToken)
+        {
+            SwapApplyResult response = await target.ApplyDecisionAsync(
+                decision,
+                cancellationToken);
+            return SwapDelivery.Acknowledged(response);
+        }
+    }
+
+    private sealed class CountingChannel(ISwapEndpoint target) : ISwapEndpointChannel
+    {
+        public DeviceId TargetDeviceId => target.DeviceId;
+
+        public int PrepareCount { get; private set; }
+
+        public int DecisionCount { get; private set; }
+
+        public bool TryGetActivity(
+            ActivityId activityId,
+            [NotNullWhen(true)] out ActivityInstance? activity) =>
+            target.TryGetActivity(activityId, out activity);
+
+        public async ValueTask<SwapDeliveryResult<SwapPrepareResult>> PrepareAsync(
+            SwapPrepareCommand command,
+            CancellationToken cancellationToken)
+        {
+            PrepareCount++;
+            SwapPrepareResult response = await target.PrepareAsync(
+                command,
+                cancellationToken);
+            return SwapDelivery.Acknowledged(response);
+        }
+
+        public async ValueTask<SwapDeliveryResult<SwapApplyResult>> ApplyDecisionAsync(
+            SwapDecision decision,
+            CancellationToken cancellationToken)
+        {
+            DecisionCount++;
+            SwapApplyResult response = await target.ApplyDecisionAsync(
+                decision,
+                cancellationToken);
+            return SwapDelivery.Acknowledged(response);
+        }
+    }
+
+    private sealed class ThrowPrepareChannel(ISwapEndpoint target) : ISwapEndpointChannel
+    {
+        public DeviceId TargetDeviceId => target.DeviceId;
+
+        public bool TryGetActivity(
+            ActivityId activityId,
+            [NotNullWhen(true)] out ActivityInstance? activity) =>
+            target.TryGetActivity(activityId, out activity);
+
+        public ValueTask<SwapDeliveryResult<SwapPrepareResult>> PrepareAsync(
+            SwapPrepareCommand command,
+            CancellationToken cancellationToken) =>
+            throw new IOException("Injected failure after the first endpoint prepared.");
+
+        public async ValueTask<SwapDeliveryResult<SwapApplyResult>> ApplyDecisionAsync(
+            SwapDecision decision,
+            CancellationToken cancellationToken)
+        {
+            SwapApplyResult response = await target.ApplyDecisionAsync(
+                decision,
+                cancellationToken);
+            return SwapDelivery.Acknowledged(response);
+        }
     }
 
     private sealed class RejectPrepareChannel(

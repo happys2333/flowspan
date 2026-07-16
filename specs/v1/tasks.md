@@ -57,6 +57,13 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R4, R11.2_
 - [-] 3.3 Implement atomic swap prepare/reserve/decision/commit/recovery state
   machines.
+  - [ ] 3.3a Persist a bounded, payload-free coordinator transaction intent in
+    an independently keyed DPAPI/Keychain/Secret Service protected file before
+    Prepare; bind decisions to both Device/token participants; recover an
+    undecided restart only through a durable Abort; make reordered Abort and
+    duplicate messages idempotent; and retain exact conflict evidence.
+  - [ ] 3.3b Persist protected endpoint reservations, terminal decisions, and
+    restart reduction before composing Swap over an authenticated channel.
   - _Requirements: R5_
 - [-] 3.4 Add generated transition/property cases and deterministic drop,
   duplicate, delay, disconnect, and journal-failure tests.
