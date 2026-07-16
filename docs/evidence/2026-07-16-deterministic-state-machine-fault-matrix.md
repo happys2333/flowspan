@@ -20,8 +20,8 @@ Branch: `codex/v1-foundation`
 Implementation commit:
 `c590e1aaa81ebc66b877f45736d92e23e43925bf`
 
-Task 3.4 remains open until the evidence and task-status commits pass the same
-Windows, macOS, and Ubuntu CI, Secret Scan, CodeQL, and downloaded TRX gates.
+The task-status commit remains subject to the same Windows, macOS, and Ubuntu
+CI, Secret Scan, CodeQL, and downloaded TRX gates before task 3.4 is final.
 
 ## Local environment
 
@@ -236,8 +236,40 @@ and Analyze C# job
 [`87589371038`](https://github.com/happys2333/flowspan/actions/runs/29488721396/job/87589371038)
 completed successfully. CodeQL scanned 186/186 C# files and uploaded the result.
 
-The evidence and task-status commits remain subject to these same gates before
-task 3.4 is final.
+The evidence commit and its same-gate verification are recorded below.
+
+## Hosted results for the evidence commit
+
+Evidence commit `4799dda98339b1b2fdd6f1491b4d9b85438d94f8` passed CI run
+[`29489188380`](https://github.com/happys2333/flowspan/actions/runs/29489188380):
+
+- Ubuntu job
+  [`87590888190`](https://github.com/happys2333/flowspan/actions/runs/29489188380/job/87590888190):
+  success;
+- macOS job
+  [`87590892617`](https://github.com/happys2333/flowspan/actions/runs/29489188380/job/87590892617):
+  success;
+- Windows job
+  [`87590888227`](https://github.com/happys2333/flowspan/actions/runs/29489188380/job/87590888227):
+  success;
+- Secret Scan job
+  [`87590888193`](https://github.com/happys2333/flowspan/actions/runs/29489188380/job/87590888193):
+  success.
+
+The downloaded Windows artifact `8371741544`, Linux artifact `8371713906`, and
+macOS artifact `8371706319` each contained 11 TRX files. Direct counter sums
+again produced 713 total, 713 executed, 713 passed, 0 failed, and 0 not executed
+tests on every hosted OS.
+
+CodeQL run
+[`29489188306`](https://github.com/happys2333/flowspan/actions/runs/29489188306)
+and Analyze C# job
+[`87590888159`](https://github.com/happys2333/flowspan/actions/runs/29489188306/job/87590888159)
+also completed successfully, scanned 186/186 C# files, and uploaded the result.
+Thus the implementation and evidence commits passed the same hosted gates.
+
+The task-status commit containing this section remains subject to those same
+workflows before its completed checkbox is treated as final.
 
 ## Remaining limits
 
@@ -250,5 +282,6 @@ task 3.4 is final.
 - Hosted runners and same-host TCP loopback are CI/contract evidence, not real
   two-device or native permission evidence.
 
-Therefore this local evidence does not yet close task 3.4, the release-wide
-property/fault criteria, or Flowspan v1.
+Therefore task 3.4 has closed its implemented-core and evidence gates. Its
+completed status becomes final only after the task-status HEAD passes the same
+workflows. The release-wide property/fault criteria and Flowspan v1 remain open.

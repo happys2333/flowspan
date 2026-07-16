@@ -120,7 +120,7 @@ means its linked evidence exists; it does not imply the entire product works.
       evidence remain later work.
     - _Requirements: R2.5, R5.1-R5.6, R8.3-R8.4, R9.1-R9.2_
   - _Requirements: R5_
-- [-] 3.4 Add generated transition/property cases and deterministic drop,
+- [x] 3.4 Add generated transition/property cases and deterministic drop,
   duplicate, delay, disconnect, and journal-failure tests.
   - Implementation commit `c590e1a` adds 4,096 seeded Operation-journal events,
     64 composed Move delivery traces, 4,096 seeded Mirror/lease transitions,
@@ -134,8 +134,12 @@ means its linked evidence exists; it does not imply the entire product works.
     Exact implementation commit `c590e1a` passes CI run `29488721383` on
     Windows, macOS, and Ubuntu, Secret Scan, CodeQL run `29488721396`, and
     independently summed downloaded TRX verification at 713/713 passed per OS.
-    The item remains open until the evidence commit and task-status HEAD pass
-    the same gates.
+    Evidence commit `4799dda` passes the same gates in CI run `29489188380` and
+    CodeQL run `29489188306`; its three downloaded 11-TRX artifacts again sum to
+    713/713 passed per OS. This status becomes final only after the task-status
+    HEAD passes the same workflows. Release-wide properties for unimplemented
+    Groups, Scenes, Remote Window, native Adapters, and physical faults remain
+    open.
   - _Requirements: R4.5, R5, R8.4, R12.3_
 
 ## 4. Device security
