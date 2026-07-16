@@ -212,6 +212,7 @@ public sealed class SecureSessionKeyMaterial : IDisposable
 
 public sealed class SecureFrameSession : IDisposable
 {
+    public const ulong MaximumFramesPerEpoch = 1_048_576;
     private readonly SecureFrameProtector receiver;
     private readonly SecureFrameProtector sender;
     private bool disposed;
@@ -221,10 +222,19 @@ public sealed class SecureFrameSession : IDisposable
         SecureFrameDirection sendDirection,
         ReadOnlySpan<byte> receiveKey,
         SecureFrameDirection receiveDirection,
-        ReadOnlySpan<byte> sessionIdentifier)
+        ReadOnlySpan<byte> sessionIdentifier,
+        ulong maximumFramesPerEpoch = MaximumFramesPerEpoch)
     {
-        sender = new SecureFrameProtector(sendKey, sendDirection, sessionIdentifier);
-        receiver = new SecureFrameProtector(receiveKey, receiveDirection, sessionIdentifier);
+        sender = new SecureFrameProtector(
+            sendKey,
+            sendDirection,
+            sessionIdentifier,
+            maximumFramesPerEpoch);
+        receiver = new SecureFrameProtector(
+            receiveKey,
+            receiveDirection,
+            sessionIdentifier,
+            maximumFramesPerEpoch);
         SessionIdentifier = Convert.ToHexString(sessionIdentifier);
     }
 
@@ -233,6 +243,14 @@ public sealed class SecureFrameSession : IDisposable
     public ulong NextSendSequence => sender.Sequence;
 
     public ulong NextReceiveSequence => receiver.Sequence;
+
+    public uint ReceiveEpoch => receiver.Epoch;
+
+    public ulong ReceivePlaintextBytes => receiver.PlaintextBytes;
+
+    public uint SendEpoch => sender.Epoch;
+
+    public ulong SendPlaintextBytes => sender.PlaintextBytes;
 
     public byte[] ExportSessionIdentifier()
     {
@@ -250,6 +268,18 @@ public sealed class SecureFrameSession : IDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         return receiver.Decrypt(frame);
+    }
+
+    public void AdvanceReceiveEpoch(uint nextEpoch)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        receiver.AdvanceEpoch(nextEpoch);
+    }
+
+    public void AdvanceSendEpoch(uint nextEpoch)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        sender.AdvanceEpoch(nextEpoch);
     }
 
     public void Dispose()
@@ -276,20 +306,21 @@ internal sealed class SecureFrameProtector : IDisposable
     public const int MaximumPlaintextBytes = 256 * 1024;
     private const int HeaderLength = 4 + sizeof(uint) + sizeof(ulong) + sizeof(uint);
     private const int TagLength = 16;
-    private const uint Epoch = 1;
     private static readonly byte[] AssociatedDataContext =
         Encoding.ASCII.GetBytes("FLOWSPAN-AEAD-V1");
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("FSE1");
     private readonly SecureFrameDirection direction;
     private readonly Lock gate = new();
-    private readonly byte[] key;
+    private readonly ulong maximumFramesPerEpoch;
     private readonly byte[] sessionIdentifier;
     private bool disposed;
+    private byte[] key;
 
     public SecureFrameProtector(
         ReadOnlySpan<byte> key,
         SecureFrameDirection direction,
-        ReadOnlySpan<byte> sessionIdentifier)
+        ReadOnlySpan<byte> sessionIdentifier,
+        ulong maximumFramesPerEpoch)
     {
         if (key.Length != 32)
         {
@@ -303,10 +334,22 @@ internal sealed class SecureFrameProtector : IDisposable
                 nameof(sessionIdentifier));
         }
 
+        if (maximumFramesPerEpoch is < 1 or > SecureFrameSession.MaximumFramesPerEpoch)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumFramesPerEpoch),
+                $"A secure-session epoch must permit 1 to {SecureFrameSession.MaximumFramesPerEpoch} frames.");
+        }
+
         this.key = key.ToArray();
         this.direction = direction;
         this.sessionIdentifier = sessionIdentifier.ToArray();
+        this.maximumFramesPerEpoch = maximumFramesPerEpoch;
     }
+
+    public uint Epoch { get; private set; } = 1;
+
+    public ulong PlaintextBytes { get; private set; }
 
     public ulong Sequence { get; private set; }
 
@@ -340,6 +383,7 @@ internal sealed class SecureFrameProtector : IDisposable
             using var cipher = new AesGcm(key, TagLength);
             cipher.Encrypt(nonce, plaintext, ciphertext, tag, associatedData);
             CryptographicOperations.ZeroMemory(associatedData);
+            PlaintextBytes = checked(PlaintextBytes + (ulong)plaintext.Length);
             Sequence++;
             return frame;
         }
@@ -357,8 +401,7 @@ internal sealed class SecureFrameProtector : IDisposable
         uint epoch = BinaryPrimitives.ReadUInt32BigEndian(frame[4..]);
         ulong sequence = BinaryPrimitives.ReadUInt64BigEndian(frame[8..]);
         uint ciphertextLength = BinaryPrimitives.ReadUInt32BigEndian(frame[16..]);
-        if (epoch != Epoch
-            || ciphertextLength > MaximumPlaintextBytes
+        if (ciphertextLength > MaximumPlaintextBytes
             || frame.Length != HeaderLength + ciphertextLength + TagLength)
         {
             throw new InvalidDataException("The secure frame length or epoch is invalid.");
@@ -367,6 +410,12 @@ internal sealed class SecureFrameProtector : IDisposable
         lock (gate)
         {
             EnsureSequenceAvailable();
+            if (epoch != Epoch)
+            {
+                throw new InvalidDataException(
+                    "The secure frame epoch is a replay or gap.");
+            }
+
             if (sequence != Sequence)
             {
                 throw new InvalidDataException(
@@ -385,6 +434,8 @@ internal sealed class SecureFrameProtector : IDisposable
             {
                 using var cipher = new AesGcm(key, TagLength);
                 cipher.Decrypt(nonce, ciphertext, tag, plaintext, associatedData);
+                PlaintextBytes = checked(
+                    PlaintextBytes + (ulong)ciphertextLength);
                 Sequence++;
                 return plaintext;
             }
@@ -397,6 +448,40 @@ internal sealed class SecureFrameProtector : IDisposable
             {
                 CryptographicOperations.ZeroMemory(associatedData);
             }
+        }
+    }
+
+    public void AdvanceEpoch(uint nextEpoch)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (Epoch == uint.MaxValue || nextEpoch != Epoch + 1)
+            {
+                throw new InvalidOperationException(
+                    "A secure frame epoch must advance by exactly one.");
+            }
+
+            SecureSessionRole senderRole = direction switch
+            {
+                SecureFrameDirection.InitiatorToResponder =>
+                    SecureSessionRole.Initiator,
+                SecureFrameDirection.ResponderToInitiator =>
+                    SecureSessionRole.Responder,
+                _ => throw new InvalidOperationException(
+                    "The secure frame direction is not supported."),
+            };
+            byte[] nextKey = SecureSessionEpochKeyDerivation.DeriveNextKey(
+                key,
+                sessionIdentifier,
+                senderRole,
+                nextEpoch);
+            CryptographicOperations.ZeroMemory(key);
+            key = nextKey;
+            Epoch = nextEpoch;
+            PlaintextBytes = 0;
+            Sequence = 0;
         }
     }
 
@@ -443,7 +528,7 @@ internal sealed class SecureFrameProtector : IDisposable
         return associatedData;
     }
 
-    private static void WriteNonce(Span<byte> nonce, ulong sequence)
+    private void WriteNonce(Span<byte> nonce, ulong sequence)
     {
         BinaryPrimitives.WriteUInt32BigEndian(nonce, Epoch);
         BinaryPrimitives.WriteUInt64BigEndian(nonce[sizeof(uint)..], sequence);
@@ -451,10 +536,10 @@ internal sealed class SecureFrameProtector : IDisposable
 
     private void EnsureSequenceAvailable()
     {
-        if (Sequence == ulong.MaxValue)
+        if (Sequence >= maximumFramesPerEpoch)
         {
             throw new CryptographicException(
-                "The secure frame sequence is exhausted; rekey is required.");
+                "The secure frame epoch usage bound is exhausted; rekey or reconnect is required.");
         }
     }
 }

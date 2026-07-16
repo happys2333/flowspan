@@ -713,8 +713,15 @@ Each connection performs ephemeral P-256 ECDH, authenticates its transcript
 with the paired identity keys, derives directional AES-256-GCM keys using
 HKDF-SHA-256, and assigns monotonically increasing nonces. Headers needed for
 routing are authenticated as associated data. Key epochs rotate before nonce
-or byte limits and old epochs are erased. This application layer keeps payloads
-end-to-end protected when a future byte-forwarding relay is introduced.
+or byte limits and old epochs are erased. Protocol 1.3 carries a bounded `FSR1`
+traffic-key update under the retiring directional key, derives the next key from
+that key plus session/direction/epoch context, and resets only that direction to
+sequence zero. A request bit asks the peer to reach the same target epoch;
+crossed requests suppress a redundant response when the local send direction
+already reached that target. Protocol 1.2 retains Finished and reconnects at the
+usage bound, while 1.0/1.1 retain their legacy warning. This application layer
+keeps payloads end-to-end protected when a future byte-forwarding relay is
+introduced.
 
 Cryptographic formats, limits, and test vectors must be frozen in a dedicated
 security ADR before production pairing is enabled. The first simulator slice

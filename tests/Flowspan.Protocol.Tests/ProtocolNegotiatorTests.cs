@@ -62,4 +62,17 @@ public sealed class ProtocolNegotiatorTests
         Assert.False(ProtocolFeatures.RequiresSecureSessionFinished(
             new ProtocolVersion(2, 0)));
     }
+
+    [Fact]
+    public void LiveRekeyRequiresNegotiatedProtocolOnePointThree()
+    {
+        Assert.False(ProtocolFeatures.SupportsLiveRekey(
+            new ProtocolVersion(1, 2)));
+        Assert.True(ProtocolFeatures.SupportsLiveRekey(
+            new ProtocolVersion(1, 3)));
+        Assert.True(ProtocolFeatures.SupportsLiveRekey(
+            new ProtocolVersion(1, 4)));
+        Assert.False(ProtocolFeatures.SupportsLiveRekey(
+            new ProtocolVersion(2, 0)));
+    }
 }

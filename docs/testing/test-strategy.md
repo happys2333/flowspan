@@ -100,6 +100,19 @@ mode. A production desktop reconnect loop negotiates 1.2 on loopback; these
 results prove same-process key confirmation, not independent cryptographic
 review, physical interception resistance, or live rekey.
 
+The task 4.3b slice introduces protocol 1.3 without changing the frozen 1.2
+Finished transaction. Security tests freeze the 10-byte `FSR1` update and
+direction/session/next-epoch HKDF vectors, then prove monotonic epoch reset,
+retired-key rejection, replay/gap rejection, and old-key erasure in the state
+owner. Transport tests inject update write, flush, decode, authentication,
+disconnect, cancellation, timeout, and cleanup failures. Deterministic duplex
+tests cover unilateral request/response, crossed-request suppression, repeated
+updates, and automatic 2^20-frame/1-GiB thresholds through reduced injected
+limits. A real authenticated protocol-1.3 loopback must rekey both directions
+and continue carrying bound control messages; 1.2 must remain interoperable and
+reconnect rather than exceed the bound. Hosted results remain contract evidence,
+not independent cryptographic review or physical hostile-LAN evidence.
+
 Desktop-shell tests keep the production XAML and view model behind Avalonia's
 headless platform while retaining the repository's xUnit v2 runner. They cover
 protected/degraded identity presentation, redacted startup failure, explicit

@@ -41,6 +41,8 @@ public static class ProtocolFeatures
 
     public static ProtocolVersion SecureSessionFinishedMinimumVersion { get; } = new(1, 2);
 
+    public static ProtocolVersion SecureSessionRekeyMinimumVersion { get; } = new(1, 3);
+
     public static bool SupportsActivitySwap(ProtocolVersion version) =>
         version.Major == ActivitySwapMinimumVersion.Major
         && version.Minor >= ActivitySwapMinimumVersion.Minor;
@@ -48,6 +50,10 @@ public static class ProtocolFeatures
     public static bool RequiresSecureSessionFinished(ProtocolVersion version) =>
         version.Major == SecureSessionFinishedMinimumVersion.Major
         && version.Minor >= SecureSessionFinishedMinimumVersion.Minor;
+
+    public static bool SupportsLiveRekey(ProtocolVersion version) =>
+        version.Major == SecureSessionRekeyMinimumVersion.Major
+        && version.Minor >= SecureSessionRekeyMinimumVersion.Minor;
 }
 
 public readonly record struct ProtocolNegotiationResult(
