@@ -22,10 +22,11 @@ internal interface IActivityControlConnection
         CancellationToken cancellationToken = default);
 }
 
-internal sealed class ActivityControlSession :
+internal sealed partial class ActivityControlSession :
     IActivityChannel,
     IReplaceTargetInventoryChannel,
     IReplaceChannel,
+    ISwapEndpointChannel,
     IAsyncDisposable
 {
     private readonly IActivityControlConnection connection;
@@ -40,6 +41,7 @@ internal sealed class ActivityControlSession :
     private readonly IReplacePeer? replacePeer;
     private readonly TimeProvider timeProvider;
     private int disposed;
+    private int lifetimeStopRequested;
     private int running;
     private int stopped;
 
@@ -49,6 +51,7 @@ internal sealed class ActivityControlSession :
         TimeProvider? timeProvider = null) : this(
             connection,
             localPeer,
+            null,
             null,
             null,
             timeProvider)
@@ -64,6 +67,7 @@ internal sealed class ActivityControlSession :
             localPeer,
             replacePeer,
             null,
+            null,
             timeProvider)
     {
     }
@@ -73,6 +77,22 @@ internal sealed class ActivityControlSession :
         IActivityPeer localPeer,
         IReplacePeer? replacePeer,
         IReplaceTargetInventoryPeer? replaceInventoryPeer,
+        TimeProvider? timeProvider = null) : this(
+            connection,
+            localPeer,
+            replacePeer,
+            replaceInventoryPeer,
+            null,
+            timeProvider)
+    {
+    }
+
+    public ActivityControlSession(
+        IActivityControlConnection connection,
+        IActivityPeer localPeer,
+        IReplacePeer? replacePeer,
+        IReplaceTargetInventoryPeer? replaceInventoryPeer,
+        ISwapEndpointPeer? swapPeer,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(connection);
@@ -100,21 +120,33 @@ internal sealed class ActivityControlSession :
                 nameof(replaceInventoryPeer));
         }
 
+        if (swapPeer is not null && connection.LocalDeviceId != swapPeer.DeviceId)
+        {
+            throw new ArgumentException(
+                "The Swap peer must represent the authenticated local device.",
+                nameof(swapPeer));
+        }
+
         this.connection = connection;
         this.localPeer = localPeer;
         this.replacePeer = replacePeer;
         this.replaceInventoryPeer = replaceInventoryPeer;
+        this.swapPeer = swapPeer;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public DeviceId TargetDeviceId => connection.PeerDeviceId;
 
+    public bool SupportsSwap =>
+        Volatile.Read(ref disposed) == 0
+        && Volatile.Read(ref stopped) == 0
+        && ProtocolFeatures.SupportsActivitySwap(connection.ProtocolVersion);
+
     public void Cancel()
     {
-        if (Volatile.Read(ref disposed) == 0)
-        {
-            lifetimeCancellation.Cancel();
-        }
+        Interlocked.Exchange(ref stopped, 1);
+        RequestLifetimeStop();
+        CompletePendingAsUncertain();
     }
 
     public async ValueTask RunAsync(
@@ -157,6 +189,27 @@ internal sealed class ActivityControlSession :
                         break;
                     case ControlMessageType.ActivityReplaceResult:
                         HandleReplaceResult(message);
+                        break;
+                    case ControlMessageType.ActivitySwapSnapshot:
+                        await HandleSwapSnapshotAsync(message, linked.Token)
+                            .ConfigureAwait(false);
+                        break;
+                    case ControlMessageType.ActivitySwapSnapshotResult:
+                        HandleSwapSnapshotResult(message);
+                        break;
+                    case ControlMessageType.ActivitySwapPrepare:
+                        await HandleSwapPrepareAsync(message, linked.Token)
+                            .ConfigureAwait(false);
+                        break;
+                    case ControlMessageType.ActivitySwapPrepareResult:
+                        HandleSwapPrepareResult(message);
+                        break;
+                    case ControlMessageType.ActivitySwapDecision:
+                        await HandleSwapDecisionAsync(message, linked.Token)
+                            .ConfigureAwait(false);
+                        break;
+                    case ControlMessageType.ActivitySwapDecisionResult:
+                        HandleSwapDecisionResult(message);
                         break;
                     case ControlMessageType.OperationReceipt:
                         HandleReceipt(message);
@@ -253,20 +306,16 @@ internal sealed class ActivityControlSession :
             !sent
             && exception is IOException or SocketException or TimeoutException)
         {
-            pending.TryRemove(
-                new KeyValuePair<CorrelationId, PendingTransfer>(
-                    offer.Context.CorrelationId,
-                    transfer));
             return ActivityDeliveryResult.NotDelivered;
         }
         finally
         {
-            if (!sent)
-            {
-                pending.TryRemove(
+            if (!sent
+                && pending.TryRemove(
                     new KeyValuePair<CorrelationId, PendingTransfer>(
                         offer.Context.CorrelationId,
-                        transfer));
+                        transfer)))
+            {
                 ReleaseCorrelation(offer.Context.CorrelationId);
             }
         }
@@ -337,20 +386,16 @@ internal sealed class ActivityControlSession :
             !sent
             && exception is IOException or SocketException or TimeoutException)
         {
-            pendingReplaces.TryRemove(
-                new KeyValuePair<CorrelationId, PendingReplace>(
-                    command.Context.CorrelationId,
-                    pendingReplace));
             return ReplaceDeliveryResult.NotDelivered;
         }
         finally
         {
-            if (!sent)
-            {
-                pendingReplaces.TryRemove(
+            if (!sent
+                && pendingReplaces.TryRemove(
                     new KeyValuePair<CorrelationId, PendingReplace>(
                         command.Context.CorrelationId,
-                        pendingReplace));
+                        pendingReplace)))
+            {
                 ReleaseCorrelation(command.Context.CorrelationId);
             }
         }
@@ -422,20 +467,16 @@ internal sealed class ActivityControlSession :
             !sent
             && exception is IOException or SocketException or TimeoutException)
         {
-            pendingInventories.TryRemove(
-                new KeyValuePair<CorrelationId, PendingReplaceInventory>(
-                    query.CorrelationId,
-                    pendingInventory));
             return ReplaceTargetInventoryDeliveryResult.NotDelivered;
         }
         finally
         {
-            if (!sent)
-            {
-                pendingInventories.TryRemove(
+            if (!sent
+                && pendingInventories.TryRemove(
                     new KeyValuePair<CorrelationId, PendingReplaceInventory>(
                         query.CorrelationId,
-                        pendingInventory));
+                        pendingInventory)))
+            {
                 ReleaseCorrelation(query.CorrelationId);
             }
         }
@@ -445,12 +486,20 @@ internal sealed class ActivityControlSession :
     {
         if (Interlocked.Exchange(ref disposed, 1) == 0)
         {
-            lifetimeCancellation.Cancel();
-            lifetimeCancellation.Dispose();
+            Interlocked.Exchange(ref stopped, 1);
+            RequestLifetimeStop();
             CompletePendingAsUncertain();
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    private void RequestLifetimeStop()
+    {
+        if (Interlocked.Exchange(ref lifetimeStopRequested, 1) == 0)
+        {
+            lifetimeCancellation.Cancel();
+        }
     }
 
     private async ValueTask HandleTransferAsync(
@@ -731,6 +780,8 @@ internal sealed class ActivityControlSession :
                     ReplaceTargetInventoryDeliveryResult.AcknowledgementLost);
             }
         }
+
+        CompleteSwapPendingAsUncertain();
     }
 
     private void ReserveCorrelation(CorrelationId correlationId)
@@ -795,6 +846,7 @@ public sealed class AuthenticatedActivitySessionHandler :
     private readonly IActivityPeer localPeer;
     private readonly IReplaceTargetInventoryPeer? replaceInventoryPeer;
     private readonly IReplacePeer? replacePeer;
+    private readonly ISwapEndpointPeer? swapPeer;
     private readonly TimeProvider timeProvider;
     private int disposed;
 
@@ -802,6 +854,7 @@ public sealed class AuthenticatedActivitySessionHandler :
         IActivityPeer localPeer,
         TimeProvider? timeProvider = null) : this(
             localPeer,
+            null,
             null,
             null,
             timeProvider)
@@ -815,6 +868,7 @@ public sealed class AuthenticatedActivitySessionHandler :
             localPeer,
             replacePeer,
             null,
+            null,
             timeProvider)
     {
     }
@@ -823,6 +877,20 @@ public sealed class AuthenticatedActivitySessionHandler :
         IActivityPeer localPeer,
         IReplacePeer? replacePeer,
         IReplaceTargetInventoryPeer? replaceInventoryPeer,
+        TimeProvider? timeProvider = null) : this(
+            localPeer,
+            replacePeer,
+            replaceInventoryPeer,
+            null,
+            timeProvider)
+    {
+    }
+
+    public AuthenticatedActivitySessionHandler(
+        IActivityPeer localPeer,
+        IReplacePeer? replacePeer,
+        IReplaceTargetInventoryPeer? replaceInventoryPeer,
+        ISwapEndpointPeer? swapPeer,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(localPeer);
@@ -841,9 +909,17 @@ public sealed class AuthenticatedActivitySessionHandler :
                 nameof(replaceInventoryPeer));
         }
 
+        if (swapPeer is not null && swapPeer.DeviceId != localPeer.DeviceId)
+        {
+            throw new ArgumentException(
+                "The Activity and Swap peers must represent the same local device.",
+                nameof(swapPeer));
+        }
+
         this.localPeer = localPeer;
         this.replacePeer = replacePeer;
         this.replaceInventoryPeer = replaceInventoryPeer;
+        this.swapPeer = swapPeer;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -851,6 +927,9 @@ public sealed class AuthenticatedActivitySessionHandler :
 
     public bool IsReplaceEndpointAvailable =>
         Volatile.Read(ref disposed) == 0 && replacePeer is not null;
+
+    public bool IsSwapEndpointAvailable =>
+        Volatile.Read(ref disposed) == 0 && swapPeer is not null;
 
     public IReadOnlyList<DeviceId> GetConnectedPeers()
     {
@@ -912,6 +991,23 @@ public sealed class AuthenticatedActivitySessionHandler :
         return false;
     }
 
+    public bool TryGetSwapChannel(
+        DeviceId peerDeviceId,
+        out ISwapEndpointChannel? channel)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.Session.SupportsSwap)
+        {
+            channel = registration.Session;
+            return true;
+        }
+
+        channel = null;
+        return false;
+    }
+
     public async ValueTask RunAsync(
         AuthenticatedTcpControlConnection connection,
         CancellationToken cancellationToken = default)
@@ -924,6 +1020,7 @@ public sealed class AuthenticatedActivitySessionHandler :
             localPeer,
             replacePeer,
             replaceInventoryPeer,
+            swapPeer,
             timeProvider);
         var registration = new Registration(session);
         if (!sessions.TryAdd(connection.PeerIdentity.DeviceId, registration))

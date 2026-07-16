@@ -42,6 +42,7 @@ public sealed class TrustedDeviceItemViewModel
         Capability.ActivityOffer => "activity.offer",
         Capability.ActivityReceive => "activity.receive",
         Capability.ActivityReplace => "activity.replace",
+        Capability.ActivitySwap => "activity.swap",
         Capability.MirrorView => "mirror.view",
         Capability.MirrorDrive => "mirror.drive",
         Capability.FileReceive => "file.receive",
@@ -67,6 +68,7 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
     private bool grantActivityOffer;
     private bool grantActivityReceive;
     private bool grantActivityReplace;
+    private bool grantActivitySwap;
     private bool grantFileReceive;
     private bool grantMirrorDrive;
     private bool grantMirrorView;
@@ -136,6 +138,12 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
     {
         get => grantActivityReplace;
         set => SetGrantProperty(ref grantActivityReplace, value);
+    }
+
+    public bool GrantActivitySwap
+    {
+        get => grantActivitySwap;
+        set => SetGrantProperty(ref grantActivitySwap, value);
     }
 
     public bool GrantFileReceive
@@ -557,6 +565,7 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         GrantActivityOffer = capabilities.Allows(Capability.ActivityOffer);
         GrantActivityReceive = capabilities.Allows(Capability.ActivityReceive);
         GrantActivityReplace = capabilities.Allows(Capability.ActivityReplace);
+        GrantActivitySwap = capabilities.Allows(Capability.ActivitySwap);
         GrantMirrorView = capabilities.Allows(Capability.MirrorView);
         GrantMirrorDrive = capabilities.Allows(Capability.MirrorDrive);
         GrantFileReceive = capabilities.Allows(Capability.FileReceive);
@@ -637,10 +646,11 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
 
     private CapabilityGrant CreateDraftGrant()
     {
-        var capabilities = new List<Capability>(7);
+        var capabilities = new List<Capability>(8);
         AddIfGranted(GrantActivityOffer, Capability.ActivityOffer);
         AddIfGranted(GrantActivityReceive, Capability.ActivityReceive);
         AddIfGranted(GrantActivityReplace, Capability.ActivityReplace);
+        AddIfGranted(GrantActivitySwap, Capability.ActivitySwap);
         AddIfGranted(GrantMirrorView, Capability.MirrorView);
         AddIfGranted(GrantMirrorDrive, Capability.MirrorDrive);
         AddIfGranted(GrantFileReceive, Capability.FileReceive);

@@ -22,8 +22,11 @@ claiming native process-state migration or production network delivery.
 
 ## Decision
 
-Before sending the first Prepare, the coordinator writes one bounded,
-payload-free transaction intent. The record binds:
+Before sending the first Prepare or causing any endpoint mutation, the
+coordinator writes one bounded, payload-free transaction intent. ADR 0014 later
+adds a narrowly addressed, read-only exact Activity snapshot before this write;
+that disclosure is not a reservation or mutation and is the only pre-intent
+endpoint contact. The record binds:
 
 1. Operation ID, correlation ID, and UTC deadline;
 2. both Device and Activity IDs;
@@ -91,7 +94,8 @@ disclosure and keeps the coordinator record purpose-scoped.
 
 ## Consequences
 
-- No endpoint is contacted unless the coordinator intent is durably saved.
+- No endpoint is prepared or mutated unless the coordinator intent is durably
+  saved; ADR 0014's exact read-only snapshot is the explicit exception.
 - Coordinator restart can reuse an exact decision or safely converge an
   undecided transaction to Abort without creating new tokens.
 - Device/token binding removes ambiguous partial-participant replay.
@@ -100,9 +104,10 @@ disclosure and keeps the coordinator record purpose-scoped.
   Trust, and Replace state.
 - In-memory endpoints gain deterministic duplicate, reordering, exclusion, and
   recovery semantics suitable for generated fault tests.
-- Endpoint reservations, Activity catalogs, and native Adapter effects are not
-  yet durable. Authentication, capability authorization, Desktop confirmation,
-  and visible recovery also remain open.
+- Endpoint reservations and decisions now have a protected journal, and ADR 0014
+  composes the transaction through authenticated capability-bound control
+  messages. Durable Activity-catalog/native Adapter effects, Desktop confirmation
+  and visible recovery, and physical restart evidence remain open.
 
 ## Evidence and limits
 

@@ -35,6 +35,15 @@ public readonly record struct ProtocolVersion : IComparable<ProtocolVersion>
     public override string ToString() => $"{Major}.{Minor}";
 }
 
+public static class ProtocolFeatures
+{
+    public static ProtocolVersion ActivitySwapMinimumVersion { get; } = new(1, 1);
+
+    public static bool SupportsActivitySwap(ProtocolVersion version) =>
+        version.Major == ActivitySwapMinimumVersion.Major
+        && version.Minor >= ActivitySwapMinimumVersion.Minor;
+}
+
 public readonly record struct ProtocolNegotiationResult(
     bool Succeeded,
     ProtocolVersion Version,

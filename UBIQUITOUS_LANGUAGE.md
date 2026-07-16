@@ -22,9 +22,12 @@ screens or arbitrary process migration.
 | **Replace Recovery Snapshot** | A bounded, immutable, target-local, payload-free projection of known Replace/undo journal state, ordered to expose unresolved destructive boundaries before terminal history. | Log dump, remote history |
 | **Undo Capsule** | A target-owned, expiring preservation of the exact pre-Replace semantic state plus bindings needed for one safe compensating undo. | Backup, rollback promise |
 | **Swap** | One atomic transaction that exchanges two Activity Placements or changes neither. | Two moves |
+| **Swap Activity Snapshot** | One purpose-scoped, exact disclosure of a named active, normal-sensitivity Activity for a Swap; it is complete enough to build semantic recovery but is never a list or inventory. | Activity inventory, catalog sync |
 | **Swap Transaction Intent** | A bounded, payload-free coordinator record written before Prepare that binds one Operation, deadline, both expected Activity snapshots, and both device-owned reservation tokens. | Draft decision, retry cache |
 | **Swap Decision** | The one durable Commit or Abort outcome for a Swap, bound to both Device/token participants; an Abort also records its reason. | Message response, local guess |
-| **Swap Endpoint Journal** | A bounded, Device-owned protected record of Prepared reservations, exact local/incoming Activity snapshots, and terminal Swap Decisions used for deterministic restart reduction. | Coordinator log, Activity database |
+| **Swap Endpoint Binding** | The durable Operation ID, correlation ID, and remote participant Device ID that must all match an endpoint replay or post-revocation decision. | Operation existence, session hint |
+| **Exact Recorded Decision Convergence** | The narrow rule allowing only a decision matching a durable Swap Endpoint Binding and its request/token/digest evidence to converge after `activity.swap` revocation. | Authorization bypass, best-effort retry |
+| **Swap Endpoint Journal** | A bounded, Device-owned protected record of Prepared reservations, Swap Endpoint Bindings, exact local/incoming Activity snapshots, and terminal Swap Decisions used for deterministic restart reduction. | Coordinator log, Activity database |
 | **Mirror** | An Activity presentation on multiple devices while authoritative execution remains on one host. | Copy, sync |
 | **Placement** | The desired device and presentation location of an Activity. | Screen ownership |
 
@@ -72,6 +75,9 @@ screens or arbitrary process migration.
   `activity.receive` allows this device to disclose and send an Activity to that
   peer. A reusable Activity control channel may require either grant, but each
   Operation still checks its exact direction immediately before payload use.
+- `activity.swap` is independent of Offer, Receive, and Replace. It authorizes
+  new exact Swap Activity Snapshot disclosure, Prepare, or unknown decisions;
+  only Exact Recorded Decision Convergence survives later revocation.
 - An **Unverified Pairing Candidate** can open a Pairing attempt but cannot
   become a **Trust Record**, show a SAS prompt, or authorize a **Capability**
   until its Device ID, fingerprint, signature, and lifetime match the
@@ -88,10 +94,13 @@ screens or arbitrary process migration.
 - A **Swap Decision** binds each reservation token to its participant Device.
   Commit exchanges both Placements or remains recovering; Abort preserves both
   originals and blocks a delayed Prepare through an endpoint tombstone.
+- A **Swap Activity Snapshot** names and returns at most one exact Activity. It
+  is never a peer inventory, wildcard query, or discovery record.
 - A **Swap Endpoint Journal** persists Prepared before acknowledgement and a
-  **Swap Decision** before local catalog mutation. It contains protected private
-  recovery content and never becomes discovery, diagnostics, or coordinator
-  metadata.
+  **Swap Decision** before local catalog mutation. Its **Swap Endpoint Binding**
+  must match before revoked authority can use **Exact Recorded Decision
+  Convergence**. It contains protected private recovery content and never becomes
+  discovery, diagnostics, or coordinator metadata.
 - A committed **Replace** has one target-owned **Undo Capsule**. Its payload
   never travels back to the source; only bound, payload-free availability
   metadata may appear in an authenticated result.

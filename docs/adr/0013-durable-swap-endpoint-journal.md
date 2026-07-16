@@ -57,6 +57,14 @@ rejects unknown fields, Device mismatch, duplicate Operation IDs, invalid enum
 or UTC values, descriptor/request/decision digest mismatch, invalid participant
 binding, and bounds violations.
 
+Prepared admission also proves terminal reducibility: the incoming revision
+must be below `long.MaxValue`, and each undecided record reserves 1 KiB inside
+the 4 MiB payload limit for the fixed-shape two-participant decision. A peer
+cannot obtain Prepared for state that will overflow either the replacement
+revision or the later decision write. The strict reader requires every field,
+including zero-valued enums, and rejects duplicate fields, non-canonical GUIDs,
+or timestamp aliases that the writer never emits.
+
 The endpoint file uses a distinct `FSEF` AES-256-GCM envelope and an independent
 random key. Windows protects that key with a Swap-endpoint-specific CurrentUser
 DPAPI context and file; macOS uses a separate Keychain service/account; Linux

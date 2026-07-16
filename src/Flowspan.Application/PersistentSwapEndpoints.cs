@@ -11,10 +11,14 @@ public sealed record SwapEndpointRecord
 {
     private SwapEndpointRecord(
         DeviceId deviceId,
+        CorrelationId correlationId,
+        DeviceId peerDeviceId,
         SwapReservation? reservation,
         SwapDecision? decision)
     {
         DeviceId = deviceId;
+        CorrelationId = correlationId;
+        PeerDeviceId = peerDeviceId;
         Reservation = reservation;
         Decision = decision;
         OperationId = reservation?.OperationId
@@ -25,61 +29,95 @@ public sealed record SwapEndpointRecord
 
     public DeviceId DeviceId { get; }
 
+    public CorrelationId CorrelationId { get; }
+
     public SwapDecision? Decision { get; }
 
     public OperationId OperationId { get; }
+
+    public DeviceId PeerDeviceId { get; }
 
     public SwapReservation? Reservation { get; }
 
     public static SwapEndpointRecord Prepared(
         DeviceId deviceId,
+        CorrelationId correlationId,
+        DeviceId peerDeviceId,
         SwapReservation reservation)
     {
         ArgumentNullException.ThrowIfNull(deviceId);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
         ArgumentNullException.ThrowIfNull(reservation);
         if (reservation.Phase != SwapReservationPhase.Prepared
-            || reservation.OriginalActivity.Placement.DeviceId != deviceId)
+            || reservation.OriginalActivity.Placement.DeviceId != deviceId
+            || reservation.IncomingActivity.Placement.DeviceId != peerDeviceId
+            || peerDeviceId == deviceId)
         {
             throw new ArgumentException(
                 "A prepared endpoint record must belong to its local Device.",
                 nameof(reservation));
         }
 
-        return new SwapEndpointRecord(deviceId, reservation, null);
+        return new SwapEndpointRecord(
+            deviceId,
+            correlationId,
+            peerDeviceId,
+            reservation,
+            null);
     }
 
     public static SwapEndpointRecord AbortTombstone(
         DeviceId deviceId,
+        CorrelationId correlationId,
+        DeviceId peerDeviceId,
         SwapDecision decision)
     {
         ArgumentNullException.ThrowIfNull(deviceId);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
         ArgumentNullException.ThrowIfNull(decision);
         if (decision.Outcome != SwapDecisionOutcome.Abort
-            || !decision.TryGetReservationToken(deviceId, out _))
+            || peerDeviceId == deviceId
+            || !decision.TryGetReservationToken(deviceId, out _)
+            || !decision.TryGetReservationToken(peerDeviceId, out _))
         {
             throw new ArgumentException(
                 "A swap endpoint tombstone requires a Device-bound Abort decision.",
                 nameof(decision));
         }
 
-        return new SwapEndpointRecord(deviceId, null, decision);
+        return new SwapEndpointRecord(
+            deviceId,
+            correlationId,
+            peerDeviceId,
+            null,
+            decision);
     }
 
     internal static SwapEndpointRecord Restore(
         DeviceId deviceId,
+        CorrelationId correlationId,
+        DeviceId peerDeviceId,
         SwapReservation? reservation,
         SwapDecision? decision)
     {
         ArgumentNullException.ThrowIfNull(deviceId);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (reservation is null)
         {
             return AbortTombstone(
                 deviceId,
+                correlationId,
+                peerDeviceId,
                 decision ?? throw new InvalidDataException(
                     "A decision-only endpoint record cannot omit its decision."));
         }
 
-        if (reservation.OriginalActivity.Placement.DeviceId != deviceId)
+        if (reservation.OriginalActivity.Placement.DeviceId != deviceId
+            || reservation.IncomingActivity.Placement.DeviceId != peerDeviceId
+            || peerDeviceId == deviceId)
         {
             throw new InvalidDataException(
                 "A swap endpoint reservation belongs to another Device.");
@@ -93,7 +131,12 @@ public sealed record SwapEndpointRecord
                     "A terminal endpoint reservation cannot omit its decision.");
             }
 
-            return new SwapEndpointRecord(deviceId, reservation, null);
+            return new SwapEndpointRecord(
+                deviceId,
+                correlationId,
+                peerDeviceId,
+                reservation,
+                null);
         }
 
         if (reservation.Phase == SwapReservationPhase.Prepared
@@ -106,14 +149,33 @@ public sealed record SwapEndpointRecord
                 "A terminal endpoint reservation does not match its decision.");
         }
 
-        return new SwapEndpointRecord(deviceId, reservation, decision);
+        if (!decision.TryGetReservationToken(peerDeviceId, out _))
+        {
+            throw new InvalidDataException(
+                "A terminal endpoint decision omits its recorded peer Device.");
+        }
+
+        return new SwapEndpointRecord(
+            deviceId,
+            correlationId,
+            peerDeviceId,
+            reservation,
+            decision);
     }
 
-    public SwapEndpointRecord WithDecision(SwapDecision decision)
+    public SwapEndpointRecord WithDecision(
+        CorrelationId correlationId,
+        DeviceId peerDeviceId,
+        SwapDecision decision)
     {
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
         ArgumentNullException.ThrowIfNull(decision);
         if (decision.OperationId != OperationId
-            || !decision.TryGetReservationToken(DeviceId, out _))
+            || correlationId != CorrelationId
+            || peerDeviceId != PeerDeviceId
+            || !decision.TryGetReservationToken(DeviceId, out _)
+            || !decision.TryGetReservationToken(PeerDeviceId, out _))
         {
             throw new InvalidOperationException(
                 "A swap decision does not bind this endpoint record.");
@@ -130,13 +192,19 @@ public sealed record SwapEndpointRecord
         if (Reservation is null)
         {
             return decision.Outcome == SwapDecisionOutcome.Abort
-                ? AbortTombstone(DeviceId, decision)
+                ? AbortTombstone(
+                    DeviceId,
+                    CorrelationId,
+                    PeerDeviceId,
+                    decision)
                 : throw new InvalidOperationException(
                     "A Commit decision requires a prepared endpoint reservation.");
         }
 
         return new SwapEndpointRecord(
             DeviceId,
+            CorrelationId,
+            PeerDeviceId,
             Reservation.ApplyDecision(decision),
             decision);
     }
@@ -165,10 +233,12 @@ public interface ISwapEndpointJournal
         [NotNullWhen(true)] out SwapEndpointRecord? record);
 
     public ValueTask<SwapEndpointWriteResult> TryPrepareAsync(
+        CorrelationId correlationId,
         SwapReservation reservation,
         CancellationToken cancellationToken = default);
 
     public ValueTask<SwapEndpointWriteResult> TryRecordDecisionAsync(
+        CorrelationId correlationId,
         SwapDecision decision,
         CancellationToken cancellationToken = default);
 }
@@ -197,6 +267,7 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
 {
     public const int MaximumPayloadBytes = 4 * 1024 * 1024;
     public const int MaximumRecordCount = 32;
+    internal const int TerminalDecisionHeadroomBytesPerPreparedRecord = 1024;
 
     private readonly SemaphoreSlim mutationGate = new(1, 1);
     private readonly ISwapEndpointStatePayloadStore payloadStore;
@@ -282,11 +353,19 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
     }
 
     public async ValueTask<SwapEndpointWriteResult> TryPrepareAsync(
+        CorrelationId correlationId,
         SwapReservation reservation,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        SwapEndpointRecord proposed = SwapEndpointRecord.Prepared(DeviceId, reservation);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(reservation);
+        DeviceId peerDeviceId = reservation.IncomingActivity.Placement.DeviceId;
+        SwapEndpointRecord proposed = SwapEndpointRecord.Prepared(
+            DeviceId,
+            correlationId,
+            peerDeviceId,
+            reservation);
         await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -296,6 +375,8 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
             {
                 bool replay = existing.Decision is null
                     && existing.Reservation is not null
+                    && existing.CorrelationId == correlationId
+                    && existing.PeerDeviceId == peerDeviceId
                     && existing.Reservation.Token == reservation.Token
                     && StringComparer.Ordinal.Equals(
                         existing.Reservation.RequestDigest,
@@ -315,7 +396,18 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
             }
 
             candidate.Add(proposed.OperationId, proposed);
-            await SaveAndPublishAsync(candidate, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await SaveAndPublishAsync(candidate, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return new SwapEndpointWriteResult(
+                    SwapEndpointWriteStatus.CapacityExceeded,
+                    null);
+            }
+
             return new SwapEndpointWriteResult(SwapEndpointWriteStatus.Stored, proposed);
         }
         finally
@@ -325,15 +417,21 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
     }
 
     public async ValueTask<SwapEndpointWriteResult> TryRecordDecisionAsync(
+        CorrelationId correlationId,
         SwapDecision decision,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
+        ArgumentNullException.ThrowIfNull(correlationId);
         ArgumentNullException.ThrowIfNull(decision);
         if (!decision.TryGetReservationToken(DeviceId, out _))
         {
             return new SwapEndpointWriteResult(SwapEndpointWriteStatus.Conflict, null);
         }
+
+        DeviceId peerDeviceId = decision.Participants
+            .Single(participant => participant.DeviceId != DeviceId)
+            .DeviceId;
 
         await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -360,10 +458,22 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
 
                 SwapEndpointRecord tombstone = SwapEndpointRecord.AbortTombstone(
                     DeviceId,
+                    correlationId,
+                    peerDeviceId,
                     decision);
                 candidate.Add(decision.OperationId, tombstone);
-                await SaveAndPublishAsync(candidate, cancellationToken)
-                    .ConfigureAwait(false);
+                try
+                {
+                    await SaveAndPublishAsync(candidate, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    return new SwapEndpointWriteResult(
+                        SwapEndpointWriteStatus.CapacityExceeded,
+                        null);
+                }
+
                 return new SwapEndpointWriteResult(
                     SwapEndpointWriteStatus.Stored,
                     tombstone);
@@ -372,7 +482,11 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
             if (existing.Decision is not null)
             {
                 return new SwapEndpointWriteResult(
-                    StringComparer.Ordinal.Equals(existing.Decision.Digest, decision.Digest)
+                    existing.CorrelationId == correlationId
+                    && existing.PeerDeviceId == peerDeviceId
+                    && StringComparer.Ordinal.Equals(
+                        existing.Decision.Digest,
+                        decision.Digest)
                         ? SwapEndpointWriteStatus.Replayed
                         : SwapEndpointWriteStatus.Conflict,
                     existing);
@@ -381,7 +495,10 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
             SwapEndpointRecord decided;
             try
             {
-                decided = existing.WithDecision(decision);
+                decided = existing.WithDecision(
+                    correlationId,
+                    peerDeviceId,
+                    decision);
             }
             catch (InvalidOperationException)
             {
@@ -391,7 +508,18 @@ public sealed class PersistentSwapEndpointJournal : ISwapEndpointJournal, IDispo
             }
 
             candidate[decision.OperationId] = decided;
-            await SaveAndPublishAsync(candidate, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await SaveAndPublishAsync(candidate, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return new SwapEndpointWriteResult(
+                    SwapEndpointWriteStatus.CapacityExceeded,
+                    existing);
+            }
+
             return new SwapEndpointWriteResult(SwapEndpointWriteStatus.Stored, decided);
         }
         finally
@@ -505,6 +633,20 @@ public sealed class PersistentSwapEndpoint : ISwapEndpoint, IDisposable
         return catalog.TryGet(activityId, out activity);
     }
 
+    public bool MatchesOperation(
+        OperationId operationId,
+        CorrelationId correlationId,
+        DeviceId peerDeviceId)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        ArgumentNullException.ThrowIfNull(operationId);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        return journal.TryGet(operationId, out SwapEndpointRecord? record)
+            && record.CorrelationId == correlationId
+            && record.PeerDeviceId == peerDeviceId;
+    }
+
     public bool TryGetReservation(
         OperationId operationId,
         [NotNullWhen(true)] out SwapReservation? reservation)
@@ -561,6 +703,9 @@ public sealed class PersistentSwapEndpoint : ISwapEndpoint, IDisposable
 
                 SwapReservation? existingReservation = existing.Reservation;
                 return existingReservation is not null
+                    && existing.CorrelationId == command.CorrelationId
+                    && existing.PeerDeviceId
+                        == command.IncomingActivity.Placement.DeviceId
                     && existingReservation.Token == command.ReservationToken
                     && existingReservation.MatchesRequest(
                         command.OriginalActivity,
@@ -605,7 +750,10 @@ public sealed class PersistentSwapEndpoint : ISwapEndpoint, IDisposable
             }
 
             SwapEndpointWriteResult write = await journal
-                .TryPrepareAsync(reservation, cancellationToken)
+                .TryPrepareAsync(
+                    command.CorrelationId,
+                    reservation,
+                    cancellationToken)
                 .ConfigureAwait(false);
             return write.Status is SwapEndpointWriteStatus.Stored
                 or SwapEndpointWriteStatus.Replayed
@@ -622,10 +770,12 @@ public sealed class PersistentSwapEndpoint : ISwapEndpoint, IDisposable
     }
 
     public async ValueTask<SwapApplyResult> ApplyDecisionAsync(
+        CorrelationId correlationId,
         SwapDecision decision,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
+        ArgumentNullException.ThrowIfNull(correlationId);
         ArgumentNullException.ThrowIfNull(decision);
         cancellationToken.ThrowIfCancellationRequested();
         if (!decision.TryGetReservationToken(DeviceId, out _))
@@ -633,11 +783,18 @@ public sealed class PersistentSwapEndpoint : ISwapEndpoint, IDisposable
             return SwapApplyResult.Rejected(FailureCode.DecisionConflict);
         }
 
+        DeviceId peerDeviceId = decision.Participants
+            .Single(participant => participant.DeviceId != DeviceId)
+            .DeviceId;
+
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             SwapEndpointWriteResult write = await journal
-                .TryRecordDecisionAsync(decision, cancellationToken)
+                .TryRecordDecisionAsync(
+                    correlationId,
+                    decision,
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (write.Status is SwapEndpointWriteStatus.Conflict
                 or SwapEndpointWriteStatus.CapacityExceeded
@@ -785,7 +942,7 @@ public sealed class PersistentSwapEndpoint : ISwapEndpoint, IDisposable
 
 internal static class SwapEndpointPayloadCodec
 {
-    private const int CurrentFormatVersion = 1;
+    private const int CurrentFormatVersion = 2;
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         MaxDepth = 32,
@@ -806,10 +963,19 @@ internal static class SwapEndpointPayloadCodec
                 $"A swap endpoint payload must contain 1 to {PersistentSwapEndpointJournal.MaximumPayloadBytes} bytes.");
         }
 
+        byte[] parseBuffer = payload.ToArray();
         try
         {
-            StateDto? state = JsonSerializer.Deserialize<StateDto>(
-                payload,
+            using JsonDocument document = JsonDocument.Parse(
+                parseBuffer,
+                new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = false,
+                    CommentHandling = JsonCommentHandling.Disallow,
+                    MaxDepth = 32,
+                });
+            ValidatePayloadShape(document.RootElement);
+            StateDto? state = document.RootElement.Deserialize<StateDto>(
                 SerializerOptions);
             if (state is null
                 || state.FormatVersion != CurrentFormatVersion
@@ -819,7 +985,8 @@ internal static class SwapEndpointPayloadCodec
                     "The swap endpoint payload is incomplete or unsupported.");
             }
 
-            DeviceId deviceId = DeviceId.Parse(state.DeviceId);
+            DeviceId deviceId = DeviceId.From(
+                ParseCanonicalGuid(state.DeviceId, "Device ID"));
             if (deviceId != expectedDeviceId)
             {
                 throw new InvalidDataException(
@@ -837,7 +1004,8 @@ internal static class SwapEndpointPayloadCodec
             string? previousOperationId = null;
             foreach (RecordDto encoded in state.Records)
             {
-                OperationId operationId = OperationId.Parse(encoded.OperationId);
+                OperationId operationId = OperationId.From(
+                    ParseCanonicalGuid(encoded.OperationId, "Operation ID"));
                 string canonicalOperationId = operationId.ToString();
                 if (previousOperationId is not null
                     && StringComparer.Ordinal.Compare(
@@ -856,6 +1024,12 @@ internal static class SwapEndpointPayloadCodec
                     : DecodeReservation(operationId, encoded.Reservation, decision);
                 SwapEndpointRecord record = SwapEndpointRecord.Restore(
                     deviceId,
+                    CorrelationId.From(ParseCanonicalGuid(
+                        encoded.CorrelationId,
+                        "correlation ID")),
+                    DeviceId.From(ParseCanonicalGuid(
+                        encoded.PeerDeviceId,
+                        "peer Device ID")),
                     reservation,
                     decision);
                 if (record.OperationId != operationId)
@@ -866,6 +1040,20 @@ internal static class SwapEndpointPayloadCodec
 
                 previousOperationId = canonicalOperationId;
                 decoded.Add(record);
+            }
+
+            byte[] canonical = Encode(deviceId, decoded);
+            try
+            {
+                if (!payload.SequenceEqual(canonical))
+                {
+                    throw new InvalidDataException(
+                        "The swap endpoint payload is not canonical JSON.");
+                }
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(canonical);
             }
 
             return decoded;
@@ -879,6 +1067,10 @@ internal static class SwapEndpointPayloadCodec
             throw new InvalidDataException(
                 "The swap endpoint payload is malformed.",
                 exception);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(parseBuffer);
         }
     }
 
@@ -905,11 +1097,17 @@ internal static class SwapEndpointPayloadCodec
             deviceId.ToString(),
             ordered.Select(EncodeRecord).ToArray());
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(state, SerializerOptions);
-        if (payload.Length > PersistentSwapEndpointJournal.MaximumPayloadBytes)
+        int preparedCount = ordered.Count(static record => record.Decision is null);
+        long requiredCapacity = payload.Length
+            + ((long)preparedCount
+                * PersistentSwapEndpointJournal
+                    .TerminalDecisionHeadroomBytesPerPreparedRecord);
+        if (requiredCapacity > PersistentSwapEndpointJournal.MaximumPayloadBytes)
         {
             CryptographicOperations.ZeroMemory(payload);
-            throw new InvalidDataException(
-                $"A swap endpoint payload cannot exceed {PersistentSwapEndpointJournal.MaximumPayloadBytes} bytes.");
+            throw new ArgumentOutOfRangeException(
+                nameof(records),
+                $"A swap endpoint payload plus terminal-decision headroom cannot exceed {PersistentSwapEndpointJournal.MaximumPayloadBytes} bytes.");
         }
 
         return payload;
@@ -917,6 +1115,8 @@ internal static class SwapEndpointPayloadCodec
 
     private static RecordDto EncodeRecord(SwapEndpointRecord record) => new(
         record.OperationId.ToString(),
+        record.CorrelationId.ToString(),
+        record.PeerDeviceId.ToString(),
         record.Reservation is null ? null : EncodeReservation(record.Reservation),
         record.Decision is null ? null : EncodeDecision(record.Decision));
 
@@ -971,7 +1171,9 @@ internal static class SwapEndpointPayloadCodec
 
         SwapReservation reservation = SwapReservation.Prepare(
             operationId,
-            SwapReservationToken.From(Guid.Parse(encoded.Token)),
+            SwapReservationToken.From(ParseCanonicalGuid(
+                encoded.Token,
+                "reservation token")),
             DecodeActivity(encoded.OriginalActivity),
             DecodeActivity(encoded.IncomingActivity),
             ParseTimestamp(encoded.ExpiresAt, "reservation expiry"));
@@ -1032,8 +1234,12 @@ internal static class SwapEndpointPayloadCodec
 
         SwapDecisionParticipant[] participants = encoded.Participants
             .Select(static participant => SwapDecisionParticipant.Create(
-                DeviceId.Parse(participant.DeviceId),
-                SwapReservationToken.From(Guid.Parse(participant.ReservationToken))))
+                DeviceId.From(ParseCanonicalGuid(
+                    participant.DeviceId,
+                    "decision participant Device ID")),
+                SwapReservationToken.From(ParseCanonicalGuid(
+                    participant.ReservationToken,
+                    "decision participant reservation token"))))
             .ToArray();
         SwapDecision decision = SwapDecision.Create(
             operationId,
@@ -1057,9 +1263,11 @@ internal static class SwapEndpointPayloadCodec
         }
 
         ActivityDescriptor descriptor = ActivityDescriptor.Create(
-            ActivityId.Parse(encoded.Id),
+            ActivityId.From(ParseCanonicalGuid(encoded.Id, "Activity ID")),
             ActivityKind.Parse(encoded.Kind),
-            DeviceId.Parse(encoded.OriginDeviceId),
+            DeviceId.From(ParseCanonicalGuid(
+                encoded.OriginDeviceId,
+                "Activity origin Device ID")),
             encoded.Title,
             encoded.PayloadJson,
             (ActivitySensitivity)encoded.Sensitivity);
@@ -1071,9 +1279,157 @@ internal static class SwapEndpointPayloadCodec
         return ActivityInstance.Active(
             descriptor,
             ActivityPlacement.On(
-                DeviceId.Parse(encoded.PlacementDeviceId),
+                DeviceId.From(ParseCanonicalGuid(
+                    encoded.PlacementDeviceId,
+                    "Activity placement Device ID")),
                 encoded.PlacementSlot),
             encoded.Revision);
+    }
+
+    private static Guid ParseCanonicalGuid(string value, string field)
+    {
+        if (!Guid.TryParseExact(value, "D", out Guid parsed)
+            || !StringComparer.Ordinal.Equals(value, parsed.ToString("D")))
+        {
+            throw new InvalidDataException(
+                $"The swap endpoint {field} is not a canonical GUID.");
+        }
+
+        return parsed;
+    }
+
+    private static void ValidatePayloadShape(JsonElement root)
+    {
+        RequireOnly(root, "formatVersion", "deviceId", "records");
+        foreach (JsonElement record in Require(
+                     root,
+                     "records",
+                     JsonValueKind.Array).EnumerateArray())
+        {
+            RequireOnly(
+                record,
+                "operationId",
+                "correlationId",
+                "peerDeviceId",
+                "reservation",
+                "decision");
+            JsonElement reservation = RequireAny(record, "reservation");
+            if (reservation.ValueKind == JsonValueKind.Object)
+            {
+                RequireOnly(
+                    reservation,
+                    "token",
+                    "originalActivity",
+                    "incomingActivity",
+                    "expiresAt",
+                    "requestDigest",
+                    "phase",
+                    "decisionDigest");
+                ValidateActivityShape(Require(
+                    reservation,
+                    "originalActivity",
+                    JsonValueKind.Object));
+                ValidateActivityShape(Require(
+                    reservation,
+                    "incomingActivity",
+                    JsonValueKind.Object));
+            }
+            else if (reservation.ValueKind != JsonValueKind.Null)
+            {
+                throw new InvalidDataException(
+                    "The swap endpoint reservation has the wrong JSON type.");
+            }
+
+            JsonElement decision = RequireAny(record, "decision");
+            if (decision.ValueKind == JsonValueKind.Object)
+            {
+                RequireOnly(
+                    decision,
+                    "outcome",
+                    "decidedAt",
+                    "failureCode",
+                    "digest",
+                    "participants");
+                foreach (JsonElement participant in Require(
+                             decision,
+                             "participants",
+                             JsonValueKind.Array).EnumerateArray())
+                {
+                    RequireOnly(participant, "deviceId", "reservationToken");
+                }
+            }
+            else if (decision.ValueKind != JsonValueKind.Null)
+            {
+                throw new InvalidDataException(
+                    "The swap endpoint decision has the wrong JSON type.");
+            }
+        }
+    }
+
+    private static void ValidateActivityShape(JsonElement activity) => RequireOnly(
+        activity,
+        "id",
+        "kind",
+        "originDeviceId",
+        "title",
+        "payloadJson",
+        "payloadDigest",
+        "descriptorDigest",
+        "sensitivity",
+        "placementDeviceId",
+        "placementSlot",
+        "revision",
+        "lifecycle");
+
+    private static JsonElement Require(
+        JsonElement parent,
+        string name,
+        JsonValueKind kind)
+    {
+        JsonElement value = RequireAny(parent, name);
+        if (value.ValueKind != kind)
+        {
+            throw new InvalidDataException(
+                $"The swap endpoint '{name}' field has the wrong JSON type.");
+        }
+
+        return value;
+    }
+
+    private static JsonElement RequireAny(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out JsonElement value))
+        {
+            throw new InvalidDataException(
+                $"The swap endpoint payload is missing '{name}'.");
+        }
+
+        return value;
+    }
+
+    private static void RequireOnly(JsonElement value, params string[] names)
+    {
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException(
+                "The swap endpoint payload contains a non-object record.");
+        }
+
+        var expected = names.ToHashSet(StringComparer.Ordinal);
+        foreach (JsonProperty property in value.EnumerateObject())
+        {
+            if (!expected.Remove(property.Name))
+            {
+                throw new InvalidDataException(
+                    $"The swap endpoint payload contains duplicate or unsupported field '{property.Name}'.");
+            }
+        }
+
+        if (expected.Count > 0)
+        {
+            throw new InvalidDataException(
+                $"The swap endpoint payload is missing '{expected.Order(StringComparer.Ordinal).First()}'.");
+        }
     }
 
     private static void RequireDigestMatch(
@@ -1105,6 +1461,14 @@ internal static class SwapEndpointPayloadCodec
                 $"The swap endpoint {field} timestamp is not canonical UTC.");
         }
 
+        if (!StringComparer.Ordinal.Equals(
+                value,
+                timestamp.ToString("O", CultureInfo.InvariantCulture)))
+        {
+            throw new InvalidDataException(
+                $"The swap endpoint {field} timestamp is not canonical UTC.");
+        }
+
         return timestamp;
     }
 
@@ -1115,6 +1479,8 @@ internal static class SwapEndpointPayloadCodec
 
     private sealed record RecordDto(
         string OperationId,
+        string CorrelationId,
+        string PeerDeviceId,
         ReservationDto? Reservation,
         DecisionDto? Decision);
 

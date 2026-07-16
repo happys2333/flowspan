@@ -109,12 +109,17 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             IPEndPoint boundEndPoint = listener.LocalEndpoint as IPEndPoint
                 ?? throw new InvalidOperationException(
                     "The local pairing listener did not expose an IP endpoint.");
-            ProtocolVersion[] versions = [new ProtocolVersion(1, 0)];
+            ProtocolVersion[] versions =
+            [
+                ProtocolFeatures.ActivitySwapMinimumVersion,
+                new ProtocolVersion(1, 0),
+            ];
             var sessionProfile = new AuthenticatedInboundSessionProfile(
                 CapabilityGrant.Of(
                     Capability.ActivityOffer,
                     Capability.ActivityReceive,
-                    Capability.ActivityReplace),
+                    Capability.ActivityReplace,
+                    Capability.ActivitySwap),
                 versions,
                 capabilityMatch: CapabilityRequirementMatch.Any);
             var inbound = new FlowspanTcpInboundListener(

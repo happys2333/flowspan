@@ -78,6 +78,7 @@ public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
     public async ValueTask<byte[]?> LoadAsync(
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         byte[] envelope;
         try
         {

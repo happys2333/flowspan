@@ -11,6 +11,7 @@ public enum Capability
     MirrorDrive,
     FileReceive,
     SceneApply,
+    ActivitySwap,
 }
 
 public sealed class CapabilityGrant

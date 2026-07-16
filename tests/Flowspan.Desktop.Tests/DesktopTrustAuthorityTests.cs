@@ -75,6 +75,7 @@ public sealed class DesktopTrustAuthorityTests
             Capability.ActivityOffer,
             Capability.ActivityReceive,
             Capability.ActivityReplace,
+            Capability.ActivitySwap,
             Capability.MirrorView,
             Capability.MirrorDrive,
             Capability.FileReceive,

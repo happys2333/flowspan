@@ -182,11 +182,30 @@ application-process database. Hosted platform contracts and local macOS
 Keychain evidence do not satisfy physical-device, abrupt-termination, or native
 application recovery gates, so the v1 atomic-Swap release criterion stays open.
 
+### 5.9 Task 3.3c authenticated atomic-Swap control evidence plan
+
+| Threat | Required implementation evidence | Remaining evidence |
+| --- | --- | --- |
+| T04 | Six strict Swap request/result schemas bind the authenticated sender, target, Operation, correlation, participant tokens, request/decision digests, exact descriptor revisions, and deadlines. One pending correlation spans every Activity operation type; unsolicited, expired-envelope, cross-operation, wrong-participant, and wrong-digest messages fault closed before endpoint work. Snapshot/Prepare send and response use their deadline and decision send/acknowledgement uses 30 seconds; a silent peer becomes acknowledgement loss and the session closes. | Hosted final-HEAD matrix, physical packet loss/reorder, sleep/wake, and process-kill recovery. |
+| T05 | `activity.swap` is independent of Offer, Receive, and Replace. New snapshot, Prepare, and unknown decisions require the current peer-relative grant. New Prepare also requires exact authenticated peer/local placements and two active normal-sensitivity Activities. After revocation, only exact Operation/correlation/peer-bound recorded Prepare replay or decision convergence reaches the core endpoint. | Desktop exact-selection confirmation, physical same-session revocation observation, and independent authorization review. |
+| T08 | Swap envelopes require negotiated protocol 1.1; protocol 1.0 construction/decoding and Swap-channel lookup fail closed while non-Swap 1.0 traffic remains available. Six fixed-ID canonical frames commit complete JSON and SHA-256 hashes; each request and result schema has hostile-field/binding tests. | Cross-version packaged peers and an independently implemented compatibility reader. |
+| T10 | Snapshot discloses only one explicitly named eligible Activity over the encrypted authorized session; rejection contains no Activity. It never becomes inventory, discovery, receipt, or diagnostics. Prepare carries the two complete descriptors only because each endpoint journal needs exact semantic recovery state. | Crash/minidump/export canary inspection, retention/deletion UI, and independent data-flow review. |
+| T11 | Endpoint journal format v2 persists correlation and remote participant beside Operation/reservation/decision evidence; v1 records lacking that binding are unsupported. In-memory and protected endpoints apply the same exact match. Required-field shape, canonical GUID/time encoding, representable successor revision, per-Prepared terminal-decision headroom, purpose-separated authenticated `FSEF` storage, reopen-after-ambiguous-save, strict bounds, and digest checks fail closed. | Rollback protection decision, abrupt power-loss/filesystem testing, live Linux Secret Service, and physical restart. |
+| T13 | Unknown Abort still requires current authority before consuming one of 32 endpoint records. Every pending network send or response wait has an independent deterministic deadline; timeout cleanup removes only its exact pending instance before releasing the correlation and closes the session. | Sustained hostile-peer load, rate-limit policy, and packaged resource telemetry. |
+| T18 | The coordinator performs only exact read-only snapshots before durable intent, then sends Prepare and the recorded decision. A real authenticated encrypted loopback with one local direct endpoint and one remote durable endpoint converges both catalogs; protocol availability does not expose a Desktop Swap command. | Desktop confirmation/recovery, durable Activity-catalog/native Adapter evidence, physical two-device interruption, and user-visible uncertainty testing. |
+
+This slice proves same-host authenticated transport and durable binding, not a
+human-confirmed product Swap or arbitrary application migration. Task 3.3c
+remains open until local stress plus the exact-commit Windows/macOS/Ubuntu,
+Secret Scan, CodeQL, and downloaded TRX evidence close.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
 - `Paired` is never equivalent to capability-authorized.
-- Capabilities are evaluated for every new operation and driver lease.
+- Capabilities are evaluated for every new operation and driver lease. A revoked
+  Swap may only finish through Exact Recorded Decision Convergence bound to the
+  durable Operation/correlation/peer record; this is not authority for new work.
 - Trust revocation removes authorization and active-session eligibility before
   waiting for shutdown; every affected registered session receives a stop
   request before the revocation call returns, with failures surfaced.

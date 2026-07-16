@@ -89,6 +89,31 @@ means its linked evidence exists; it does not imply the entire product works.
       This status becomes final only after the evidence/closure HEAD passes the
       same workflows. Activity-catalog durability, authenticated protocol
       composition, Desktop UX, and physical/native evidence remain open.
+  - [ ] 3.3c Compose exact Activity snapshot, Prepare, and durable decision over
+    the authenticated control session. Add an independent `activity.swap`
+    grant; deny new disclosure and reservation without it; permit only exact
+    already-recorded decision convergence after revocation; bind every response
+    to its pending Operation/correlation/participant/digest; and prove a
+    coordinator using one local and one real encrypted loopback endpoint.
+    - Current candidate implements protocol-1.1 gating, six frozen JSON/frame/hash
+      fixtures, strict hostile decoding, Operation/correlation/peer-bound endpoint
+      journal v2, exact Prepare replay after expiry/revocation, sensitive direct-
+      Prepare rejection, deterministic send/response deadlines with receive-point
+      and envelope-expiry rechecks, shared pending correlation cleanup, and one
+      authenticated encrypted-loopback coordinator.
+      Non-cooperative send, exact correlation-owner cleanup, strict required
+      journal fields/canonical time, representable committed revisions, terminal-
+      decision headroom, and pre-cancelled missing-file load are covered by
+      deterministic negative tests.
+      The complete 701-test local gate, four 20-process stress groups, explicit
+      TEST MODE composition, protocol-1.1 simulator, dependency query, final
+      Standards/Spec review, and honest evidence limits are recorded in
+      [authenticated Atomic Swap control evidence](../../docs/evidence/2026-07-16-authenticated-atomic-swap-control.md).
+      The item remains open until the implementation branch is pushed and the
+      Windows/macOS/Ubuntu matrix, Secret Scan, CodeQL, and downloaded TRX counts
+      close on the exact commit and evidence-closure HEAD. Desktop Swap
+      confirmation/recovery and physical two-device evidence remain later work.
+    - _Requirements: R2.5, R5.1-R5.6, R8.3-R8.4, R9.1-R9.2_
   - _Requirements: R5_
 - [-] 3.4 Add generated transition/property cases and deterministic drop,
   duplicate, delay, disconnect, and journal-failure tests.

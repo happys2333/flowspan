@@ -555,6 +555,8 @@ public sealed class MainWindowAccessibilityTests
                 window.FindControl<ListBox>("TrustedDeviceList"));
             CheckBox mirrorView = Assert.IsType<CheckBox>(
                 window.FindControl<CheckBox>("GrantMirrorViewCheckBox"));
+            CheckBox activitySwap = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("GrantActivitySwapCheckBox"));
             Button save = Assert.IsType<Button>(
                 window.FindControl<Button>("SaveCapabilitiesButton"));
             Button reviewRevoke = Assert.IsType<Button>(
@@ -568,6 +570,9 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "Allow peer to view mirrored Activities",
                 mirrorView.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Allow peer to participate in atomic Activity swaps",
+                activitySwap.GetValue(AutomationProperties.NameProperty));
             Assert.Equal(
                 "Save peer capabilities",
                 save.GetValue(AutomationProperties.NameProperty));

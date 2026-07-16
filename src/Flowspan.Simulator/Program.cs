@@ -44,8 +44,8 @@ source.AddLocalActivity(ActivityInstance.Active(
     ActivityPlacement.On(source.DeviceId)));
 
 ProtocolNegotiationResult negotiation = ProtocolNegotiator.Negotiate(
-    [new ProtocolVersion(1, 0)],
-    [new ProtocolVersion(1, 0)]);
+    [ProtocolFeatures.ActivitySwapMinimumVersion, new ProtocolVersion(1, 0)],
+    [ProtocolFeatures.ActivitySwapMinimumVersion, new ProtocolVersion(1, 0)]);
 if (!negotiation.Succeeded)
 {
     throw new InvalidOperationException("The simulator nodes have no common protocol version.");
@@ -94,6 +94,7 @@ var swapPayloadStore = new SimulatorSwapStatePayloadStore();
 using PersistentSwapTransactionJournal swapJournal =
     await PersistentSwapTransactionJournal.OpenAsync(swapPayloadStore);
 var swapCoordinator = new SwapCoordinator(
+    source.DeviceId,
     clock,
     swapJournal,
     new DeterministicSwapTokenSource(

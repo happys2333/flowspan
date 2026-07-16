@@ -64,6 +64,7 @@ public sealed class TrustedDevicesViewModelTests
         viewModel.GrantActivityOffer = true;
         viewModel.GrantActivityReceive = true;
         viewModel.GrantActivityReplace = true;
+        viewModel.GrantActivitySwap = true;
         viewModel.GrantMirrorView = true;
         viewModel.GrantMirrorDrive = true;
         viewModel.GrantFileReceive = true;
@@ -78,6 +79,10 @@ public sealed class TrustedDevicesViewModelTests
         Assert.Equal(
             Enum.GetValues<Capability>().Order(),
             updated.GrantedCapabilities.Capabilities.Order());
+        Assert.Contains(
+            "activity.swap",
+            viewModel.SelectedDevice?.CapabilitySummary,
+            StringComparison.Ordinal);
         Assert.Equal(1, connectionReconciles);
     }
 

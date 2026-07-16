@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using Flowspan.Domain;
 
@@ -5,6 +6,7 @@ namespace Flowspan.Application;
 
 public sealed record SwapPrepareCommand(
     OperationId OperationId,
+    CorrelationId CorrelationId,
     SwapReservationToken ReservationToken,
     ActivityInstance OriginalActivity,
     ActivityInstance IncomingActivity,
@@ -46,6 +48,125 @@ public sealed record SwapApplyResult(
         new(false, failureCode, null);
 }
 
+public sealed record SwapActivitySnapshotQuery
+{
+    private SwapActivitySnapshotQuery(
+        OperationContext context,
+        DeviceId targetDeviceId,
+        ActivityId activityId)
+    {
+        Context = context;
+        TargetDeviceId = targetDeviceId;
+        ActivityId = activityId;
+    }
+
+    public OperationContext Context { get; }
+
+    public DeviceId TargetDeviceId { get; }
+
+    public ActivityId ActivityId { get; }
+
+    public static SwapActivitySnapshotQuery Create(
+        OperationContext context,
+        DeviceId targetDeviceId,
+        ActivityId activityId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(targetDeviceId);
+        ArgumentNullException.ThrowIfNull(activityId);
+        return new SwapActivitySnapshotQuery(context, targetDeviceId, activityId);
+    }
+}
+
+public sealed record SwapActivitySnapshotResult
+{
+    private SwapActivitySnapshotResult(
+        OperationId operationId,
+        CorrelationId correlationId,
+        DeviceId requestingDeviceId,
+        DeviceId targetDeviceId,
+        ActivityId requestedActivityId,
+        ActivityInstance? activity,
+        FailureCode failureCode)
+    {
+        OperationId = operationId;
+        CorrelationId = correlationId;
+        RequestingDeviceId = requestingDeviceId;
+        TargetDeviceId = targetDeviceId;
+        RequestedActivityId = requestedActivityId;
+        Activity = activity;
+        FailureCode = failureCode;
+    }
+
+    public OperationId OperationId { get; }
+
+    public CorrelationId CorrelationId { get; }
+
+    public DeviceId RequestingDeviceId { get; }
+
+    public DeviceId TargetDeviceId { get; }
+
+    public ActivityId RequestedActivityId { get; }
+
+    public ActivityInstance? Activity { get; }
+
+    public FailureCode FailureCode { get; }
+
+    public bool IsSuccess => FailureCode == FailureCode.None;
+
+    public static SwapActivitySnapshotResult Success(
+        DeviceId requestingDeviceId,
+        SwapActivitySnapshotQuery query,
+        ActivityInstance activity)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(activity);
+        if (activity.Descriptor.Id != query.ActivityId
+            || activity.Placement.DeviceId != query.TargetDeviceId
+            || activity.Lifecycle != ActivityLifecycle.Active
+            || activity.Descriptor.Sensitivity != ActivitySensitivity.Normal)
+        {
+            throw new ArgumentException(
+                "A successful Swap snapshot must be the requested eligible local Activity.",
+                nameof(activity));
+        }
+
+        return new SwapActivitySnapshotResult(
+            query.Context.OperationId,
+            query.Context.CorrelationId,
+            requestingDeviceId,
+            query.TargetDeviceId,
+            query.ActivityId,
+            activity,
+            FailureCode.None);
+    }
+
+    public static SwapActivitySnapshotResult Rejected(
+        DeviceId requestingDeviceId,
+        SwapActivitySnapshotQuery query,
+        FailureCode failureCode)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(query);
+        if (failureCode == FailureCode.None)
+        {
+            throw new ArgumentException(
+                "A rejected Swap snapshot requires a failure code.",
+                nameof(failureCode));
+        }
+
+        return new SwapActivitySnapshotResult(
+            query.Context.OperationId,
+            query.Context.CorrelationId,
+            requestingDeviceId,
+            query.TargetDeviceId,
+            query.ActivityId,
+            null,
+            failureCode);
+    }
+}
+
 public interface ISwapEndpoint
 {
     public DeviceId DeviceId { get; }
@@ -54,18 +175,192 @@ public interface ISwapEndpoint
         ActivityId activityId,
         [NotNullWhen(true)] out ActivityInstance? activity);
 
+    public bool MatchesOperation(
+        OperationId operationId,
+        CorrelationId correlationId,
+        DeviceId peerDeviceId);
+
     public ValueTask<SwapPrepareResult> PrepareAsync(
         SwapPrepareCommand command,
         CancellationToken cancellationToken);
 
     public ValueTask<SwapApplyResult> ApplyDecisionAsync(
+        CorrelationId correlationId,
         SwapDecision decision,
         CancellationToken cancellationToken);
+}
+
+public interface ISwapEndpointPeer
+{
+    public DeviceId DeviceId { get; }
+
+    public ValueTask<SwapActivitySnapshotResult> QueryActivityAsync(
+        DeviceId requestingDeviceId,
+        SwapActivitySnapshotQuery query,
+        CancellationToken cancellationToken);
+
+    public ValueTask<SwapPrepareResult> PrepareAsync(
+        DeviceId senderDeviceId,
+        SwapPrepareCommand command,
+        CancellationToken cancellationToken);
+
+    public ValueTask<SwapApplyResult> ApplyDecisionAsync(
+        DeviceId senderDeviceId,
+        CorrelationId correlationId,
+        SwapDecision decision,
+        CancellationToken cancellationToken);
+}
+
+public sealed class AuthorizedSwapEndpoint : ISwapEndpointPeer
+{
+    private readonly IClock clock;
+    private readonly ISwapEndpoint endpoint;
+    private readonly ConcurrentDictionary<DeviceId, CapabilityGrant> peerGrants = new();
+
+    public AuthorizedSwapEndpoint(IClock clock, ISwapEndpoint endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(endpoint);
+        this.clock = clock;
+        this.endpoint = endpoint;
+    }
+
+    public DeviceId DeviceId => endpoint.DeviceId;
+
+    public void SetPeerGrant(DeviceId peerDeviceId, CapabilityGrant grant)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        ArgumentNullException.ThrowIfNull(grant);
+        peerGrants[peerDeviceId] = grant;
+    }
+
+    public ValueTask<SwapActivitySnapshotResult> QueryActivityAsync(
+        DeviceId requestingDeviceId,
+        SwapActivitySnapshotQuery query,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(query);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (query.TargetDeviceId != DeviceId)
+        {
+            throw new ArgumentException(
+                "A Swap snapshot query targets another Device.",
+                nameof(query));
+        }
+
+        FailureCode failureCode = query.Context.Deadline <= clock.UtcNow
+            ? FailureCode.DeadlineExpired
+            : !AllowsSwap(requestingDeviceId)
+                ? FailureCode.CapabilityDenied
+                : FailureCode.None;
+        if (failureCode != FailureCode.None)
+        {
+            return ValueTask.FromResult(
+                SwapActivitySnapshotResult.Rejected(
+                    requestingDeviceId,
+                    query,
+                    failureCode));
+        }
+
+        if (!endpoint.TryGetActivity(query.ActivityId, out ActivityInstance? activity)
+            || activity is null)
+        {
+            return ValueTask.FromResult(
+                SwapActivitySnapshotResult.Rejected(
+                    requestingDeviceId,
+                    query,
+                    FailureCode.ActivityNotFound));
+        }
+
+        return ValueTask.FromResult(
+            activity.Lifecycle == ActivityLifecycle.Active
+            && activity.Descriptor.Sensitivity == ActivitySensitivity.Normal
+                ? SwapActivitySnapshotResult.Success(
+                    requestingDeviceId,
+                    query,
+                    activity)
+                : SwapActivitySnapshotResult.Rejected(
+                    requestingDeviceId,
+                    query,
+                    FailureCode.DescriptorRejected));
+    }
+
+    public ValueTask<SwapPrepareResult> PrepareAsync(
+        DeviceId senderDeviceId,
+        SwapPrepareCommand command,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(command);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (endpoint.MatchesOperation(
+                command.OperationId,
+                command.CorrelationId,
+                senderDeviceId))
+        {
+            return endpoint.PrepareAsync(command, cancellationToken);
+        }
+
+        return command.ExpiresAt <= clock.UtcNow
+            ? ValueTask.FromResult(
+                SwapPrepareResult.Rejected(FailureCode.DeadlineExpired))
+            : command.OriginalActivity.Placement.DeviceId != DeviceId
+                || command.IncomingActivity.Placement.DeviceId != senderDeviceId
+                || command.OriginalActivity.Lifecycle != ActivityLifecycle.Active
+                || command.IncomingActivity.Lifecycle != ActivityLifecycle.Active
+                || command.OriginalActivity.Descriptor.Sensitivity
+                    != ActivitySensitivity.Normal
+                || command.IncomingActivity.Descriptor.Sensitivity
+                    != ActivitySensitivity.Normal
+                ? ValueTask.FromResult(
+                    SwapPrepareResult.Rejected(FailureCode.DescriptorRejected))
+                : AllowsSwap(senderDeviceId)
+                    ? endpoint.PrepareAsync(command, cancellationToken)
+                    : ValueTask.FromResult(
+                        SwapPrepareResult.Rejected(FailureCode.CapabilityDenied));
+    }
+
+    public ValueTask<SwapApplyResult> ApplyDecisionAsync(
+        DeviceId senderDeviceId,
+        CorrelationId correlationId,
+        SwapDecision decision,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(decision);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (senderDeviceId == DeviceId
+            || !decision.TryGetReservationToken(DeviceId, out _)
+            || !decision.TryGetReservationToken(senderDeviceId, out _))
+        {
+            return ValueTask.FromResult(
+                SwapApplyResult.Rejected(FailureCode.DecisionConflict));
+        }
+
+        return AllowsSwap(senderDeviceId)
+            || endpoint.MatchesOperation(
+                decision.OperationId,
+                correlationId,
+                senderDeviceId)
+                ? endpoint.ApplyDecisionAsync(
+                    correlationId,
+                    decision,
+                    cancellationToken)
+                : ValueTask.FromResult(
+                    SwapApplyResult.Rejected(FailureCode.CapabilityDenied));
+    }
+
+    private bool AllowsSwap(DeviceId peerDeviceId) =>
+        peerGrants.TryGetValue(peerDeviceId, out CapabilityGrant? grant)
+        && grant.Allows(Capability.ActivitySwap);
 }
 
 public sealed class InMemorySwapEndpoint : ISwapEndpoint
 {
     private readonly IActivityCatalog catalog;
+    private readonly Dictionary<OperationId, SwapEndpointBinding> bindings = [];
     private readonly Dictionary<OperationId, SwapDecision> decisions = [];
     private readonly Lock gate = new();
     private readonly Dictionary<OperationId, SwapReservation> reservations = [];
@@ -84,6 +379,24 @@ public sealed class InMemorySwapEndpoint : ISwapEndpoint
         ActivityId activityId,
         [NotNullWhen(true)] out ActivityInstance? activity) =>
         catalog.TryGet(activityId, out activity);
+
+    public bool MatchesOperation(
+        OperationId operationId,
+        CorrelationId correlationId,
+        DeviceId peerDeviceId)
+    {
+        ArgumentNullException.ThrowIfNull(operationId);
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        lock (gate)
+        {
+            return bindings.TryGetValue(
+                    operationId,
+                    out SwapEndpointBinding? binding)
+                && binding.CorrelationId == correlationId
+                && binding.PeerDeviceId == peerDeviceId;
+        }
+    }
 
     public bool TryGetReservation(
         OperationId operationId,
@@ -113,7 +426,8 @@ public sealed class InMemorySwapEndpoint : ISwapEndpoint
     {
         ArgumentNullException.ThrowIfNull(command);
         cancellationToken.ThrowIfCancellationRequested();
-        if (command.OriginalActivity.Placement.DeviceId != DeviceId)
+        if (command.OriginalActivity.Placement.DeviceId != DeviceId
+            || command.IncomingActivity.Revision == long.MaxValue)
         {
             return ValueTask.FromResult(
                 SwapPrepareResult.Rejected(FailureCode.RevisionConflict));
@@ -130,7 +444,13 @@ public sealed class InMemorySwapEndpoint : ISwapEndpoint
             if (reservations.TryGetValue(command.OperationId, out SwapReservation? existing))
             {
                 return ValueTask.FromResult(
-                    existing.Token == command.ReservationToken
+                    bindings.TryGetValue(
+                        command.OperationId,
+                        out SwapEndpointBinding? binding)
+                    && binding.CorrelationId == command.CorrelationId
+                    && binding.PeerDeviceId
+                        == command.IncomingActivity.Placement.DeviceId
+                    && existing.Token == command.ReservationToken
                     && existing.MatchesRequest(
                         command.OriginalActivity,
                         command.IncomingActivity,
@@ -175,15 +495,22 @@ public sealed class InMemorySwapEndpoint : ISwapEndpoint
                 command.OriginalActivity,
                 command.IncomingActivity,
                 command.ExpiresAt);
+            bindings.Add(
+                command.OperationId,
+                new SwapEndpointBinding(
+                    command.CorrelationId,
+                    command.IncomingActivity.Placement.DeviceId));
             reservations.Add(command.OperationId, reservation);
             return ValueTask.FromResult(SwapPrepareResult.Success(reservation.Token));
         }
     }
 
     public ValueTask<SwapApplyResult> ApplyDecisionAsync(
+        CorrelationId correlationId,
         SwapDecision decision,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(correlationId);
         ArgumentNullException.ThrowIfNull(decision);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -197,6 +524,10 @@ public sealed class InMemorySwapEndpoint : ISwapEndpoint
                     SwapApplyResult.Rejected(FailureCode.DecisionConflict));
             }
 
+            DeviceId peerDeviceId = decision.Participants
+                .Single(participant => participant.DeviceId != DeviceId)
+                .DeviceId;
+
             if (!reservations.TryGetValue(decision.OperationId, out SwapReservation? current))
             {
                 if (decision.Outcome == SwapDecisionOutcome.Abort)
@@ -206,13 +537,21 @@ public sealed class InMemorySwapEndpoint : ISwapEndpoint
                             out SwapDecision? existingDecision))
                     {
                         return ValueTask.FromResult(
-                            StringComparer.Ordinal.Equals(
+                            bindings.TryGetValue(
+                                decision.OperationId,
+                                out SwapEndpointBinding? existingBinding)
+                            && existingBinding.CorrelationId == correlationId
+                            && existingBinding.PeerDeviceId == peerDeviceId
+                            && StringComparer.Ordinal.Equals(
                                 existingDecision.Digest,
                                 decision.Digest)
                                 ? SwapApplyResult.Success(SwapReservationPhase.Aborted)
                                 : SwapApplyResult.Rejected(FailureCode.DecisionConflict));
                     }
 
+                    bindings.Add(
+                        decision.OperationId,
+                        new SwapEndpointBinding(correlationId, peerDeviceId));
                     decisions.Add(decision.OperationId, decision);
                     return ValueTask.FromResult(
                         SwapApplyResult.Success(SwapReservationPhase.Aborted));
@@ -222,7 +561,12 @@ public sealed class InMemorySwapEndpoint : ISwapEndpoint
                     SwapApplyResult.Rejected(FailureCode.ReservationConflict));
             }
 
-            if (participantToken != current.Token)
+            if (!bindings.TryGetValue(
+                    decision.OperationId,
+                    out SwapEndpointBinding? binding)
+                || binding.CorrelationId != correlationId
+                || binding.PeerDeviceId != peerDeviceId
+                || participantToken != current.Token)
             {
                 return ValueTask.FromResult(
                     SwapApplyResult.Rejected(FailureCode.DecisionConflict));
@@ -257,6 +601,10 @@ public sealed class InMemorySwapEndpoint : ISwapEndpoint
             return ValueTask.FromResult(SwapApplyResult.Success(decided.Phase));
         }
     }
+
+    private sealed record SwapEndpointBinding(
+        CorrelationId CorrelationId,
+        DeviceId PeerDeviceId);
 }
 
 public interface ISwapTokenSource
@@ -313,15 +661,19 @@ public interface ISwapEndpointChannel
 {
     public DeviceId TargetDeviceId { get; }
 
-    public bool TryGetActivity(
-        ActivityId activityId,
-        [NotNullWhen(true)] out ActivityInstance? activity);
+    public ValueTask<SwapDeliveryResult<SwapActivitySnapshotResult>> QueryActivityAsync(
+        DeviceId requestingDeviceId,
+        SwapActivitySnapshotQuery query,
+        CancellationToken cancellationToken);
 
     public ValueTask<SwapDeliveryResult<SwapPrepareResult>> PrepareAsync(
+        DeviceId senderDeviceId,
         SwapPrepareCommand command,
         CancellationToken cancellationToken);
 
     public ValueTask<SwapDeliveryResult<SwapApplyResult>> ApplyDecisionAsync(
+        DeviceId senderDeviceId,
+        CorrelationId correlationId,
         SwapDecision decision,
         CancellationToken cancellationToken);
 }
@@ -338,12 +690,36 @@ public class DirectSwapEndpointChannel : ISwapEndpointChannel
 
     public DeviceId TargetDeviceId => target.DeviceId;
 
-    public bool TryGetActivity(
-        ActivityId activityId,
-        [NotNullWhen(true)] out ActivityInstance? activity) =>
-        target.TryGetActivity(activityId, out activity);
+    public virtual ValueTask<SwapDeliveryResult<SwapActivitySnapshotResult>>
+        QueryActivityAsync(
+            DeviceId requestingDeviceId,
+            SwapActivitySnapshotQuery query,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(query);
+        cancellationToken.ThrowIfCancellationRequested();
+        SwapActivitySnapshotResult result = target.TryGetActivity(
+            query.ActivityId,
+            out ActivityInstance? activity)
+            && activity is not null
+            && activity.Lifecycle == ActivityLifecycle.Active
+            && activity.Descriptor.Sensitivity == ActivitySensitivity.Normal
+                ? SwapActivitySnapshotResult.Success(
+                    requestingDeviceId,
+                    query,
+                    activity)
+                : SwapActivitySnapshotResult.Rejected(
+                    requestingDeviceId,
+                    query,
+                    activity is null
+                        ? FailureCode.ActivityNotFound
+                        : FailureCode.DescriptorRejected);
+        return ValueTask.FromResult(SwapDelivery.Acknowledged(result));
+    }
 
     public virtual async ValueTask<SwapDeliveryResult<SwapPrepareResult>> PrepareAsync(
+        DeviceId senderDeviceId,
         SwapPrepareCommand command,
         CancellationToken cancellationToken)
     {
@@ -354,11 +730,13 @@ public class DirectSwapEndpointChannel : ISwapEndpointChannel
     }
 
     public virtual async ValueTask<SwapDeliveryResult<SwapApplyResult>> ApplyDecisionAsync(
+        DeviceId senderDeviceId,
+        CorrelationId correlationId,
         SwapDecision decision,
         CancellationToken cancellationToken)
     {
         SwapApplyResult response = await target
-            .ApplyDecisionAsync(decision, cancellationToken)
+            .ApplyDecisionAsync(correlationId, decision, cancellationToken)
             .ConfigureAwait(false);
         return SwapDelivery.Acknowledged(response);
     }
@@ -392,6 +770,7 @@ public sealed class DeterministicSwapEndpointChannel : DirectSwapEndpointChannel
     }
 
     public override async ValueTask<SwapDeliveryResult<SwapPrepareResult>> PrepareAsync(
+        DeviceId senderDeviceId,
         SwapPrepareCommand command,
         CancellationToken cancellationToken)
     {
@@ -427,6 +806,8 @@ public sealed class DeterministicSwapEndpointChannel : DirectSwapEndpointChannel
     }
 
     public override async ValueTask<SwapDeliveryResult<SwapApplyResult>> ApplyDecisionAsync(
+        DeviceId senderDeviceId,
+        CorrelationId correlationId,
         SwapDecision decision,
         CancellationToken cancellationToken)
     {
@@ -444,7 +825,7 @@ public sealed class DeterministicSwapEndpointChannel : DirectSwapEndpointChannel
         }
 
         SwapApplyResult response = await target
-            .ApplyDecisionAsync(decision, cancellationToken)
+            .ApplyDecisionAsync(correlationId, decision, cancellationToken)
             .ConfigureAwait(false);
         if (fault == ActivityDeliveryFault.DropAcknowledgement)
         {
@@ -454,7 +835,7 @@ public sealed class DeterministicSwapEndpointChannel : DirectSwapEndpointChannel
         if (fault == ActivityDeliveryFault.DuplicateDelivery)
         {
             response = await target
-                .ApplyDecisionAsync(decision, cancellationToken)
+                .ApplyDecisionAsync(correlationId, decision, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -474,17 +855,21 @@ public sealed record SwapCoordinatorResult(
 public sealed class SwapCoordinator
 {
     private readonly IClock clock;
+    private readonly DeviceId coordinatorDeviceId;
     private readonly ISwapTransactionJournal transactionJournal;
     private readonly ISwapTokenSource tokenSource;
 
     public SwapCoordinator(
+        DeviceId coordinatorDeviceId,
         IClock clock,
         ISwapTransactionJournal transactionJournal,
         ISwapTokenSource tokenSource)
     {
+        ArgumentNullException.ThrowIfNull(coordinatorDeviceId);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(transactionJournal);
         ArgumentNullException.ThrowIfNull(tokenSource);
+        this.coordinatorDeviceId = coordinatorDeviceId;
         this.clock = clock;
         this.transactionJournal = transactionJournal;
         this.tokenSource = tokenSource;
@@ -541,12 +926,80 @@ public sealed class SwapCoordinator
                 FailureCode.RevisionConflict);
         }
 
-        if (!first.TryGetActivity(firstActivityId, out ActivityInstance? firstActivity)
-            || !second.TryGetActivity(secondActivityId, out ActivityInstance? secondActivity))
+        SwapActivitySnapshotQuery firstQuery = SwapActivitySnapshotQuery.Create(
+            context,
+            first.TargetDeviceId,
+            firstActivityId);
+        SwapActivitySnapshotQuery secondQuery = SwapActivitySnapshotQuery.Create(
+            context,
+            second.TargetDeviceId,
+            secondActivityId);
+        (SwapDeliveryResult<SwapActivitySnapshotResult>? Delivery, FailureCode FailureCode)
+            firstAttempt = await QueryActivitySafelyAsync(
+                first,
+                firstQuery,
+                cancellationToken).ConfigureAwait(false);
+        if (firstAttempt.Delivery is null)
+        {
+            return Failed(context.OperationId, firstAttempt.FailureCode);
+        }
+
+        (SwapDeliveryResult<SwapActivitySnapshotResult>? Delivery, FailureCode FailureCode)
+            secondAttempt = await QueryActivitySafelyAsync(
+                second,
+                secondQuery,
+                cancellationToken).ConfigureAwait(false);
+        if (secondAttempt.Delivery is null)
+        {
+            return Failed(context.OperationId, secondAttempt.FailureCode);
+        }
+
+        SwapDeliveryResult<SwapActivitySnapshotResult> firstSnapshot =
+            firstAttempt.Delivery;
+        SwapDeliveryResult<SwapActivitySnapshotResult> secondSnapshot =
+            secondAttempt.Delivery;
+        if (firstSnapshot.Status != ActivityDeliveryStatus.Acknowledged
+            || secondSnapshot.Status != ActivityDeliveryStatus.Acknowledged)
+        {
+            return Failed(
+                context.OperationId,
+                firstSnapshot.Status == ActivityDeliveryStatus.AcknowledgementLost
+                || secondSnapshot.Status == ActivityDeliveryStatus.AcknowledgementLost
+                    ? FailureCode.AcknowledgementLost
+                    : FailureCode.PeerUnavailable);
+        }
+
+        SwapActivitySnapshotResult firstResult = firstSnapshot.Response
+            ?? throw new InvalidOperationException(
+                "An acknowledged Swap snapshot must include a result.");
+        SwapActivitySnapshotResult secondResult = secondSnapshot.Response
+            ?? throw new InvalidOperationException(
+                "An acknowledged Swap snapshot must include a result.");
+        if (!MatchesSnapshotResult(firstResult, firstQuery)
+            || !MatchesSnapshotResult(secondResult, secondQuery))
+        {
+            return Failed(
+                context.OperationId,
+                FailureCode.ProtocolIncompatible);
+        }
+
+        if (!firstResult.IsSuccess
+            || !secondResult.IsSuccess
+            || firstResult.Activity is not ActivityInstance firstActivity
+            || secondResult.Activity is not ActivityInstance secondActivity)
         {
             return Rejected(
                 context.OperationId,
-                FailureCode.ActivityNotFound);
+                !firstResult.IsSuccess
+                    ? firstResult.FailureCode
+                    : secondResult.FailureCode);
+        }
+
+        if (context.Deadline <= clock.UtcNow)
+        {
+            return Rejected(
+                context.OperationId,
+                FailureCode.DeadlineExpired);
         }
 
         SwapReservationToken firstToken = tokenSource.CreateToken();
@@ -663,12 +1116,14 @@ public sealed class SwapCoordinator
             second.TargetDeviceId);
         var firstCommand = new SwapPrepareCommand(
             transaction.Context.OperationId,
+            transaction.Context.CorrelationId,
             firstParticipant.ReservationToken,
             firstActivity,
             secondActivity,
             transaction.Context.Deadline);
         var secondCommand = new SwapPrepareCommand(
             transaction.Context.OperationId,
+            transaction.Context.CorrelationId,
             secondParticipant.ReservationToken,
             secondActivity,
             firstActivity,
@@ -678,7 +1133,7 @@ public sealed class SwapCoordinator
         try
         {
             firstPrepare = await first
-                .PrepareAsync(firstCommand, cancellationToken)
+                .PrepareAsync(coordinatorDeviceId, firstCommand, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -704,7 +1159,7 @@ public sealed class SwapCoordinator
         try
         {
             secondPrepare = await second
-                .PrepareAsync(secondCommand, cancellationToken)
+                .PrepareAsync(coordinatorDeviceId, secondCommand, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -726,7 +1181,7 @@ public sealed class SwapCoordinator
                 cancellationToken).ConfigureAwait(false);
         }
 
-        if (clock.UtcNow > transaction.Context.Deadline)
+        if (clock.UtcNow >= transaction.Context.Deadline)
         {
             return await DecideAndApplyAbortAsync(
                 transaction,
@@ -757,6 +1212,7 @@ public sealed class SwapCoordinator
         {
             return await ApplyRecordedDecisionAsync(
                 transaction.Decision,
+                transaction.Context.CorrelationId,
                 first,
                 second,
                 cancellationToken).ConfigureAwait(false);
@@ -817,6 +1273,7 @@ public sealed class SwapCoordinator
         {
             return await ApplyRecordedDecisionAsync(
                 write.Transaction.Decision,
+                write.Transaction.Context.CorrelationId,
                 first,
                 second,
                 cancellationToken).ConfigureAwait(false);
@@ -863,18 +1320,74 @@ public sealed class SwapCoordinator
         failureCode,
         null);
 
-    private static async ValueTask<SwapCoordinatorResult> ApplyRecordedDecisionAsync(
+    private async ValueTask<(
+        SwapDeliveryResult<SwapActivitySnapshotResult>? Delivery,
+        FailureCode FailureCode)> QueryActivitySafelyAsync(
+        ISwapEndpointChannel channel,
+        SwapActivitySnapshotQuery query,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            SwapDeliveryResult<SwapActivitySnapshotResult> delivery = await channel
+                .QueryActivityAsync(
+                    coordinatorDeviceId,
+                    query,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return (delivery, FailureCode.None);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (InvalidDataException)
+        {
+            return (null, FailureCode.ProtocolIncompatible);
+        }
+        catch (IOException)
+        {
+            return (null, FailureCode.PeerUnavailable);
+        }
+        catch (TimeoutException)
+        {
+            return (null, FailureCode.AcknowledgementLost);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return (null, FailureCode.InternalFailure);
+        }
+    }
+
+    private bool MatchesSnapshotResult(
+        SwapActivitySnapshotResult result,
+        SwapActivitySnapshotQuery query) =>
+        result.OperationId == query.Context.OperationId
+        && result.CorrelationId == query.Context.CorrelationId
+        && result.RequestingDeviceId == coordinatorDeviceId
+        && result.TargetDeviceId == query.TargetDeviceId
+        && result.RequestedActivityId == query.ActivityId
+        && (result.Activity is null
+            || result.Activity.Descriptor.Id == query.ActivityId
+            && result.Activity.Placement.DeviceId == query.TargetDeviceId
+            && result.Activity.Lifecycle == ActivityLifecycle.Active
+            && result.Activity.Descriptor.Sensitivity == ActivitySensitivity.Normal);
+
+    private async ValueTask<SwapCoordinatorResult> ApplyRecordedDecisionAsync(
         SwapDecision decision,
+        CorrelationId correlationId,
         ISwapEndpointChannel first,
         ISwapEndpointChannel second,
         CancellationToken cancellationToken)
     {
         SwapDeliveryResult<SwapApplyResult> firstApply = await ApplySafelyAsync(
             first,
+            correlationId,
             decision,
             cancellationToken).ConfigureAwait(false);
         SwapDeliveryResult<SwapApplyResult> secondApply = await ApplySafelyAsync(
             second,
+            correlationId,
             decision,
             cancellationToken).ConfigureAwait(false);
         bool bothApplied = WasApplied(firstApply, decision.Outcome)
@@ -898,15 +1411,20 @@ public sealed class SwapCoordinator
             decision.Digest);
     }
 
-    private static async ValueTask<SwapDeliveryResult<SwapApplyResult>>
+    private async ValueTask<SwapDeliveryResult<SwapApplyResult>>
         ApplySafelyAsync(
             ISwapEndpointChannel channel,
+            CorrelationId correlationId,
             SwapDecision decision,
             CancellationToken cancellationToken)
     {
         try
         {
-            return await channel.ApplyDecisionAsync(decision, cancellationToken)
+            return await channel.ApplyDecisionAsync(
+                    coordinatorDeviceId,
+                    correlationId,
+                    decision,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

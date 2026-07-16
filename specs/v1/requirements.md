@@ -158,6 +158,31 @@ interfaces.
   the durable transaction record to converge on committed or aborted state; the
   UI shall show `recovering` until the outcome is known.
 - R5.4: Replayed prepare, commit, and abort messages shall be idempotent.
+- R5.4a: Before acknowledging Prepared, each endpoint shall reject an incoming
+  Activity revision whose committed successor is not representable and shall
+  reserve enough bounded journal capacity to persist that Operation's terminal
+  decision without discarding another record.
+- R5.5: When an authenticated peer requests an exact Activity snapshot or a new
+  swap reservation, the endpoint shall require its current peer-relative
+  `activity.swap` grant and shall disclose at most the one requested active,
+  normal-sensitivity Activity. Revoking that grant shall deny new snapshot and
+  prepare work, but an exact replay or decision matching an already durable
+  Operation, correlation, and peer Device binding may still converge
+  idempotently so revocation cannot invent a mixed outcome.
+- R5.6: Swap snapshot, prepare, decision, and result messages shall bind the
+  authenticated sender, target Device, Operation and correlation IDs, exact
+  Activity revisions and descriptor digests, Device-bound reservation tokens,
+  decision digest, UTC deadlines, and bounded complete descriptors where
+  semantic recovery requires them. Unsolicited, stale, malformed, oversized,
+  cross-operation, or cross-participant messages shall fail closed. These six
+  message types shall require negotiated protocol 1.1 or later within major
+  version 1; protocol 1.0 shall not expose Swap. A silent peer shall not keep a
+  request pending indefinitely: snapshot and Prepare sending plus response wait
+  use the Operation deadline, decision sending plus acknowledgement uses a
+  30-second window, and timeout shall be classified as acknowledgement loss and
+  close that session. Expired envelopes shall be rejected before endpoint work,
+  and cleanup shall release a pending correlation only when it still owns that
+  exact registration.
 
 ### R6 — Mirror and driver authority
 

@@ -20,6 +20,10 @@ for end-user installation. The repository currently includes:
 - a deterministic two-node Semantic Handoff and journaled-coordinator Atomic Swap
   simulator, plus bounded protected per-Device Swap endpoint journals with
   exact restart reduction contracts;
+- a protocol-1.1 authenticated Atomic Swap tracer that requests one exact
+  Activity, persists Operation/correlation/peer-bound endpoint evidence, carries
+  Prepare and the durable decision over an encrypted session, times out silent
+  peers deterministically, and freezes all six JSON frames and SHA-256 hashes;
 - capability denial, descriptor validation, idempotent retry, operation-ID
   conflict, protocol negotiation, and diagnostic-redaction tests;
 - provisional, review-gated identity, pairing, trust, HKDF, and encrypted-frame
@@ -84,7 +88,7 @@ dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
 Desktop validation uses an explicitly degraded in-memory identity, prints TEST
 MODE, and exits; it never substitutes for production platform storage. The
 simulator uses fixed device, operation, and clock values. A successful run
-prints protocol `1.0`, `Source preserved: True`, `Target resumed: True`,
+prints protocol `1.1`, `Source preserved: True`, `Target resumed: True`,
 `Atomic swap committed: True`, and a redacted operation receipt containing a
 descriptor digest but no Activity text. Its Swap endpoints and catalog remain
 process-memory tracers. Separate application and platform contracts implement
@@ -120,8 +124,11 @@ Start with [v1 requirements](specs/v1/requirements.md), then read the
 The current desktop composition can explicitly enable local pairing and an
 authenticated control channel. It carries the bounded `workspace.note/v1`
 Semantic Handoff, acknowledged Semantic Move, and protected semantic Replace.
-These are one-shot descriptor operations rather than live sharing, so the global
-state remains `NOT SHARING`. Move closes the source only after a verified target
+The same control core can carry the protocol-1.1 Swap tracer under an independent
+`activity.swap` grant, but the production Desktop intentionally exposes no Swap
+command until exact confirmation and visible recovery are delivered. These are
+one-shot descriptor operations rather than live sharing, so the global state
+remains `NOT SHARING`. Move closes the source only after a verified target
 receipt; Replace preserves the source and stores target undo state before target
 mutation. Rejection, failure, or uncertainty preserves the source. Flowspan does
 not transfer process memory, unsaved application internals, credentials, screen

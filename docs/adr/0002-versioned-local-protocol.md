@@ -18,6 +18,10 @@ Use a versioned message protocol over an abstract ordered duplex stream.
   and shape limits. Media/file data use separate bounded binary frames.
 - Protocol negotiation selects a compatible major version and an explicit
   feature set before operation traffic.
+- Within major version 1, the exact negotiated minor is the feature gate: 1.0
+  carries the original non-Swap control set and 1.1 adds the six Atomic Swap
+  messages. A 1.0 session never exposes or decodes Swap; peers advertising both
+  versions retain a safe non-Swap downgrade path.
 - Every command is addressed by an unguessable operation ID and includes a
   digest of its immutable request. Journals cache terminal results.
 - Retry of the same ID and digest returns the same result. Reuse of an ID with a
@@ -49,6 +53,9 @@ codec rather than assuming ordinary JSON serialization is canonical.
 - A durable journal is part of correctness, not merely observability.
 - Protocol fixtures and compatibility tests are required before message
   schemas change.
+- Every minor feature addition requires frozen canonical frames and an
+  old-minor fail-closed or compatibility test; protocol 1.1 freezes all six Swap
+  frames and their SHA-256 hashes.
 - Cross-device atomicity can remain `recovering` during a partition; the UI must
   represent uncertainty rather than invent a result.
 - Discovery and transport implementations can change without changing domain

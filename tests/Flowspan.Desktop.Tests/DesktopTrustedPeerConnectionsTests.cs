@@ -106,6 +106,30 @@ public sealed class DesktopTrustedPeerConnectionsTests
     }
 
     [Fact]
+    public async Task SwapOnlyGrantStillAdmitsElectedControlChannelConnector()
+    {
+        using DeviceIdentity local = CreateIdentity("11111111", "Local");
+        using DeviceIdentity remote = CreateIdentity("22222222", "Remote");
+        await using var trust = new TrustSessionCoordinator(
+            CreateTrustStore(remote, Capability.ActivitySwap));
+        var loops = new FakeReconnectLoopFactory();
+        await using var connections = new DesktopTrustedPeerConnectionCoordinator(
+            local.DeviceId,
+            trust,
+            static () => [],
+            loops);
+
+        connections.Start();
+
+        DesktopTrustedPeerConnectionSnapshot snapshot =
+            Assert.Single(connections.GetSnapshot());
+        Assert.Equal(
+            DesktopTrustedPeerConnectionState.WaitingForPeer,
+            snapshot.State);
+        Assert.Single(loops.Created);
+    }
+
+    [Fact]
     public async Task MissingActivityControlGrantIsPolicyIdleAndNeverContacted()
     {
         using DeviceIdentity local = CreateIdentity("11111111", "Local");
@@ -130,7 +154,7 @@ public sealed class DesktopTrustedPeerConnectionsTests
             "IDLE — ACTIVITY CONTROL CAPABILITY NOT GRANTED",
             snapshot.StatusLabel);
         Assert.Contains(
-            "activity.offer, activity.receive, or activity.replace",
+            "activity.offer, activity.receive, activity.replace, or activity.swap",
             snapshot.StatusDescription,
             StringComparison.Ordinal);
         Assert.Empty(loops.Created);
@@ -396,13 +420,15 @@ public sealed class DesktopTrustedPeerConnectionsTests
             CreateTrustStore(listenerIdentity, connectorCapability));
         await using var listenerTrust = new TrustSessionCoordinator(
             CreateTrustStore(connectorIdentity, listenerCapability));
+        var listenerSession = new ProtocolRecordingSessionHandler();
         var listenerLoops = new FakeReconnectLoopFactory();
         await using var listenerConnections =
             new DesktopTrustedPeerConnectionCoordinator(
                 listenerIdentity.DeviceId,
                 listenerTrust,
                 static () => [],
-                listenerLoops);
+                listenerLoops,
+                listenerSession);
         listenerConnections.Start();
         Assert.Empty(listenerLoops.Created);
 
@@ -413,7 +439,10 @@ public sealed class DesktopTrustedPeerConnectionsTests
             CapabilityGrant.Of(
                 Capability.ActivityOffer,
                 Capability.ActivityReceive),
-            [new ProtocolVersion(1, 0)],
+            [
+                ProtocolFeatures.ActivitySwapMinimumVersion,
+                new ProtocolVersion(1, 0),
+            ],
             capabilityMatch: CapabilityRequirementMatch.Any);
         var inbound = new AuthenticatedTcpInboundListener(
             socket,
@@ -428,7 +457,10 @@ public sealed class DesktopTrustedPeerConnectionsTests
         SignedDiscoveryOffer offer = SignedDiscoveryOffer.Create(
             listenerIdentity,
             port,
-            [new ProtocolVersion(1, 0)],
+            [
+                ProtocolFeatures.ActivitySwapMinimumVersion,
+                new ProtocolVersion(1, 0),
+            ],
             now,
             TimeSpan.FromMinutes(1),
             Enumerable.Repeat((byte)0x55, SignedDiscoveryOffer.NonceLength).ToArray());
@@ -448,12 +480,14 @@ public sealed class DesktopTrustedPeerConnectionsTests
             connectorTrust,
             candidateSource,
             networkChanges: new SilentNetworkChangeSource());
+        var connectorSession = new ProtocolRecordingSessionHandler();
         await using var connectorConnections =
             new DesktopTrustedPeerConnectionCoordinator(
                 connectorIdentity.DeviceId,
                 connectorTrust,
                 () => candidates,
-                systemLoops);
+                systemLoops,
+                connectorSession);
 
         try
         {
@@ -471,6 +505,14 @@ public sealed class DesktopTrustedPeerConnectionsTests
             Assert.Contains(
                 "NOT SHARING",
                 Assert.Single(listenerConnections.GetSnapshot()).StatusLabel);
+            Assert.Equal(
+                ProtocolFeatures.ActivitySwapMinimumVersion,
+                await connectorSession.ProtocolVersion.Task.WaitAsync(
+                    TimeSpan.FromSeconds(1)));
+            Assert.Equal(
+                ProtocolFeatures.ActivitySwapMinimumVersion,
+                await listenerSession.ProtocolVersion.Task.WaitAsync(
+                    TimeSpan.FromSeconds(1)));
         }
         finally
         {
@@ -554,6 +596,21 @@ public sealed class DesktopTrustedPeerConnectionsTests
             public void Dispose()
             {
             }
+        }
+    }
+
+    private sealed class ProtocolRecordingSessionHandler :
+        IAuthenticatedControlSessionHandler
+    {
+        public TaskCompletionSource<ProtocolVersion> ProtocolVersion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask RunAsync(
+            AuthenticatedTcpControlConnection connection,
+            CancellationToken cancellationToken = default)
+        {
+            ProtocolVersion.TrySetResult(connection.ProtocolVersion);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         }
     }
 

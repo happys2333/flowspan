@@ -152,6 +152,47 @@ public sealed class ControlMessageCodecTests
             "{}"));
     }
 
+    [Theory]
+    [InlineData(ControlMessageType.ActivitySwapSnapshot)]
+    [InlineData(ControlMessageType.ActivitySwapSnapshotResult)]
+    [InlineData(ControlMessageType.ActivitySwapPrepare)]
+    [InlineData(ControlMessageType.ActivitySwapPrepareResult)]
+    [InlineData(ControlMessageType.ActivitySwapDecision)]
+    [InlineData(ControlMessageType.ActivitySwapDecisionResult)]
+    public void ProtocolOnePointZeroRejectsSwapMessageTypes(ControlMessageType type)
+    {
+        Assert.Throws<ArgumentException>(() => ControlMessage.Create(
+            new ProtocolVersion(1, 0),
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(30),
+            "{}"));
+    }
+
+    [Fact]
+    public void DecoderRejectsSwapFrameDowngradedToProtocolOnePointZero()
+    {
+        ControlMessage swap = ControlMessage.Create(
+            ProtocolFeatures.ActivitySwapMinimumVersion,
+            ControlMessageType.ActivitySwapSnapshot,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(30),
+            "{}");
+        string encoded = Encoding.UTF8.GetString(ControlMessageCodec.Encode(swap));
+        byte[] downgraded = Encoding.UTF8.GetBytes(encoded.Replace(
+            "\"minor\":1",
+            "\"minor\":0",
+            StringComparison.Ordinal));
+
+        Assert.Throws<InvalidDataException>(() => ControlMessageCodec.Decode(downgraded));
+    }
+
     private static ControlMessage Create(string bodyJson) => ControlMessage.Create(
         new ProtocolVersion(1, 0),
         ControlMessageType.Hello,

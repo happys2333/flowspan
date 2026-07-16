@@ -15,6 +15,12 @@ public enum ControlMessageType
     ActivityReplaceInventoryResult,
     ActivityReplace,
     ActivityReplaceResult,
+    ActivitySwapSnapshot,
+    ActivitySwapSnapshotResult,
+    ActivitySwapPrepare,
+    ActivitySwapPrepareResult,
+    ActivitySwapDecision,
+    ActivitySwapDecisionResult,
     OperationReceipt,
 }
 
@@ -93,6 +99,8 @@ public sealed record ControlMessage
                 "The control message type is unknown.");
         }
 
+        ValidateTypeVersion(version, type);
+
         if (messageId == Guid.Empty)
         {
             throw new ArgumentException("A message ID cannot be empty.", nameof(messageId));
@@ -142,7 +150,10 @@ public sealed record ControlMessage
         DateTimeOffset sentAt,
         int timeToLiveMilliseconds,
         string bodyDigest,
-        JsonElement body) => new(
+        JsonElement body)
+    {
+        ValidateTypeVersion(version, type);
+        return new ControlMessage(
             version,
             type,
             messageId,
@@ -152,6 +163,26 @@ public sealed record ControlMessage
             ValidateTimeToLive(TimeSpan.FromMilliseconds(timeToLiveMilliseconds)),
             bodyDigest,
             body);
+    }
+
+    private static void ValidateTypeVersion(
+        ProtocolVersion version,
+        ControlMessageType type)
+    {
+        bool swapMessage = type is
+            ControlMessageType.ActivitySwapSnapshot
+            or ControlMessageType.ActivitySwapSnapshotResult
+            or ControlMessageType.ActivitySwapPrepare
+            or ControlMessageType.ActivitySwapPrepareResult
+            or ControlMessageType.ActivitySwapDecision
+            or ControlMessageType.ActivitySwapDecisionResult;
+        if (swapMessage && !ProtocolFeatures.SupportsActivitySwap(version))
+        {
+            throw new ArgumentException(
+                $"The '{type}' control message requires protocol {ProtocolFeatures.ActivitySwapMinimumVersion} or later.",
+                nameof(version));
+        }
+    }
 
     private static int ValidateTimeToLive(TimeSpan timeToLive)
     {
@@ -366,6 +397,12 @@ public static class ControlMessageCodec
         ControlMessageType.ActivityReplaceInventoryResult => "activity.replace.inventory.result",
         ControlMessageType.ActivityReplace => "activity.replace",
         ControlMessageType.ActivityReplaceResult => "activity.replace.result",
+        ControlMessageType.ActivitySwapSnapshot => "activity.swap.snapshot",
+        ControlMessageType.ActivitySwapSnapshotResult => "activity.swap.snapshot.result",
+        ControlMessageType.ActivitySwapPrepare => "activity.swap.prepare",
+        ControlMessageType.ActivitySwapPrepareResult => "activity.swap.prepare.result",
+        ControlMessageType.ActivitySwapDecision => "activity.swap.decision",
+        ControlMessageType.ActivitySwapDecisionResult => "activity.swap.decision.result",
         ControlMessageType.OperationReceipt => "operation.receipt",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown message type."),
     };
@@ -378,6 +415,12 @@ public static class ControlMessageCodec
         "activity.replace.inventory.result" => ControlMessageType.ActivityReplaceInventoryResult,
         "activity.replace" => ControlMessageType.ActivityReplace,
         "activity.replace.result" => ControlMessageType.ActivityReplaceResult,
+        "activity.swap.snapshot" => ControlMessageType.ActivitySwapSnapshot,
+        "activity.swap.snapshot.result" => ControlMessageType.ActivitySwapSnapshotResult,
+        "activity.swap.prepare" => ControlMessageType.ActivitySwapPrepare,
+        "activity.swap.prepare.result" => ControlMessageType.ActivitySwapPrepareResult,
+        "activity.swap.decision" => ControlMessageType.ActivitySwapDecision,
+        "activity.swap.decision.result" => ControlMessageType.ActivitySwapDecisionResult,
         "operation.receipt" => ControlMessageType.OperationReceipt,
         _ => throw new InvalidDataException($"The control message type '{type}' is unknown."),
     };

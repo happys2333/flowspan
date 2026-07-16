@@ -34,4 +34,19 @@ public sealed class ProtocolNegotiatorTests
 
         Assert.False(result.Succeeded);
     }
+
+    [Fact]
+    public void ActivitySwapRequiresNegotiatedProtocolOnePointOne()
+    {
+        Assert.False(ProtocolFeatures.SupportsActivitySwap(new ProtocolVersion(1, 0)));
+        Assert.True(ProtocolFeatures.SupportsActivitySwap(new ProtocolVersion(1, 1)));
+        Assert.True(ProtocolFeatures.SupportsActivitySwap(new ProtocolVersion(1, 2)));
+        Assert.False(ProtocolFeatures.SupportsActivitySwap(new ProtocolVersion(2, 0)));
+
+        ProtocolNegotiationResult result = ProtocolNegotiator.Negotiate(
+            [new ProtocolVersion(1, 0), new ProtocolVersion(1, 1)],
+            [new ProtocolVersion(1, 0), new ProtocolVersion(1, 1)]);
+
+        Assert.Equal(ProtocolFeatures.ActivitySwapMinimumVersion, result.Version);
+    }
 }

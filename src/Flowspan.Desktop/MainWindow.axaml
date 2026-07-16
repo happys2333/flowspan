@@ -1072,6 +1072,10 @@
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityReplace, Mode=TwoWay}"
                                     Content="activity.replace — replace Activities"
                                     AutomationProperties.Name="Allow peer to replace Activities" />
+                          <CheckBox x:Name="GrantActivitySwapCheckBox"
+                                    IsChecked="{Binding TrustedDevices.GrantActivitySwap, Mode=TwoWay}"
+                                    Content="activity.swap — participate in atomic Activity swaps"
+                                    AutomationProperties.Name="Allow peer to participate in atomic Activity swaps" />
                           <CheckBox x:Name="GrantMirrorViewCheckBox"
                                     IsChecked="{Binding TrustedDevices.GrantMirrorView, Mode=TwoWay}"
                                     Content="mirror.view — view mirrored Activities"

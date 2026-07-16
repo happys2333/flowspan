@@ -30,6 +30,8 @@ public sealed class PersistentSwapEndpointJournalTests
             Assert.True(firstJournal.TryGet(
                 fixture.Context.OperationId,
                 out SwapEndpointRecord? record));
+            Assert.Equal(fixture.Context.CorrelationId, record.CorrelationId);
+            Assert.Equal(fixture.SecondDevice, record.PeerDeviceId);
             Assert.Equal(SwapReservationPhase.Prepared, record.Reservation?.Phase);
         }
 
@@ -42,6 +44,7 @@ public sealed class PersistentSwapEndpointJournalTests
                 secondJournal);
 
             SwapApplyResult applied = await restarted.ApplyDecisionAsync(
+                fixture.Context.CorrelationId,
                 fixture.Commit,
                 default);
 
@@ -58,6 +61,7 @@ public sealed class PersistentSwapEndpointJournalTests
             thirdJournal);
 
         SwapApplyResult replay = await replayed.ApplyDecisionAsync(
+            fixture.Context.CorrelationId,
             fixture.Commit,
             default);
 
@@ -96,6 +100,7 @@ public sealed class PersistentSwapEndpointJournalTests
                    secondJournal))
         {
             var coordinator = new SwapCoordinator(
+                fixture.FirstDevice,
                 new TestClock(fixture.Now),
                 coordinatorJournal,
                 new DeterministicSwapTokenSource(
@@ -135,6 +140,7 @@ public sealed class PersistentSwapEndpointJournalTests
             fixture.SecondCatalog,
             restartedSecondJournal);
         var restartedCoordinator = new SwapCoordinator(
+            fixture.FirstDevice,
             new TestClock(fixture.Now),
             restartedCoordinatorJournal,
             new DeterministicSwapTokenSource([]));
@@ -167,6 +173,7 @@ public sealed class PersistentSwapEndpointJournalTests
                 default)).Prepared);
 
             SwapApplyResult blocked = await endpoint.ApplyDecisionAsync(
+                fixture.Context.CorrelationId,
                 fixture.Commit,
                 default);
             SwapPrepareResult overlap = await endpoint.PrepareAsync(
@@ -253,10 +260,14 @@ public sealed class PersistentSwapEndpointJournalTests
                 fixture.Context.Deadline);
             Assert.Equal(
                 SwapEndpointWriteStatus.Stored,
-                (await journal.TryPrepareAsync(reservation)).Status);
+                (await journal.TryPrepareAsync(
+                    fixture.Context.CorrelationId,
+                    reservation)).Status);
             Assert.Equal(
                 SwapEndpointWriteStatus.Stored,
-                (await journal.TryRecordDecisionAsync(fixture.Commit)).Status);
+                (await journal.TryRecordDecisionAsync(
+                    fixture.Context.CorrelationId,
+                    fixture.Commit)).Status);
         }
 
         ActivityInstance drifted = ActivityInstance.Active(
@@ -303,6 +314,7 @@ public sealed class PersistentSwapEndpointJournalTests
                 fixture.FirstCatalog,
                 firstJournal);
             SwapApplyResult applied = await endpoint.ApplyDecisionAsync(
+                fixture.Context.CorrelationId,
                 fixture.Abort,
                 default);
 
@@ -318,6 +330,7 @@ public sealed class PersistentSwapEndpointJournalTests
             restartedJournal);
 
         SwapApplyResult replay = await restarted.ApplyDecisionAsync(
+            fixture.Context.CorrelationId,
             fixture.Abort,
             default);
         SwapPrepareResult delayed = await restarted.PrepareAsync(
@@ -350,10 +363,16 @@ public sealed class PersistentSwapEndpointJournalTests
                 default)).Prepared);
 
             await Assert.ThrowsAsync<SwapEndpointStatePersistenceException>(async () =>
-                await endpoint.ApplyDecisionAsync(fixture.Commit, default));
+                await endpoint.ApplyDecisionAsync(
+                    fixture.Context.CorrelationId,
+                    fixture.Commit,
+                    default));
             fixture.AssertFirstOriginal();
             await Assert.ThrowsAsync<SwapEndpointStatePersistenceException>(async () =>
-                await endpoint.ApplyDecisionAsync(fixture.Abort, default));
+                await endpoint.ApplyDecisionAsync(
+                    fixture.Context.CorrelationId,
+                    fixture.Abort,
+                    default));
         }
 
         store.ThrowAfterSaveNumber = null;
@@ -411,7 +430,9 @@ public sealed class PersistentSwapEndpointJournalTests
                 default)).Prepared);
             Assert.Equal(
                 SwapEndpointWriteStatus.Stored,
-                (await journal.TryRecordDecisionAsync(fixture.Commit)).Status);
+                (await journal.TryRecordDecisionAsync(
+                    fixture.Context.CorrelationId,
+                    fixture.Commit)).Status);
         }
 
         await Assert.ThrowsAsync<InvalidDataException>(async () =>
@@ -420,8 +441,16 @@ public sealed class PersistentSwapEndpointJournalTests
         byte[] valid = store.Payload!;
         store.Payload = Encoding.UTF8.GetBytes(
             Encoding.UTF8.GetString(valid).Replace(
+                "{\"formatVersion\":2,",
                 "{\"formatVersion\":1,",
-                "{\"formatVersion\":1,\"unexpected\":true,",
+                StringComparison.Ordinal));
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store));
+
+        store.Payload = Encoding.UTF8.GetBytes(
+            Encoding.UTF8.GetString(valid).Replace(
+                "{\"formatVersion\":2,",
+                "{\"formatVersion\":2,\"unexpected\":true,",
                 StringComparison.Ordinal));
         await Assert.ThrowsAsync<InvalidDataException>(async () =>
             await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store));
@@ -443,6 +472,218 @@ public sealed class PersistentSwapEndpointJournalTests
             await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store));
     }
 
+    [Theory]
+    [InlineData("correlationId")]
+    [InlineData("peerDeviceId")]
+    public async Task PayloadRejectsMissingNullOrWrongTypeEndpointBinding(
+        string fieldName)
+    {
+        Fixture fixture = new();
+        var store = new TestSwapEndpointStatePayloadStore();
+        using (PersistentSwapEndpointJournal journal =
+               await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store))
+        {
+            var endpoint = new PersistentSwapEndpoint(
+                fixture.FirstDevice,
+                fixture.FirstCatalog,
+                journal);
+            Assert.True((await endpoint.PrepareAsync(
+                fixture.FirstPrepare,
+                default)).Prepared);
+        }
+
+        byte[] valid = store.Payload!;
+        foreach (Action<JsonObject> mutate in new Action<JsonObject>[]
+                 {
+                     record => record.Remove(fieldName),
+                     record => record[fieldName] = null,
+                     record => record[fieldName] = 7,
+                 })
+        {
+            JsonObject root = JsonNode.Parse(valid)!.AsObject();
+            JsonObject record = root["records"]!.AsArray()[0]!.AsObject();
+            mutate(record);
+            store.Payload = Encoding.UTF8.GetBytes(root.ToJsonString());
+
+            await Assert.ThrowsAsync<InvalidDataException>(async () =>
+                await PersistentSwapEndpointJournal.OpenAsync(
+                    fixture.FirstDevice,
+                    store));
+        }
+    }
+
+    [Fact]
+    public async Task PayloadRejectsDuplicateOrNonCanonicalEndpointBinding()
+    {
+        Fixture fixture = new();
+        var store = new TestSwapEndpointStatePayloadStore();
+        using (PersistentSwapEndpointJournal journal =
+               await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store))
+        {
+            var endpoint = new PersistentSwapEndpoint(
+                fixture.FirstDevice,
+                fixture.FirstCatalog,
+                journal);
+            Assert.True((await endpoint.PrepareAsync(
+                fixture.FirstPrepare,
+                default)).Prepared);
+        }
+
+        string valid = Encoding.UTF8.GetString(store.Payload!);
+        string correlation = fixture.Context.CorrelationId.ToString();
+        string binding = $"\"correlationId\":\"{correlation}\"";
+        store.Payload = Encoding.UTF8.GetBytes(valid.Replace(
+            binding,
+            $"{binding},{binding}",
+            StringComparison.Ordinal));
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await PersistentSwapEndpointJournal.OpenAsync(
+                fixture.FirstDevice,
+                store));
+
+        store.Payload = Encoding.UTF8.GetBytes(valid.Replace(
+            correlation,
+            correlation.ToUpperInvariant(),
+            StringComparison.Ordinal));
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await PersistentSwapEndpointJournal.OpenAsync(
+                fixture.FirstDevice,
+                store));
+
+        string escapedCorrelation = $"\\u{(int)correlation[0]:X4}{correlation[1..]}";
+        store.Payload = Encoding.UTF8.GetBytes(valid.Replace(
+            correlation,
+            escapedCorrelation,
+            StringComparison.Ordinal));
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await PersistentSwapEndpointJournal.OpenAsync(
+                fixture.FirstDevice,
+                store));
+    }
+
+    [Fact]
+    public async Task PayloadRejectsCanonicalPeerThatConflictsWithRecordContent()
+    {
+        Fixture fixture = new();
+        DeviceId thirdDevice = DeviceId.Parse(
+            "33333333-3333-3333-3333-333333333333");
+        var committedStore = new TestSwapEndpointStatePayloadStore();
+        using (PersistentSwapEndpointJournal journal =
+               await PersistentSwapEndpointJournal.OpenAsync(
+                   fixture.FirstDevice,
+                   committedStore))
+        {
+            var endpoint = new PersistentSwapEndpoint(
+                fixture.FirstDevice,
+                fixture.FirstCatalog,
+                journal);
+            Assert.True((await endpoint.PrepareAsync(
+                fixture.FirstPrepare,
+                default)).Prepared);
+            Assert.True((await endpoint.ApplyDecisionAsync(
+                fixture.Context.CorrelationId,
+                fixture.Commit,
+                default)).Applied);
+        }
+
+        JsonObject committed = ParsePayload(committedStore.Payload!);
+        committed["records"]!.AsArray()[0]!["peerDeviceId"] =
+            thirdDevice.ToString();
+        await AssertPayloadRejectedAsync(
+            committedStore,
+            fixture.FirstDevice,
+            committed);
+
+        var tombstoneStore = new TestSwapEndpointStatePayloadStore();
+        using (PersistentSwapEndpointJournal journal =
+               await PersistentSwapEndpointJournal.OpenAsync(
+                   fixture.FirstDevice,
+                   tombstoneStore))
+        {
+            Assert.Equal(
+                SwapEndpointWriteStatus.Stored,
+                (await journal.TryRecordDecisionAsync(
+                    fixture.Context.CorrelationId,
+                    fixture.Abort)).Status);
+        }
+
+        JsonObject tombstone = ParsePayload(tombstoneStore.Payload!);
+        tombstone["records"]!.AsArray()[0]!["peerDeviceId"] =
+            thirdDevice.ToString();
+        await AssertPayloadRejectedAsync(
+            tombstoneStore,
+            fixture.FirstDevice,
+            tombstone);
+    }
+
+    [Fact]
+    public async Task PayloadRejectsMissingEnumFieldsAndNonCanonicalTimestamp()
+    {
+        Fixture fixture = new();
+        var store = new TestSwapEndpointStatePayloadStore();
+        using (PersistentSwapEndpointJournal journal =
+               await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store))
+        {
+            var endpoint = new PersistentSwapEndpoint(
+                fixture.FirstDevice,
+                fixture.FirstCatalog,
+                journal);
+            Assert.True((await endpoint.PrepareAsync(
+                fixture.FirstPrepare,
+                default)).Prepared);
+            Assert.True((await endpoint.ApplyDecisionAsync(
+                fixture.Context.CorrelationId,
+                fixture.Commit,
+                default)).Applied);
+        }
+
+        byte[] valid = store.Payload!;
+        foreach (string fieldPath in new[]
+                 {
+                     "reservation.phase",
+                     "original.sensitivity",
+                     "incoming.lifecycle",
+                     "decision.outcome",
+                     "decision.failureCode",
+                 })
+        {
+            JsonObject root = JsonNode.Parse(valid)!.AsObject();
+            JsonObject record = root["records"]!.AsArray()[0]!.AsObject();
+            JsonObject reservation = record["reservation"]!.AsObject();
+            JsonObject decision = record["decision"]!.AsObject();
+            JsonObject original = reservation["originalActivity"]!.AsObject();
+            JsonObject incoming = reservation["incomingActivity"]!.AsObject();
+            Assert.True(fieldPath switch
+            {
+                "reservation.phase" => reservation.Remove("phase"),
+                "original.sensitivity" => original.Remove("sensitivity"),
+                "incoming.lifecycle" => incoming.Remove("lifecycle"),
+                "decision.outcome" => decision.Remove("outcome"),
+                "decision.failureCode" => decision.Remove("failureCode"),
+                _ => false,
+            });
+            store.Payload = Encoding.UTF8.GetBytes(root.ToJsonString());
+            await Assert.ThrowsAsync<InvalidDataException>(async () =>
+                await PersistentSwapEndpointJournal.OpenAsync(
+                    fixture.FirstDevice,
+                    store));
+        }
+
+        JsonObject timestampRoot = JsonNode.Parse(valid)!.AsObject();
+        JsonObject timestampReservation = timestampRoot["records"]!
+            .AsArray()[0]!["reservation"]!.AsObject();
+        string expiresAt = timestampReservation["expiresAt"]!.GetValue<string>();
+        timestampReservation["expiresAt"] = expiresAt.Replace(
+            "+00:00",
+            "Z",
+            StringComparison.Ordinal);
+        store.Payload = Encoding.UTF8.GetBytes(timestampRoot.ToJsonString());
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await PersistentSwapEndpointJournal.OpenAsync(
+                fixture.FirstDevice,
+                store));
+    }
+
     [Fact]
     public async Task PayloadRejectsOrderingBoundsEnumsTimestampsAndParticipantMismatch()
     {
@@ -459,13 +700,19 @@ public sealed class PersistentSwapEndpointJournalTests
                 fixture.Context.Deadline);
             Assert.Equal(
                 SwapEndpointWriteStatus.Stored,
-                (await journal.TryPrepareAsync(reservation)).Status);
+                (await journal.TryPrepareAsync(
+                    fixture.Context.CorrelationId,
+                    reservation)).Status);
             Assert.Equal(
                 SwapEndpointWriteStatus.Stored,
-                (await journal.TryRecordDecisionAsync(fixture.Commit)).Status);
+                (await journal.TryRecordDecisionAsync(
+                    fixture.Context.CorrelationId,
+                    fixture.Commit)).Status);
             Assert.Equal(
                 SwapEndpointWriteStatus.Stored,
-                (await journal.TryPrepareAsync(fixture.CreateUniqueReservation())).Status);
+                (await journal.TryPrepareAsync(
+                    fixture.Context.CorrelationId,
+                    fixture.CreateUniqueReservation())).Status);
         }
 
         byte[] valid = store.Payload!;
@@ -556,17 +803,162 @@ public sealed class PersistentSwapEndpointJournalTests
              index++)
         {
             SwapReservation reservation = fixture.CreateUniqueReservation();
-            SwapEndpointWriteResult result = await journal.TryPrepareAsync(reservation);
+            SwapEndpointWriteResult result = await journal.TryPrepareAsync(
+                fixture.Context.CorrelationId,
+                reservation);
             Assert.Equal(SwapEndpointWriteStatus.Stored, result.Status);
         }
 
         byte[] fullPayload = store.Payload!.ToArray();
         SwapEndpointWriteResult overflow = await journal.TryPrepareAsync(
+            fixture.Context.CorrelationId,
             fixture.CreateUniqueReservation());
 
         Assert.Equal(SwapEndpointWriteStatus.CapacityExceeded, overflow.Status);
         Assert.Equal(fullPayload, store.Payload);
         Assert.Equal(PersistentSwapEndpointJournal.MaximumRecordCount, journal.Count);
+        using PersistentSwapEndpointJournal reopened =
+            await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store);
+        Assert.Equal(PersistentSwapEndpointJournal.MaximumRecordCount, reopened.Count);
+    }
+
+    [Fact]
+    public async Task PrepareRejectsRevisionThatCannotProduceCommittedReplacement()
+    {
+        Fixture fixture = new();
+        var store = new TestSwapEndpointStatePayloadStore();
+        using PersistentSwapEndpointJournal journal =
+            await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store);
+        var endpoint = new PersistentSwapEndpoint(
+            fixture.FirstDevice,
+            fixture.FirstCatalog,
+            journal);
+        ActivityInstance incoming = ActivityInstance.Active(
+            fixture.SecondActivity.Descriptor,
+            fixture.SecondActivity.Placement,
+            long.MaxValue);
+        var command = new SwapPrepareCommand(
+            fixture.Context.OperationId,
+            fixture.Context.CorrelationId,
+            fixture.FirstToken,
+            fixture.FirstActivity,
+            incoming,
+            fixture.Context.Deadline);
+
+        SwapPrepareResult result = await endpoint.PrepareAsync(command, default);
+
+        Assert.False(result.Prepared);
+        Assert.Equal(FailureCode.RevisionConflict, result.FailureCode);
+        Assert.Null(store.Payload);
+        using PersistentSwapEndpointJournal reopened =
+            await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store);
+        Assert.Equal(0, reopened.Count);
+    }
+
+    [Fact]
+    public async Task PreparedCapacityAlwaysLeavesHeadroomForTerminalDecisions()
+    {
+        const int terminalHeadroomBytes = 1024;
+        Fixture fixture = new();
+        var store = new TestSwapEndpointStatePayloadStore();
+        using PersistentSwapEndpointJournal journal =
+            await PersistentSwapEndpointJournal.OpenAsync(fixture.FirstDevice, store);
+        var stored = new List<SwapReservation>();
+        for (int index = 0;
+             index < PersistentSwapEndpointJournal.MaximumRecordCount;
+             index++)
+        {
+            SwapReservation reservation = fixture.CreateUniqueReservation(
+                ActivityDescriptor.MaximumPayloadBytes - 32);
+            SwapEndpointWriteResult result = await journal.TryPrepareAsync(
+                fixture.Context.CorrelationId,
+                reservation);
+            if (result.Status == SwapEndpointWriteStatus.CapacityExceeded)
+            {
+                break;
+            }
+
+            Assert.Equal(SwapEndpointWriteStatus.Stored, result.Status);
+            stored.Add(reservation);
+        }
+
+        Assert.NotEmpty(stored);
+        Assert.InRange(
+            stored.Count,
+            2,
+            PersistentSwapEndpointJournal.MaximumRecordCount);
+        if (stored.Count < PersistentSwapEndpointJournal.MaximumRecordCount)
+        {
+            int baseLength = store.Payload!.Length;
+            var probeStore = new TestSwapEndpointStatePayloadStore();
+            using var probeJournal = await PersistentSwapEndpointJournal.OpenAsync(
+                fixture.FirstDevice,
+                probeStore);
+            foreach (SwapReservation reservation in stored)
+            {
+                Assert.Equal(
+                    SwapEndpointWriteStatus.Stored,
+                    (await probeJournal.TryPrepareAsync(
+                        fixture.Context.CorrelationId,
+                        reservation)).Status);
+            }
+
+            int probeBaseLength = probeStore.Payload!.Length;
+            SwapReservation probe = fixture.CreateUniqueReservation(1);
+            Assert.Equal(
+                SwapEndpointWriteStatus.Stored,
+                (await probeJournal.TryPrepareAsync(
+                    fixture.Context.CorrelationId,
+                    probe)).Status);
+            int fixedRecordBytes = probeStore.Payload!.Length
+                - probeBaseLength
+                - 2;
+            int availableContentBytes = PersistentSwapEndpointJournal.MaximumPayloadBytes
+                - baseLength
+                - ((stored.Count + 1) * terminalHeadroomBytes)
+                - fixedRecordBytes;
+            Assert.True(availableContentBytes >= 2);
+            SwapReservation tuned = fixture.CreateUniqueReservation(
+                Math.Min(
+                    ActivityDescriptor.MaximumPayloadBytes - 32,
+                    availableContentBytes / 2));
+            Assert.Equal(
+                SwapEndpointWriteStatus.Stored,
+                (await journal.TryPrepareAsync(
+                    fixture.Context.CorrelationId,
+                    tuned)).Status);
+            stored.Add(tuned);
+        }
+
+        Assert.True(
+            PersistentSwapEndpointJournal.MaximumPayloadBytes
+            - store.Payload!.Length
+            >= stored.Count * terminalHeadroomBytes);
+        foreach (SwapReservation reservation in stored)
+        {
+            SwapDecision abort = SwapDecision.Create(
+                reservation.OperationId,
+                SwapDecisionOutcome.Abort,
+                fixture.Context.Deadline.AddSeconds(-1),
+                [
+                    SwapDecisionParticipant.Create(
+                        fixture.FirstDevice,
+                        reservation.Token),
+                    SwapDecisionParticipant.Create(
+                        reservation.IncomingActivity.Placement.DeviceId,
+                        SwapReservationToken.From(Guid.NewGuid())),
+                ],
+                FailureCode.PeerUnavailable);
+            SwapEndpointWriteResult decided = await journal.TryRecordDecisionAsync(
+                fixture.Context.CorrelationId,
+                abort);
+            Assert.Equal(SwapEndpointWriteStatus.Stored, decided.Status);
+        }
+
+        Assert.InRange(
+            store.Payload!.Length,
+            1,
+            PersistentSwapEndpointJournal.MaximumPayloadBytes);
     }
 
     private static async Task AssertPayloadRejectedAsync(
@@ -616,6 +1008,7 @@ public sealed class PersistentSwapEndpointJournalTests
             Now = Context.Deadline.AddMinutes(-2);
             FirstPrepare = new SwapPrepareCommand(
                 Context.OperationId,
+                Context.CorrelationId,
                 FirstToken,
                 FirstActivity,
                 SecondActivity,
@@ -692,13 +1085,14 @@ public sealed class PersistentSwapEndpointJournalTests
 
         public SwapPrepareCommand CreateOverlappingPrepare() => new(
             OperationId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            Context.CorrelationId,
             SwapReservationToken.From(
                 Guid.Parse("30303030-3030-3030-3030-303030303030")),
             FirstActivity,
             SecondActivity,
             Context.Deadline);
 
-        public SwapReservation CreateUniqueReservation()
+        public SwapReservation CreateUniqueReservation(int contentCharacters = 0)
         {
             uniqueSequence++;
             string prefix = uniqueSequence.ToString("X8", CultureInfo.InvariantCulture);
@@ -708,12 +1102,16 @@ public sealed class PersistentSwapEndpointJournalTests
                 ActivityId.Parse($"{prefix}-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
                 FirstDevice,
                 $"Original {uniqueSequence}",
-                $"original-{uniqueSequence}");
+                contentCharacters == 0
+                    ? $"original-{uniqueSequence}"
+                    : new string('o', contentCharacters));
             ActivityInstance incoming = CreateActivity(
                 ActivityId.Parse($"{prefix}-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
                 remote,
                 $"Incoming {uniqueSequence}",
-                $"incoming-{uniqueSequence}");
+                contentCharacters == 0
+                    ? $"incoming-{uniqueSequence}"
+                    : new string('i', contentCharacters));
             return SwapReservation.Prepare(
                 OperationId.Parse($"{prefix}-cccc-cccc-cccc-cccccccccccc"),
                 SwapReservationToken.From(Guid.Parse(

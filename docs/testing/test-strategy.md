@@ -180,9 +180,10 @@ ambiguous save, reject digest/shape/bounds tamper, and pin cross-platform reques
 and decision digests. The production payload contract uses a Swap-specific
 AES-256-GCM atomic file and independent DPAPI, Keychain, or Secret Service key;
 native DPAPI/Keychain tests run only on matching hosts and Linux Secret Service
-remains a controlled invocation contract. Endpoint persistence, authenticated
-wire messages, capability authorization, Desktop recovery, physical LAN loss,
-and abrupt power failure remain later evidence.
+remains a controlled invocation contract. Endpoint persistence is covered by
+task 3.3b and authenticated wire/capability composition by task 3.3c below;
+Desktop recovery, physical LAN loss, and abrupt power failure remain later
+evidence.
 
 The task 3.3b endpoint slice writes one Device-bound reservation with complete
 original and incoming Activity snapshots before Prepared can be acknowledged,
@@ -198,9 +199,46 @@ violations, request/descriptor/decision digest tamper, and participant-token
 mismatch. The protected `FSEF` file and independent Windows/macOS/Linux key
 purposes have shared and platform contract tests; only the matching host may
 claim its native credential API. The Activity catalog remains an external
-Adapter boundary, while authenticated Swap transport, Desktop recovery,
-physical LAN interruption, abrupt process termination, and power loss remain
-later evidence.
+Adapter boundary. Task 3.3c below adds authenticated Swap transport; Desktop
+recovery, physical LAN interruption, abrupt process termination, and power loss
+remain later evidence.
+
+The task 3.3c transport slice requires negotiated protocol 1.1 for all six Swap
+messages while preserving non-Swap protocol 1.0 fallback. A committed fixture
+freezes fixed message/correlation IDs, complete canonical JSON frames, body
+digests, and frame SHA-256 hashes for snapshot/result, Prepare/result, and
+decision/result. Every schema has unknown-field or hostile binding/digest tests;
+protocol tests reject downgraded 1.0 Swap frames.
+
+Session tests share the correlation registry with Handoff, Move, Replace, and
+inventory; reject unsolicited and cross-operation results; and use a manual
+`TimeProvider` to prove blocked send and silent-response expiry at the
+snapshot/Prepare deadline or 30-second decision-acknowledgement window without
+wall-clock sleeps. Timeout releases pending state, returns acknowledgement loss,
+and closes the session; a receive-point clock check rejects a response arriving
+at the deadline even when the timer callback is deliberately delayed.
+Inbound-envelope tests prove an expired unknown Abort cannot create a durable
+tombstone despite current authority.
+Send tests include a connection that ignores cancellation, and an early-response
+race proves a failed old send cannot release a newer cross-operation correlation
+owner. Concurrent Cancel/Dispose is required to remain idempotent.
+Authorization tests keep
+`activity.swap` independent, block sensitive or forged direct Prepare, deny
+unknown decisions, and allow post-revocation convergence only for an exact
+durable Operation/correlation/peer binding. Journal format-v2 restart tests reject
+v1 records without this evidence plus missing, null, wrong-type, duplicate, and
+non-canonical binding fields. A real encrypted TCP loopback drives one local
+direct and one remote durable endpoint from exact snapshot through intent,
+Prepare, Commit, and catalog convergence. These are same-host contracts; Desktop
+selection/recovery, physical devices, process kill, power loss, and native
+application Adapters remain open.
+
+Endpoint capacity tests fill the journal with near-maximum Activity descriptors,
+then persist a terminal decision for every admitted Prepared record. Prepare
+also rejects `long.MaxValue` incoming revisions before any write, and restart
+remains openable. Missing numeric enum fields and non-canonical timestamp aliases
+are hostile payloads rather than default values. Protected-file tests require a
+pre-cancelled missing-file load to throw before key or filesystem access.
 
 The task 7.3c tracer keeps Replace separate from Activity transfer. Application
 tests require an exact target ID/revision/digest and prove capture or store
@@ -274,6 +312,9 @@ Core invariants are asserted after every event:
 10. Replace target inventory never discloses payload/origin or ineligible target
     metadata, never exceeds one 64-item canonical page, and never authorizes
     mutation without destructive ID/revision/digest revalidation.
+11. revoked Swap authority can converge only through an exact durable
+    Operation/correlation/peer binding, and a silent peer cannot retain a pending
+    correlation beyond its defined deadline.
 
 ## 4. CI matrix
 
@@ -301,6 +342,8 @@ machine gates even when all three validators pass.
 - Committed golden fixtures are decoded by the current reader.
 - Current writers round-trip through the current reader canonically.
 - The oldest supported minor fixture is included in every run.
+- Protocol 1.0 is the oldest non-Swap control version; Swap first appears in the
+  frozen 1.1 fixture and is not exposed on a negotiated 1.0 session.
 - Required-field removal or semantic reuse requires a major version.
 - Optional additions need old-reader behavior tests.
 - Fuzz and hostile fixtures have bounded execution time and allocations.

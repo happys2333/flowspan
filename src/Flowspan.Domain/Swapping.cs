@@ -255,6 +255,13 @@ public sealed record SwapReservation
                 nameof(incomingActivity));
         }
 
+        if (incomingActivity.Revision == long.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(incomingActivity),
+                "A swap incoming Activity revision must leave room for the committed replacement revision.");
+        }
+
         if (expiresAt.Offset != TimeSpan.Zero)
         {
             throw new ArgumentException(
@@ -300,7 +307,10 @@ public sealed record SwapReservation
             || !decision.TryGetReservationToken(
                 OriginalActivity.Placement.DeviceId,
                 out SwapReservationToken? participantToken)
-            || participantToken != Token)
+            || participantToken != Token
+            || !decision.TryGetReservationToken(
+                IncomingActivity.Placement.DeviceId,
+                out _))
         {
             throw new InvalidOperationException(
                 "The swap decision does not match this reservation.");

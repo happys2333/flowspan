@@ -347,12 +347,81 @@ catalog mutation or acknowledgement, and reduces Commit after restart only from
 the exact original or exact already-replaced catalog state. The endpoint file
 uses its own `FSEF` AES-256-GCM envelope, path, and DPAPI/Keychain/Secret Service
 key purpose; an ambiguous save requires reopening before another write.
+Every Prepared record reserves 1 KiB of the 4 MiB journal bound for its fixed-
+shape terminal decision. Prepare rejects an incoming `long.MaxValue` revision,
+so a durable Commit can always construct its checked successor rather than
+becoming permanently unreducible after the decision write.
 
 The Activity catalog remains an external authoritative Adapter boundary rather
 than a general process-state database. Authenticated Swap protocol messages,
-capability checks, Desktop exact-confirmation and visible recovery, and physical
-restart evidence are later slices and are required before the v1 Swap criterion
-can pass.
+capability checks, and same-host encrypted-loopback composition are implemented
+in the current transport slice. Desktop exact-confirmation and visible recovery,
+durable Activity-catalog composition, physical two-device interruption, and
+restart evidence are still required before the v1 Swap criterion can pass.
+
+The authenticated transport slice replaces the in-process channel's synchronous
+catalog peek with a bounded exact-snapshot request. It never exposes a list: the
+request names one Activity ID and the result returns either one complete active,
+normal-sensitivity snapshot or a structured rejection. The coordinator obtains
+both exact snapshots before it writes intent, then sends Prepare and the durable
+Commit/Abort decision through the same authenticated session abstraction.
+
+Six control message types form three request/result pairs:
+`activity.swap.snapshot`, `activity.swap.snapshot.result`,
+`activity.swap.prepare`, `activity.swap.prepare.result`,
+`activity.swap.decision`, and `activity.swap.decision.result`. Snapshot and
+Prepare lifetimes are bounded by the Operation deadline and the five-minute
+control-envelope maximum. Results and decision delivery use short envelopes;
+a timely durable decision may be delivered after reservation expiry because the
+endpoint validates the recorded decision time rather than its network arrival
+time. Strict decoders reject unknown fields and recompute payload, descriptor,
+request, and decision digests.
+
+These types are a protocol 1.1 feature. Desktop discovery, pairing, and secure
+session profiles advertise both 1.1 and 1.0, negotiate the highest exact common
+version, and expose a Swap channel only for 1.1 or a later compatible minor in
+major version 1. A 1.0 peer retains non-Swap control behavior; constructing or
+decoding any Swap envelope at 1.0 fails closed. Six fixed-ID canonical frames,
+their complete JSON, and SHA-256 hashes are committed as the 1.1 compatibility
+fixture.
+
+Every inbound Swap request or result is rejected at or after its authenticated
+envelope `sentAt + ttlMs` before endpoint work or pending-result completion. A
+durable decision that needs later recovery is sent in a fresh envelope; its
+decision timestamp and digest remain unchanged.
+
+Snapshot and Prepare sending plus response wait end at their
+Operation/reservation deadline. Decision sending plus response wait use the same
+30-second lifetime as the decision envelope. If an authenticated peer remains
+connected but silent, the caller sees acknowledgement loss, the pending
+correlation is released, and the session is closed so a late response cannot be
+attached to later work. The receive path rechecks the current clock before
+decoding a pending result, so timer scheduling delay cannot admit a response at
+or after its deadline.
+The send path races even a non-cooperative connection against the same injected-
+clock deadline and observes any abandoned fault. Cleanup removes and releases a
+correlation only through the exact pending-instance pair, preventing an older
+send completion from releasing a newer cross-operation owner.
+
+`activity.swap` is purpose-specific and does not follow from
+`activity.replace`, `activity.offer`, or `activity.receive`. A current
+peer-relative grant is required to disclose a snapshot or create a new
+reservation. Once this endpoint has durably recorded the Operation, its exact
+decision or terminal replay remains eligible after a later grant revocation only
+when Operation ID, correlation ID, and authenticated peer Device all match the
+record. The endpoint journal stores that binding in format v2 and rejects older
+records that cannot prove it. Its strict decoder also rejects missing, null,
+wrong-type, duplicated, or non-canonical binding fields. An exact Prepared
+request replays before current deadline/grant checks; a new request still
+requires current authority and active, normal-sensitivity Activities on the
+exact local/peer placements. That narrow
+post-revocation exception prevents one-sided revocation from blocking convergence
+after Commit became durable. An unknown decision still requires the current
+grant, preventing a previously paired but unauthorized peer from filling the
+endpoint journal with Abort tombstones. Desktop exact confirmation and
+destructive command exposure
+remain disabled until their own slice; protocol availability alone is not user
+authorization to initiate Swap.
 
 ### Mirror and driver lease
 
@@ -377,10 +446,11 @@ senderDeviceId, sentAt, ttl, bodyDigest, body
 ```
 
 Decoders impose a maximum frame size, maximum nesting depth, known-version
-range, strict required fields, and message-specific limits. Unknown optional
-fields are ignored; unknown message types and required capabilities are
-rejected. Version negotiation precedes operation messages and chooses the
-highest common major/minor feature set. See
+range, strict required fields, and message-specific limits. Each schema defines
+whether optional fields are allowed; safety-sensitive Swap schemas reject every
+unknown field. Unknown message types and required capabilities are rejected.
+Version negotiation precedes operation messages and chooses the highest common
+major/minor feature set. See
 `docs/adr/0002-versioned-local-protocol.md`.
 
 ## 6. Discovery, transport, and reconnection
@@ -644,8 +714,8 @@ Authorization evaluates peer identity, capability, direction, Activity scope,
 sensitivity, current secure-session identity, and local platform state. Default
 capabilities are denied. Suggested independent grants are:
 
-`activity.offer`, `activity.receive`, `activity.replace`, `mirror.view`,
-`mirror.drive`, `file.receive`, and `scene.apply`.
+`activity.offer`, `activity.receive`, `activity.replace`, `activity.swap`,
+`mirror.view`, `mirror.drive`, `file.receive`, and `scene.apply`.
 
 Capabilities are local grants to the peer named by a Trust Record.
 `activity.offer` permits that peer to send an Activity to this device;

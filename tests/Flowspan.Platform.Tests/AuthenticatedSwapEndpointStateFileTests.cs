@@ -65,6 +65,8 @@ public sealed class AuthenticatedSwapEndpointStateFileTests
         cancellation.Cancel();
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
             await store.SaveAsync("cancelled"u8.ToArray(), cancellation.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+            await store.LoadAsync(cancellation.Token));
 
         Assert.Equal(0, keyStore.CallCount);
         Assert.False(File.Exists(path));
@@ -88,8 +90,12 @@ public sealed class AuthenticatedSwapEndpointStateFileTests
                        state.DeviceId,
                        new AuthenticatedSwapEndpointStateFile(path, keyStore)))
             {
-                await journal.TryPrepareAsync(state.Reservation);
-                await journal.TryRecordDecisionAsync(state.Decision);
+                await journal.TryPrepareAsync(
+                    state.CorrelationId,
+                    state.Reservation);
+                await journal.TryRecordDecisionAsync(
+                    state.CorrelationId,
+                    state.Decision);
             }
 
             byte[] protectedBytes = await File.ReadAllBytesAsync(path);
@@ -158,11 +164,16 @@ public sealed class AuthenticatedSwapEndpointStateFileTests
             .CreateDecision(
                 SwapDecisionOutcome.Commit,
                 context.Deadline.AddSeconds(-1));
-        return new TestState(firstDevice, reservation, decision);
+        return new TestState(
+            firstDevice,
+            context.CorrelationId,
+            reservation,
+            decision);
     }
 
     private sealed record TestState(
         DeviceId DeviceId,
+        CorrelationId CorrelationId,
         SwapReservation Reservation,
         SwapDecision Decision);
 
