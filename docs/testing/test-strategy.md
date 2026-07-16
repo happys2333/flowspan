@@ -190,11 +190,19 @@ exact Replace/undo replay, persisted-pending recovery without duplicate Adapter
 calls, cleanup/store/digest/tag fault behavior, and concurrent retry. Platform
 contracts keep a random key in DPAPI, Keychain, or Secret Service and put
 descriptors only in an AES-256-GCM atomic file; local macOS also exercises a
-disposable real Keychain item. Desktop composes only inventory discovery; the
-destructive peer and controls remain uncomposed until preview, confirmation,
-recovery, and visible local undo exist. Hosted runners and same-host evidence do
-not prove physical networking, native restoration, crash/power-loss behavior,
-or a shipped UI.
+disposable real Keychain item. After preview, recovery, and visible local undo
+became available, Desktop composes the protected target peer and source command.
+Runtime tests re-query and match the exact target at send time, recheck both
+directional Trust grants, commit over a real encrypted loopback, project the
+authenticated receipt/capsule, reject an unresolved target without a new
+journal entry, and preserve the source. An endpoint concurrency test proves a
+second distinct Replace cannot enter the journal while another Replace or local
+undo owns the shared destructive boundary. View-model and Headless tests cover
+pending duplicate disable, stale refresh, acknowledgement-loss/exception
+uncertainty, capsule/expiry display, keyboard activation, automation names, and
+unchanged `NOT SHARING`. Hosted runners and same-host evidence do not prove
+physical networking, native restoration, crash/power-loss behavior, or a shipped
+UI.
 
 The target-local visible-undo slice reduces terminal protected Replace history
 to unambiguous `workspace.note/v1` catalog frontiers on restart. Tests prove that

@@ -49,6 +49,11 @@ for end-user installation. The repository currently includes:
   with a separate target-first preview, verified-receipt source cleanup,
   source-preserving failure/uncertainty, and an explicit duplicate warning when
   source cleanup fails;
+- bounded `workspace.note/v1` desktop semantic Replace with purpose-scoped
+  payload-free inventory, exact confirmation and send-time revalidation,
+  current directional Trust checks, protected target-owned undo capsules,
+  target-local recovery/undo, truthful acknowledgement-loss guidance, and
+  keyboard/automation coverage;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
@@ -107,12 +112,13 @@ Start with [v1 requirements](specs/v1/requirements.md), then read the
 ## Safety boundary
 
 The current desktop composition can explicitly enable local pairing and an
-authenticated control channel. It can carry only the implemented bounded
-`workspace.note/v1` Semantic Handoff and acknowledged Semantic Move. Both are
-one-shot descriptor transfers rather than live sharing, so the global state
-remains `NOT SHARING`. Move closes the source only after a verified target
-receipt; rejection, failure, or uncertainty preserves it. Flowspan does not
-transfer process memory, unsaved application internals, credentials, screen
+authenticated control channel. It carries the bounded `workspace.note/v1`
+Semantic Handoff, acknowledged Semantic Move, and protected semantic Replace.
+These are one-shot descriptor operations rather than live sharing, so the global
+state remains `NOT SHARING`. Move closes the source only after a verified target
+receipt; Replace preserves the source and stores target undo state before target
+mutation. Rejection, failure, or uncertainty preserves the source. Flowspan does
+not transfer process memory, unsaved application internals, credentials, screen
 media, or remote input. The in-memory simulator and same-host loopback evidence
 do not substitute for physical-device, native-permission, or independent
 security review gates.

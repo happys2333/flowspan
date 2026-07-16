@@ -1,8 +1,9 @@
 # ADR 0011: Bounded Replace with a Target-Owned Undo Capsule
 
 Status: accepted for the `workspace.note/v1` tracer slice; durable state,
-query-only target inventory, preview-only confirmation, protected recovery, and
-target-local visible undo delivered; destructive desktop activation pending
+purpose-scoped inventory, exact confirmation, protected recovery, target-local
+visible undo, and destructive Desktop composition delivered; hosted closure and
+physical/native product evidence pending
 
 Date: 2026-07-15
 
@@ -80,11 +81,12 @@ Replace share one atomic pending correlation reservation per secure session.
 An inventory snapshot is preview data, never mutation authority. A later
 destructive command must still carry and revalidate the selected
 ID/revision/digest before Adapter capture, resume, or catalog mutation. The
-desktop now composes the query-only inventory endpoint but does not inject an
-`IReplacePeer` or expose a destructive Replace control. Activation remains
-blocked until the UI presents both Activities, obtains explicit confirmation,
-shows recovery/receipt state and exact undo expiry, and exposes target-local
-undo. Protocol availability is not evidence that this user flow is shipped.
+inventory-only sub-slice deliberately withheld `IReplacePeer`; after the UI,
+recovery/receipt, and target-local undo gates were delivered, task 7.3c.7
+composed the protected endpoint and source command. Protocol availability alone
+remains insufficient: every activation still requires a fresh exact inventory,
+snapshot-bound confirmation, send-time revalidation, and current directional
+Trust.
 
 ### Durable target state
 
@@ -134,11 +136,24 @@ untrusted or unrelated state.
 
 ### Target-local visible undo and restart reduction
 
-The visible undo slice keeps one private target-local `ReplaceEndpoint` beside
-the Desktop catalog and protected store, but it does not expose that endpoint to
-an authenticated session or compose a source-side destructive command. This
-reuses the existing exact-current, pending-before-Adapter, single-consume, and
-terminal-replay invariants without creating a second undo implementation.
+The visible undo slice first kept one private target-local `ReplaceEndpoint`
+beside the Desktop catalog and protected store. Task 7.3c.7 exposes the same
+endpoint through a Trust-bound authenticated peer instead of creating another
+destructive implementation. The peer is composed only after the protected store
+opens, reloads the sender's current `activity.replace` for each request, and
+blocks new work while protected history has an unresolved boundary. Target-local
+undo and inbound Replace therefore acquire one shared target serialization
+boundary before either can create a journal entry, and share exact-current,
+pending-before-Adapter, single-consume, and terminal-replay invariants.
+
+The source Desktop command never accepts a caller-built wire message. It takes
+an incoming ID and the exact confirmed inventory snapshot, refreshes that
+purpose-scoped inventory at send time, matches every displayed binding, rechecks
+the live incoming Activity plus local `activity.receive`, and only then creates
+one Operation/correlation pair. Replace does not clean up the source. An
+acknowledgement loss or unexpected post-invocation failure is not retried with a
+new Operation ID; the UI says the target may have committed and directs the user
+to target recovery.
 
 Because the Desktop catalog is currently process-memory state, startup reduces
 the protected terminal history to an exact state-transition graph for the
@@ -178,12 +193,10 @@ boundary.
 - Adapters that cannot prove an honest semantic capsule fail before destructive
   work; Remote Window is not silently substituted.
 - The durable-state module and Windows/macOS/Linux protected-key adapters now
-  exist. Desktop composes a payload-free target query plus a preview-only,
-  snapshot-bound confirmation surface, a protected target-local recovery
-  projection, and exact confirmed local undo, but it still does not compose
-  destructive Replace. In-memory state remains available only for deterministic
-  tests. Destructive source/target composition remains mandatory before product
-  activation.
+  exist. Desktop composes a payload-free target query, snapshot-bound
+  confirmation, protected recovery projection, exact local undo, the
+  Trust-bound target peer, and source-side destructive command. In-memory state
+  remains available only for deterministic tests.
 - Same-host loopback tests prove authenticated framing and state ordering, not
   physical LAN behavior or native application restoration.
 
@@ -205,8 +218,10 @@ boundary.
   mutation.
 - Desktop tests cover explicit query, incoming/target comparison, bounded
   coverage and capture time, confirmation revocation, stale revision/digest or
-  missing-target refresh, late-result rejection, sanitized recovery, keyboard
-  operation, accessible names/state, and the uncomposed destructive capability.
+  missing-target refresh, send-time exact revalidation, live Trust revocation,
+  encrypted-loopback commit, receipt/capsule projection, unresolved recovery
+  rejection, acknowledgement-loss guidance, pending duplicate disable,
+  sanitized exceptions, keyboard operation, and accessible names/state.
 - Recovery projection tests cover unresolved-first 64-record bounds, known-only
   pending fields, payload/title/digest canaries, available/expired/pending/
   consumed capsule state, protected-store restart and failure, sanitized

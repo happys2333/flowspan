@@ -43,6 +43,24 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
 
     public bool IsReady => Volatile.Read(ref node) is not null;
 
+    public bool IsDestructiveReplaceAvailable
+    {
+        get
+        {
+            if (Volatile.Read(ref disposed) != 0
+                || node is null
+                || replaceEndpoint is null
+                || handler?.IsReplaceEndpointAvailable != true)
+            {
+                return false;
+            }
+
+            DesktopReplaceRecoveryResult recovery = GetReplaceRecoveryState();
+            return recovery.IsAvailable
+                && !recovery.Records.Any(static record => record.IsRecoveryRequired);
+        }
+    }
+
     public DesktopActivitySnapshot CreateWorkspaceNote(
         string title,
         string text,
@@ -404,6 +422,154 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                 .ToImmutableArray());
     }
 
+    public async ValueTask<DesktopReplaceOperationResult> ReplaceAsync(
+        ActivityId incomingActivityId,
+        DesktopReplaceTargetSnapshot selectedTarget,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(incomingActivityId);
+        ArgumentNullException.ThrowIfNull(selectedTarget);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        FlowspanNode currentNode = node
+            ?? throw new InvalidOperationException(
+                "The Activity runtime is not initialized.");
+        if (!IsDestructiveReplaceAvailable)
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                FailureCode.UndoUnavailable,
+                timeProvider.GetUtcNow());
+        }
+
+        if (!currentNode.TryGetActivity(
+                incomingActivityId,
+                out ActivityInstance? incoming)
+            || incoming.Lifecycle != ActivityLifecycle.Active)
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                FailureCode.ActivityNotFound,
+                timeProvider.GetUtcNow());
+        }
+
+        DesktopReplaceTargetInventoryResult refreshed;
+        try
+        {
+            refreshed = await GetReplaceTargetsAsync(
+                incomingActivityId,
+                selectedTarget.DeviceId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                FailureCode.PeerUnavailable,
+                timeProvider.GetUtcNow());
+        }
+        if (!refreshed.IsSuccess)
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                refreshed.FailureCode,
+                timeProvider.GetUtcNow());
+        }
+
+        DesktopReplaceTargetSnapshot? exact = refreshed.Targets.SingleOrDefault(
+            target => target.ActivityId == selectedTarget.ActivityId);
+        if (exact is null || !IsExactReplaceTarget(exact, selectedTarget))
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                FailureCode.RevisionConflict,
+                timeProvider.GetUtcNow());
+        }
+
+        if (!currentNode.TryGetActivity(incomingActivityId, out ActivityInstance? live)
+            || live != incoming
+            || live.Lifecycle != ActivityLifecycle.Active)
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                FailureCode.RevisionConflict,
+                timeProvider.GetUtcNow());
+        }
+
+        TrustSessionCoordinator? currentTrust = trust;
+        if (currentTrust is null
+            || !currentTrust.TryGetCurrentTrust(
+                selectedTarget.DeviceId,
+                out TrustRecord? record)
+            || !record.GrantedCapabilities.Allows(Capability.ActivityReceive))
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                FailureCode.CapabilityDenied,
+                timeProvider.GetUtcNow());
+        }
+
+        if (!IsDestructiveReplaceAvailable)
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                FailureCode.UndoUnavailable,
+                timeProvider.GetUtcNow());
+        }
+
+        if (handler is null
+            || !handler.TryGetReplaceChannel(
+                selectedTarget.DeviceId,
+                out IReplaceChannel? channel)
+            || channel is null)
+        {
+            return DesktopReplaceOperationResult.NotDelivered(
+                FailureCode.PeerUnavailable,
+                timeProvider.GetUtcNow());
+        }
+
+        DateTimeOffset sendingAt = timeProvider.GetUtcNow();
+        OperationContext context = OperationContext.Create(
+            OperationId.From(Guid.NewGuid()),
+            CorrelationId.From(Guid.NewGuid()),
+            sendingAt.Add(OperationLifetime));
+        ReplaceActivityCommand command = ReplaceActivityCommand.Create(
+            context,
+            exact.ActivityId,
+            exact.Revision,
+            exact.DescriptorDigest,
+            live.Descriptor,
+            ActivityPlacement.On(exact.DeviceId, exact.PlacementSlot),
+            sendingAt.Add(ReplaceEndpoint.MaximumUndoRetention));
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+        ReplaceDeliveryResult delivered;
+        try
+        {
+            delivered = await channel.SendAsync(
+                currentNode.DeviceId,
+                command,
+                linked.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return DesktopReplaceOperationResult.AcknowledgementLost(
+                context,
+                timeProvider.GetUtcNow());
+        }
+        return delivered.Status switch
+        {
+            ActivityDeliveryStatus.Acknowledged
+                when delivered.Result is not null =>
+                DesktopReplaceOperationResult.Acknowledged(delivered.Result),
+            ActivityDeliveryStatus.AcknowledgementLost =>
+                DesktopReplaceOperationResult.AcknowledgementLost(
+                    context,
+                    timeProvider.GetUtcNow()),
+            _ => DesktopReplaceOperationResult.NotDelivered(
+                context,
+                FailureCode.PeerUnavailable,
+                timeProvider.GetUtcNow()),
+        };
+    }
+
     public async ValueTask InitializeAsync(
         CancellationToken cancellationToken = default)
     {
@@ -507,9 +673,18 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             AuthenticatedActivitySessionHandler newHandler;
             try
             {
+                IReplacePeer? authorizedReplacePeer = newReplaceEndpoint is null
+                    || newReplaceState is null
+                    ? null
+                    : new TrustBoundReplacePeer(
+                        newReplaceEndpoint,
+                        newReplaceState,
+                        coordinator,
+                        PublishChanged,
+                        timeProvider);
                 newHandler = new AuthenticatedActivitySessionHandler(
                     authorizedPeer,
-                    replacePeer: null,
+                    authorizedReplacePeer,
                     authorizedInventoryPeer,
                     timeProvider);
             }
@@ -669,6 +844,21 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         activity.Descriptor.Sensitivity,
         activity.Lifecycle);
 
+    private static bool IsExactReplaceTarget(
+        DesktopReplaceTargetSnapshot current,
+        DesktopReplaceTargetSnapshot selected) =>
+        current.DeviceId == selected.DeviceId
+        && current.ActivityId == selected.ActivityId
+        && current.Revision == selected.Revision
+        && StringComparer.OrdinalIgnoreCase.Equals(
+            current.DescriptorDigest,
+            selected.DescriptorDigest)
+        && StringComparer.Ordinal.Equals(current.Kind, selected.Kind)
+        && StringComparer.Ordinal.Equals(
+            current.PlacementSlot,
+            selected.PlacementSlot)
+        && StringComparer.Ordinal.Equals(current.Title, selected.Title);
+
     private void OnHandlerChanged() => PublishChanged();
 
     private void PublishChanged()
@@ -749,6 +939,67 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                 requestingDeviceId,
                 query,
                 cancellationToken);
+        }
+    }
+
+    private sealed class TrustBoundReplacePeer(
+        ReplaceEndpoint endpoint,
+        PersistentReplaceStateStore replaceState,
+        TrustSessionCoordinator trust,
+        Action activityChanged,
+        TimeProvider timeProvider) : IReplacePeer
+    {
+        public DeviceId DeviceId => endpoint.DeviceId;
+
+        public async ValueTask<ReplaceOperationResult> ReplaceAsync(
+            DeviceId senderDeviceId,
+            ReplaceActivityCommand command,
+            CancellationToken cancellationToken)
+        {
+            CapabilityGrant grant = trust.TryGetCurrentTrust(
+                senderDeviceId,
+                out TrustRecord? record)
+                ? record.GrantedCapabilities
+                : CapabilityGrant.None;
+            endpoint.SetPeerGrant(senderDeviceId, grant);
+            ReplaceRestartRecoveryPlan recoveryPlan;
+            try
+            {
+                recoveryPlan = replaceState.GetRestartRecoveryPlan(endpoint.DeviceId);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                return Failed(FailureCode.UndoUnavailable);
+            }
+
+            if (recoveryPlan.IsBlockedByUnresolvedOperation)
+            {
+                return Failed(FailureCode.OperationInProgress);
+            }
+
+            try
+            {
+                return await endpoint.ReplaceAsync(
+                    senderDeviceId,
+                    command,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                activityChanged();
+            }
+
+            ReplaceOperationResult Failed(FailureCode failureCode) => new(
+                OperationReceipt.Failed(
+                    command.Context.OperationId,
+                    command.Context.CorrelationId,
+                    OperationKind.Replace,
+                    senderDeviceId,
+                    endpoint.DeviceId,
+                    command.IncomingDescriptor,
+                    timeProvider.GetUtcNow(),
+                    failureCode),
+                null);
         }
     }
 }

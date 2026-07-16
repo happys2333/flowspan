@@ -140,20 +140,20 @@ devices or native accessibility.
 | Threat | Required implementation evidence | Remaining evidence |
 | --- | --- | --- |
 | T04 | `activity.replace.inventory` and its result bind authenticated participants, correlation, target, incoming kind, query deadline, capture/send ordering, strict schema, and one bounded canonical snapshot page. Transfer, inventory, and Replace cannot share a pending correlation. Unsolicited/wrong-correlation results fault closed and disconnect becomes acknowledgement-lost. Destructive `activity.replace` retains its existing exact Operation/target/capsule binding and durable replay. The target desktop projects unresolved durable boundaries before terminal history without replaying Adapter work. | Hosted final-HEAD matrix, cross-machine packet loss/retry, and physical sleep/wake interruption. |
-| T05 | The source checks its current `activity.receive` before channel lookup. On every query, the target reloads the requesting peer's current `activity.replace`; a same-session downgrade is rejected before catalog projection. `activity.replace` may admit an idle control channel but authorizes no other operation. The desktop handler still does not accept destructive Replace. | Explicit target-side confirmation and revocation observation on physical supported-platform pairs. |
+| T05 | The source checks its current `activity.receive` before inventory and again before destructive channel lookup. On every query and destructive request, the target reloads the requesting peer's current `activity.replace`; same-session downgrade is rejected before catalog projection or mutation. `activity.replace` may admit an idle control channel but authorizes no other operation. | Explicit target-side confirmation and revocation observation on physical supported-platform pairs. |
 | T10 | Inventory exposes only Activity ID/revision/descriptor digest/kind/normal-sensitivity title/Placement slot; payload, payload digest, origin, sensitive/restricted/inactive/non-local/different-kind/unsupported Activities stay local. Full target state remains in the protected target store, and destructive results/receipts remain payload-free. | Packaged crash/minidump/export canary inspection and independent protected-store review. |
-| T18 | Inventory is purpose-scoped preview data, not mutation authority: it is limited to active normal local same-kind targets with a Replace-capable Adapter, and destructive Replace still revalidates selected ID/revision/digest before capture or resume. For `workspace.note/v1`, startup admits only unambiguous terminal-history frontiers; pending/`Recovering`, orphaned capsules or committed receipts/undos, receipt/capsule mismatches, conflicting transitions, unsupported kinds, and non-exact live catalog state fail closed. One private target-local endpoint performs confirmed undo, while the Desktop service repeats the live candidate check so direct callers cannot journal a globally blocked attempt. Expired, consumed, and stale known capsules preserve their exact rejection reason without Adapter restore. | Destructive Desktop composition, native Adapter evidence beyond `workspace.note/v1`, independent security review, and physical crash/power-loss evidence. |
+| T18 | Inventory is purpose-scoped preview data, not mutation authority: it is limited to active normal local same-kind targets with a Replace-capable Adapter. Desktop re-queries at send time and matches device/ID/revision/digest/kind/title/placement before constructing a command. For `workspace.note/v1`, startup admits only unambiguous terminal-history frontiers; pending/`Recovering`, orphaned capsules or committed receipts/undos, receipt/capsule mismatches, conflicting transitions, unsupported kinds, and non-exact live catalog state fail closed. The protected endpoint serves both inbound Replace and confirmed local undo; service and target-peer preflights prevent a globally blocked attempt from reaching Adapter work. Expired, consumed, and stale known capsules preserve their exact rejection reason without Adapter restore. | Native Adapter evidence beyond `workspace.note/v1`, independent security review, and physical crash/power-loss evidence. |
 
-The current candidate includes a durable protected-state implementation,
-platform key-store adapters, a query-only desktop target-inventory endpoint,
-snapshot-bound preview/confirmation, a target-local recovery projection, exact
-semantic-note restart reduction, and one confirmed keyboard-operable local undo
-action. The authenticated handler still receives no destructive Replace peer,
-the source has no `ReplaceAsync`, and no physical/native recovery or accessibility
-claim is made. The implementation exact-commit hosted matrix, Secret Scan, and
-CodeQL pass, as do the evidence commit's matching gates. The closure commit that
-records those results remains subject to final-HEAD verification. This slice
-therefore does not yet satisfy the v1 Replace release criterion.
+The current candidate adds a Trust-bound production target peer and source-side
+Desktop `ReplaceAsync` to the durable protected-state, purpose-scoped inventory,
+snapshot confirmation, recovery projection, semantic-note restart reduction,
+and confirmed local undo. Deterministic tests cover send-time stale selection,
+both directional Trust revocations, encrypted-loopback commit and capsule
+binding, unresolved-target rejection, pending duplicate disable, truthful
+acknowledgement loss, and keyboard activation while `NOT SHARING` remains
+unchanged. Hosted final-HEAD, physical/native recovery, and native accessibility
+claims remain pending; this candidate alone does not satisfy the v1 Replace
+release criterion.
 
 ## 6. Security state machine rules
 

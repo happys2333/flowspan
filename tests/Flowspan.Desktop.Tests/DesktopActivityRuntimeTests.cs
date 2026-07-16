@@ -368,8 +368,14 @@ public sealed class DesktopActivityRuntimeTests
             CapabilityGrant.Of(Capability.ActivityReplace)));
         var sourceTrust = new TrustSessionCoordinator(sourceStore);
         var targetTrust = new TrustSessionCoordinator(targetStore);
-        await using var source = CreateRuntime(sourceIdentity, sourceTrust);
-        await using var target = CreateRuntime(targetIdentity, targetTrust);
+        await using var source = CreateRuntime(
+            sourceIdentity,
+            sourceTrust,
+            new MemoryReplaceStatePayloadStore());
+        await using var target = CreateRuntime(
+            targetIdentity,
+            targetTrust,
+            new MemoryReplaceStatePayloadStore());
         await source.InitializeAsync();
         await target.InitializeAsync();
         DesktopActivitySnapshot incoming = source.CreateWorkspaceNote(
@@ -414,9 +420,9 @@ public sealed class DesktopActivityRuntimeTests
             await source.GetReplaceTargetsAsync(incoming.ActivityId, TargetId);
 
         Assert.True(result.IsSuccess);
-        Assert.False(
+        Assert.True(
             ((IDesktopActivityService)source).IsDestructiveReplaceAvailable);
-        Assert.False(
+        Assert.True(
             ((IDesktopActivityService)target).IsDestructiveReplaceAvailable);
         DesktopReplaceTargetSnapshot snapshot = Assert.Single(result.Targets);
         Assert.Equal(existing.ActivityId, snapshot.ActivityId);
@@ -427,11 +433,59 @@ public sealed class DesktopActivityRuntimeTests
             sourceIdentity.PublicIdentity.Fingerprint,
             CapabilityGrant.None));
 
+        DesktopReplaceOperationResult denied = await source.ReplaceAsync(
+            incoming.ActivityId,
+            snapshot);
+
+        Assert.Equal(ActivityDeliveryStatus.NotDelivered, denied.DeliveryStatus);
+        Assert.Equal(FailureCode.CapabilityDenied, denied.FailureCode);
+        Assert.Null(denied.Receipt);
+        Assert.Null(denied.UndoCapsule);
+
         DesktopReplaceTargetInventoryResult revoked =
             await source.GetReplaceTargetsAsync(incoming.ActivityId, TargetId);
 
         Assert.Equal(FailureCode.CapabilityDenied, revoked.FailureCode);
         Assert.Empty(revoked.Targets);
+        Assert.True(sourceHandler.TryGetReplaceChannel(
+            TargetId,
+            out IReplaceChannel? rawChannel));
+        Assert.NotNull(rawChannel);
+        ActivityDescriptor rawIncoming = ActivityDescriptor.Create(
+            incoming.ActivityId,
+            ActivityKind.Parse(incoming.Kind),
+            SourceId,
+            incoming.Title,
+            "{\"text\":\"incoming body\"}");
+        OperationContext rawContext = OperationContext.Create(
+            OperationId.Parse("66666666-6666-6666-6666-666666666666"),
+            CorrelationId.Parse("77777777-7777-7777-7777-777777777777"),
+            Now.AddSeconds(30));
+
+        ReplaceDeliveryResult rawDenied = await rawChannel.SendAsync(
+            SourceId,
+            ReplaceActivityCommand.Create(
+                rawContext,
+                snapshot.ActivityId,
+                snapshot.Revision,
+                snapshot.DescriptorDigest,
+                rawIncoming,
+                ActivityPlacement.On(TargetId, snapshot.PlacementSlot),
+                Now.AddMinutes(10)),
+            CancellationToken.None);
+
+        Assert.Equal(ActivityDeliveryStatus.Acknowledged, rawDenied.Status);
+        Assert.Equal(
+            OperationStatus.Rejected,
+            rawDenied.Result?.Receipt.Status);
+        Assert.Equal(
+            FailureCode.CapabilityDenied,
+            rawDenied.Result?.Receipt.FailureCode);
+        Assert.Null(rawDenied.Result?.UndoCapsule);
+        ReplaceRecoveryRecord deniedRecord = Assert.Single(
+            target.GetReplaceRecoveryState().Records);
+        Assert.Equal(rawContext.OperationId, deniedRecord.OperationId);
+        Assert.Equal(FailureCode.CapabilityDenied, deniedRecord.FailureCode);
         Assert.Equal(existing, Assert.Single(target.GetActivities()));
         Assert.Equal(incoming, Assert.Single(source.GetActivities()));
         stop.Cancel();
@@ -442,7 +496,369 @@ public sealed class DesktopActivityRuntimeTests
     }
 
     [Fact]
-    public async Task MissingReceiveGrantRejectsReplaceInventoryBeforeChannelLookup()
+    public async Task ReplaceRevalidatesExactTargetBeforeSendingDestructiveCommand()
+    {
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
+        var sourceStore = new InMemoryTrustStore();
+        sourceStore.Register(new TrustRecord(
+            targetIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        var targetStore = new InMemoryTrustStore();
+        targetStore.Register(new TrustRecord(
+            sourceIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReplace)));
+        var sourceTrust = new TrustSessionCoordinator(sourceStore);
+        var targetTrust = new TrustSessionCoordinator(targetStore);
+        var sourceReplaceState = new MemoryReplaceStatePayloadStore();
+        var targetReplaceState = new MemoryReplaceStatePayloadStore();
+        UndoCapsule targetCapsule = await CreateCommittedReplaceStateAsync(
+            targetReplaceState);
+        await using var source = CreateRuntime(
+            sourceIdentity,
+            sourceTrust,
+            sourceReplaceState);
+        await using var target = CreateRuntime(
+            targetIdentity,
+            targetTrust,
+            targetReplaceState);
+        await source.InitializeAsync();
+        await target.InitializeAsync();
+        DesktopActivitySnapshot incoming = source.CreateWorkspaceNote(
+            "Incoming note",
+            "incoming body",
+            ActivitySensitivity.Normal);
+        AuthenticatedActivitySessionHandler sourceHandler =
+            await source.GetSessionHandlerAsync();
+        AuthenticatedActivitySessionHandler targetHandler =
+            await target.GetSessionHandlerAsync();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        using var stop = new CancellationTokenSource();
+        using var operationTimeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(5));
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+        try
+        {
+            DesktopReplaceTargetSnapshot staleTarget = Assert.Single(
+                (await source.GetReplaceTargetsAsync(
+                    incoming.ActivityId,
+                    TargetId,
+                    operationTimeout.Token)).Targets);
+            UndoReplaceResult interveningUndo = await target.UndoReplaceAsync(
+                targetCapsule.Id,
+                operationTimeout.Token);
+            Assert.True(interveningUndo.IsSuccess);
+            var sourceBefore = source.GetActivities();
+            var targetBefore = target.GetActivities();
+            DesktopReplaceRecoveryResult recoveryBefore =
+                target.GetReplaceRecoveryState();
+
+            DesktopReplaceOperationResult result = await source.ReplaceAsync(
+                incoming.ActivityId,
+                staleTarget,
+                operationTimeout.Token);
+
+            Assert.Equal(ActivityDeliveryStatus.NotDelivered, result.DeliveryStatus);
+            Assert.Equal(FailureCode.RevisionConflict, result.FailureCode);
+            Assert.Null(result.OperationId);
+            Assert.Null(result.CorrelationId);
+            Assert.Null(result.Receipt);
+            Assert.Null(result.UndoCapsule);
+            Assert.Equal(sourceBefore.ToArray(), source.GetActivities().ToArray());
+            Assert.Equal(targetBefore.ToArray(), target.GetActivities().ToArray());
+            DesktopReplaceRecoveryResult recoveryAfter =
+                target.GetReplaceRecoveryState();
+            Assert.Equal(
+                recoveryBefore.Records.ToArray(),
+                recoveryAfter.Records.ToArray());
+            Assert.Equal(
+                recoveryBefore.UndoableCapsuleIds.ToArray(),
+                recoveryAfter.UndoableCapsuleIds.ToArray());
+        }
+        finally
+        {
+            stop.Cancel();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
+        await sourceTrust.DisposeAsync();
+        await targetTrust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AuthenticatedDesktopReplaceProjectsReceiptAndUndoCapsule()
+    {
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
+        var sourceStore = new InMemoryTrustStore();
+        sourceStore.Register(new TrustRecord(
+            targetIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        var targetStore = new InMemoryTrustStore();
+        targetStore.Register(new TrustRecord(
+            sourceIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReplace)));
+        var sourceTrust = new TrustSessionCoordinator(sourceStore);
+        var targetTrust = new TrustSessionCoordinator(targetStore);
+        await using var source = CreateRuntime(
+            sourceIdentity,
+            sourceTrust,
+            new MemoryReplaceStatePayloadStore());
+        await using var target = CreateRuntime(
+            targetIdentity,
+            targetTrust,
+            new MemoryReplaceStatePayloadStore());
+        await source.InitializeAsync();
+        await target.InitializeAsync();
+        DesktopActivitySnapshot incoming = source.CreateWorkspaceNote(
+            "Incoming note",
+            "incoming body",
+            ActivitySensitivity.Normal);
+        DesktopActivitySnapshot existing = target.CreateWorkspaceNote(
+            "Existing target",
+            "target body",
+            ActivitySensitivity.Normal);
+        AuthenticatedActivitySessionHandler sourceHandler =
+            await source.GetSessionHandlerAsync();
+        AuthenticatedActivitySessionHandler targetHandler =
+            await target.GetSessionHandlerAsync();
+        Assert.True(sourceHandler.IsReplaceEndpointAvailable);
+        Assert.True(targetHandler.IsReplaceEndpointAvailable);
+        Assert.True(((IDesktopActivityService)source).IsDestructiveReplaceAvailable);
+        Assert.True(((IDesktopActivityService)target).IsDestructiveReplaceAvailable);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        using var stop = new CancellationTokenSource();
+        using var operationTimeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(5));
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+        try
+        {
+            DesktopReplaceTargetSnapshot selected = Assert.Single(
+                (await source.GetReplaceTargetsAsync(
+                    incoming.ActivityId,
+                    TargetId,
+                    operationTimeout.Token)).Targets);
+            int targetChangeCount = 0;
+            target.Changed += () => targetChangeCount++;
+
+            DesktopReplaceOperationResult result = await source.ReplaceAsync(
+                incoming.ActivityId,
+                selected,
+                operationTimeout.Token);
+
+            Assert.Equal(ActivityDeliveryStatus.Acknowledged, result.DeliveryStatus);
+            Assert.Equal(OperationStatus.Committed, result.Status);
+            Assert.Equal(FailureCode.None, result.FailureCode);
+            Assert.True(result.IsSuccess);
+            OperationReceipt receipt = Assert.IsType<OperationReceipt>(result.Receipt);
+            UndoCapsuleReference capsule =
+                Assert.IsType<UndoCapsuleReference>(result.UndoCapsule);
+            Assert.Equal(result.OperationId, receipt.OperationId);
+            Assert.Equal(result.CorrelationId, receipt.CorrelationId);
+            Assert.Equal(OperationKind.Replace, receipt.Kind);
+            Assert.Equal(SourceId, receipt.SourceDeviceId);
+            Assert.Equal(TargetId, receipt.TargetDeviceId);
+            Assert.Equal(incoming.ActivityId, receipt.ActivityId);
+            Assert.Equal(selected.ActivityId, capsule.TargetActivityId);
+            Assert.Equal(selected.Revision, capsule.ExpectedTargetRevision);
+            Assert.Equal(selected.DescriptorDigest, capsule.TargetDescriptorDigest);
+            Assert.Equal(incoming.ActivityId, capsule.IncomingActivityId);
+            Assert.Equal(Now.Add(ReplaceEndpoint.MaximumUndoRetention), capsule.ExpiresAt);
+            Assert.Equal(incoming, Assert.Single(source.GetActivities()));
+            DesktopActivitySnapshot replacement = Assert.Single(target.GetActivities());
+            Assert.Equal(incoming.ActivityId, replacement.ActivityId);
+            Assert.Equal(incoming.Title, replacement.Title);
+            Assert.NotEqual(existing.ActivityId, replacement.ActivityId);
+            DesktopReplaceRecoveryResult recovery = target.GetReplaceRecoveryState();
+            ReplaceRecoveryRecord record = Assert.Single(recovery.Records);
+            Assert.Equal(OperationStatus.Committed, record.Status);
+            Assert.Equal(capsule.Id, record.CapsuleId);
+            Assert.Contains(capsule.Id, recovery.UndoableCapsuleIds);
+            Assert.True(targetChangeCount > 0);
+        }
+        finally
+        {
+            stop.Cancel();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
+        await sourceTrust.DisposeAsync();
+        await targetTrust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task UnresolvedTargetRecoveryRejectsNewReplaceWithoutNewJournalEntry()
+    {
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
+        var sourceStore = new InMemoryTrustStore();
+        sourceStore.Register(new TrustRecord(
+            targetIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReceive)));
+        var targetStore = new InMemoryTrustStore();
+        targetStore.Register(new TrustRecord(
+            sourceIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.ActivityReplace)));
+        var sourceTrust = new TrustSessionCoordinator(sourceStore);
+        var targetTrust = new TrustSessionCoordinator(targetStore);
+        var sourceReplaceState = new MemoryReplaceStatePayloadStore();
+        var targetReplaceState = new MemoryReplaceStatePayloadStore();
+        OperationId unresolvedOperationId =
+            OperationId.Parse("88888888-8888-8888-8888-888888888888");
+        using (PersistentReplaceStateStore state =
+               await PersistentReplaceStateStore.OpenAsync(targetReplaceState))
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await state.ExecuteOnceAsync(
+                    unresolvedOperationId,
+                    new string('D', 64),
+                    _ => ValueTask.FromException<OperationReceipt>(
+                        new InvalidOperationException("Injected pending boundary.")),
+                    CancellationToken.None));
+        }
+
+        await using var source = CreateRuntime(
+            sourceIdentity,
+            sourceTrust,
+            sourceReplaceState);
+        await using var target = CreateRuntime(
+            targetIdentity,
+            targetTrust,
+            targetReplaceState);
+        await source.InitializeAsync();
+        await target.InitializeAsync();
+        DesktopActivitySnapshot incoming = source.CreateWorkspaceNote(
+            "Incoming note",
+            "incoming body",
+            ActivitySensitivity.Normal);
+        DesktopActivitySnapshot existing = target.CreateWorkspaceNote(
+            "Existing target",
+            "target body",
+            ActivitySensitivity.Normal);
+        AuthenticatedActivitySessionHandler sourceHandler =
+            await source.GetSessionHandlerAsync();
+        AuthenticatedActivitySessionHandler targetHandler =
+            await target.GetSessionHandlerAsync();
+        Assert.True(targetHandler.IsReplaceEndpointAvailable);
+        Assert.False(((IDesktopActivityService)target).IsDestructiveReplaceAvailable);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        using var stop = new CancellationTokenSource();
+        using var operationTimeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(5));
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+        try
+        {
+            DesktopReplaceTargetSnapshot selected = Assert.Single(
+                (await source.GetReplaceTargetsAsync(
+                    incoming.ActivityId,
+                    TargetId,
+                    operationTimeout.Token)).Targets);
+            DesktopReplaceRecoveryResult before = target.GetReplaceRecoveryState();
+
+            DesktopReplaceOperationResult result = await source.ReplaceAsync(
+                incoming.ActivityId,
+                selected,
+                operationTimeout.Token);
+
+            Assert.Equal(ActivityDeliveryStatus.Acknowledged, result.DeliveryStatus);
+            Assert.Equal(OperationStatus.Failed, result.Status);
+            Assert.Equal(FailureCode.OperationInProgress, result.FailureCode);
+            Assert.Null(result.UndoCapsule);
+            Assert.Equal(incoming, Assert.Single(source.GetActivities()));
+            Assert.Equal(existing, Assert.Single(target.GetActivities()));
+            DesktopReplaceRecoveryResult after = target.GetReplaceRecoveryState();
+            Assert.Equal(before.Records.ToArray(), after.Records.ToArray());
+            Assert.Equal(
+                unresolvedOperationId,
+                Assert.Single(after.Records).OperationId);
+        }
+        finally
+        {
+            stop.Cancel();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
+        await sourceTrust.DisposeAsync();
+        await targetTrust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MissingReceiveGrantRejectsInventoryAndReplaceBeforeChannelLookup()
     {
         using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
         using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
@@ -452,7 +868,10 @@ public sealed class DesktopActivityRuntimeTests
             Now,
             CapabilityGrant.None));
         var sourceTrust = new TrustSessionCoordinator(sourceStore);
-        await using var source = CreateRuntime(sourceIdentity, sourceTrust);
+        await using var source = CreateRuntime(
+            sourceIdentity,
+            sourceTrust,
+            new MemoryReplaceStatePayloadStore());
         await source.InitializeAsync();
         DesktopActivitySnapshot incoming = source.CreateWorkspaceNote(
             "Incoming note",
@@ -464,11 +883,31 @@ public sealed class DesktopActivityRuntimeTests
 
         Assert.Equal(FailureCode.CapabilityDenied, result.FailureCode);
         Assert.Empty(result.Targets);
+        var selected = new DesktopReplaceTargetSnapshot(
+            TargetId,
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            "Unavailable target",
+            "workspace.note/v1",
+            1,
+            new string('A', 64),
+            "desktop");
+
+        DesktopReplaceOperationResult replace = await source.ReplaceAsync(
+            incoming.ActivityId,
+            selected);
+
+        Assert.Equal(ActivityDeliveryStatus.NotDelivered, replace.DeliveryStatus);
+        Assert.Equal(FailureCode.CapabilityDenied, replace.FailureCode);
+        Assert.Null(replace.OperationId);
+        Assert.Null(replace.CorrelationId);
+        Assert.Null(replace.Receipt);
+        Assert.Null(replace.UndoCapsule);
+        Assert.Equal(incoming, Assert.Single(source.GetActivities()));
         await sourceTrust.DisposeAsync();
     }
 
     [Fact]
-    public async Task LoadsProtectedReplaceRecoveryWithoutComposingDestructiveEndpoint()
+    public async Task LoadsProtectedReplaceRecoveryAndComposesDestructiveEndpoint()
     {
         var payloadStore = new MemoryReplaceStatePayloadStore();
         ActivityDescriptor incoming = ActivityDescriptor.Create(
@@ -513,13 +952,13 @@ public sealed class DesktopActivityRuntimeTests
         Assert.Equal(FailureCode.CapabilityDenied, record.FailureCode);
         AuthenticatedActivitySessionHandler handler =
             await runtime.GetSessionHandlerAsync();
-        Assert.False(handler.IsReplaceEndpointAvailable);
-        Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
+        Assert.True(handler.IsReplaceEndpointAvailable);
+        Assert.True(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
         await trust.DisposeAsync();
     }
 
     [Fact]
-    public async Task StartupReconstructsExactSemanticReplacementWithoutExposingPeerEndpoint()
+    public async Task StartupReconstructsExactSemanticReplacementAndExposesPeerEndpoint()
     {
         var payloadStore = new MemoryReplaceStatePayloadStore();
         UndoCapsule capsule = await CreateCommittedReplaceStateAsync(payloadStore);
@@ -537,8 +976,8 @@ public sealed class DesktopActivityRuntimeTests
         Assert.Equal(capsule.Id, Assert.Single(recovery.UndoableCapsuleIds));
         AuthenticatedActivitySessionHandler handler =
             await runtime.GetSessionHandlerAsync();
-        Assert.False(handler.IsReplaceEndpointAvailable);
-        Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
+        Assert.True(handler.IsReplaceEndpointAvailable);
+        Assert.True(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
         await trust.DisposeAsync();
     }
 
@@ -571,8 +1010,8 @@ public sealed class DesktopActivityRuntimeTests
         Assert.Empty(recovery.UndoableCapsuleIds);
         AuthenticatedActivitySessionHandler handler =
             await runtime.GetSessionHandlerAsync();
-        Assert.False(handler.IsReplaceEndpointAvailable);
-        Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
+        Assert.True(handler.IsReplaceEndpointAvailable);
+        Assert.True(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
 
         UndoReplaceResult consumed = await runtime.UndoReplaceAsync(capsule.Id);
 
@@ -618,6 +1057,10 @@ public sealed class DesktopActivityRuntimeTests
             recovery.Records,
             record => record.CapsuleId == capsule.Id
                 && record.UndoAvailability == ReplaceUndoAvailability.Available);
+        AuthenticatedActivitySessionHandler handler =
+            await runtime.GetSessionHandlerAsync();
+        Assert.True(handler.IsReplaceEndpointAvailable);
+        Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
         await trust.DisposeAsync();
     }
 
@@ -767,6 +1210,9 @@ public sealed class DesktopActivityRuntimeTests
         Assert.True(runtime.IsReady);
         Assert.Equal(note, Assert.Single(runtime.GetActivities()));
         Assert.False(runtime.GetReplaceRecoveryState().IsAvailable);
+        AuthenticatedActivitySessionHandler handler =
+            await runtime.GetSessionHandlerAsync();
+        Assert.False(handler.IsReplaceEndpointAvailable);
         Assert.False(((IDesktopActivityService)runtime).IsDestructiveReplaceAvailable);
         await trust.DisposeAsync();
     }

@@ -54,6 +54,90 @@ public sealed record DesktopReplaceTargetInventoryResult(
     }
 }
 
+public sealed record DesktopReplaceOperationResult(
+    OperationId? OperationId,
+    CorrelationId? CorrelationId,
+    ActivityDeliveryStatus DeliveryStatus,
+    FailureCode FailureCode,
+    DateTimeOffset OccurredAt,
+    OperationReceipt? Receipt,
+    UndoCapsuleReference? UndoCapsule)
+{
+    public bool IsSuccess =>
+        DeliveryStatus == ActivityDeliveryStatus.Acknowledged
+        && Receipt?.Status == OperationStatus.Committed
+        && UndoCapsule is not null;
+
+    public OperationStatus? Status => Receipt?.Status;
+
+    internal static DesktopReplaceOperationResult NotDelivered(
+        FailureCode failureCode,
+        DateTimeOffset occurredAt)
+    {
+        if (failureCode == FailureCode.None
+            || failureCode == FailureCode.AcknowledgementLost)
+        {
+            throw new ArgumentException(
+                "A Replace operation that was not delivered needs an exact preflight or delivery failure.",
+                nameof(failureCode));
+        }
+
+        return new DesktopReplaceOperationResult(
+            null,
+            null,
+            ActivityDeliveryStatus.NotDelivered,
+            failureCode,
+            occurredAt,
+            null,
+            null);
+    }
+
+    internal static DesktopReplaceOperationResult NotDelivered(
+        OperationContext context,
+        FailureCode failureCode,
+        DateTimeOffset occurredAt)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        DesktopReplaceOperationResult result = NotDelivered(
+            failureCode,
+            occurredAt);
+        return result with
+        {
+            OperationId = context.OperationId,
+            CorrelationId = context.CorrelationId,
+        };
+    }
+
+    internal static DesktopReplaceOperationResult AcknowledgementLost(
+        OperationContext context,
+        DateTimeOffset occurredAt)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return new DesktopReplaceOperationResult(
+            context.OperationId,
+            context.CorrelationId,
+            ActivityDeliveryStatus.AcknowledgementLost,
+            FailureCode.AcknowledgementLost,
+            occurredAt,
+            null,
+            null);
+    }
+
+    internal static DesktopReplaceOperationResult Acknowledged(
+        ReplaceOperationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return new DesktopReplaceOperationResult(
+            result.Receipt.OperationId,
+            result.Receipt.CorrelationId,
+            ActivityDeliveryStatus.Acknowledged,
+            result.Receipt.FailureCode,
+            result.Receipt.OccurredAt,
+            result.Receipt,
+            result.UndoCapsule);
+    }
+}
+
 public sealed record DesktopReplaceRecoveryResult(
     bool IsAvailable,
     DateTimeOffset? CapturedAt,
@@ -144,6 +228,14 @@ public interface IDesktopActivityService : IAsyncDisposable
             new PlatformNotSupportedException(
                 "Replace target inventory is not configured by this Activity service."));
 
+    public ValueTask<DesktopReplaceOperationResult> ReplaceAsync(
+        ActivityId incomingActivityId,
+        DesktopReplaceTargetSnapshot selectedTarget,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromException<DesktopReplaceOperationResult>(
+            new PlatformNotSupportedException(
+                "Destructive Replace is not configured by this Activity service."));
+
     public ValueTask<UndoReplaceResult> UndoReplaceAsync(
         UndoCapsuleId capsuleId,
         CancellationToken cancellationToken = default) =>
@@ -161,6 +253,7 @@ public sealed class ActivityWorkspaceViewModel :
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly AsyncRelayCommand moveCommand;
     private readonly AsyncRelayCommand refreshReplaceTargetsCommand;
+    private readonly AsyncRelayCommand replaceCommand;
     private readonly AsyncRelayCommand targetLocalUndoCommand;
     private readonly IDesktopActivityService service;
     private readonly IDesktopUiDispatcher dispatcher;
@@ -181,6 +274,14 @@ public sealed class ActivityWorkspaceViewModel :
     private string replaceInventoryCoverage = string.Empty;
     private string replaceInventoryStatus = "REPLACE TARGETS NOT LOADED";
     private int replaceInventoryContextVersion;
+    private string replaceOperationCapsule = string.Empty;
+    private string replaceOperationCorrelationId = string.Empty;
+    private string replaceOperationDescription = string.Empty;
+    private string replaceOperationId = string.Empty;
+    private string replaceOperationOccurredAt = string.Empty;
+    private string replaceOperationReason = string.Empty;
+    private string replaceOperationStatus = string.Empty;
+    private string replaceOperationUndoExpiry = string.Empty;
     private string replaceRecoveryCapturedAt = string.Empty;
     private string replaceRecoveryCoverage = string.Empty;
     private string replaceRecoveryDescription =
@@ -221,6 +322,9 @@ public sealed class ActivityWorkspaceViewModel :
         refreshReplaceTargetsCommand = new AsyncRelayCommand(
             RefreshReplaceTargetsAsync,
             CanRefreshReplaceTargets);
+        replaceCommand = new AsyncRelayCommand(
+            ReplaceAsync,
+            CanReplace);
         targetLocalUndoCommand = new AsyncRelayCommand(
             UndoReplaceAsync,
             CanUndoReplace);
@@ -246,6 +350,8 @@ public sealed class ActivityWorkspaceViewModel :
     public ICommand MoveCommand => moveCommand;
 
     public ICommand RefreshReplaceTargetsCommand => refreshReplaceTargetsCommand;
+
+    public ICommand ReplaceCommand => replaceCommand;
 
     public ICommand TargetLocalUndoCommand => targetLocalUndoCommand;
 
@@ -309,6 +415,7 @@ public sealed class ActivityWorkspaceViewModel :
                 handoffCommand.NotifyCanExecuteChanged();
                 moveCommand.NotifyCanExecuteChanged();
                 refreshReplaceTargetsCommand.NotifyCanExecuteChanged();
+                replaceCommand.NotifyCanExecuteChanged();
                 targetLocalUndoCommand.NotifyCanExecuteChanged();
             }
         }
@@ -477,6 +584,7 @@ public sealed class ActivityWorkspaceViewModel :
             {
                 OnPropertyChanged(nameof(ReplaceActivationStatus));
                 OnPropertyChanged(nameof(IsDestructiveReplaceAvailable));
+                replaceCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -539,6 +647,62 @@ public sealed class ActivityWorkspaceViewModel :
     {
         get => replaceInventoryStatus;
         private set => SetProperty(ref replaceInventoryStatus, value);
+    }
+
+    public bool IsReplaceOperationResultVisible => ReplaceOperationStatus.Length > 0;
+
+    public string ReplaceOperationCapsule
+    {
+        get => replaceOperationCapsule;
+        private set => SetProperty(ref replaceOperationCapsule, value);
+    }
+
+    public string ReplaceOperationCorrelationId
+    {
+        get => replaceOperationCorrelationId;
+        private set => SetProperty(ref replaceOperationCorrelationId, value);
+    }
+
+    public string ReplaceOperationDescription
+    {
+        get => replaceOperationDescription;
+        private set => SetProperty(ref replaceOperationDescription, value);
+    }
+
+    public string ReplaceOperationId
+    {
+        get => replaceOperationId;
+        private set => SetProperty(ref replaceOperationId, value);
+    }
+
+    public string ReplaceOperationOccurredAt
+    {
+        get => replaceOperationOccurredAt;
+        private set => SetProperty(ref replaceOperationOccurredAt, value);
+    }
+
+    public string ReplaceOperationReason
+    {
+        get => replaceOperationReason;
+        private set => SetProperty(ref replaceOperationReason, value);
+    }
+
+    public string ReplaceOperationStatus
+    {
+        get => replaceOperationStatus;
+        private set
+        {
+            if (SetProperty(ref replaceOperationStatus, value))
+            {
+                OnPropertyChanged(nameof(IsReplaceOperationResultVisible));
+            }
+        }
+    }
+
+    public string ReplaceOperationUndoExpiry
+    {
+        get => replaceOperationUndoExpiry;
+        private set => SetProperty(ref replaceOperationUndoExpiry, value);
     }
 
     public string ReplaceRecoveryCapturedAt
@@ -790,6 +954,71 @@ public sealed class ActivityWorkspaceViewModel :
         }
     }
 
+    public async Task ReplaceAsync()
+    {
+        if (!CanReplace())
+        {
+            return;
+        }
+
+        DesktopActivitySnapshot activity = SelectedActivity!;
+        DesktopActivityTargetSnapshot device = SelectedTarget!;
+        DesktopReplaceTargetSnapshot target = SelectedReplaceTarget!;
+        IsBusy = true;
+        ReplaceOperationStatus = "REPLACE PENDING — DUPLICATE DISABLED";
+        ReplaceOperationDescription =
+            $"Revalidating the exact snapshot for {target.Title} on {device.DisplayName}, then waiting for one authenticated receipt and undo capsule. The source remains active.";
+        ReplaceOperationReason = "operation-in-progress";
+        ReplaceOperationId = string.Empty;
+        ReplaceOperationCorrelationId = string.Empty;
+        ReplaceOperationOccurredAt = string.Empty;
+        ReplaceOperationCapsule = string.Empty;
+        ReplaceOperationUndoExpiry = string.Empty;
+        try
+        {
+            DesktopReplaceOperationResult result = await service.ReplaceAsync(
+                activity.ActivityId,
+                target,
+                lifetimeCancellation.Token).ConfigureAwait(true);
+            ApplyReplaceOperationResult(result, device.DisplayName);
+            if (result.IsSuccess)
+            {
+                ClearReplaceInventorySnapshot();
+                ReplaceInventoryStatus = "REPLACE COMMITTED — REFRESH REQUIRED";
+                ReplaceInventoryDescription =
+                    "The selected target was replaced. Load a fresh payload-free inventory before preparing another Replace.";
+            }
+            else if (result.FailureCode == FailureCode.RevisionConflict)
+            {
+                ClearReplaceInventorySnapshot();
+                ReplaceInventoryStatus = "TARGET CHANGED — REFRESH REQUIRED";
+                ReplaceInventoryDescription =
+                    "The exact target ID, revision, descriptor digest, kind, or placement changed at send time. Load fresh inventory, select again, and confirm again. No destructive request was sent.";
+            }
+        }
+        catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            ReplaceOperationStatus =
+                "REPLACE OUTCOME UNAVAILABLE — INSPECT TARGET RECOVERY";
+            ReplaceOperationDescription =
+                "The destructive application port did not return a verified outcome. The target may have crossed the commit boundary; the source remains active. Inspect target recovery before any new operation. Flowspan will not guess or automatically retry.";
+            ReplaceOperationReason = "internal-failure";
+            ReplaceOperationId = string.Empty;
+            ReplaceOperationCorrelationId = string.Empty;
+            ReplaceOperationOccurredAt = string.Empty;
+            ReplaceOperationCapsule = string.Empty;
+            ReplaceOperationUndoExpiry = string.Empty;
+        }
+        finally
+        {
+            HasAcknowledgedReplace = false;
+            IsBusy = false;
+        }
+    }
+
     public async Task UndoReplaceAsync()
     {
         if (!CanUndoReplace())
@@ -866,6 +1095,96 @@ public sealed class ActivityWorkspaceViewModel :
         }
     }
 
+    private void ApplyReplaceOperationResult(
+        DesktopReplaceOperationResult result,
+        string targetDisplayName)
+    {
+        ReplaceOperationId = result.OperationId?.ToString() ?? string.Empty;
+        ReplaceOperationCorrelationId = result.CorrelationId?.ToString()
+            ?? string.Empty;
+        ReplaceOperationOccurredAt = result.OccurredAt.ToString("O");
+        ReplaceOperationReason = ToReasonCode(result.FailureCode);
+        ReplaceOperationCapsule = result.UndoCapsule?.Id.ToString() ?? string.Empty;
+        ReplaceOperationUndoExpiry = result.UndoCapsule?.ExpiresAt.ToString("O")
+            ?? string.Empty;
+        if (result.DeliveryStatus == ActivityDeliveryStatus.AcknowledgementLost)
+        {
+            ReplaceOperationStatus = "REPLACE OUTCOME UNCERTAIN — DO NOT RETRY";
+            ReplaceOperationDescription =
+                $"{targetDisplayName} may have committed Replace and stored an undo capsule, but its authenticated acknowledgement was lost. The source remains active. Inspect target recovery before any new operation; Flowspan will not invent a new Operation ID or automatically retry.";
+            return;
+        }
+
+        if (result.DeliveryStatus == ActivityDeliveryStatus.NotDelivered)
+        {
+            (ReplaceOperationStatus, ReplaceOperationDescription) =
+                result.FailureCode switch
+                {
+                    FailureCode.RevisionConflict => (
+                        "REPLACE NOT SENT — TARGET CHANGED",
+                        "Send-time revalidation did not match the confirmed target snapshot. The source remains active and the target was not mutated. Load fresh inventory, select again, and confirm again."),
+                    FailureCode.CapabilityDenied => (
+                        "REPLACE NOT SENT — REVIEW TRUST",
+                        "The current activity.receive or activity.replace grant is unavailable. The source remains active and no destructive request was sent. Review Trust on both devices, then refresh."),
+                    FailureCode.ActivityNotFound => (
+                        "REPLACE NOT SENT — INCOMING ACTIVITY CHANGED",
+                        "The incoming Activity is no longer the exact active source. No destructive request was sent; select an active Activity and load fresh inventory."),
+                    FailureCode.UndoUnavailable => (
+                        "REPLACE LOCKED — PROTECTED RECOVERY UNAVAILABLE",
+                        "Protected Replace recovery is unavailable or unresolved on this device. The source remains active and no destructive request was sent."),
+                    _ => (
+                        "REPLACE NOT DELIVERED — REFRESH AND RETRY",
+                        $"No destructive Replace request was delivered to {targetDisplayName}. The source remains active. Recover the authenticated connection and load fresh inventory before trying again."),
+                };
+            return;
+        }
+
+        OperationReceipt? receipt = result.Receipt;
+        if (receipt is null)
+        {
+            ReplaceOperationStatus =
+                "REPLACE RESULT INVALID — INSPECT TARGET RECOVERY";
+            ReplaceOperationDescription =
+                "The acknowledged response contained no verified receipt. The source remains active; inspect target recovery and do not retry.";
+            return;
+        }
+
+        if (receipt.FailureCode == FailureCode.OperationInProgress)
+        {
+            ReplaceOperationStatus =
+                "REPLACE BLOCKED BY TARGET RECOVERY — DO NOT RETRY";
+            ReplaceOperationDescription =
+                $"{targetDisplayName} already has an unresolved protected Replace or undo boundary. This request did not mutate the target. Inspect target recovery and resolve the existing boundary before any new operation.";
+            return;
+        }
+
+        if (receipt.Status == OperationStatus.Committed
+            && result.UndoCapsule is null)
+        {
+            ReplaceOperationStatus =
+                "REPLACE RESULT INVALID — INSPECT TARGET RECOVERY";
+            ReplaceOperationDescription =
+                "The acknowledged committed response contained no verified undo capsule. The source remains active; inspect target recovery and do not retry.";
+            return;
+        }
+
+        (ReplaceOperationStatus, ReplaceOperationDescription) = receipt.Status switch
+        {
+            OperationStatus.Committed => (
+                "REPLACE COMMITTED",
+                $"{targetDisplayName} stored the exact undo capsule before installing the incoming Activity. The source remains active. The capsule and expiry below are also visible in target recovery."),
+            OperationStatus.Recovering => (
+                "REPLACE OUTCOME REQUIRES TARGET RECOVERY — DO NOT RETRY",
+                $"{targetDisplayName} returned a recovery-required receipt. The source remains active. Inspect target recovery before any new operation; Flowspan will not retry Adapter work."),
+            OperationStatus.Rejected => (
+                "REPLACE REJECTED",
+                $"{targetDisplayName} returned a verified rejection before commit. The source remains active; review the named reason and refresh the exact preview."),
+            _ => (
+                "REPLACE FAILED",
+                $"{targetDisplayName} returned a verified failure. The source remains active; inspect target recovery when indicated and refresh before another attempt."),
+        };
+    }
+
     private void RefreshReplaceRecovery()
     {
         DesktopReplaceRecoveryResult result;
@@ -919,7 +1238,7 @@ public sealed class ActivityWorkspaceViewModel :
         {
             ReplaceRecoveryStatus = "NO TARGET-LOCAL REPLACE HISTORY";
             ReplaceRecoveryDescription =
-                "No protected Replace or undo records are stored on this device. Destructive Replace remains locked in this build.";
+                "No protected Replace or undo records are stored on this device. Replace still requires an exact peer inventory, explicit confirmation, send-time revalidation, and current Trust on both devices.";
         }
         else if (ReplaceRecoveryItems.Any(static item => item.CanUndo))
         {
@@ -927,14 +1246,14 @@ public sealed class ActivityWorkspaceViewModel :
             ReplaceRecoveryStatus =
                 $"TARGET-LOCAL UNDO AVAILABLE — {available} EXACT CAPSULES";
             ReplaceRecoveryDescription =
-                "Select one exact committed Replace record, review both opaque Activity IDs and its expiry, then confirm one target-local semantic restore. Destructive Replace remains locked.";
+                "Select one exact committed Replace record, review both opaque Activity IDs and its expiry, then confirm one target-local semantic restore. A new Replace remains independently gated by fresh inventory and Trust.";
         }
         else
         {
             ReplaceRecoveryStatus =
                 "TARGET-LOCAL REPLACE HISTORY — NO UNDO ACTION";
             ReplaceRecoveryDescription =
-                "Recorded outcomes and capsule state are shown without Activity content. No record is both unattempted and the exact current unexpired replacement; destructive Replace remains locked.";
+                "Recorded outcomes and capsule state are shown without Activity content. No record is both unattempted and the exact current unexpired replacement; a new Replace still requires a fresh exact preview.";
         }
     }
 
@@ -1163,6 +1482,10 @@ public sealed class ActivityWorkspaceViewModel :
 
     private bool CanRefreshReplaceTargets() => CanHandoff();
 
+    private bool CanReplace() =>
+        Volatile.Read(ref disposed) == 0
+        && IsDestructiveReplaceAvailable;
+
     private bool CanUndoReplace() =>
         Volatile.Read(ref disposed) == 0
         && !IsBusy
@@ -1195,6 +1518,7 @@ public sealed class ActivityWorkspaceViewModel :
         handoffCommand.NotifyCanExecuteChanged();
         moveCommand.NotifyCanExecuteChanged();
         refreshReplaceTargetsCommand.NotifyCanExecuteChanged();
+        replaceCommand.NotifyCanExecuteChanged();
     }
 
     private void OnReplacePreviewChanged()
@@ -1208,6 +1532,7 @@ public sealed class ActivityWorkspaceViewModel :
         OnPropertyChanged(nameof(IsReplaceConfirmationAvailable));
         OnPropertyChanged(nameof(ReplaceActivationStatus));
         OnPropertyChanged(nameof(IsDestructiveReplaceAvailable));
+        replaceCommand.NotifyCanExecuteChanged();
     }
 
     private void OnTargetLocalUndoSelectionChanged()

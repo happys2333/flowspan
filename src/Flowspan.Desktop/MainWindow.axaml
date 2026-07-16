@@ -621,13 +621,13 @@
                     <Border BorderBrush="{StaticResource SignalRedBrush}"
                             BorderThickness="4,1,1,1"
                             Padding="14"
-                            AutomationProperties.Name="Preview-only destructive Replace workflow">
+                            AutomationProperties.Name="Exact-confirmation destructive Replace workflow">
                       <StackPanel Spacing="10">
                         <TextBlock Classes="label"
                                    Foreground="{StaticResource SignalRedBrush}"
-                                   Text="REPLACE / PREVIEW ONLY" />
+                                   Text="REPLACE / EXACT CONFIRMATION" />
                         <TextBlock Classes="secondary"
-                                   Text="Query a purpose-scoped, payload-free target inventory. This build does not activate destructive Replace from the desktop."
+                                   Text="Query a purpose-scoped, payload-free target inventory. Activation revalidates the exact snapshot and requires the target to durably store a bounded undo capsule before replacement."
                                    TextWrapping="Wrap" />
                         <Button x:Name="ReviewReplaceTargetsButton"
                                 Content="LOAD / REFRESH REPLACE TARGETS"
@@ -745,10 +745,46 @@
                                        TextWrapping="Wrap"
                                        AutomationProperties.Name="Destructive Replace activation status" />
                             <Button x:Name="DestructiveReplaceButton"
-                                    Content="DESTRUCTIVE REPLACE NOT ACTIVATED"
+                                    Content="REPLACE SELECTED ACTIVITY"
+                                    Command="{Binding Activities.ReplaceCommand}"
                                     IsEnabled="{Binding Activities.IsDestructiveReplaceAvailable}"
-                                    AutomationProperties.Name="Destructive Replace is not activated"
-                                    AutomationProperties.HelpText="Blocked until send-time preview revalidation, authenticated destructive composition, and receipt/capsule projection are complete." />
+                                    AutomationProperties.Name="Replace selected target Activity after exact confirmation"
+                                    AutomationProperties.HelpText="Revalidates the exact target ID, revision, descriptor digest, kind, and placement before sending one authenticated Replace request. Duplicate activation is disabled while pending." />
+                            <Border BorderBrush="{StaticResource SignalRedBrush}"
+                                    BorderThickness="1"
+                                    Padding="10"
+                                    IsVisible="{Binding Activities.IsReplaceOperationResultVisible}"
+                                    AutomationProperties.Name="Destructive Replace result and recovery guidance">
+                              <StackPanel Spacing="6">
+                                <TextBlock x:Name="ReplaceOperationStatusText"
+                                           Classes="label"
+                                           Foreground="{StaticResource SignalRedBrush}"
+                                           Text="{Binding Activities.ReplaceOperationStatus}"
+                                           TextWrapping="Wrap"
+                                           AutomationProperties.Name="Destructive Replace operation status" />
+                                <TextBlock Classes="secondary"
+                                           Text="{Binding Activities.ReplaceOperationDescription}"
+                                           TextWrapping="Wrap"
+                                           AutomationProperties.Name="Destructive Replace outcome and recovery guidance" />
+                                <Grid ColumnDefinitions="Auto,*"
+                                      RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                                      ColumnSpacing="10"
+                                      RowSpacing="3">
+                                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="secondary" Text="OPERATION" />
+                                  <TextBlock Grid.Row="0" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationId}" TextWrapping="Wrap" AutomationProperties.Name="Replace operation ID" />
+                                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="secondary" Text="CORRELATION" />
+                                  <TextBlock Grid.Row="1" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationCorrelationId}" TextWrapping="Wrap" AutomationProperties.Name="Replace correlation ID" />
+                                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="secondary" Text="REASON" />
+                                  <TextBlock Grid.Row="2" Grid.Column="1" Classes="secondary" Text="{Binding Activities.ReplaceOperationReason}" TextWrapping="Wrap" AutomationProperties.Name="Replace result reason" />
+                                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="secondary" Text="OCCURRED" />
+                                  <TextBlock Grid.Row="3" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationOccurredAt}" TextWrapping="Wrap" AutomationProperties.Name="Replace receipt time" />
+                                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="secondary" Text="CAPSULE" />
+                                  <TextBlock Grid.Row="4" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationCapsule}" TextWrapping="Wrap" AutomationProperties.Name="Replace undo capsule ID" />
+                                  <TextBlock Grid.Row="5" Grid.Column="0" Classes="secondary" Text="UNDO EXPIRES" />
+                                  <TextBlock Grid.Row="5" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationUndoExpiry}" TextWrapping="Wrap" AutomationProperties.Name="Replace undo capsule expiry" />
+                                </Grid>
+                              </StackPanel>
+                            </Border>
                           </StackPanel>
                         </Border>
                       </StackPanel>

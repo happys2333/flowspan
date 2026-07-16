@@ -224,7 +224,7 @@ public sealed class MainWindowAccessibilityTests
     }
 
     [Fact]
-    public async Task ReplacePreviewConfirmationIsKeyboardOperableButActivationStaysLocked()
+    public async Task ConfirmedReplaceIsKeyboardOperableNamedAndKeepsSharingOff()
     {
         var activities = new AccessibilityActivityService();
         await using var viewModel = new WorkspaceShellViewModel(
@@ -260,6 +260,8 @@ public sealed class MainWindowAccessibilityTests
                 window.FindControl<TextBlock>("ReplaceActivationStatusText"));
             Button destructiveReplace = Assert.IsType<Button>(
                 window.FindControl<Button>("DestructiveReplaceButton"));
+            TextBlock replaceResult = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ReplaceOperationStatusText"));
             TextBlock sharing = Assert.IsType<TextBlock>(
                 window.FindControl<TextBlock>("SharingStatusText"));
 
@@ -302,8 +304,19 @@ public sealed class MainWindowAccessibilityTests
 
             Assert.True(viewModel.Activities.HasAcknowledgedReplace);
             Assert.Equal(
-                "PREVIEW CONFIRMED — DESTRUCTIVE REPLACE NOT ACTIVATED",
+                "PREVIEW CONFIRMED — DESTRUCTIVE REPLACE READY",
                 activationStatus.Text);
+            Assert.True(destructiveReplace.IsEnabled);
+            Assert.Equal(
+                "Replace selected target Activity after exact confirmation",
+                destructiveReplace.GetValue(AutomationProperties.NameProperty));
+            Assert.True(destructiveReplace.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.Equal("REPLACE COMMITTED", replaceResult.Text);
+            Assert.Equal(
+                "Destructive Replace operation status",
+                replaceResult.GetValue(AutomationProperties.NameProperty));
             Assert.False(destructiveReplace.IsEnabled);
             Assert.Equal("NOT SHARING", sharing.Text);
             window.Close();
@@ -874,6 +887,8 @@ public sealed class MainWindowAccessibilityTests
 
         public event Action? Changed;
 
+        public bool IsDestructiveReplaceAvailable => true;
+
         public DesktopReplaceRecoveryResult ReplaceRecoveryResult { get; init; } =
             DesktopReplaceRecoveryResult.Unavailable;
 
@@ -974,6 +989,54 @@ public sealed class MainWindowAccessibilityTests
                         new string('A', 64),
                         "desktop"),
                 ]));
+        }
+
+        public ValueTask<DesktopReplaceOperationResult> ReplaceAsync(
+            ActivityId incomingActivityId,
+            DesktopReplaceTargetSnapshot selectedTarget,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ActivityDescriptor incoming = descriptor
+                ?? throw new InvalidOperationException("No note exists.");
+            var occurredAt = new DateTimeOffset(
+                2026,
+                7,
+                15,
+                12,
+                0,
+                0,
+                TimeSpan.Zero);
+            OperationContext context = OperationContext.Create(
+                OperationId.Parse("55555555-5555-5555-5555-555555555555"),
+                CorrelationId.Parse("66666666-6666-6666-6666-666666666666"),
+                occurredAt.AddSeconds(30));
+            OperationReceipt receipt = OperationReceipt.Committed(
+                context.OperationId,
+                context.CorrelationId,
+                OperationKind.Replace,
+                LocalId,
+                TargetId,
+                incoming,
+                occurredAt);
+            var capsule = new UndoCapsuleReference(
+                UndoCapsuleId.Parse("77777777-7777-7777-7777-777777777777"),
+                context.OperationId,
+                context.CorrelationId,
+                selectedTarget.ActivityId,
+                selectedTarget.Revision,
+                selectedTarget.DescriptorDigest,
+                incomingActivityId,
+                incoming.DescriptorDigest,
+                occurredAt.AddMinutes(15));
+            return ValueTask.FromResult(new DesktopReplaceOperationResult(
+                context.OperationId,
+                context.CorrelationId,
+                ActivityDeliveryStatus.Acknowledged,
+                FailureCode.None,
+                occurredAt,
+                receipt,
+                capsule));
         }
 
         public ValueTask<UndoReplaceResult> UndoReplaceAsync(

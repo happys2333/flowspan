@@ -293,6 +293,40 @@ public sealed class ReplaceTests
     }
 
     [Fact]
+    public async Task ConcurrentDifferentReplaceOperationsCannotCreateOverlappingJournalBoundaries()
+    {
+        var captureStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCapture = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var journal = new CountingOperationJournal();
+        Fixture fixture = new(
+            captureSucceeds: true,
+            journal: journal,
+            captureStarted: captureStarted,
+            releaseCapture: releaseCapture);
+        fixture.AuthorizeReplace();
+        Task<ReplaceOperationResult> first = fixture.ReplaceAsync().AsTask();
+        await captureStarted.Task;
+
+        Task<ReplaceOperationResult> second = fixture.Endpoint.ReplaceAsync(
+            Fixture.SourceId,
+            fixture.CreateCommand(OperationContext.Create(
+                OperationId.Parse("12121212-1212-1212-1212-121212121212"),
+                CorrelationId.Parse("34343434-3434-3434-3434-343434343434"),
+                Now.AddSeconds(30)))).AsTask();
+
+        Assert.Equal(1, journal.CallCount);
+        Assert.False(second.IsCompleted);
+        releaseCapture.TrySetResult();
+        ReplaceOperationResult[] results = await Task.WhenAll(first, second);
+        Assert.Equal(2, journal.CallCount);
+        Assert.Equal(OperationStatus.Committed, results[0].Receipt.Status);
+        Assert.Equal(OperationStatus.Rejected, results[1].Receipt.Status);
+        Assert.Equal(FailureCode.ActivityNotFound, results[1].Receipt.FailureCode);
+    }
+
+    [Fact]
     public async Task CapsuleStoreFailureBlocksBeforeIncomingResume()
     {
         Fixture fixture = new(
@@ -366,17 +400,24 @@ public sealed class ReplaceTests
             long? expectedRevision = null,
             bool capturedStateMatches = true,
             IReplaceStateStore? replaceState = null,
-            string? expectedTargetDescriptorDigest = null)
+            string? expectedTargetDescriptorDigest = null,
+            IOperationJournal? journal = null,
+            TaskCompletionSource? captureStarted = null,
+            TaskCompletionSource? releaseCapture = null)
         {
             Clock = new TestClock(Now);
             Catalog = new InMemoryActivityCatalog();
             ReplaceState = new InMemoryReplaceStateStore();
-            Adapter = new RecordingReplaceAdapter(captureSucceeds, capturedStateMatches);
+            Adapter = new RecordingReplaceAdapter(
+                captureSucceeds,
+                capturedStateMatches,
+                captureStarted,
+                releaseCapture);
             Endpoint = new ReplaceEndpoint(
                 TargetId,
                 Clock,
                 Catalog,
-                new InMemoryOperationJournal(),
+                journal ?? new InMemoryOperationJournal(),
                 new ActivityAdapterRegistry([Adapter]),
                 replaceState ?? ReplaceState,
                 new DeterministicUndoCapsuleIdSource(
@@ -433,6 +474,16 @@ public sealed class ReplaceTests
 
         public ValueTask<ReplaceOperationResult> ReplaceAsync() =>
             Endpoint.ReplaceAsync(SourceId, command);
+
+        public ReplaceActivityCommand CreateCommand(OperationContext context) =>
+            ReplaceActivityCommand.Create(
+                context,
+                command.TargetActivityId,
+                command.ExpectedTargetRevision,
+                command.ExpectedTargetDescriptorDigest,
+                command.IncomingDescriptor,
+                command.TargetPlacement,
+                command.UndoExpiresAt);
 
         private static ActivityDescriptor CreateDescriptor(
             string activityId,
@@ -512,7 +563,9 @@ public sealed class ReplaceTests
 
     private sealed class RecordingReplaceAdapter(
         bool captureSucceeds,
-        bool capturedStateMatches) :
+        bool capturedStateMatches,
+        TaskCompletionSource? captureStarted = null,
+        TaskCompletionSource? releaseCapture = null) :
         IReplaceActivityAdapter
     {
         private int captureCount;
@@ -529,13 +582,19 @@ public sealed class ReplaceTests
 
         public ActivityKind Kind { get; } = ActivityKind.Parse("workspace.note/v1");
 
-        public ValueTask<CaptureUndoResult> CaptureUndoAsync(
+        public async ValueTask<CaptureUndoResult> CaptureUndoAsync(
             ActivityInstance activity,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref captureCount);
             Events.Add("capture");
+            captureStarted?.TrySetResult();
+            if (releaseCapture is not null)
+            {
+                await releaseCapture.Task.WaitAsync(cancellationToken);
+            }
+
             ActivityDescriptor preserved = capturedStateMatches
                 ? activity.Descriptor
                 : ActivityDescriptor.Create(
@@ -545,10 +604,9 @@ public sealed class ReplaceTests
                     activity.Descriptor.Title,
                     activity.Descriptor.PayloadJson,
                     activity.Descriptor.Sensitivity);
-            return ValueTask.FromResult(
-                captureSucceeds
-                    ? CaptureUndoResult.Success(preserved)
-                    : CaptureUndoResult.Rejected(FailureCode.UndoUnavailable));
+            return captureSucceeds
+                ? CaptureUndoResult.Success(preserved)
+                : CaptureUndoResult.Rejected(FailureCode.UndoUnavailable);
         }
 
         public ValueTask<ResumeActivityResult> ResumeAsync(
@@ -579,6 +637,28 @@ public sealed class ReplaceTests
             Interlocked.Increment(ref restoreCount);
             Events.Add("restore");
             return ValueTask.FromResult(RestoreActivityResult.Success);
+        }
+    }
+
+    private sealed class CountingOperationJournal : IOperationJournal
+    {
+        private readonly InMemoryOperationJournal inner = new();
+        private int callCount;
+
+        public int CallCount => Volatile.Read(ref callCount);
+
+        public ValueTask<JournalExecutionResult> ExecuteOnceAsync(
+            OperationId operationId,
+            string requestDigest,
+            Func<CancellationToken, ValueTask<OperationReceipt>> operation,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref callCount);
+            return inner.ExecuteOnceAsync(
+                operationId,
+                requestDigest,
+                operation,
+                cancellationToken);
         }
     }
 }

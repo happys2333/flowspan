@@ -725,11 +725,19 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
         JournalExecutionResult execution;
         try
         {
-            execution = await journal.ExecuteOnceAsync(
-                command.Context.OperationId,
-                command.BindAuthenticatedSender(senderDeviceId),
-                ExecuteOnceAsync,
-                cancellationToken).ConfigureAwait(false);
+            await serializationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                execution = await journal.ExecuteOnceAsync(
+                    command.Context.OperationId,
+                    command.BindAuthenticatedSender(senderDeviceId),
+                    ExecuteOnceAsync,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                serializationGate.Release();
+            }
         }
         catch (ReplaceStatePersistenceException)
         {
@@ -777,18 +785,10 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
 
         async ValueTask<OperationReceipt> ExecuteOnceAsync(CancellationToken innerToken)
         {
-            await serializationGate.WaitAsync(innerToken).ConfigureAwait(false);
-            try
-            {
-                OperationReceipt result = await ExecuteSerializedAsync(innerToken)
-                    .ConfigureAwait(false);
-                receiptSink.Write(result);
-                return result;
-            }
-            finally
-            {
-                serializationGate.Release();
-            }
+            OperationReceipt result = await ExecuteSerializedAsync(innerToken)
+                .ConfigureAwait(false);
+            receiptSink.Write(result);
+            return result;
         }
 
         async ValueTask<OperationReceipt> ExecuteSerializedAsync(CancellationToken innerToken)

@@ -405,3 +405,35 @@ pair, ViewModel projection tests, and Avalonia Headless keyboard/automation test
 gate this slice. These remain same-host and hosted-runner evidence; physical
 two-device LAN, packaged accessibility, and arbitrary-application state transfer
 are not implied.
+
+## 17. Task 7.3c.7: exact-confirmation semantic Replace
+
+The destructive Replace panel uses the purpose-scoped target inventory delivered
+by 7.3c.3 and the protected recovery/undo surfaces delivered by 7.3c.5-7.3c.6.
+It compares the incoming title/kind with the exact target device, title, kind,
+placement, revision, and descriptor digest. A standard keyboard-operable
+checkbox binds confirmation to that displayed snapshot; any source, device,
+selection, inventory, or service change revokes it.
+
+The `REPLACE SELECTED ACTIVITY` button is enabled only when protected recovery is
+usable, the exact preview is selected and confirmed, and no Activity operation is
+pending. Activation immediately shows `REPLACE PENDING — DUPLICATE DISABLED`.
+The application service re-queries inventory and matches the complete snapshot
+before sending, so a changed or missing target becomes `REPLACE NOT SENT — TARGET
+CHANGED`, clears the stale inventory, and requires a fresh selection and
+confirmation. Both source-side `activity.receive` and target-side
+`activity.replace` are current-operation checks, not UI assumptions.
+
+A committed result presents the authenticated Operation/correlation IDs,
+timestamp, reason, payload-free capsule ID, and exact expiry. Replace deliberately
+leaves the source Activity active. A lost acknowledgement says the target may
+have committed, keeps the source active, and directs the user to target recovery;
+the UI must not automatically retry or invent a new Operation ID. An existing
+pending/`Recovering` target boundary is `DO NOT RETRY` until recovery is resolved.
+Exception text and Activity payload never enter these strings.
+
+The control has a specific automation name/help text, activates through the
+standard Space-key path, and exposes named result fields. Headless coverage is
+automation metadata and keyboard evidence, not native screen-reader, focus-ring,
+contrast, scaling, or reduced-motion proof. Replace remains a one-shot semantic
+descriptor operation, so the global indicator stays `NOT SHARING`.

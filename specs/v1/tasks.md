@@ -359,7 +359,13 @@ means its linked evidence exists; it does not imply the entire product works.
     hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, two 20-process
     stress groups, and explicit physical/native limits are recorded in
     [Desktop target-local Undo evidence](../../docs/evidence/2026-07-15-desktop-target-local-undo.md).
-    Destructive composition and physical/native product evidence remain open.
+    The 7.3c.7 local candidate now composes the same protected endpoint as a
+    Trust-bound production peer plus one exact-confirmation source command. Its
+    local 579-test gate, two 20-process Replace stress groups, locked restore,
+    warning-free build, TEST MODE composition, dependency audit, and simulator
+    classification pass. Exact implementation-commit Windows/macOS/Ubuntu CI,
+    Secret Scan, CodeQL, and a linked evidence record remain required before
+    7.3c.7 can be checked. Physical/native product evidence also remains open.
     The earlier core/protocol evidence is recorded in
     [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
     Consequently 7.3c and the parent task are not complete. See
@@ -401,6 +407,9 @@ means its linked evidence exists; it does not imply the entire product works.
       and the source-side Desktop `ReplaceAsync` command. Revalidate the exact
       preview at send time, project the authenticated receipt/capsule reference,
       and retain truthful acknowledgement-loss and recovery behavior.
+      - Local implementation is present; keep this unchecked until its exact
+        implementation commit has passing hosted matrix, Secret Scan, CodeQL,
+        and linked evidence.
       - _Requirements: R4.4-R4.12, R9, R10, R11_
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,

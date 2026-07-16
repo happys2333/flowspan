@@ -191,10 +191,10 @@ A refresh may preserve the selected ID for orientation only when revision and
 digest are unchanged, but still requires confirmation again. A missing target
 or changed revision/digest produces a named stale-preview state and no
 destructive call. Query failures are mapped to bounded recovery guidance and
-never expose exception, payload, or transport details. The current preview-only
-slice exposes no `ReplaceAsync` desktop service method and continues composing
+never expose exception, payload, or transport details. The completed 7.3c.4
+preview-only slice exposed no `ReplaceAsync` desktop service method and composed
 `AuthenticatedActivitySessionHandler` with `replacePeer: null`, so confirming a
-preview cannot cross the destructive boundary.
+preview could not cross the destructive boundary at that stage.
 
 The target-local recovery surface reads a snapshot from the same protected
 Replace store; it does not scrape logs or query a peer. The application projects
@@ -215,10 +215,10 @@ authentication, schema, bounds, or I/O failure becomes a named Replace-recovery
 fault with platform-neutral guidance; normal note, Handoff, and Move work
 remains available, while destructive Replace stays locked. The delivered 7.3c.5
 projection remains an immutable read model and exposes no recovery retry. The
-7.3c.6 composition adds only target-local undo for a terminal committed Replace
+7.3c.6 composition added only target-local undo for a terminal committed Replace
 item whose capsule is unconsumed and not expired; pending/expired/consumed states
-never become actions. It still exposes no source-side `ReplaceAsync` or
-production `IReplacePeer`.
+never became actions. That slice still exposed no source-side `ReplaceAsync` or
+production `IReplacePeer`; 7.3c.7 supplies both behind the existing gates.
 
 The 7.3c.6 target-local undo composition must also prove that the capsule's
 exact replacement is current after a Desktop restart. For the bounded
@@ -243,9 +243,10 @@ operation publishes pending state before awaiting the application port, then
 refreshes the same protected snapshot for every committed, rejected, failed, or
 recovering outcome. A completed attempt is not silently converted into a new
 operation. Desktop owns one private local `ReplaceEndpoint` so undo and the
-future destructive target share the same serialization and durable journal, but
-the authenticated session handler continues to receive `replacePeer: null` and
-the source-side destructive command remains absent until 7.3c.7.
+future destructive target share the same serialization and durable journal. In
+7.3c.6 the authenticated session handler still received `replacePeer: null` and
+the source-side destructive command remained absent; 7.3c.7 changes that
+composition only after the protected store opens successfully.
 
 The Desktop service repeats the live eligibility check for callers that bypass
 the ViewModel. An unknown capsule, unavailable recovery state, any global
@@ -254,6 +255,40 @@ capsule is rejected before a new undo journal entry. Known expired, consumed, or
 catalog-stale capsules still enter the core endpoint so it can return the exact
 `UndoCapsuleExpired`, `UndoCapsuleConsumed`, or `RevisionConflict` reason without
 performing Adapter restore work.
+
+The 7.3c.7 production composition exposes that same private target endpoint to
+authenticated Activity sessions only when the protected Replace store opens
+successfully. A Trust-bound peer reloads the authenticated sender's current
+peer-relative `activity.replace` for every destructive request and rejects a new
+operation without another journal entry while any protected Replace/undo boundary
+is pending or `Recovering`. A missing, corrupt, unsupported, or unreadable store
+leaves inventory and non-Replace work available but composes no destructive
+peer. Inbound Replace and target-local undo acquire the endpoint's shared
+serialization boundary before either creates a persistent journal entry, so
+concurrent authenticated sessions cannot overlap target-destructive pending
+boundaries.
+
+Source-side Desktop `ReplaceAsync` accepts the incoming Activity ID and the exact
+confirmed target snapshot rather than a free-form command. It requires usable
+local protected recovery, rechecks the current peer-relative `activity.receive`,
+queries a fresh purpose-scoped inventory, and matches device, target ID,
+revision, descriptor digest, kind, title, and placement. It then rechecks the
+unchanged live incoming instance, local Trust, recovery state, and channel before
+creating one new Operation/correlation pair and bounded undo expiry. A mismatch
+returns named `RevisionConflict` before `activity.replace` is sent. The source
+Activity is never removed by Replace.
+
+An acknowledged response projects the authenticated receipt and payload-free
+capsule reference. `NotDelivered` remains a local/pre-send result. Once the
+destructive channel invocation begins, cancellation or an unexpected application
+port failure is conservatively presented as acknowledgement loss: the target may
+have committed, the source stays active, and Flowspan directs the user to target
+recovery rather than inventing a new Operation ID or automatically retrying. The
+Desktop command is disabled while pending; every terminal attempt revokes the
+confirmation, a committed or send-time-stale snapshot clears the old inventory,
+and keyboard/automation metadata exposes the command and bounded result fields.
+The global safety band remains `NOT SHARING` because Replace is a one-shot
+semantic operation, not Mirror or remote input.
 
 This restart reduction is not a general Activity database and does not repeat
 Adapter restore work. It can reconstruct the descriptor-complete semantic note

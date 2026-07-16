@@ -691,6 +691,260 @@ public sealed class ActivityWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task ConfirmedReplaceProjectsCommittedReceiptAndCapsule()
+    {
+        DesktopReplaceTargetSnapshot target = CreateReplaceTarget(
+            "33333333-3333-3333-3333-333333333333",
+            "Existing target",
+            4,
+            'A');
+        var service = new FakeActivityService
+        {
+            IsDestructiveReplaceAvailable = true,
+            ReplaceInventoryResult = SuccessfulReplaceInventory(target),
+            ReplaceResultFactory = CreateCommittedDesktopReplaceResult,
+        };
+        using ActivityWorkspaceViewModel viewModel =
+            CreateReplaceReadyViewModel(service);
+        await viewModel.RefreshReplaceTargetsAsync();
+        viewModel.SelectedReplaceTarget = Assert.Single(viewModel.ReplaceTargets);
+        viewModel.HasAcknowledgedReplace = true;
+
+        await viewModel.ReplaceAsync();
+
+        Assert.Equal("REPLACE COMMITTED", viewModel.ReplaceOperationStatus);
+        Assert.Contains("target recovery", viewModel.ReplaceOperationDescription);
+        Assert.Equal("none", viewModel.ReplaceOperationReason);
+        Assert.NotEmpty(viewModel.ReplaceOperationId);
+        Assert.NotEmpty(viewModel.ReplaceOperationCorrelationId);
+        Assert.NotEmpty(viewModel.ReplaceOperationOccurredAt);
+        Assert.NotEmpty(viewModel.ReplaceOperationCapsule);
+        Assert.Contains("2026-07-15T12:15:00", viewModel.ReplaceOperationUndoExpiry);
+        Assert.False(viewModel.HasAcknowledgedReplace);
+        Assert.False(viewModel.IsDestructiveReplaceAvailable);
+        Assert.Empty(viewModel.ReplaceTargets);
+        Assert.True(service.SourceStillActive);
+        Assert.Equal(viewModel.SelectedActivity?.ActivityId, service.RequestedReplaceActivityId);
+        Assert.Equal(target, service.RequestedReplaceTarget);
+    }
+
+    [Fact]
+    public async Task CommittedReplaceWithoutVerifiedCapsuleIsNotPresentedAsSuccess()
+    {
+        DesktopReplaceTargetSnapshot target = CreateReplaceTarget(
+            "33333333-3333-3333-3333-333333333333",
+            "Existing target",
+            4,
+            'A');
+        var service = new FakeActivityService
+        {
+            IsDestructiveReplaceAvailable = true,
+            ReplaceInventoryResult = SuccessfulReplaceInventory(target),
+            ReplaceResultFactory = static (incomingId, selected) =>
+                CreateCommittedDesktopReplaceResult(incomingId, selected) with
+                {
+                    UndoCapsule = null,
+                },
+        };
+        using ActivityWorkspaceViewModel viewModel =
+            CreateReplaceReadyViewModel(service);
+        await viewModel.RefreshReplaceTargetsAsync();
+        viewModel.SelectedReplaceTarget = Assert.Single(viewModel.ReplaceTargets);
+        viewModel.HasAcknowledgedReplace = true;
+
+        await viewModel.ReplaceAsync();
+
+        Assert.Equal(
+            "REPLACE RESULT INVALID — INSPECT TARGET RECOVERY",
+            viewModel.ReplaceOperationStatus);
+        Assert.Contains(
+            "no verified undo capsule",
+            viewModel.ReplaceOperationDescription);
+        Assert.Single(viewModel.ReplaceTargets);
+        Assert.False(viewModel.HasAcknowledgedReplace);
+        Assert.True(service.SourceStillActive);
+    }
+
+    [Fact]
+    public async Task ReplaceAcknowledgementLossNamesUncertainTargetRecoveryBoundary()
+    {
+        DesktopReplaceTargetSnapshot target = CreateReplaceTarget(
+            "33333333-3333-3333-3333-333333333333",
+            "Existing target",
+            4,
+            'A');
+        var service = new FakeActivityService
+        {
+            IsDestructiveReplaceAvailable = true,
+            ReplaceInventoryResult = SuccessfulReplaceInventory(target),
+            ReplaceResultFactory = static (incomingId, selected) =>
+                CreateUnacknowledgedDesktopReplaceResult(
+                    ActivityDeliveryStatus.AcknowledgementLost,
+                    FailureCode.AcknowledgementLost),
+        };
+        using ActivityWorkspaceViewModel viewModel =
+            CreateReplaceReadyViewModel(service);
+        await viewModel.RefreshReplaceTargetsAsync();
+        viewModel.SelectedReplaceTarget = Assert.Single(viewModel.ReplaceTargets);
+        viewModel.HasAcknowledgedReplace = true;
+
+        await viewModel.ReplaceAsync();
+
+        Assert.Equal(
+            "REPLACE OUTCOME UNCERTAIN — DO NOT RETRY",
+            viewModel.ReplaceOperationStatus);
+        Assert.Contains("may have committed", viewModel.ReplaceOperationDescription);
+        Assert.Contains("target recovery", viewModel.ReplaceOperationDescription);
+        Assert.Contains("source remains active", viewModel.ReplaceOperationDescription);
+        Assert.Contains("new Operation ID", viewModel.ReplaceOperationDescription);
+        Assert.Equal("acknowledgement-lost", viewModel.ReplaceOperationReason);
+        Assert.Empty(viewModel.ReplaceOperationCapsule);
+        Assert.False(viewModel.HasAcknowledgedReplace);
+        Assert.False(viewModel.ReplaceCommand.CanExecute(null));
+        Assert.True(service.SourceStillActive);
+    }
+
+    [Fact]
+    public async Task PendingReplaceDisablesDuplicateActivation()
+    {
+        DesktopReplaceTargetSnapshot target = CreateReplaceTarget(
+            "33333333-3333-3333-3333-333333333333",
+            "Existing target",
+            4,
+            'A');
+        var pending = new TaskCompletionSource<DesktopReplaceOperationResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new FakeActivityService
+        {
+            IsDestructiveReplaceAvailable = true,
+            ReplaceInventoryResult = SuccessfulReplaceInventory(target),
+            PendingReplace = pending,
+        };
+        using ActivityWorkspaceViewModel viewModel =
+            CreateReplaceReadyViewModel(service);
+        await viewModel.RefreshReplaceTargetsAsync();
+        viewModel.SelectedReplaceTarget = Assert.Single(viewModel.ReplaceTargets);
+        viewModel.HasAcknowledgedReplace = true;
+
+        Task replacing = viewModel.ReplaceAsync();
+        await service.ReplaceStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(viewModel.IsBusy);
+        Assert.False(viewModel.ReplaceCommand.CanExecute(null));
+        Assert.Equal(
+            "REPLACE PENDING — DUPLICATE DISABLED",
+            viewModel.ReplaceOperationStatus);
+        pending.SetResult(CreateUnacknowledgedDesktopReplaceResult(
+            ActivityDeliveryStatus.NotDelivered,
+            FailureCode.PeerUnavailable));
+        await replacing;
+        Assert.False(viewModel.IsBusy);
+    }
+
+    [Fact]
+    public async Task SendTimeStaleReplaceClearsPreviewAndRequiresRefresh()
+    {
+        DesktopReplaceTargetSnapshot target = CreateReplaceTarget(
+            "33333333-3333-3333-3333-333333333333",
+            "Existing target",
+            4,
+            'A');
+        var service = new FakeActivityService
+        {
+            IsDestructiveReplaceAvailable = true,
+            ReplaceInventoryResult = SuccessfulReplaceInventory(target),
+            ReplaceResultFactory = static (incomingId, selected) =>
+                CreateUnacknowledgedDesktopReplaceResult(
+                    ActivityDeliveryStatus.NotDelivered,
+                    FailureCode.RevisionConflict) with
+                {
+                    OperationId = null,
+                    CorrelationId = null,
+                },
+        };
+        using ActivityWorkspaceViewModel viewModel =
+            CreateReplaceReadyViewModel(service);
+        await viewModel.RefreshReplaceTargetsAsync();
+        viewModel.SelectedReplaceTarget = Assert.Single(viewModel.ReplaceTargets);
+        viewModel.HasAcknowledgedReplace = true;
+
+        await viewModel.ReplaceAsync();
+
+        Assert.Equal(
+            "REPLACE NOT SENT — TARGET CHANGED",
+            viewModel.ReplaceOperationStatus);
+        Assert.Contains("fresh inventory", viewModel.ReplaceOperationDescription);
+        Assert.Equal("TARGET CHANGED — REFRESH REQUIRED", viewModel.ReplaceInventoryStatus);
+        Assert.Empty(viewModel.ReplaceOperationId);
+        Assert.Empty(viewModel.ReplaceOperationCorrelationId);
+        Assert.Empty(viewModel.ReplaceTargets);
+        Assert.Null(viewModel.SelectedReplaceTarget);
+        Assert.True(service.SourceStillActive);
+    }
+
+    [Fact]
+    public async Task ReplaceExceptionIsSanitizedAsUnknownTargetBoundary()
+    {
+        const string canary = "REPLACE_PRIVATE_EXCEPTION_CANARY";
+        DesktopReplaceTargetSnapshot target = CreateReplaceTarget(
+            "33333333-3333-3333-3333-333333333333",
+            "Existing target",
+            4,
+            'A');
+        var service = new FakeActivityService
+        {
+            IsDestructiveReplaceAvailable = true,
+            ReplaceInventoryResult = SuccessfulReplaceInventory(target),
+            ReplaceException = new IOException(canary),
+        };
+        using ActivityWorkspaceViewModel viewModel =
+            CreateReplaceReadyViewModel(service);
+        await viewModel.RefreshReplaceTargetsAsync();
+        viewModel.SelectedReplaceTarget = Assert.Single(viewModel.ReplaceTargets);
+        viewModel.HasAcknowledgedReplace = true;
+
+        await viewModel.ReplaceAsync();
+
+        Assert.Equal(
+            "REPLACE OUTCOME UNAVAILABLE — INSPECT TARGET RECOVERY",
+            viewModel.ReplaceOperationStatus);
+        Assert.Contains("may have crossed", viewModel.ReplaceOperationDescription);
+        Assert.DoesNotContain(canary, viewModel.ReplaceOperationDescription);
+        Assert.False(viewModel.HasAcknowledgedReplace);
+        Assert.True(service.SourceStillActive);
+    }
+
+    [Fact]
+    public async Task ExistingTargetRecoveryBoundaryBlocksRetryGuidance()
+    {
+        DesktopReplaceTargetSnapshot target = CreateReplaceTarget(
+            "33333333-3333-3333-3333-333333333333",
+            "Existing target",
+            4,
+            'A');
+        var service = new FakeActivityService
+        {
+            IsDestructiveReplaceAvailable = true,
+            ReplaceInventoryResult = SuccessfulReplaceInventory(target),
+            ReplaceResultFactory = CreateRecoveryBlockedDesktopReplaceResult,
+        };
+        using ActivityWorkspaceViewModel viewModel =
+            CreateReplaceReadyViewModel(service);
+        await viewModel.RefreshReplaceTargetsAsync();
+        viewModel.SelectedReplaceTarget = Assert.Single(viewModel.ReplaceTargets);
+        viewModel.HasAcknowledgedReplace = true;
+
+        await viewModel.ReplaceAsync();
+
+        Assert.Equal(
+            "REPLACE BLOCKED BY TARGET RECOVERY — DO NOT RETRY",
+            viewModel.ReplaceOperationStatus);
+        Assert.Contains("did not mutate", viewModel.ReplaceOperationDescription);
+        Assert.Contains("resolve the existing boundary", viewModel.ReplaceOperationDescription);
+        Assert.True(service.SourceStillActive);
+    }
+
+    [Fact]
     public async Task StartupShowsPayloadFreeTargetLocalReplaceRecoveryAndExactExpiry()
     {
         var service = new FakeActivityService
@@ -1091,6 +1345,121 @@ public sealed class ActivityWorkspaceViewModelTests
                 _ => [target, secondTarget],
             });
 
+    private static DesktopReplaceOperationResult CreateCommittedDesktopReplaceResult(
+        ActivityId incomingActivityId,
+        DesktopReplaceTargetSnapshot selectedTarget)
+    {
+        var occurredAt = new DateTimeOffset(
+            2026,
+            7,
+            15,
+            12,
+            0,
+            0,
+            TimeSpan.Zero);
+        OperationContext context = OperationContext.Create(
+            OperationId.Parse("44444444-4444-4444-4444-444444444444"),
+            CorrelationId.Parse("55555555-5555-5555-5555-555555555555"),
+            occurredAt.AddSeconds(30));
+        ActivityDescriptor incoming = ActivityDescriptor.Create(
+            incomingActivityId,
+            ActivityKind.Parse("workspace.note/v1"),
+            LocalId,
+            "Incoming note",
+            "{\"text\":\"portable body\"}");
+        OperationReceipt receipt = OperationReceipt.Committed(
+            context.OperationId,
+            context.CorrelationId,
+            OperationKind.Replace,
+            LocalId,
+            TargetId,
+            incoming,
+            occurredAt);
+        var capsule = new UndoCapsuleReference(
+            UndoCapsuleId.Parse("66666666-6666-6666-6666-666666666666"),
+            context.OperationId,
+            context.CorrelationId,
+            selectedTarget.ActivityId,
+            selectedTarget.Revision,
+            selectedTarget.DescriptorDigest,
+            incomingActivityId,
+            incoming.DescriptorDigest,
+            occurredAt.AddMinutes(15));
+        return new DesktopReplaceOperationResult(
+            context.OperationId,
+            context.CorrelationId,
+            ActivityDeliveryStatus.Acknowledged,
+            FailureCode.None,
+            occurredAt,
+            receipt,
+            capsule);
+    }
+
+    private static DesktopReplaceOperationResult
+        CreateUnacknowledgedDesktopReplaceResult(
+            ActivityDeliveryStatus deliveryStatus,
+            FailureCode failureCode)
+    {
+        var occurredAt = new DateTimeOffset(
+            2026,
+            7,
+            15,
+            12,
+            0,
+            0,
+            TimeSpan.Zero);
+        return new DesktopReplaceOperationResult(
+            OperationId.Parse("44444444-4444-4444-4444-444444444444"),
+            CorrelationId.Parse("55555555-5555-5555-5555-555555555555"),
+            deliveryStatus,
+            failureCode,
+            occurredAt,
+            null,
+            null);
+    }
+
+    private static DesktopReplaceOperationResult
+        CreateRecoveryBlockedDesktopReplaceResult(
+            ActivityId incomingActivityId,
+            DesktopReplaceTargetSnapshot selectedTarget)
+    {
+        var occurredAt = new DateTimeOffset(
+            2026,
+            7,
+            15,
+            12,
+            0,
+            0,
+            TimeSpan.Zero);
+        OperationId operationId =
+            OperationId.Parse("88888888-8888-8888-8888-888888888888");
+        CorrelationId correlationId =
+            CorrelationId.Parse("99999999-9999-9999-9999-999999999999");
+        ActivityDescriptor incoming = ActivityDescriptor.Create(
+            incomingActivityId,
+            ActivityKind.Parse("workspace.note/v1"),
+            LocalId,
+            "Incoming note",
+            "{\"text\":\"portable body\"}");
+        OperationReceipt receipt = OperationReceipt.Failed(
+            operationId,
+            correlationId,
+            OperationKind.Replace,
+            LocalId,
+            TargetId,
+            incoming,
+            occurredAt,
+            FailureCode.OperationInProgress);
+        return new DesktopReplaceOperationResult(
+            operationId,
+            correlationId,
+            ActivityDeliveryStatus.Acknowledged,
+            FailureCode.OperationInProgress,
+            occurredAt,
+            receipt,
+            null);
+    }
+
     private static async Task<DesktopReplaceRecoveryResult>
         CreateReplaceRecoveryResultAsync(
             bool undoable = false,
@@ -1233,6 +1602,22 @@ public sealed class ActivityWorkspaceViewModelTests
         public TaskCompletionSource ReplaceInventoryStarted { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public Func<ActivityId, DesktopReplaceTargetSnapshot,
+            DesktopReplaceOperationResult>? ReplaceResultFactory
+        { get; set; }
+
+        public TaskCompletionSource<DesktopReplaceOperationResult>? PendingReplace
+        { get; set; }
+
+        public Exception? ReplaceException { get; set; }
+
+        public TaskCompletionSource ReplaceStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ActivityId? RequestedReplaceActivityId { get; private set; }
+
+        public DesktopReplaceTargetSnapshot? RequestedReplaceTarget { get; private set; }
+
         public bool SourceStillActive { get; private set; } = true;
 
         public DesktopActivitySnapshot CreateWorkspaceNote(
@@ -1313,6 +1698,30 @@ public sealed class ActivityWorkspaceViewModelTests
             }
 
             return ValueTask.FromResult(ReplaceInventoryResult);
+        }
+
+        public async ValueTask<DesktopReplaceOperationResult> ReplaceAsync(
+            ActivityId incomingActivityId,
+            DesktopReplaceTargetSnapshot selectedTarget,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RequestedReplaceActivityId = incomingActivityId;
+            RequestedReplaceTarget = selectedTarget;
+            ReplaceStarted.TrySetResult();
+            if (ReplaceException is not null)
+            {
+                throw ReplaceException;
+            }
+
+            if (PendingReplace is not null)
+            {
+                return await PendingReplace.Task.WaitAsync(cancellationToken);
+            }
+
+            return ReplaceResultFactory?.Invoke(incomingActivityId, selectedTarget)
+                ?? throw new InvalidOperationException(
+                    "No fake Replace result was configured.");
         }
 
         public async ValueTask<UndoReplaceResult> UndoReplaceAsync(
