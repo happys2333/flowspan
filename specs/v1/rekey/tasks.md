@@ -39,11 +39,20 @@
   - Add real loopback traffic before/after repeated and simultaneous updates.
   - _Requirements: RK1, RK4–RK7_
 
-- [-] 7. Close delivery evidence
+- [x] 7. Close delivery evidence
   - Run format, Release build, all tests, composition, simulator, dependency
     query, diff check, focused fresh-process repetitions, Standards, and Spec
     review.
   - Push implementation, evidence, and task-status commits; verify Windows,
     macOS, Ubuntu, Secret Scan, CodeQL, and downloaded TRX sums for exact commits.
   - Keep independent cryptographic review and physical two-device evidence open.
+  - Implementation commit `2cf1e1f` passed the complete hosted matrix with
+    793/793 downloaded TRX records. Evidence commit `8ee0a7d` exposed a real
+    Windows peer-request scheduling race. Repair commit `369f92e` coalesces the
+    authenticated receive-leading state, makes the crossed test deterministic,
+    passes the local 794-test gate plus 20/20 fresh-process repetitions, and
+    passes Windows, macOS, Ubuntu, Secret Scan, CodeQL, and independently summed
+    794/794 downloaded TRX evidence. The task-status commit still receives the
+    same exact-commit consistency gates. Independent review and physical-device
+    release evidence remain open above this implementation task.
   - _Requirements: RK7_

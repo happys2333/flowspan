@@ -214,7 +214,7 @@ means its linked evidence exists; it does not imply the entire product works.
       independently summed 734/734 TRX set on all three OSes. This status becomes
       final when the task-status commit passes the same hosted gates.
     - _Requirements: R8.3, R9.1, R12.3_
-  - [-] 4.3b Freeze and implement bounded live rekey with monotonic epochs,
+  - [x] 4.3b Freeze and implement bounded live rekey with monotonic epochs,
     simultaneous-request resolution, key erasure, replay/gap rejection, and
     interruption recovery.
     - Requirements, design, executable tasks, protocol-1.3 version boundary,
@@ -223,13 +223,21 @@ means its linked evidence exists; it does not imply the entire product works.
       crossed-request rule, and reconnect-only interruption recovery are frozen
       in [the rekey specification](rekey/requirements.md),
       [design](rekey/design.md), [tasks](rekey/tasks.md), and ADR 0015.
-      The implementation candidate now includes monotonic bounded epoch owners,
+      The delivered implementation includes monotonic bounded epoch owners,
       hostile transition and key-erasure tests, deterministic channel fault and
       cleanup preservation, repeated/crossed authenticated loopback, production
       Desktop discovery/reconnect preference for 1.3, explicit 1.2
-      reconnect-at-key-limit presentation, and simulator 1.3 selection. The
-      exact-commit local and hosted evidence, Standards/Spec review, independent
-      cryptographic review, and physical two-device evidence remain open.
+      reconnect-at-key-limit presentation, and simulator 1.3 selection.
+      Implementation commit `2cf1e1f` passed the first hosted gate; evidence
+      commit `8ee0a7d` exposed a Windows receive-leading coalescing race; repair
+      commit `369f92e` passed the local 794-test gate, 20/20 focused fresh-process
+      repetitions, Windows/macOS/Ubuntu CI, Secret Scan, CodeQL, and independently
+      summed 794/794 downloaded TRX records on each OS. Exact commands, artifact
+      digests, the RED-to-GREEN repair, and evidence limits are recorded in
+      [bounded live rekey evidence](../../docs/evidence/2026-07-16-bounded-live-rekey.md).
+      This closes the automated 4.3b implementation slice only; parent 4.3,
+      independent cryptographic review, physical two-device evidence, task 4.1,
+      the security release gate, and Flowspan v1 remain open.
     - _Requirements: R8.3-R8.4, R9.1, R12.3_
   - _Requirements: R8.3, R9.1_
 - [-] 4.4 Implement Windows Credential Manager/DPAPI, macOS Keychain, and Linux
