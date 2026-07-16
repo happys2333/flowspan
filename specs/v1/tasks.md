@@ -65,9 +65,9 @@ means its linked evidence exists; it does not imply the entire product works.
     - Complete at implementation commit `d647a7e`: intent precedes Prepare,
       decisions bind both participants, undecided restart durably aborts, and a
       purpose-separated authenticated file fails closed. All 613 tests, Secret
-      Scan, and CodeQL pass on the exact implementation commit across hosted
-      Windows, macOS, and Ubuntu; downloaded TRX counters and explicit limits
-      are recorded in
+      Scan, and CodeQL pass on the exact implementation commit `d647a7e` and
+      evidence commit `1b05d64` across hosted Windows, macOS, and Ubuntu;
+      downloaded TRX counters and explicit limits are recorded in
       [durable Atomic Swap coordinator evidence](../../docs/evidence/2026-07-16-durable-atomic-swap-coordinator.md).
       This status becomes final only after the evidence/closure HEAD passes the
       same workflows. Endpoint durability, authenticated protocol composition,
