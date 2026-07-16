@@ -57,11 +57,21 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R4, R11.2_
 - [-] 3.3 Implement atomic swap prepare/reserve/decision/commit/recovery state
   machines.
-  - [ ] 3.3a Persist a bounded, payload-free coordinator transaction intent in
+  - [x] 3.3a Persist a bounded, payload-free coordinator transaction intent in
     an independently keyed DPAPI/Keychain/Secret Service protected file before
     Prepare; bind decisions to both Device/token participants; recover an
     undecided restart only through a durable Abort; make reordered Abort and
     duplicate messages idempotent; and retain exact conflict evidence.
+    - Complete at implementation commit `d647a7e`: intent precedes Prepare,
+      decisions bind both participants, undecided restart durably aborts, and a
+      purpose-separated authenticated file fails closed. All 613 tests, Secret
+      Scan, and CodeQL pass on the exact implementation commit across hosted
+      Windows, macOS, and Ubuntu; downloaded TRX counters and explicit limits
+      are recorded in
+      [durable Atomic Swap coordinator evidence](../../docs/evidence/2026-07-16-durable-atomic-swap-coordinator.md).
+      This status becomes final only after the evidence/closure HEAD passes the
+      same workflows. Endpoint durability, authenticated protocol composition,
+      Desktop UX, and physical/native evidence remain open.
   - [ ] 3.3b Persist protected endpoint reservations, terminal decisions, and
     restart reduction before composing Swap over an authenticated channel.
   - _Requirements: R5_
