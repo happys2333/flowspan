@@ -122,6 +122,16 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R5_
 - [-] 3.4 Add generated transition/property cases and deterministic drop,
   duplicate, delay, disconnect, and journal-failure tests.
+  - Current candidate adds 4,096 seeded Operation-journal events, 64 composed
+    Move delivery traces, 4,096 seeded Mirror/lease transitions, and explicit
+    Handoff pre-write plus Handoff/Move ambiguous post-write journal-failure
+    coverage to the existing 256-case Atomic Swap matrix, manual-clock delay
+    tests, session disconnect tests, and durable persistence failures. All 713
+    local tests and four 20-process stress groups pass; commands, counts,
+    invariant mapping, and explicit physical/native limits are recorded in
+    [deterministic state-machine/fault evidence](../../docs/evidence/2026-07-16-deterministic-state-machine-fault-matrix.md).
+    The item remains open until exact-commit Windows/macOS/Ubuntu CI, Secret
+    Scan, CodeQL, downloaded TRX counts, and evidence-closure HEAD pass.
   - _Requirements: R4.5, R5, R8.4, R12.3_
 
 ## 4. Device security

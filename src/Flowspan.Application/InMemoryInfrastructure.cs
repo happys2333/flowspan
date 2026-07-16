@@ -100,8 +100,18 @@ public sealed class InMemoryActivityCatalog : IActivityCatalog, IActivitySnapsho
 
 public sealed class InMemoryOperationJournal : IOperationJournal
 {
+    public const int DefaultCapacity = 4_096;
+
     private readonly Lock gate = new();
     private readonly Dictionary<OperationId, Entry> entries = [];
+    private readonly Dictionary<OperationId, string> requestDigests = [];
+    private readonly int capacity;
+
+    public InMemoryOperationJournal(int capacity = DefaultCapacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
+        this.capacity = capacity;
+    }
 
     public async ValueTask<JournalExecutionResult> ExecuteOnceAsync(
         OperationId operationId,
@@ -118,19 +128,34 @@ public sealed class InMemoryOperationJournal : IOperationJournal
 
         lock (gate)
         {
+            bool operationIsBound = requestDigests.TryGetValue(
+                    operationId,
+                    out string? existingDigest);
+            if (operationIsBound
+                && !StringComparer.Ordinal.Equals(existingDigest, requestDigest))
+            {
+                return new JournalExecutionResult(null, false, true);
+            }
+
             if (entries.TryGetValue(operationId, out Entry? existing))
             {
-                if (!StringComparer.Ordinal.Equals(existing.RequestDigest, requestDigest))
-                {
-                    return new JournalExecutionResult(null, false, true);
-                }
-
                 entry = existing;
                 execute = false;
             }
             else
             {
-                entry = new Entry(requestDigest);
+                if (!operationIsBound && requestDigests.Count >= capacity)
+                {
+                    throw new InvalidOperationException(
+                        "The in-memory operation journal has reached its capacity.");
+                }
+
+                entry = new Entry();
+                if (!operationIsBound)
+                {
+                    requestDigests.Add(operationId, requestDigest);
+                }
+
                 entries.Add(operationId, entry);
                 execute = true;
             }
@@ -180,14 +205,11 @@ public sealed class InMemoryOperationJournal : IOperationJournal
 
     private sealed class Entry
     {
-        public Entry(string requestDigest)
+        public Entry()
         {
-            RequestDigest = requestDigest;
             Completion = new TaskCompletionSource<OperationReceipt>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
         }
-
-        public string RequestDigest { get; }
 
         public TaskCompletionSource<OperationReceipt> Completion { get; }
     }

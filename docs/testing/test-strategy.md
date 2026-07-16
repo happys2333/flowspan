@@ -240,6 +240,31 @@ remains openable. Missing numeric enum fields and non-canonical timestamp aliase
 are hostile payloads rather than default values. Protected-file tests require a
 pre-cancelled missing-file load to throw before key or filesystem access.
 
+The task 3.4 deterministic model/fault slice adds continuous generated
+transitions around the earlier scenario tests. Thirty-two fixed seeds execute
+128 Operation-journal events each and assert digest one-to-one identity,
+terminal receipt immutability, handler non-reexecution, and retryable
+Failed/Recovering outcomes after every event. Move enumerates every three-event
+combination of normal, drop-before-delivery, acknowledgement-loss, and duplicate
+delivery, appends a normal retry, and asserts source/target safety after each
+attempt. The existing Swap matrix enumerates every two-participant
+Prepare/Decision fault combination. Mirror uses another 32-by-128 seeded model
+covering role change, removal, transfer, expiry, emergency stop, and resume while
+proving no retired lease epoch revives. Failures print a replayable seed/event or
+complete fault trace; no property depends on sleeps or an unseeded random source.
+Handoff now injects operation-journal failure before Adapter/catalog mutation;
+Handoff and Move also wrap a real in-memory journal with a write-after-result
+failure and prove that retry replays without duplicate Adapter/catalog work.
+The journal reference model permanently binds the first request digest even
+when Failed, Recovering, or a handler exception remains retryable. A capacity
+test fills the process-scoped journal, proves an unknown Operation fails before
+handler work, and proves a known same-digest retry remains eligible. Existing
+Replace and Swap persistence tests cover pre-write and ambiguous post-write
+failure. Control-session tests cover disconnect and bounded delay.
+This closes the implemented-core task, not the release-wide criterion for
+not-yet-built Groups, Scenes, Remote Window, native Adapters, or physical fault
+evidence.
+
 The task 7.3c tracer keeps Replace separate from Activity transfer. Application
 tests require an exact target ID/revision/digest and prove capture or store
 failure blocks before incoming resume, successful Replace stores a 15-minute

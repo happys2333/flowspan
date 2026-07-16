@@ -107,6 +107,64 @@ public sealed class MoveTests
     }
 
     [Fact]
+    public async Task GeneratedDeliverySequencesPreserveMoveSafetyAndIdempotency()
+    {
+        ActivityDeliveryFault[] faults = Enum.GetValues<ActivityDeliveryFault>();
+        foreach (ActivityDeliveryFault first in faults)
+        {
+            foreach (ActivityDeliveryFault second in faults)
+            {
+                foreach (ActivityDeliveryFault third in faults)
+                {
+                    ActivityDeliveryFault[] sequence =
+                        [first, second, third, ActivityDeliveryFault.None];
+                    string faultTrace =
+                        $"Move fault trace [{string.Join(", ", sequence)}]";
+                    try
+                    {
+                        Fixture fixture = new();
+                        fixture.AuthorizeOffer();
+                        var channel = new DeterministicActivityChannel(
+                            fixture.Target,
+                            sequence);
+                        OperationReceipt? terminal = null;
+
+                        for (int attempt = 0; attempt < sequence.Length; attempt++)
+                        {
+                            string attemptTrace = Describe(sequence, attempt, null);
+                            OperationReceipt receipt = await ExecuteWithTraceAsync(
+                                attemptTrace,
+                                () => fixture.MoveAsync(channel));
+                            AssertMoveInvariant(fixture, sequence, attempt, receipt);
+                            if (receipt.Status is OperationStatus.Committed
+                                or OperationStatus.CommittedWithWarning)
+                            {
+                                terminal = receipt;
+                                break;
+                            }
+                        }
+
+                        Assert.True(
+                            terminal is { Status: OperationStatus.Committed },
+                            Describe(sequence, sequence.Length, terminal));
+                        string trace = Describe(sequence, sequence.Length, terminal);
+                        Assert.True(fixture.TargetAdapter.ResumeCount == 1, trace);
+                        Assert.True(fixture.SourceAdapter.CloseCount == 1, trace);
+                    }
+                    catch (Exception exception) when (!exception.Message.Contains(
+                        faultTrace,
+                        StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"{faultTrace}, unexpected generated-case exception.",
+                            exception);
+                    }
+                }
+            }
+        }
+    }
+
+    [Fact]
     public async Task SourceCloseFailureIsCommittedWithWarning()
     {
         Fixture fixture = new(sourceCloseSucceeds: false);
@@ -122,11 +180,86 @@ public sealed class MoveTests
         Assert.True(fixture.Target.TryGetActivity(fixture.Descriptor.Id, out _));
     }
 
+    [Fact]
+    public async Task AmbiguousCoordinatorJournalFailureReplaysMoveWithoutDuplicateWork()
+    {
+        var failure = new IOException("Injected failure after coordinator result.");
+        Fixture fixture = new(
+            sourceJournal: new ThrowAfterFirstResultOperationJournal(failure));
+        fixture.AuthorizeOffer();
+        var channel = new DirectActivityChannel(fixture.Target);
+
+        IOException thrown = await Assert.ThrowsAsync<IOException>(
+            async () => await fixture.MoveAsync(channel));
+
+        Assert.Same(failure, thrown);
+        Assert.Equal(1, fixture.TargetAdapter.ResumeCount);
+        Assert.Equal(1, fixture.SourceAdapter.CloseCount);
+        Assert.True(fixture.Source.TryGetActivity(
+            fixture.Descriptor.Id,
+            out ActivityInstance? source));
+        Assert.Equal(ActivityLifecycle.Closed, source.Lifecycle);
+
+        OperationReceipt replay = await fixture.MoveAsync(channel);
+
+        Assert.Equal(OperationStatus.Committed, replay.Status);
+        Assert.Equal(1, fixture.TargetAdapter.ResumeCount);
+        Assert.Equal(1, fixture.SourceAdapter.CloseCount);
+    }
+
+    private static async ValueTask<T> ExecuteWithTraceAsync<T>(
+        string trace,
+        Func<ValueTask<T>> operation)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(
+                $"{trace} Unexpected generated-operation exception.",
+                exception);
+        }
+    }
+
     private static void AssertSourceIsActive(Fixture fixture)
     {
         Assert.True(fixture.Source.TryGetActivity(fixture.Descriptor.Id, out ActivityInstance? source));
         Assert.Equal(ActivityLifecycle.Active, source.Lifecycle);
     }
+
+    private static void AssertMoveInvariant(
+        Fixture fixture,
+        IReadOnlyList<ActivityDeliveryFault> sequence,
+        int attempt,
+        OperationReceipt receipt)
+    {
+        string trace = Describe(sequence, attempt, receipt);
+        Assert.True(fixture.Source.TryGetActivity(
+            fixture.Descriptor.Id,
+            out ActivityInstance? source),
+            trace);
+        bool targetExists = fixture.Target.TryGetActivity(
+            fixture.Descriptor.Id,
+            out ActivityInstance? target);
+        Assert.True(
+            source.Lifecycle != ActivityLifecycle.Closed
+            || targetExists && target?.Lifecycle == ActivityLifecycle.Active,
+            trace);
+        Assert.True(fixture.TargetAdapter.ResumeCount is >= 0 and <= 1, trace);
+        Assert.True(fixture.TargetCatalog.Count is >= 0 and <= 1, trace);
+        if (receipt.Status is OperationStatus.Failed or OperationStatus.Recovering)
+        {
+            Assert.True(source.Lifecycle == ActivityLifecycle.Active, trace);
+        }
+    }
+
+    private static string Describe(
+        IReadOnlyList<ActivityDeliveryFault> sequence,
+        int attempt,
+        OperationReceipt? receipt) =>
+        $"Move fault trace [{string.Join(", ", sequence)}], attempt {attempt}, status {receipt?.Status}.";
 
     private sealed class Fixture
     {
@@ -135,7 +268,9 @@ public sealed class MoveTests
 
         private readonly OperationContext context;
 
-        public Fixture(bool sourceCloseSucceeds = true)
+        public Fixture(
+            bool sourceCloseSucceeds = true,
+            IOperationJournal? sourceJournal = null)
         {
             var clock = new TestClock(Now);
             Events = [];
@@ -155,7 +290,7 @@ public sealed class MoveTests
                 "Source",
                 clock,
                 new InMemoryActivityCatalog(),
-                new InMemoryOperationJournal(),
+                sourceJournal ?? new InMemoryOperationJournal(),
                 new ActivityAdapterRegistry([SourceAdapter]),
                 new InMemoryReceiptSink());
             Target = new FlowspanNode(

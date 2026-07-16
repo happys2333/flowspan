@@ -141,6 +141,45 @@ public sealed class HandoffTests
         Assert.Equal(0, fixture.Adapter.CallCount);
     }
 
+    [Fact]
+    public async Task JournalFailureBlocksBeforeResumeAndTargetMutation()
+    {
+        var failure = new IOException("Injected operation journal failure.");
+        Fixture fixture = new(targetJournal: new ThrowingOperationJournal(failure));
+        fixture.AuthorizeOffer();
+
+        IOException thrown = await Assert.ThrowsAsync<IOException>(
+            async () => await fixture.HandoffAsync());
+
+        Assert.Same(failure, thrown);
+        Assert.Equal(0, fixture.Adapter.CallCount);
+        Assert.False(fixture.Target.TryGetActivity(fixture.Descriptor.Id, out _));
+        Assert.True(fixture.Source.TryGetActivity(fixture.Descriptor.Id, out _));
+    }
+
+    [Fact]
+    public async Task AmbiguousJournalFailureReplaysRecordedHandoffWithoutSecondResume()
+    {
+        var failure = new IOException("Injected failure after journal result.");
+        Fixture fixture = new(
+            targetJournal: new ThrowAfterFirstResultOperationJournal(failure));
+        fixture.AuthorizeOffer();
+
+        IOException thrown = await Assert.ThrowsAsync<IOException>(
+            async () => await fixture.HandoffAsync());
+
+        Assert.Same(failure, thrown);
+        Assert.True(fixture.Source.TryGetActivity(fixture.Descriptor.Id, out _));
+        Assert.True(fixture.Target.TryGetActivity(fixture.Descriptor.Id, out _));
+        Assert.Equal(1, fixture.Adapter.CallCount);
+
+        OperationReceipt replay = await fixture.HandoffAsync();
+
+        Assert.Equal(OperationStatus.Committed, replay.Status);
+        Assert.Equal(1, fixture.Adapter.CallCount);
+        Assert.Equal(1, fixture.TargetCatalog.Count);
+    }
+
     private sealed class Fixture
     {
         private static readonly DeviceId SourceId =
@@ -151,7 +190,10 @@ public sealed class HandoffTests
 
         private readonly OperationContext context;
 
-        public Fixture(string? payloadJson = null, DateTimeOffset? deadline = null)
+        public Fixture(
+            string? payloadJson = null,
+            DateTimeOffset? deadline = null,
+            IOperationJournal? targetJournal = null)
         {
             var clock = new TestClock(Now);
             Adapter = new CountingAdapter(new WorkspaceNoteAdapter());
@@ -170,7 +212,7 @@ public sealed class HandoffTests
                 "Target",
                 clock,
                 TargetCatalog,
-                new InMemoryOperationJournal(),
+                targetJournal ?? new InMemoryOperationJournal(),
                 new ActivityAdapterRegistry([Adapter]),
                 TargetReceipts);
 
@@ -216,6 +258,16 @@ public sealed class HandoffTests
     private sealed class TestClock(DateTimeOffset utcNow) : IClock
     {
         public DateTimeOffset UtcNow { get; } = utcNow;
+    }
+
+    private sealed class ThrowingOperationJournal(Exception failure) : IOperationJournal
+    {
+        public ValueTask<JournalExecutionResult> ExecuteOnceAsync(
+            OperationId operationId,
+            string requestDigest,
+            Func<CancellationToken, ValueTask<OperationReceipt>> operation,
+            CancellationToken cancellationToken) => ValueTask.FromException<JournalExecutionResult>(
+                failure);
     }
 
     private sealed class CountingAdapter(IActivityAdapter inner) : IActivityAdapter

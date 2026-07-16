@@ -26,6 +26,11 @@ Use a versioned message protocol over an abstract ordered duplex stream.
   digest of its immutable request. Journals cache terminal results.
 - Retry of the same ID and digest returns the same result. Reuse of an ID with a
   different digest is a protocol conflict.
+- The current in-memory journal binds at most 4,096 distinct Operation IDs per
+  instance. The first digest remains bound after a retryable result or handler
+  exception. At capacity, an unknown Operation fails closed before its handler,
+  while an already bound same-digest retry remains eligible. This bound is
+  process-scoped evidence, not durable restart history.
 - Move uses target-before-source commit ordering.
 - Swap uses prepare reservations and a durable commit decision. Endpoint state
   converges from its journal after lost messages.

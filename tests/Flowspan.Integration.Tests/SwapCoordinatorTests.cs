@@ -687,50 +687,92 @@ public sealed class SwapCoordinatorTests
                 {
                     foreach (ActivityDeliveryFault secondDecisionFault in faults)
                     {
-                        Fixture fixture = new();
-                        var first = new DeterministicSwapEndpointChannel(
-                            fixture.FirstEndpoint,
-                            [firstPrepareFault],
-                            [firstDecisionFault]);
-                        var second = new DeterministicSwapEndpointChannel(
-                            fixture.SecondEndpoint,
-                            [secondPrepareFault],
-                            [secondDecisionFault]);
-
-                        await fixture.ExecuteAsync(first, second);
-                        SwapCoordinatorResult recovered =
-                            await fixture.Coordinator.RecoverAsync(
-                                fixture.Context.OperationId,
-                                first,
-                                second);
-                        SwapCoordinatorResult replay =
-                            await fixture.Coordinator.RecoverAsync(
-                                fixture.Context.OperationId,
-                                first,
-                                second);
-
-                        Assert.True(fixture.Transactions.TryGet(
-                            fixture.Context.OperationId,
-                            out SwapCoordinatorTransaction? transaction));
-                        Assert.NotNull(transaction.Decision);
-                        if (transaction.Decision.Outcome
-                            == SwapDecisionOutcome.Commit)
+                        string trace =
+                            $"prepare=[{firstPrepareFault}, {secondPrepareFault}], decision=[{firstDecisionFault}, {secondDecisionFault}]";
+                        try
                         {
-                            Assert.Equal(OperationStatus.Committed, recovered.Status);
-                            Assert.Equal(OperationStatus.Committed, replay.Status);
-                            fixture.AssertSwapped();
-                        }
-                        else
-                        {
-                            Assert.Equal(OperationStatus.Rejected, recovered.Status);
-                            Assert.Equal(OperationStatus.Rejected, replay.Status);
-                            fixture.AssertOriginals();
-                        }
+                            Fixture fixture = new();
+                            var first = new DeterministicSwapEndpointChannel(
+                                fixture.FirstEndpoint,
+                                [firstPrepareFault],
+                                [firstDecisionFault]);
+                            var second = new DeterministicSwapEndpointChannel(
+                                fixture.SecondEndpoint,
+                                [secondPrepareFault],
+                                [secondDecisionFault]);
 
-                        Assert.Equal(recovered.DecisionDigest, replay.DecisionDigest);
+                            await ExecuteWithTraceAsync(
+                                $"{trace}, phase=execute",
+                                () => fixture.ExecuteAsync(first, second));
+                            SwapCoordinatorResult recovered =
+                                await ExecuteWithTraceAsync(
+                                    $"{trace}, phase=recover-1",
+                                    () => fixture.Coordinator.RecoverAsync(
+                                        fixture.Context.OperationId,
+                                        first,
+                                        second));
+                            SwapCoordinatorResult replay =
+                                await ExecuteWithTraceAsync(
+                                    $"{trace}, phase=recover-2",
+                                    () => fixture.Coordinator.RecoverAsync(
+                                        fixture.Context.OperationId,
+                                        first,
+                                        second));
+
+                            Assert.True(fixture.Transactions.TryGet(
+                                fixture.Context.OperationId,
+                                out SwapCoordinatorTransaction? transaction),
+                                trace);
+                            Assert.True(transaction.Decision is not null, trace);
+                            if (transaction.Decision.Outcome
+                                == SwapDecisionOutcome.Commit)
+                            {
+                                Assert.True(
+                                    recovered.Status == OperationStatus.Committed,
+                                    trace);
+                                Assert.True(replay.Status == OperationStatus.Committed, trace);
+                                fixture.AssertSwapped(trace);
+                            }
+                            else
+                            {
+                                Assert.True(recovered.Status == OperationStatus.Rejected, trace);
+                                Assert.True(replay.Status == OperationStatus.Rejected, trace);
+                                fixture.AssertOriginals(trace);
+                            }
+
+                            Assert.True(
+                                StringComparer.Ordinal.Equals(
+                                    recovered.DecisionDigest,
+                                    replay.DecisionDigest),
+                                trace);
+                        }
+                        catch (Exception exception) when (!exception.Message.Contains(
+                            trace,
+                            StringComparison.Ordinal))
+                        {
+                            throw new InvalidOperationException(
+                                $"{trace}, unexpected generated-case exception.",
+                                exception);
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private static async ValueTask<T> ExecuteWithTraceAsync<T>(
+        string trace,
+        Func<ValueTask<T>> operation)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(
+                $"{trace}, unexpected generated-operation exception.",
+                exception);
         }
     }
 
@@ -816,24 +858,34 @@ public sealed class SwapCoordinatorTests
                 second,
                 SecondActivity.Descriptor.Id);
 
-        public void AssertOriginals()
+        public void AssertOriginals(string? trace = null)
         {
-            Assert.True(FirstEndpoint.TryGetActivity(FirstActivity.Descriptor.Id, out _));
-            Assert.True(SecondEndpoint.TryGetActivity(SecondActivity.Descriptor.Id, out _));
+            Assert.True(
+                FirstEndpoint.TryGetActivity(FirstActivity.Descriptor.Id, out _),
+                trace);
+            Assert.True(
+                SecondEndpoint.TryGetActivity(SecondActivity.Descriptor.Id, out _),
+                trace);
         }
 
-        public void AssertSwapped()
+        public void AssertSwapped(string? trace = null)
         {
             Assert.True(FirstEndpoint.TryGetActivity(
                 SecondActivity.Descriptor.Id,
-                out ActivityInstance? onFirst));
-            Assert.Equal(FirstEndpoint.DeviceId, onFirst.Placement.DeviceId);
+                out ActivityInstance? onFirst),
+                trace);
+            Assert.True(FirstEndpoint.DeviceId == onFirst.Placement.DeviceId, trace);
             Assert.True(SecondEndpoint.TryGetActivity(
                 FirstActivity.Descriptor.Id,
-                out ActivityInstance? onSecond));
-            Assert.Equal(SecondEndpoint.DeviceId, onSecond.Placement.DeviceId);
-            Assert.False(FirstEndpoint.TryGetActivity(FirstActivity.Descriptor.Id, out _));
-            Assert.False(SecondEndpoint.TryGetActivity(SecondActivity.Descriptor.Id, out _));
+                out ActivityInstance? onSecond),
+                trace);
+            Assert.True(SecondEndpoint.DeviceId == onSecond.Placement.DeviceId, trace);
+            Assert.False(
+                FirstEndpoint.TryGetActivity(FirstActivity.Descriptor.Id, out _),
+                trace);
+            Assert.False(
+                SecondEndpoint.TryGetActivity(SecondActivity.Descriptor.Id, out _),
+                trace);
         }
 
         private static ActivityInstance CreateActivity(

@@ -237,6 +237,14 @@ public sealed class MirrorSession
     {
         ArgumentNullException.ThrowIfNull(deviceId);
         EnsureActive();
+        if (role != MirrorParticipantRole.DriverEligible
+            && (deviceId == HostDeviceId
+                || DriverLease.HolderDeviceId == deviceId))
+        {
+            throw new InvalidOperationException(
+                "The safe owner and current driver must remain driver-eligible.");
+        }
+
         return Copy(participants.SetItem(deviceId, role), DriverLease, Status);
     }
 
