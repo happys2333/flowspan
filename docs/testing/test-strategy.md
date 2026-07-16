@@ -299,8 +299,7 @@ handler work, and proves a known same-digest retry remains eligible. Existing
 Replace and Swap persistence tests cover pre-write and ambiguous post-write
 failure. Control-session tests cover disconnect and bounded delay.
 This closes the implemented-core task, not the release-wide criterion for
-not-yet-built Groups, Scenes, Remote Window, native Adapters, or physical fault
-evidence.
+Scene apply, Remote Window, native Adapters, or physical fault evidence.
 
 The task 7.3c tracer keeps Replace separate from Activity transfer. Application
 tests require an exact target ID/revision/digest and prove capture or store
@@ -356,6 +355,23 @@ expired, consumed, and revision-conflict outcomes. Recovery and confirmation
 canaries prove that descriptor titles/payloads/digests and exception text do not
 enter the new visible undo strings.
 
+The task 8.1 Group/Scene model preserves a defensive immutable copy of 1 through
+64 unique Activity IDs in exact caller order. Group and Scene revisions advance
+with checked arithmetic; Group-derived Scenes bind the exact Group ID/revision
+and require the explicitly expanded Scene items to match membership order.
+Scene format v1 freezes typed Preserve/Move and Require Empty/Replace With Undo
+policies without inventing another transfer primitive. Its 32 KiB/depth-8 JSON
+codec has a golden 583-byte fixture and digest, emits canonical property/token
+order, and rejects unknown, duplicate, missing, mistyped, non-canonical ID,
+invalid revision/policy, over-bound, comment, trailing-comma, and trailing-data
+inputs. Domain boundary tests also reject malformed UTF-16 in Group names,
+Scene names, and Scene placement slots instead of allowing serializer
+replacement characters to alter a definition. Canary fields named for payload,
+traffic keys, and sessions are unknown schema and fail rather than round-trip.
+These tests prove only the definition format; Scene repository, authorization,
+preview/apply, per-Activity results, Replace confirmation/undo, UI, and
+physical-device evidence remain open.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source
@@ -377,6 +393,9 @@ Core invariants are asserted after every event:
 11. revoked Swap authority can converge only through an exact durable
     Operation/correlation/peer binding, and a silent peer cannot retain a pending
     correlation beyond its defined deadline.
+12. a saved Scene has one explicit bounded Activity order and no representable
+    descriptor payload, session key, reservation, capability snapshot, or Undo
+    Capsule field; mutable Group membership cannot silently expand it at apply.
 
 ## 4. CI matrix
 

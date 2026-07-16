@@ -199,6 +199,19 @@ human-confirmed product Swap or arbitrary application migration. Task 3.3c
 remains open until local stress plus the exact-commit Windows/macOS/Ubuntu,
 Secret Scan, CodeQL, and downloaded TRX evidence close.
 
+### 5.10 Task 8.1 Activity Group and Scene-definition evidence plan
+
+| Threat | Required implementation evidence | Remaining evidence |
+| --- | --- | --- |
+| T10 | Scene format v1 has no field for descriptors, payloads, adapter state, Trust, Capability snapshots, session IDs, traffic keys, reservations, or Undo Capsules. Unknown fields—including secret canaries—fail decoding. Group/Scene diagnostic strings omit names, slots, and Activity membership. | Repository/export redaction, packaged crash/minidump inspection, and user deletion in task 8.3. |
+| T11 | A frozen canonical JSON fixture/hash, exact format version, lowercase GUIDs, strict enums, positive revisions, required-field set, duplicate/unknown rejection, and malformed-Unicode rejection prevent ambiguous local definitions. | Private atomic repository, migration, rollback policy, and filesystem review in task 8.3. |
+| T13 | Groups and Scenes admit 1 through 64 unique Activities; the codec admits at most 32 KiB and depth 8 and rejects over-bound input before publishing an aggregate. | Sustained repository load, pruning/retention limits, and packaged resource telemetry. |
+| T18 | A Group-derived Scene binds Group ID/revision and freezes the exact expanded Activity order. A later mutable Group cannot silently change that definition. Scene policies map only to existing Handoff, Move, and Replace safety semantics. | Task 8.2 current-state planning, authorization, Replace confirmation/undo, stale-Group presentation, and per-Activity outcomes. |
+
+This slice is local definition evidence only. It does not authorize
+`scene.apply`, persist a repository, execute an Activity operation, or prove a
+physical multi-device Scene.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

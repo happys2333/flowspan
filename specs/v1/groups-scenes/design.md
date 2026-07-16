@@ -1,6 +1,6 @@
 # Activity Groups and Scene Plan Design
 
-Status: design candidate for task 8.1
+Status: implemented candidate for task 8.1; hosted delivery evidence pending
 
 ## Design summary
 
@@ -42,10 +42,11 @@ public sealed record ActivityGroup
 }
 ```
 
-Factories trim names, reject control characters, require revisions from one
-upward, materialize the enumerable exactly once, reject null/duplicate IDs, and
-copy it into `ImmutableArray`. `Revise` validates a complete replacement before
-returning an aggregate with the same ID and `checked(Revision + 1)`.
+Factories trim names, reject control characters and malformed UTF-16, require
+revisions from one upward, materialize the enumerable exactly once, reject
+null/duplicate IDs, and copy it into `ImmutableArray`. `Revise` validates a
+complete replacement before returning an aggregate with the same ID and
+`checked(Revision + 1)`.
 
 There is no Group-of-Groups type. This matches the ubiquitous language and
 prevents recursive expansion, cycles, and hidden ordering rules.
@@ -80,7 +81,10 @@ public sealed record SceneActivityPlan
 the existing Move acknowledgement boundary. `RequireEmpty` blocks a collision;
 `ReplaceWithUndo` invokes the existing Replace preservation and undo boundary
 during task 8.2. The plan item contains no descriptor, source device, secret, or
-runtime session state.
+runtime session state. `ActivityPlacement.On` rejects malformed UTF-16 and
+control characters on the raw slot before whitespace normalization; Scene
+construction checks the normalized placement invariant again before publishing
+the item.
 
 ### Exact Group binding
 
@@ -158,7 +162,11 @@ The canonical property order is frozen:
 ```
 
 An ungrouped Scene writes `"group": null`. `Utf8JsonWriter` emits compact UTF-8
-without a BOM. GUIDs use lowercase `D` text. Enum tokens are exactly:
+without a BOM. The writer uses unescaped Unicode because this is an
+`application/json` data artifact, never HTML; Scene names and slots reject
+control characters and malformed UTF-16, and a 64-item maximum-Unicode plan
+remains below the decoder's 32 KiB limit. GUIDs use lowercase `D` text. Enum
+tokens are exactly:
 
 - `preserve-source`;
 - `move-after-acknowledgement`;
@@ -179,6 +187,8 @@ are not representable and cannot round-trip through an extension bag.
 ## Module changes
 
 - `Flowspan.Domain/Identifiers.cs`: add `GroupId` and `SceneId`.
+- `Flowspan.Domain/Activities.cs`: validate raw placement text before
+  normalization.
 - `Flowspan.Domain/GroupsAndScenes.cs`: immutable Group, binding, Scene item, and
   Scene plan aggregates.
 - `Flowspan.Application/ScenePlanCodec.cs`: strict version-1 local codec.
@@ -192,7 +202,8 @@ added by task 8.1.
 ## Verification matrix
 
 - exact Group order and defensive copying;
-- empty, duplicate, null, 65-item, control-character, and overlong negatives;
+- empty, duplicate, null, 65-item, control-character, malformed-Unicode, and
+  overlong negatives;
 - stable IDs and monotonic checked revisions;
 - individual and Group-derived Scenes, including exact Group-order mismatch;
 - invalid enum values and placement data;

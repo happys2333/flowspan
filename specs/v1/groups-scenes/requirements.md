@@ -1,6 +1,7 @@
 # Activity Groups and Scene Plan Requirements
 
-Status: approved v1 direction; task 8.1 implementation pending
+Status: approved v1 direction; implementation complete locally; hosted delivery
+evidence pending
 
 ## Problem and scope
 
@@ -29,6 +30,8 @@ execute a Scene, persist a Scene repository, or add UI.
   membership under the same bounds.
 - When membership is empty, duplicated, over the bound, or contains a null ID,
   Flowspan shall reject it before publishing a Group.
+- When a Group name contains malformed UTF-16 or a control character, Flowspan
+  shall reject it before publishing a Group.
 - A v1 Activity Group shall contain Activities only. It shall not contain or
   recursively expand another Group.
 
@@ -53,14 +56,17 @@ execute a Scene, persist a Scene repository, or add UI.
 - When a plan contains duplicate Activity IDs, an undefined policy, an invalid
   placement, an empty or oversized item list, or a mismatched Group binding,
   Flowspan shall reject it before publishing a Scene.
+- When a Scene name or placement slot contains malformed UTF-16 or a control
+  character, Flowspan shall reject it before publishing a Scene.
 
 ### GS3 — Secret-minimized representation
 
 - A Scene format shall have no field for an Activity Descriptor, Activity
   payload, adapter state, identity/trust material, capability snapshot, session
   identifier, traffic key, reservation token, or Undo Capsule.
-- When a Scene is encoded or rendered as a diagnostic string, Flowspan shall not
-  include Activity content or a user-visible Scene name.
+- When a Scene is encoded, Flowspan shall not include Activity content or secret
+  material. When it is rendered as a diagnostic string, Flowspan shall also omit
+  its user-visible name, placement slots, and Activity IDs.
 - When a decoder sees an unknown or duplicate JSON property, trailing data, an
   unsupported format version, or a value outside the frozen schema, it shall
   reject the document rather than retain unrecognized content.
@@ -75,6 +81,8 @@ execute a Scene, persist a Scene repository, or add UI.
 - The codec shall accept at most 32 KiB, JSON depth 8, 64 Activity items, names
   up to 120 characters, and placement slots up to the existing 80-character
   Activity Placement bound.
+- The codec and domain factories shall reject malformed Unicode rather than
+  canonicalizing replacement characters into a different Scene definition.
 - A decode followed by encode shall reproduce the canonical bytes and preserve
   Scene identity, revision, Group binding, item order, placements, and policies.
 - The canonical fixture and its SHA-256 digest shall be frozen in tests.
@@ -82,7 +90,8 @@ execute a Scene, persist a Scene repository, or add UI.
 ### GS5 — Evidence
 
 - Domain tests shall cover order, defensive copying, duplicate/empty/overflow
-  rejection, revision monotonicity, Group binding, and redacted string output.
+  rejection, malformed Unicode, revision monotonicity, Group binding, and
+  redacted string output.
 - Codec tests shall cover the golden fixture, round trip, every bound, unknown
   and duplicate properties, malformed IDs/enums/versions, trailing data, and
   explicit secret-field rejection.

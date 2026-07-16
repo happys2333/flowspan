@@ -212,6 +212,20 @@ public sealed record ActivityPlacement
         ArgumentNullException.ThrowIfNull(deviceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(slot);
 
+        if (!DomainText.IsWellFormedUtf16(slot))
+        {
+            throw new ArgumentException(
+                "A placement slot must contain well-formed Unicode text.",
+                nameof(slot));
+        }
+
+        if (slot.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "A placement slot cannot contain control characters.",
+                nameof(slot));
+        }
+
         string normalizedSlot = slot.Trim();
         if (normalizedSlot.Length > 80)
         {

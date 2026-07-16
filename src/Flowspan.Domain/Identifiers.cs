@@ -32,6 +32,38 @@ public sealed record ActivityId
     public override string ToString() => Value.ToString("D");
 }
 
+public sealed record GroupId
+{
+    private GroupId(Guid value) => Value = value;
+
+    public Guid Value { get; }
+
+    public static GroupId From(Guid value) =>
+        value == Guid.Empty
+            ? throw new ArgumentException("A Group ID cannot be empty.", nameof(value))
+            : new GroupId(value);
+
+    public static GroupId Parse(string value) => From(Guid.Parse(value));
+
+    public override string ToString() => Value.ToString("D");
+}
+
+public sealed record SceneId
+{
+    private SceneId(Guid value) => Value = value;
+
+    public Guid Value { get; }
+
+    public static SceneId From(Guid value) =>
+        value == Guid.Empty
+            ? throw new ArgumentException("A Scene ID cannot be empty.", nameof(value))
+            : new SceneId(value);
+
+    public static SceneId Parse(string value) => From(Guid.Parse(value));
+
+    public override string ToString() => Value.ToString("D");
+}
+
 public sealed record OperationId
 {
     private OperationId(Guid value) => Value = value;

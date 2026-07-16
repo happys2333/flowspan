@@ -6,19 +6,19 @@
   - Record the durable choice in ADR 0016.
   - _Requirements: GS1–GS5_
 
-- [ ] 2. Implement ordered Activity Groups
+- [x] 2. Implement ordered Activity Groups
   - Add opaque Group and Scene identifiers.
   - Add immutable bounded Group creation and revision with exact-order,
     duplicate, null, overflow, defensive-copy, and redaction tests.
   - _Requirements: GS1, GS3, GS5_
 
-- [ ] 3. Implement typed version-1 Scene plans
+- [x] 3. Implement typed version-1 Scene plans
   - Add typed source-disposition and destination-conflict policies.
   - Add individual and exact Group-derived plans with immutable ordering,
     revision, binding, invalid-policy, mismatch, bound, and redaction tests.
   - _Requirements: GS2–GS3, GS5_
 
-- [ ] 4. Implement the canonical local Scene codec
+- [x] 4. Implement the canonical local Scene codec
   - Emit the frozen compact UTF-8 property order and enum tokens.
   - Reject over-size/depth, missing, duplicate, unknown, mistyped, malformed,
     trailing, unsupported-version, bound, and secret-field inputs.
@@ -26,11 +26,13 @@
   - _Requirements: GS3–GS5_
 
 - [ ] 5. Close task-8.1 delivery evidence
-  - Run locked restore, format, Release build, all tests, Desktop composition,
-    simulator, dependency vulnerability query, and diff checks.
-  - Run focused Group/Scene tests in independent processes and complete
-    Standards/Spec review.
-  - Push implementation, evidence, and task-status commits; verify Windows,
-    macOS, Ubuntu, Secret Scan, CodeQL, and downloaded TRX sums.
+  - [x] Run locked restore, format, Release build, all 824 tests, Desktop TEST
+    MODE composition, protocol-1.3 simulator, 24-project dependency
+    vulnerability query, and diff checks on the local macOS host.
+  - [x] Run the 21 focused Group/Scene domain tests and 9 codec tests in 20
+    independent processes each; close Standards and Spec review with zero
+    remaining findings.
+  - [ ] Push implementation, evidence, and task-status commits; verify Windows,
+    macOS, Ubuntu, Secret Scan, CodeQL, and downloaded TRX sums at exact SHAs.
   - Keep apply, repository/UI, physical-device, packaging, and v1 gates open.
   - _Requirements: GS5_
