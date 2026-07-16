@@ -186,6 +186,16 @@ implementation convenience.
   Destructive source/target composition, physical/native recovery, and native
   accessibility remain open, so the Replace product criterion is still
   unchecked.
+- [2026-07-16 Desktop exact-confirmation semantic Replace](../evidence/2026-07-16-desktop-semantic-replace.md):
+  579 local and exact-implementation-commit hosted tests prove production
+  Trust-bound target composition, source-side exact send-time revalidation,
+  protected target serialization before journal creation, encrypted-loopback
+  commit and capsule binding, truthful acknowledgement loss, source
+  preservation, keyboard activation, and unchanged `NOT SHARING`. Secret Scan
+  and CodeQL pass on the same implementation SHA. Physical two-device LAN,
+  representative native protected-store/application recovery, native
+  accessibility, and crash/power-loss evidence remain open, so the Replace
+  product criterion is still unchecked.
 
 This is foundation evidence only. It does not satisfy physical-device, native
 permission/hardware, packaging, independent security-review, or full product

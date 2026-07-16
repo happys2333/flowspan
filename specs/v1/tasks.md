@@ -359,13 +359,17 @@ means its linked evidence exists; it does not imply the entire product works.
     hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, two 20-process
     stress groups, and explicit physical/native limits are recorded in
     [Desktop target-local Undo evidence](../../docs/evidence/2026-07-15-desktop-target-local-undo.md).
-    The 7.3c.7 local candidate now composes the same protected endpoint as a
-    Trust-bound production peer plus one exact-confirmation source command. Its
-    local 579-test gate, two 20-process Replace stress groups, locked restore,
-    warning-free build, TEST MODE composition, dependency audit, and simulator
-    classification pass. Exact implementation-commit Windows/macOS/Ubuntu CI,
-    Secret Scan, CodeQL, and a linked evidence record remain required before
-    7.3c.7 can be checked. Physical/native product evidence also remains open.
+    The exact-confirmation destructive composition sub-slice is complete at
+    implementation commit `30e2db4`: the protected endpoint is a Trust-bound
+    production peer, the source revalidates fresh inventory before creating one
+    command, target Replace and local undo serialize before journal creation,
+    and the UI projects committed, rejected, recovery-blocked, and uncertain
+    outcomes without removing the source. All 579 tests, two 20-process stress
+    groups, Secret Scan, and CodeQL pass on that exact implementation commit
+    across hosted Windows, macOS, and Ubuntu. Commands, run/job IDs, downloaded
+    TRX counts, and explicit physical/native limits are recorded in
+    [Desktop semantic Replace evidence](../../docs/evidence/2026-07-16-desktop-semantic-replace.md).
+    Physical/native product evidence remains open.
     The earlier core/protocol evidence is recorded in
     [bounded Replace core evidence](../../docs/evidence/2026-07-15-bounded-replace-core.md).
     Consequently 7.3c and the parent task are not complete. See
@@ -403,13 +407,13 @@ means its linked evidence exists; it does not imply the entire product works.
       selected recovery snapshot, present expiry and every terminal/pending
       outcome, and prove restart replay cannot repeat Adapter restoration.
       - _Requirements: R4.12, R10.3-R10.4, R11.2_
-    - [ ] 7.3c.7 Only after 7.3c.5-7.3c.6, compose production `IReplacePeer`
+    - [x] 7.3c.7 Only after 7.3c.5-7.3c.6, compose production `IReplacePeer`
       and the source-side Desktop `ReplaceAsync` command. Revalidate the exact
       preview at send time, project the authenticated receipt/capsule reference,
       and retain truthful acknowledgement-loss and recovery behavior.
-      - Local implementation is present; keep this unchecked until its exact
-        implementation commit has passing hosted matrix, Secret Scan, CodeQL,
-        and linked evidence.
+      - Exact implementation-commit hosted evidence and remaining limitations
+        are linked above. This status becomes effective only after the commit
+        carrying this evidence also passes the same final-HEAD workflows.
       - _Requirements: R4.4-R4.12, R9, R10, R11_
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
