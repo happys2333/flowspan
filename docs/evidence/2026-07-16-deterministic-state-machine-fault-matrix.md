@@ -17,10 +17,11 @@ separate work.
 
 Branch: `codex/v1-foundation`
 
-The exact implementation commit and hosted run identifiers are pending until
-this local candidate is committed and pushed. Task 3.4 remains open until the
-same exact commit passes Windows, macOS, and Ubuntu CI, Secret Scan, CodeQL, and
-downloaded TRX verification.
+Implementation commit:
+`c590e1aaa81ebc66b877f45736d92e23e43925bf`
+
+Task 3.4 remains open until the evidence and task-status commits pass the same
+Windows, macOS, and Ubuntu CI, Secret Scan, CodeQL, and downloaded TRX gates.
 
 ## Local environment
 
@@ -179,13 +180,64 @@ unexpected exception carries its seed/event/fault trace. A real in-memory
 journal wrapped by the post-result fault double proves Handoff and Move replay
 without repeating Adapter or catalog work.
 
-## Hosted evidence pending
+## Final two-axis review
 
-No Windows, Linux, or hosted macOS result is claimed by this local section.
-After push, this document must record the exact commit, CI/CodeQL run and job
-IDs, Secret Scan result, artifact IDs, and independently summed TRX counters.
-The evidence/task-status commit must then pass the same workflows before task
-3.4 is final.
+The final implementation tree was reviewed independently against repository
+Standards and the v1 Spec after every finding above was repaired:
+
+- Standards: 0 hard violations and 0 judgement findings;
+- Spec: 0 missing/partial requirements, 0 scope-creep findings, and 0 incorrect
+  implementations.
+
+The final review specifically rechecked the independent Mirror oracle, safe
+Owner and current-driver eligibility, all historical epochs, permanent digest
+binding, capacity fail-closed behavior, ambiguous journal replay, complete
+generated traces, and evidence honesty.
+
+## Hosted results for the implementation commit
+
+GitHub Actions CI run
+[`29488721383`](https://github.com/happys2333/flowspan/actions/runs/29488721383)
+completed successfully for exact implementation commit
+`c590e1aaa81ebc66b877f45736d92e23e43925bf`:
+
+- Ubuntu job
+  [`87589370854`](https://github.com/happys2333/flowspan/actions/runs/29488721383/job/87589370854):
+  success;
+- macOS job
+  [`87589370879`](https://github.com/happys2333/flowspan/actions/runs/29488721383/job/87589370879):
+  success;
+- Windows job
+  [`87589370891`](https://github.com/happys2333/flowspan/actions/runs/29488721383/job/87589370891):
+  success;
+- Secret Scan job
+  [`87589370875`](https://github.com/happys2333/flowspan/actions/runs/29488721383/job/87589370875):
+  success.
+
+Every OS job passed locked restore, format verification, warning-as-error
+Release build, the full test command, explicit TEST MODE composition, the
+deterministic protocol-1.1 simulator, and artifact upload. Downloaded artifacts
+were:
+
+- Windows artifact `8371551334`, `test-results-Windows`;
+- Linux artifact `8371530327`, `test-results-Linux`;
+- macOS artifact `8371528795`, `test-results-macOS`.
+
+Each artifact contains 11 TRX files. Directly summing the `Counters` attributes
+produced 713 total, 713 executed, 713 passed, 0 failed, and 0 not executed tests
+on each OS. Logs from every OS also contain
+`Flowspan desktop composition validation passed in explicit TEST MODE.`,
+protocol `1.1`, `Source preserved: True`, `Target resumed: True`, and
+`Atomic swap committed: True`.
+
+CodeQL run
+[`29488721396`](https://github.com/happys2333/flowspan/actions/runs/29488721396)
+and Analyze C# job
+[`87589371038`](https://github.com/happys2333/flowspan/actions/runs/29488721396/job/87589371038)
+completed successfully. CodeQL scanned 186/186 C# files and uploaded the result.
+
+The evidence and task-status commits remain subject to these same gates before
+task 3.4 is final.
 
 ## Remaining limits
 
