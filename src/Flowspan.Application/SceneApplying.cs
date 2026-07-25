@@ -19,16 +19,17 @@ public enum SceneApplyAction
 public enum SceneApplyItemReason
 {
     None,
+    SourceNotFound,
+    SourceSelectionRequired,
+    SourceLookupUnavailable,
+    CapabilityDenied,
+    ProtocolUnsupported,
+    DestinationUnavailable,
+    DestinationOccupied,
+    OpaqueOccupancy,
+    AmbiguousOccupancy,
+    UndoUnavailable,
     UnsafeMoveReplace,
-}
-
-public enum SceneSlotOccupancy
-{
-    NotInspected,
-    Empty,
-    EligibleConflict,
-    Opaque,
-    Ambiguous,
 }
 
 public sealed record SceneSourceSelection
@@ -104,9 +105,9 @@ public sealed record SceneApplyItemPreview
         ActivityPlacement destination,
         SceneSourceDisposition sourceDisposition,
         SceneConflictPolicy conflictPolicy,
-        SceneSourceSelection source,
+        SceneSourceSelection? source,
+        SceneSourceLookup? sourceLookup,
         SceneSlotOccupancy occupancy,
-        SceneReplaceTargetSnapshot? replaceTarget,
         OperationId childOperationId,
         CorrelationId childCorrelationId,
         SceneApplyAction action,
@@ -118,8 +119,8 @@ public sealed record SceneApplyItemPreview
         SourceDisposition = sourceDisposition;
         ConflictPolicy = conflictPolicy;
         Source = source;
+        SourceLookup = sourceLookup;
         Occupancy = occupancy;
-        ReplaceTarget = replaceTarget;
         ChildOperationId = childOperationId;
         ChildCorrelationId = childCorrelationId;
         Action = action;
@@ -136,11 +137,13 @@ public sealed record SceneApplyItemPreview
 
     public SceneConflictPolicy ConflictPolicy { get; }
 
-    public SceneSourceSelection Source { get; }
+    public SceneSourceSelection? Source { get; }
+
+    public SceneSourceLookup? SourceLookup { get; }
 
     public SceneSlotOccupancy Occupancy { get; }
 
-    public SceneReplaceTargetSnapshot? ReplaceTarget { get; }
+    public SceneReplaceTargetSnapshot? ReplaceTarget => Occupancy.Target;
 
     public OperationId ChildOperationId { get; }
 
@@ -175,8 +178,8 @@ public sealed record SceneApplyItemPreview
             plan.SourceDisposition,
             plan.ConflictPolicy,
             source,
-            SceneSlotOccupancy.NotInspected,
             null,
+            SceneSlotOccupancy.NotInspected,
             childOperationId,
             childCorrelationId,
             SceneApplyAction.NoChange,
@@ -215,8 +218,8 @@ public sealed record SceneApplyItemPreview
             plan.SourceDisposition,
             plan.ConflictPolicy,
             source,
-            SceneSlotOccupancy.EligibleConflict,
-            target,
+            null,
+            SceneSlotOccupancy.EligibleConflict(target),
             childOperationId,
             childCorrelationId,
             SceneApplyAction.Replace,
@@ -255,60 +258,157 @@ public sealed record SceneApplyItemPreview
             plan.SourceDisposition,
             plan.ConflictPolicy,
             source,
-            SceneSlotOccupancy.Empty,
             null,
+            SceneSlotOccupancy.Empty,
             childOperationId,
             childCorrelationId,
             action,
             SceneApplyItemReason.None);
     }
 
-    public static SceneApplyItemPreview Blocked(
+    public static SceneApplyItemPreview BlockedBySourceLookup(
         SceneActivityPlan plan,
-        int index,
-        SceneApplyItemReason reason,
+        SceneSourceLookup lookup,
         OperationId childOperationId,
-        CorrelationId childCorrelationId,
-        SceneSourceSelection source,
-        SceneSlotOccupancy occupancy,
-        SceneReplaceTargetSnapshot target)
+        CorrelationId childCorrelationId)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        ArgumentOutOfRangeException.ThrowIfNegative(index);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
-            index,
-            ScenePlan.MaximumActivities);
+        ArgumentNullException.ThrowIfNull(lookup);
         ArgumentNullException.ThrowIfNull(childOperationId);
         ArgumentNullException.ThrowIfNull(childCorrelationId);
-        ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(target);
-        bool isUnsafeMoveReplace = reason == SceneApplyItemReason.UnsafeMoveReplace
-            && source.Index == index
-            && source.ActivityId == plan.ActivityId
-            && source.Placement != plan.Placement
-            && occupancy == SceneSlotOccupancy.EligibleConflict
-            && target.Placement == plan.Placement
-            && target.ActivityId != plan.ActivityId
-            && target.Kind == source.Kind
-            && plan.SourceDisposition
-                == SceneSourceDisposition.MoveAfterAcknowledgement
-            && plan.ConflictPolicy == SceneConflictPolicy.ReplaceWithUndo;
-        if (!isUnsafeMoveReplace)
+        if (lookup.ActivityId != plan.ActivityId
+            || lookup.Status == SceneSourceLookupStatus.UniqueSource
+            || lookup.Reason == SceneApplyItemReason.None)
         {
             throw new ArgumentException(
-                "The blocked Scene item evidence does not match its reason.",
-                nameof(reason));
+                "A blocked Scene source lookup must match the Scene item and contain a blocker.",
+                nameof(lookup));
         }
 
         return new SceneApplyItemPreview(
-            index,
+            lookup.Index,
+            plan.ActivityId,
+            plan.Placement,
+            plan.SourceDisposition,
+            plan.ConflictPolicy,
+            null,
+            lookup,
+            SceneSlotOccupancy.NotInspected,
+            childOperationId,
+            childCorrelationId,
+            SceneApplyAction.Blocked,
+            lookup.Reason);
+    }
+
+    public static SceneApplyItemPreview BlockedByOccupancy(
+        SceneActivityPlan plan,
+        SceneSourceSelection source,
+        SceneSlotOccupancy occupancy,
+        OperationId childOperationId,
+        CorrelationId childCorrelationId)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(occupancy);
+        ArgumentNullException.ThrowIfNull(childOperationId);
+        ArgumentNullException.ThrowIfNull(childCorrelationId);
+        if (source.ActivityId != plan.ActivityId
+            || source.Placement == plan.Placement)
+        {
+            throw new ArgumentException(
+                "A blocked Scene occupancy source must match the Activity and differ from its destination.",
+                nameof(source));
+        }
+
+        SceneApplyItemReason reason = occupancy.Kind switch
+        {
+            SceneSlotOccupancyKind.Opaque =>
+                SceneApplyItemReason.OpaqueOccupancy,
+            SceneSlotOccupancyKind.Ambiguous =>
+                SceneApplyItemReason.AmbiguousOccupancy,
+            SceneSlotOccupancyKind.EligibleConflict
+                when plan.ConflictPolicy == SceneConflictPolicy.RequireEmpty =>
+                    SceneApplyItemReason.DestinationOccupied,
+            SceneSlotOccupancyKind.EligibleConflict
+                when plan.SourceDisposition
+                    == SceneSourceDisposition.MoveAfterAcknowledgement
+                && plan.ConflictPolicy
+                    == SceneConflictPolicy.ReplaceWithUndo =>
+                    SceneApplyItemReason.UnsafeMoveReplace,
+            SceneSlotOccupancyKind.EligibleConflict
+                when plan.SourceDisposition
+                    == SceneSourceDisposition.PreserveSource
+                && plan.ConflictPolicy
+                    == SceneConflictPolicy.ReplaceWithUndo
+                && !occupancy.HasDurableUndoAvailability =>
+                    SceneApplyItemReason.UndoUnavailable,
+            _ => throw new ArgumentException(
+                "The exact-slot observation does not resolve to a Scene blocker.",
+                nameof(occupancy)),
+        };
+        SceneReplaceTargetSnapshot? target = occupancy.Target;
+        if (occupancy.Kind == SceneSlotOccupancyKind.EligibleConflict
+            && (target is null
+                || target.Placement != plan.Placement
+                || target.ActivityId == plan.ActivityId
+                || target.Kind != source.Kind))
+        {
+            throw new ArgumentException(
+                "An eligible Scene conflict must contain the exact compatible destination target.",
+                nameof(occupancy));
+        }
+
+        return new SceneApplyItemPreview(
+            source.Index,
             plan.ActivityId,
             plan.Placement,
             plan.SourceDisposition,
             plan.ConflictPolicy,
             source,
+            null,
             occupancy,
-            target,
+            childOperationId,
+            childCorrelationId,
+            SceneApplyAction.Blocked,
+            reason);
+    }
+
+    public static SceneApplyItemPreview BlockedBeforeOccupancy(
+        SceneActivityPlan plan,
+        SceneSourceSelection source,
+        SceneApplyItemReason reason,
+        OperationId childOperationId,
+        CorrelationId childCorrelationId)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(childOperationId);
+        ArgumentNullException.ThrowIfNull(childCorrelationId);
+        if (source.ActivityId != plan.ActivityId
+            || source.Placement == plan.Placement)
+        {
+            throw new ArgumentException(
+                "A pre-inspection Scene blocker requires an exact remote source.",
+                nameof(source));
+        }
+
+        if (reason is not (
+            SceneApplyItemReason.CapabilityDenied
+            or SceneApplyItemReason.ProtocolUnsupported
+            or SceneApplyItemReason.DestinationUnavailable))
+        {
+            throw new ArgumentOutOfRangeException(nameof(reason));
+        }
+
+        return new SceneApplyItemPreview(
+            source.Index,
+            plan.ActivityId,
+            plan.Placement,
+            plan.SourceDisposition,
+            plan.ConflictPolicy,
+            source,
+            null,
+            SceneSlotOccupancy.NotInspected,
             childOperationId,
             childCorrelationId,
             SceneApplyAction.Blocked,
@@ -767,15 +867,44 @@ internal static class SceneApplyBinding
             Append(hash, Format(item.ConflictPolicy));
             Append(hash, item.ChildOperationId.ToString());
             Append(hash, item.ChildCorrelationId.ToString());
-            Append(hash, "some");
-            Append(hash, item.Source.DeviceId.ToString());
-            Append(hash, Format(item.Source.Revision));
-            Append(hash, item.Source.DescriptorDigest);
-            Append(hash, item.Source.Kind.Value);
-            Append(hash, item.Source.Placement.Slot);
+            Append(hash, item.Source is null ? "none" : "some");
+            if (item.Source is not null)
+            {
+                Append(hash, item.Source.DeviceId.ToString());
+                Append(hash, Format(item.Source.Revision));
+                Append(hash, item.Source.DescriptorDigest);
+                Append(hash, item.Source.Kind.Value);
+                Append(hash, item.Source.Placement.Slot);
+            }
+            else
+            {
+                SceneSourceLookup lookup = item.SourceLookup
+                    ?? throw new InvalidOperationException(
+                        "A Scene source blocker requires lookup evidence.");
+                Append(hash, Format(lookup.Status));
+                Append(hash, Format(lookup.Candidates.Length));
+                foreach (SceneSourceSelection candidate in lookup.Candidates)
+                {
+                    Append(hash, candidate.DeviceId.ToString());
+                    Append(hash, Format(candidate.Revision));
+                    Append(hash, candidate.DescriptorDigest);
+                    Append(hash, candidate.Kind.Value);
+                    Append(hash, candidate.Placement.Slot);
+                }
+            }
+
             Append(hash, Format(item.Action));
             Append(hash, Format(item.Reason));
-            Append(hash, Format(item.Occupancy));
+            Append(hash, Format(item.Occupancy.Kind));
+            if (item.Occupancy.Kind == SceneSlotOccupancyKind.EligibleConflict)
+            {
+                Append(
+                    hash,
+                    item.Occupancy.HasDurableUndoAvailability
+                        ? "undo-available"
+                        : "undo-unavailable");
+            }
+
             Append(hash, item.ReplaceTarget is null ? "none" : "some");
             if (item.ReplaceTarget is not null)
             {
@@ -828,18 +957,40 @@ internal static class SceneApplyBinding
     private static string Format(SceneApplyItemReason reason) => reason switch
     {
         SceneApplyItemReason.None => "none",
+        SceneApplyItemReason.SourceNotFound => "source-not-found",
+        SceneApplyItemReason.SourceSelectionRequired =>
+            "source-selection-required",
+        SceneApplyItemReason.SourceLookupUnavailable =>
+            "source-lookup-unavailable",
+        SceneApplyItemReason.CapabilityDenied => "capability-denied",
+        SceneApplyItemReason.ProtocolUnsupported => "protocol-unsupported",
+        SceneApplyItemReason.DestinationUnavailable =>
+            "destination-unavailable",
+        SceneApplyItemReason.DestinationOccupied => "destination-occupied",
+        SceneApplyItemReason.OpaqueOccupancy => "opaque-occupancy",
+        SceneApplyItemReason.AmbiguousOccupancy => "ambiguous-occupancy",
+        SceneApplyItemReason.UndoUnavailable => "undo-unavailable",
         SceneApplyItemReason.UnsafeMoveReplace => "unsafe-move-replace",
         _ => throw new ArgumentOutOfRangeException(nameof(reason)),
     };
 
-    private static string Format(SceneSlotOccupancy occupancy) => occupancy switch
+    private static string Format(SceneSlotOccupancyKind occupancy) => occupancy switch
     {
-        SceneSlotOccupancy.NotInspected => "not-inspected",
-        SceneSlotOccupancy.Empty => "empty",
-        SceneSlotOccupancy.EligibleConflict => "eligible-conflict",
-        SceneSlotOccupancy.Opaque => "opaque",
-        SceneSlotOccupancy.Ambiguous => "ambiguous",
+        SceneSlotOccupancyKind.NotInspected => "not-inspected",
+        SceneSlotOccupancyKind.Empty => "empty",
+        SceneSlotOccupancyKind.EligibleConflict => "eligible-conflict",
+        SceneSlotOccupancyKind.Opaque => "opaque",
+        SceneSlotOccupancyKind.Ambiguous => "ambiguous",
         _ => throw new ArgumentOutOfRangeException(nameof(occupancy)),
+    };
+
+    private static string Format(SceneSourceLookupStatus status) => status switch
+    {
+        SceneSourceLookupStatus.NotFound => "not-found",
+        SceneSourceLookupStatus.UniqueSource => "unique-source",
+        SceneSourceLookupStatus.SelectionRequired => "selection-required",
+        SceneSourceLookupStatus.Unavailable => "unavailable",
+        _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
 
     private static string Format(SceneSourceDisposition disposition) =>

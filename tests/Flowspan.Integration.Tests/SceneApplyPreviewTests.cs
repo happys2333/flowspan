@@ -304,15 +304,12 @@ public sealed class SceneApplyPreviewTests
             "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
             kind,
             plan.Placement);
-        SceneApplyItemPreview blocked = SceneApplyItemPreview.Blocked(
+        SceneApplyItemPreview blocked = SceneApplyItemPreview.BlockedByOccupancy(
             plan,
-            0,
-            SceneApplyItemReason.UnsafeMoveReplace,
-            OperationId.Parse("44444444-4444-4444-4444-444444444444"),
-            CorrelationId.Parse("55555555-5555-5555-5555-555555555555"),
             source,
-            SceneSlotOccupancy.EligibleConflict,
-            target);
+            SceneSlotOccupancy.EligibleConflict(target),
+            OperationId.Parse("44444444-4444-4444-4444-444444444444"),
+            CorrelationId.Parse("55555555-5555-5555-5555-555555555555"));
         DateTimeOffset createdAt = new(2026, 7, 25, 8, 0, 0, TimeSpan.Zero);
 
         SceneApplyPreview preview = SceneApplyPreview.Create(
@@ -477,14 +474,16 @@ public sealed class SceneApplyPreviewTests
     {
         (ScenePlan scene, SceneApplyPreview preview) = CreateNoChangePreview();
         SceneApplyItemPreview item = Assert.Single(preview.Items);
+        SceneSourceSelection source = Assert.IsType<SceneSourceSelection>(
+            item.Source);
 
         Assert.Throws<ArgumentException>(() => SceneSourceSelection.Create(
             0,
             item.ActivityId,
             1,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            item.Source.Kind,
-            item.Source.Placement));
+            source.Kind,
+            source.Placement));
         Assert.Throws<ArgumentException>(() => SceneApplyApproval.Create(
             preview.Fingerprint.ToLowerInvariant(),
             []));
