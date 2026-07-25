@@ -212,6 +212,23 @@ This slice is local definition evidence only. It does not authorize
 `scene.apply`, persist a repository, execute an Activity operation, or prove a
 physical multi-device Scene.
 
+### 5.11 Task 8.2 Scene-apply evidence plan
+
+| Threat | Required implementation evidence | Remaining evidence |
+| --- | --- | --- |
+| T04 | Preview and approval bind exact Scene ID/revision/digest, expiry, saved item order, child Operation/correlation IDs, explicit exact-source selections, and exact Replace targets. A purpose-scoped exact-ID query never chooses among multiple active sources; selection requires a full repreview. Retry reuses child IDs; a Started item without durable terminal evidence becomes Recovering and stops later work. | Physical packet loss, suspend/restart, and cross-device reconciliation. |
+| T05 | Preview is read-only and never authority. Every participating peer must grant current peer-relative `scene.apply`, and every child independently reloads current Trust plus its existing Handoff/Move Offer/Receive or Replace Receive/Replace authorization immediately before protected state, connection, or Adapter use. Revocation of either layer yields a per-item blocker without weakening later independent checks. | Same-session revocation observation on physical supported-platform pairs. |
+| T08 | Protocol 1.4 introduces strict bounded source-lookup, exact-slot, remote-child, and result messages bound to authenticated participants, Scene/preview/attempt/child identities, exact evidence, action, and deadline. Protocol 1.0–1.3 rejects the feature before send; hostile unknown/duplicate/wrong-binding/expired messages fault closed. | Cross-version packaged peers and an independently implemented compatibility reader. |
+| T10 | Preview, approval, apply journal, result, and diagnostics exclude descriptor payloads, titles in durable records, Trust, session material, exception text, and Undo Capsule content. A remote selected source receives only a payload-free child instruction and sends Activity content directly to the target through the existing end-to-end operation path; canary tests inspect coordinator observations, canonical plaintext, protected files, and visible failure strings. | Packaged crash/minidump and diagnostic-export inspection. |
+| T11 | A purpose-separated authenticated bounded apply journal persists the parent binding and each item boundary before progressing. Strict version/schema/bounds/digest checks and reopen-after-ambiguous-save fail closed. | Rollback policy, abrupt power-loss/filesystem testing, and live Linux Secret Service review. |
+| T13 | A Scene contains at most 64 sequential items; previews expire, apply attempts/journal history are bounded, cancellation stops at a recorded boundary, and no concurrent fan-out amplifies one request. | Sustained hostile/local load and packaged resource telemetry. |
+| T15 | Preview clearly distinguishes source preserved/source closes, blockers, exact destructive targets, expiry/staleness, partial completion, and Recovering. Keyboard and accessible-name tests cover confirmation and results without changing the NOT SHARING indicator. | Native screen-reader, focus rendering, scaling, contrast, and reduced-motion observation. |
+| T18 | Exact-destination source state resolves No Change without an operation call. Otherwise a Scene-specific exact-slot query examines occupancy before eligibility filtering and distinguishes Empty, one Eligible Conflict, Opaque protected/ineligible occupancy, and Ambiguous; only Preserve Source plus the eligible conflict can become an exact confirmed Replace target, and filtered Replace inventory can never prove Empty. Occupied Move-plus-Replace blocks because source cleanup followed by target-only undo could remove the incoming Activity's last instance. Replace also requires send-time full snapshot revalidation, protected target preservation, and a returned capsule reference. Explicit compensation invokes only exact committed Preserve-Source Replace capsules in reverse order and never claims whole-Scene rollback. | Native Adapter evidence beyond the semantic tracer, independent safety review, and physical crash/recovery. |
+
+Scene apply remains a best-effort orchestration of existing operations, not an
+atomic transaction or authority to expand live Groups. Task 8.3 still owns the
+Scene repository and inspect/delete/export lifecycle.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

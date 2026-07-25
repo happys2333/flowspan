@@ -564,6 +564,21 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R7.1–R7.2_
 - [ ] 8.2 Implement deterministic apply, per-Activity result, replace protection,
   and compensating undo where safe.
+  - Requirements, design, executable tasks, and the previewed best-effort
+    orchestration decision are tracked in `specs/v1/scene-apply/` and ADR 0017.
+    Scene apply is explicitly non-atomic: terminal failures may yield partial
+    completion, while Recovering/unknown outcome halts later items.
+  - Because Scenes do not save source Devices, exact-ID source lookup must block
+    zero sources, require explicit selection plus full repreview for multiple
+    sources, and produce No Change without an operation when already placed.
+    Scene-specific exact-slot occupancy—not filtered Replace inventory—must
+    distinguish Empty, one Eligible Conflict, Opaque, and Ambiguous. Every peer
+    also requires `scene.apply` without weakening child-operation Capabilities.
+    Occupied Move-plus-Replace blocks in v1 because closing its source before a
+    target-only undo could remove the incoming Activity's last instance.
+    Remote sources execute the existing operation on the source Device through
+    strict payload-free protocol-1.4 Scene control; the coordinator never
+    receives Activity content, and 1.0–1.3 peers fail as unsupported before send.
   - _Requirements: R7.3–R7.4, R11.2_
 - [ ] 8.3 Implement inspect/delete/export for trust, history, Scenes, and redacted
   diagnostics.

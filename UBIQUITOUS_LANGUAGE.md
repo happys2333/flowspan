@@ -52,6 +52,13 @@ screens or arbitrary process migration.
 | --- | --- | --- |
 | **Activity Group** | An explicit ordered collection of Activities operated on as a user-visible unit. | Workspace snapshot |
 | **Scene** | Saved desired Placements and policies for Activities or Activity Groups without process memory or secrets. | Snapshot |
+| **Scene Apply Preview** | An expiring read-only current-state plan bound to one exact Scene revision/digest, saved item order, child operation identities, blockers, and destructive targets; it grants no authority. | Dry run, authorization |
+| **Scene Apply Attempt** | One durable best-effort ordered execution of an approved Scene preview, identified independently from its child Operations. | Scene transaction |
+| **Exact Source Selection** | The user's explicit choice of one exact active Device/Activity/revision/digest/kind/slot snapshot returned by a purpose-scoped exact-Activity-ID lookup; a Scene does not imply a source. | Best source, primary copy |
+| **Exact Slot Occupancy** | A purpose-scoped Scene observation of one requested Device/slot as Empty, one Eligible Conflict, Opaque, or Ambiguous before eligibility filtering; only the eligible case identifies an Activity. | Replace inventory, empty target list |
+| **No Change** | A Scene item outcome used when the exact selected source already occupies the requested Device/slot; it performs no child operation or Adapter call. | Successful move |
+| **Partial Completion** | A truthful Scene outcome in which some independent items reached terminal outcomes while others failed, were blocked, or were not attempted. | Partial success without item detail |
+| **Compensation** | An explicit best-effort follow-up that invokes only existing exact safe undo evidence; it is not atomic rollback. | Rollback |
 | **Operation** | An idempotent requested change identified by a globally unique Operation ID. | Request, command |
 | **Operation Receipt** | A redacted durable record of an Operation, its participants, transitions, outcome, and possible undo. | Log |
 | **Reservation** | A time-bounded promise made during prepare that an Activity can participate in a transaction. | Lock |
@@ -86,6 +93,20 @@ screens or arbitrary process migration.
   authorize a **Capability** without key and transcript verification.
 - An **Activity Group** contains one or more ordered **Activities**; a **Scene**
   may describe Placements for Activities or Groups.
+- A **Scene Apply Preview** binds one exact saved **Scene** and current evidence
+  but never substitutes for Trust or Capability checks at use time. A Scene has
+  no implied source: multiple active placements require **Exact Source
+  Selection** and complete repreview. **Exact Slot Occupancy**, never filtered
+  Replace inventory, determines whether the destination is empty or blocked.
+- A **Scene Apply Attempt** executes child **Operations** sequentially in saved
+  order. Proven terminal failures may produce **Partial Completion**; a
+  Recovering child stops later items. **Compensation** may undo exact committed
+  Preserve-Source Replace items but never promises whole-Scene rollback.
+  `scene.apply` permits
+  orchestration only; each child still requires its operation-specific
+  Capabilities. A **No Change** item calls no Operation or Adapter. Occupied
+  Move-plus-Replace is blocked in v1 because target-only undo after source
+  cleanup could remove the incoming Activity's last instance.
 - An **Operation** produces one terminal **Operation Receipt** and may reference
   one or more expiring **Reservations** before commitment.
 - A **Swap Transaction Intent** precedes both endpoint Prepare requests. If it

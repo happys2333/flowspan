@@ -372,6 +372,39 @@ These tests prove only the definition format; Scene repository, authorization,
 preview/apply, per-Activity results, Replace confirmation/undo, UI, and
 physical-device evidence remain open.
 
+Task 8.2 Scene-apply tests treat saved order and uncertain-outcome halt as model
+invariants. An expiring preview freezes exact Scene identity/revision/digest,
+child IDs, explicit exact-source selections, current action/blocker evidence,
+and exact destructive targets but grants no authority. Purpose-scoped exact-ID
+source tests cover zero, one, and multiple active placements, mandatory explicit
+selection plus complete repreview, exact-destination No Change, and permutation
+tests proving discovery order, revision, title, or Device ID never selects a
+source. Scene-specific exact-slot tests distinguish Empty, one Eligible
+Conflict, Opaque protected/sensitive/restricted/different-kind/unsupported
+occupancy, and Ambiguous, and prove a filtered empty Replace inventory cannot
+authorize Empty. Closed policy-matrix tests prove Empty maps Preserve Source to
+Handoff and Move After Acknowledgement to Move; one eligible conflict maps only
+Preserve Source plus Replace With Undo to Replace; and occupied Move-plus-
+Replace blocks with no operation, source cleanup, capsule, or compensation. The
+operation port must independently recheck Trust, additional
+`scene.apply`, operation-specific Offer/Receive or Receive/Replace Capabilities,
+source state, exact-slot occupancy, connection, and Replace/undo evidence at
+each use.
+Table and seeded property tests cover all mixtures of committed, warning,
+blocked, rejected, failed, Recovering, cancellation, thrown boundary failures,
+and 1-through-64 item plans. Proven terminal outcomes continue; Recovering or
+unknown outcome marks every remainder not attempted. Retry/restart tests prove
+terminal replay without duplicate Adapter calls and a Started-without-terminal
+record fails closed. Explicit compensation tests only exact committed Preserve-
+Source Replace capsules in reverse order. Protocol 1.4 golden/hostile tests
+cover strict source lookup, exact-slot, remote-child/result bindings and
+1.0–1.3 unsupported paths.
+A three-identity authenticated same-host integration proves a remote selected
+source invokes the existing source-to-target operation, duplicate instructions
+do not repeat Adapter work, uncertainty halts, and descriptor/payload canaries
+never enter the coordinator. These portable contracts do not prove physical
+two-device interruption, native application behavior, or native accessibility.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source
@@ -396,6 +429,13 @@ Core invariants are asserted after every event:
 12. a saved Scene has one explicit bounded Activity order and no representable
     descriptor payload, session key, reservation, capability snapshot, or Undo
     Capsule field; mutable Group membership cannot silently expand it at apply.
+13. a Scene source is never inferred: multiple exact-ID active placements
+    require an exact user selection and full repreview, while a selected source
+    already at the destination produces no operation or Adapter call.
+14. only a Scene exact-slot Empty result can authorize Require Empty and only
+    one exact Eligible Conflict with Preserve Source can authorize confirmed
+    Replace; occupied Move-plus-Replace, Opaque, Ambiguous, or filtered inventory
+    absence always fails closed.
 
 ## 4. CI matrix
 
