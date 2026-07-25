@@ -204,6 +204,34 @@ public sealed record SceneApplyItemResult
             null);
     }
 
+    public static SceneApplyItemResult RecoveringUnknown(
+        SceneApplyItemPreview item,
+        FailureCode failureCode,
+        DateTimeOffset occurredAt)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (item.Action is SceneApplyAction.Blocked
+            or SceneApplyAction.NoChange)
+        {
+            throw new ArgumentException(
+                "Only an executable Scene item can have an unknown operation outcome.",
+                nameof(item));
+        }
+
+        if (failureCode == FailureCode.None)
+        {
+            throw new ArgumentOutOfRangeException(nameof(failureCode));
+        }
+
+        return Create(
+            item,
+            SceneApplyItemOutcome.Recovering,
+            SceneApplyItemReason.None,
+            failureCode,
+            occurredAt,
+            null);
+    }
+
     public override string ToString() =>
         $"Scene apply item result {Index} ({Outcome})";
 
