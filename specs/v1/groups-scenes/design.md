@@ -1,6 +1,7 @@
 # Activity Groups and Scene Plan Design
 
-Status: implemented candidate for task 8.1; hosted delivery evidence pending
+Status: task 8.1 implemented and exact-commit hosted evidence recorded; the
+task-status commit remains subject to the same hosted gates
 
 ## Design summary
 

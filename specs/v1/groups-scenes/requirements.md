@@ -1,7 +1,7 @@
 # Activity Groups and Scene Plan Requirements
 
-Status: approved v1 direction; implementation complete locally; hosted delivery
-evidence pending
+Status: task 8.1 automated evidence complete at implementation commit
+`d65e247`; effective after the task-status commit passes the same hosted gates
 
 ## Problem and scope
 

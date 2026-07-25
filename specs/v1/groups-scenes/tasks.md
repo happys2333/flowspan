@@ -25,14 +25,18 @@
   - Freeze one canonical fixture and SHA-256 digest; prove canonical round trip.
   - _Requirements: GS3–GS5_
 
-- [ ] 5. Close task-8.1 delivery evidence
+- [x] 5. Close task-8.1 delivery evidence
   - [x] Run locked restore, format, Release build, all 824 tests, Desktop TEST
     MODE composition, protocol-1.3 simulator, 24-project dependency
     vulnerability query, and diff checks on the local macOS host.
   - [x] Run the 21 focused Group/Scene domain tests and 9 codec tests in 20
     independent processes each; close Standards and Spec review with zero
     remaining findings.
-  - [ ] Push implementation, evidence, and task-status commits; verify Windows,
-    macOS, Ubuntu, Secret Scan, CodeQL, and downloaded TRX sums at exact SHAs.
+  - [x] Push the implementation commit and verify its Windows, macOS, Ubuntu,
+    Secret Scan, CodeQL, Gitleaks SARIF, and downloaded TRX evidence at exact
+    SHA `d65e24790dc8b0cdaa6f32522e56a5611b57d2d8`.
+  - The task-status commit carrying this closure must pass the same workflows
+    before the status becomes effective.
+  - Evidence: `docs/evidence/2026-07-25-activity-groups-scene-plans.md`.
   - Keep apply, repository/UI, physical-device, packaging, and v1 gates open.
   - _Requirements: GS5_

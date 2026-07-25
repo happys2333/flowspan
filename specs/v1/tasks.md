@@ -548,8 +548,19 @@ means its linked evidence exists; it does not imply the entire product works.
 
 ## 8. Groups, Scenes, and lifecycle
 
-- [ ] 8.1 Implement ordered Activity Groups and versioned Scene plans without
+- [x] 8.1 Implement ordered Activity Groups and versioned Scene plans without
   secrets.
+  - Immutable 1-through-64 explicit Groups, exact Group-derived Scene bindings,
+    typed Preserve/Move and Require Empty/Replace With Undo policies, and the
+    closed 32 KiB/depth-8 canonical Scene JSON codec are implemented at
+    `d65e247`. Local 824-test, two 20-process focused groups, zero-finding
+    Standards/Spec review, and exact-commit Windows/macOS/Ubuntu, Secret Scan,
+    Gitleaks SARIF, CodeQL, and independently summed 824/824 TRX evidence are
+    recorded in
+    `docs/evidence/2026-07-25-activity-groups-scene-plans.md`. This status is
+    effective only after the task-status commit carrying it passes the same
+    workflows. Scene apply (8.2), repository/UI (8.3), physical-device,
+    packaging, and v1 acceptance remain open.
   - _Requirements: R7.1–R7.2_
 - [ ] 8.2 Implement deterministic apply, per-Activity result, replace protection,
   and compensating undo where safe.
