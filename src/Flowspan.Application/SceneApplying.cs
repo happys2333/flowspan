@@ -30,6 +30,8 @@ public enum SceneApplyItemReason
     AmbiguousOccupancy,
     UndoUnavailable,
     UnsafeMoveReplace,
+    Cancelled,
+    NotAttemptedAfterRecovering,
 }
 
 public sealed record SceneSourceSelection
@@ -971,6 +973,9 @@ internal static class SceneApplyBinding
         SceneApplyItemReason.AmbiguousOccupancy => "ambiguous-occupancy",
         SceneApplyItemReason.UndoUnavailable => "undo-unavailable",
         SceneApplyItemReason.UnsafeMoveReplace => "unsafe-move-replace",
+        SceneApplyItemReason.Cancelled => "cancelled",
+        SceneApplyItemReason.NotAttemptedAfterRecovering =>
+            "not-attempted-after-recovering",
         _ => throw new ArgumentOutOfRangeException(nameof(reason)),
     };
 
