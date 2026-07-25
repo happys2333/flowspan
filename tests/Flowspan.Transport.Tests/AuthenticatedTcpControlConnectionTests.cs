@@ -126,6 +126,14 @@ public sealed class AuthenticatedTcpControlConnectionTests
                 }
             }
 
+            await WaitForSendEpochAsync(
+                initiator,
+                Task.CompletedTask,
+                expectedEpoch: epoch);
+            await WaitForSendEpochAsync(
+                responder,
+                Task.CompletedTask,
+                expectedEpoch: epoch);
             Assert.Equal(epoch, initiator.SecureSendEpoch);
             Assert.Equal(epoch, initiator.SecureReceiveEpoch);
             Assert.Equal(epoch, responder.SecureSendEpoch);
@@ -679,23 +687,26 @@ public sealed class AuthenticatedTcpControlConnectionTests
         Task rekey,
         uint expectedEpoch)
     {
-        for (int attempt = 0; attempt < 10_000; attempt++)
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        try
         {
-            if (connection.SecureSendEpoch == expectedEpoch)
+            while (connection.SecureSendEpoch != expectedEpoch)
             {
-                return;
-            }
+                if (rekey.IsCompleted)
+                {
+                    await rekey;
+                }
 
-            if (rekey.IsCompleted)
-            {
-                await rekey;
+                await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
             }
-
-            await Task.Yield();
         }
-
-        throw new TimeoutException(
-            $"The rekey did not commit send epoch {expectedEpoch} during the bounded scheduler trace.");
+        catch (OperationCanceledException exception)
+            when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"The rekey did not commit send epoch {expectedEpoch} before the test deadline.",
+                exception);
+        }
     }
 
     private enum ManualFinishedResponse
