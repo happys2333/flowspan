@@ -656,7 +656,7 @@ public sealed class PersistentSceneApplyJournalTests
         ActivityPlacement destination =
             ActivityPlacement.On(targetDevice, "replace-target-slot-canary");
         SceneActivityPlan plan = SceneActivityPlan.Place(
-            incoming.ActivityId,
+            incoming.Id,
             destination,
             SceneSourceDisposition.PreserveSource,
             SceneConflictPolicy.ReplaceWithUndo);
@@ -666,13 +666,13 @@ public sealed class PersistentSceneApplyJournalTests
             [plan]);
         SceneSourceSelection source = SceneSourceSelection.Create(
             0,
-            incoming.ActivityId,
+            incoming.Id,
             7,
             incoming.DescriptorDigest,
             kind,
             ActivityPlacement.On(sourceDevice, "replace-source-slot-canary"));
         SceneReplaceTargetSnapshot target = SceneReplaceTargetSnapshot.Create(
-            existing.ActivityId,
+            existing.Id,
             9,
             existing.DescriptorDigest,
             kind,
