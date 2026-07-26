@@ -64,6 +64,80 @@ public sealed class DesktopActivityRuntimeTests
     }
 
     [Fact]
+    public async Task ProtectedSceneApplyRuntimePreviewsAndAppliesExactLocalNoChange()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(
+            identity,
+            trust,
+            sceneRemoteChildStatePayloadStore:
+                new MemorySceneRemoteChildStatePayloadStore(),
+            sceneApplyStatePayloadStore:
+                new MemorySceneApplyStatePayloadStore());
+        await runtime.InitializeAsync();
+        DesktopActivitySnapshot activity = runtime.CreateWorkspaceNote(
+            "Local Scene note",
+            "SCENE-LOCAL-PAYLOAD-CANARY",
+            ActivitySensitivity.Normal);
+        ScenePlan scene = ScenePlan.Create(
+            SceneId.Parse("abababab-abab-abab-abab-abababababab"),
+            "Local no-change Scene",
+            [
+                SceneActivityPlan.Place(
+                    activity.ActivityId,
+                    ActivityPlacement.On(SourceId, "desktop"),
+                    SceneSourceDisposition.PreserveSource,
+                    SceneConflictPolicy.RequireEmpty),
+            ]);
+        DesktopActivityRuntime sceneService = runtime;
+
+        SceneApplyPreview preview = await sceneService.PreviewSceneAsync(
+            scene,
+            [],
+            observedGroupRevision: null);
+        SceneApplyExecutionResult execution = await sceneService.ApplySceneAsync(
+            scene,
+            preview,
+            SceneApplyApproval.Create(
+                preview.Fingerprint,
+                preview.RequiredReplaceConfirmations));
+
+        Assert.True(sceneService.IsSceneApplyReady);
+        Assert.Equal(SceneApplyAction.NoChange, Assert.Single(preview.Items).Action);
+        SceneApplyResult result = Assert.IsType<SceneApplyResult>(execution.Result);
+        Assert.Equal(SceneApplyOverallStatus.Completed, result.Status);
+        Assert.Equal(
+            SceneApplyItemOutcome.NoChange,
+            Assert.Single(result.Items).Outcome);
+        Assert.Equal(activity, Assert.Single(runtime.GetActivities()));
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task SceneApplyJournalFailureLeavesRemoteSceneEndpointAvailable()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(
+            identity,
+            trust,
+            sceneRemoteChildStatePayloadStore:
+                new MemorySceneRemoteChildStatePayloadStore(),
+            sceneApplyStatePayloadStore:
+                new FailingSceneApplyStatePayloadStore());
+
+        await runtime.InitializeAsync();
+
+        Assert.True(runtime.IsReady);
+        Assert.False(((IDesktopSceneApplyService)runtime).IsSceneApplyReady);
+        AuthenticatedActivitySessionHandler handler =
+            await runtime.GetSessionHandlerAsync();
+        Assert.True(handler.IsSceneEndpointAvailable);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
     public async Task SceneJournalFailureLeavesActivityRuntimeReadyButSceneClosed()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
@@ -1262,7 +1336,8 @@ public sealed class DesktopActivityRuntimeTests
         IReplaceStatePayloadStore? replaceStatePayloadStore = null,
         DateTimeOffset? utcNow = null,
         ISceneRemoteChildStatePayloadStore?
-            sceneRemoteChildStatePayloadStore = null) => new(
+            sceneRemoteChildStatePayloadStore = null,
+        ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore = null) => new(
         cancellationToken =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1275,7 +1350,8 @@ public sealed class DesktopActivityRuntimeTests
         },
         new FixedTimeProvider(utcNow ?? Now),
         replaceStatePayloadStore,
-        sceneRemoteChildStatePayloadStore);
+        sceneRemoteChildStatePayloadStore,
+        sceneApplyStatePayloadStore);
 
     private static async Task<UndoCapsule> CreateCommittedReplaceStateAsync(
         IReplaceStatePayloadStore payloadStore)
@@ -1405,5 +1481,44 @@ public sealed class DesktopActivityRuntimeTests
             ValueTask.FromException(
                 new IOException(
                     "Injected protected Scene remote child state failure."));
+    }
+
+    private sealed class MemorySceneApplyStatePayloadStore :
+        ISceneApplyStatePayloadStore
+    {
+        private byte[]? payload;
+
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(payload?.ToArray());
+        }
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> value,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            payload = value.ToArray();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FailingSceneApplyStatePayloadStore :
+        ISceneApplyStatePayloadStore
+    {
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<byte[]?>(
+                new IOException(
+                    "Injected protected Scene Apply state failure."));
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> payload,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(
+                new IOException(
+                    "Injected protected Scene Apply state failure."));
     }
 }

@@ -962,6 +962,238 @@
                     </Border>
                   </StackPanel>
                 </Border>
+
+                <Border BorderBrush="{StaticResource SafetyAmberBrush}"
+                        BorderThickness="1"
+                        Padding="14"
+                        AutomationProperties.Name="Scene Apply preview, confirmation, result, and compensation">
+                  <StackPanel Spacing="10">
+                    <StackPanel Spacing="4">
+                      <TextBlock Classes="label"
+                                 Foreground="{StaticResource SafetyAmberBrush}"
+                                 Text="SCENE APPLY — NON-ATOMIC" />
+                      <TextBlock x:Name="SceneApplyNameText"
+                                 FontSize="20"
+                                 FontWeight="SemiBold"
+                                 Text="{Binding Scenes.SceneName}"
+                                 TextWrapping="Wrap"
+                                 AutomationProperties.Name="Selected Scene name" />
+                      <TextBlock Classes="secondary"
+                                 Text="{Binding Scenes.SceneDescription}"
+                                 TextWrapping="Wrap"
+                                 AutomationProperties.Name="Selected Scene revision and ordered item count" />
+                    </StackPanel>
+
+                    <Button x:Name="ScenePreviewButton"
+                            Content="PREVIEW CURRENT SCENE STATE"
+                            Command="{Binding Scenes.PreviewCommand}"
+                            IsEnabled="{Binding Scenes.CanPreview}"
+                            AutomationProperties.Name="Preview selected Scene without mutation"
+                            AutomationProperties.HelpText="Reads every saved Scene item in order and acquires no mutation authority." />
+                    <TextBlock x:Name="ScenePreviewStatusText"
+                               Classes="label"
+                               Text="{Binding Scenes.PreviewStatus}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Scene preview status" />
+                    <TextBlock Text="{Binding Scenes.PreviewDescription}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Scene preview guidance" />
+                    <TextBlock x:Name="ScenePreviewExpiryText"
+                               Classes="secondary"
+                               Text="{Binding Scenes.PreviewExpiry}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Scene preview expiry state" />
+                    <TextBlock x:Name="SceneStaleGroupWarningText"
+                               Classes="label"
+                               Foreground="{StaticResource SafetyAmberBrush}"
+                               Text="{Binding Scenes.StaleGroupWarning}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Scene stale Group warning" />
+
+                    <ListBox x:Name="ScenePreviewList"
+                             ItemsSource="{Binding Scenes.PreviewItems}"
+                             MaxHeight="420"
+                             AutomationProperties.Name="Ordered Scene actions and blockers">
+                      <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:DesktopSceneApplyItemViewModel">
+                          <Border Margin="4"
+                                  BorderBrush="{StaticResource CoolGrayBrush}"
+                                  BorderThickness="1"
+                                  Padding="10">
+                            <StackPanel Spacing="5">
+                              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Classes="label" Text="{Binding ItemLabel}" />
+                                <SelectableTextBlock Grid.Column="1"
+                                                     Classes="secondary"
+                                                     FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                     FontSize="10"
+                                                     Text="{Binding ActivityId}"
+                                                     TextWrapping="Wrap"
+                                                     AutomationProperties.Name="Scene item Activity ID" />
+                                <TextBlock Grid.Column="2"
+                                           Classes="label"
+                                           Foreground="{StaticResource SafetyAmberBrush}"
+                                           Text="{Binding Action}"
+                                           AutomationProperties.Name="Resolved Scene item action" />
+                              </Grid>
+                              <TextBlock Classes="label"
+                                         Text="{Binding SourceDisposition}"
+                                         AutomationProperties.Name="Scene item source disposition" />
+                              <TextBlock Classes="secondary"
+                                         Text="{Binding SourceDescription, StringFormat='Source: {0}'}"
+                                         TextWrapping="Wrap" />
+                              <TextBlock Classes="secondary"
+                                         Text="{Binding DestinationDescription, StringFormat='Destination: {0}'}"
+                                         TextWrapping="Wrap" />
+                              <TextBlock Classes="secondary"
+                                         Text="{Binding Reason, StringFormat='State: {0}'}"
+                                         TextWrapping="Wrap"
+                                         AutomationProperties.Name="Scene item blocker or readiness reason" />
+                              <ComboBox ItemsSource="{Binding SourceOptions}"
+                                        SelectedItem="{Binding SelectedSource, Mode=TwoWay}"
+                                        IsVisible="{Binding CanSelectSource}"
+                                        AutomationProperties.Name="Select one exact source for this Scene item" />
+                              <Border BorderBrush="{StaticResource SignalRedBrush}"
+                                      BorderThickness="1"
+                                      Padding="8"
+                                      IsVisible="{Binding IsReplace}">
+                                <StackPanel Spacing="5">
+                                  <TextBlock Classes="label"
+                                             Foreground="{StaticResource SignalRedBrush}"
+                                             Text="EXACT REPLACE TARGET PRESERVED IN UNDO CAPSULE" />
+                                  <SelectableTextBlock Classes="secondary"
+                                                       FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                       FontSize="10"
+                                                       Text="{Binding ReplaceTargetDescription}"
+                                                       TextWrapping="Wrap"
+                                                       AutomationProperties.Name="Exact Scene Replace target binding" />
+                                  <CheckBox IsChecked="{Binding IsReplaceConfirmed, Mode=TwoWay}"
+                                            AutomationProperties.Name="{Binding ReplaceConfirmationAutomationName}"
+                                            AutomationProperties.HelpText="Confirms only this exact target Device, Activity, revision, digest, kind, and slot.">
+                                    <TextBlock Text="I explicitly confirm this exact destructive replacement."
+                                               TextWrapping="Wrap" />
+                                  </CheckBox>
+                                </StackPanel>
+                              </Border>
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <Button x:Name="SceneRepreviewButton"
+                            Content="REGENERATE COMPLETE PREVIEW WITH SELECTED SOURCES"
+                            Command="{Binding Scenes.RepreviewCommand}"
+                            IsEnabled="{Binding Scenes.CanRepreview}"
+                            AutomationProperties.Name="Regenerate complete Scene preview with exact source selections" />
+                    <CheckBox x:Name="SceneApplyConfirmationCheckBox"
+                              IsChecked="{Binding Scenes.HasAcknowledgedApply, Mode=TwoWay}"
+                              AutomationProperties.Name="Confirm this exact expiring Scene preview"
+                              AutomationProperties.HelpText="Does not replace any per-item destructive confirmation and does not authorize changed or expired evidence.">
+                      <TextBlock Text="I reviewed the ordered actions, blockers, source dispositions, and preview expiry."
+                                 TextWrapping="Wrap" />
+                    </CheckBox>
+                    <Button x:Name="SceneApplyButton"
+                            Content="APPLY CONFIRMED SCENE ITEMS"
+                            Command="{Binding Scenes.ApplyCommand}"
+                            IsEnabled="{Binding Scenes.CanApply}"
+                            AutomationProperties.Name="Apply the exact confirmed Scene preview"
+                            AutomationProperties.HelpText="Processes saved order sequentially. This is not an atomic whole-Scene transaction." />
+
+                    <Border BorderBrush="{StaticResource CoolGrayBrush}"
+                            BorderThickness="1"
+                            Padding="10"
+                            AutomationProperties.Name="Truthful per-item Scene Apply result">
+                      <StackPanel Spacing="6">
+                        <TextBlock x:Name="SceneApplyResultStatusText"
+                                   Classes="label"
+                                   Text="{Binding Scenes.ResultStatus}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Scene Apply overall result" />
+                        <TextBlock Text="{Binding Scenes.ResultDescription}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Scene Apply partial-result guidance" />
+                        <ListBox x:Name="SceneApplyResultList"
+                                 ItemsSource="{Binding Scenes.ResultItems}"
+                                 MaxHeight="320"
+                                 AutomationProperties.Name="Ordered Scene Apply item outcomes">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DesktopSceneApplyResultItem">
+                              <Border Margin="3" Padding="8" BorderBrush="{StaticResource CoolGrayBrush}" BorderThickness="1">
+                                <StackPanel Spacing="3">
+                                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="{Binding ItemLabel}" />
+                                    <SelectableTextBlock Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding ActivityId}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Column="2" Classes="label" Text="{Binding Outcome}" AutomationProperties.Name="Scene item outcome" />
+                                  </Grid>
+                                  <TextBlock Classes="secondary" Text="{Binding Action, StringFormat='Action: {0}'}" />
+                                  <TextBlock Classes="secondary" Text="{Binding Reason, StringFormat='Reason: {0}'}" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding OperationId, StringFormat='Operation: {0}'}" TextWrapping="Wrap" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding CorrelationId, StringFormat='Correlation: {0}'}" TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary" Text="{Binding OccurredAt, StringFormat='Occurred: {0}'}" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding UndoCapsule, StringFormat='Undo capsule: {0}'}" TextWrapping="Wrap" />
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+                      </StackPanel>
+                    </Border>
+
+                    <Border BorderBrush="{StaticResource SignalRedBrush}"
+                            BorderThickness="1"
+                            Padding="10"
+                            AutomationProperties.Name="Explicit safe Scene compensation">
+                      <StackPanel Spacing="6">
+                        <TextBlock Classes="label"
+                                   Foreground="{StaticResource SignalRedBrush}"
+                                   Text="EXPLICIT COMPENSATION — REPLACE ONLY" />
+                        <CheckBox x:Name="SceneCompensationConfirmationCheckBox"
+                                  IsChecked="{Binding Scenes.HasAcknowledgedCompensation, Mode=TwoWay}"
+                                  AutomationProperties.Name="Confirm explicit reverse-order Scene Replace compensation">
+                          <TextBlock Text="Attempt only eligible committed Preserve-Source Replace undo; never reverse Handoff or Move."
+                                     TextWrapping="Wrap" />
+                        </CheckBox>
+                        <Button x:Name="SceneCompensateButton"
+                                Content="ATTEMPT ELIGIBLE REPLACE UNDO"
+                                Command="{Binding Scenes.CompensateCommand}"
+                                IsEnabled="{Binding Scenes.CanCompensate}"
+                                AutomationProperties.Name="Attempt explicit safe Scene compensation" />
+                        <TextBlock x:Name="SceneCompensationStatusText"
+                                   Classes="label"
+                                   Text="{Binding Scenes.CompensationStatus}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Scene compensation overall status" />
+                        <TextBlock Text="{Binding Scenes.CompensationDescription}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Scene compensation partial-result guidance" />
+                        <ListBox x:Name="SceneCompensationResultList"
+                                 ItemsSource="{Binding Scenes.CompensationItems}"
+                                 MaxHeight="260"
+                                 AutomationProperties.Name="Reverse-order Scene compensation item outcomes">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DesktopSceneCompensationItem">
+                              <Border Margin="3" Padding="8" BorderBrush="{StaticResource CoolGrayBrush}" BorderThickness="1">
+                                <StackPanel Spacing="3">
+                                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="{Binding ItemLabel}" />
+                                    <SelectableTextBlock Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding CapsuleId}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Column="2" Classes="label" Text="{Binding Outcome}" AutomationProperties.Name="Scene compensation item outcome" />
+                                  </Grid>
+                                  <TextBlock Classes="secondary" Text="{Binding TargetDeviceId, StringFormat='Target Device: {0}'}" />
+                                  <TextBlock Classes="secondary" Text="{Binding Reason, StringFormat='Reason: {0}'}" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding OperationId, StringFormat='Operation: {0}'}" TextWrapping="Wrap" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding CorrelationId, StringFormat='Correlation: {0}'}" TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary" Text="{Binding OccurredAt, StringFormat='Occurred: {0}'}" />
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+                      </StackPanel>
+                    </Border>
+                  </StackPanel>
+                </Border>
               </StackPanel>
             </Border>
 

@@ -22,7 +22,9 @@ public static class DesktopCompositionRoot
             trustAuthority.GetRuntimeCoordinatorAsync,
             replaceStatePayloadStore: CreatePlatformReplaceStatePayloadStore(),
             sceneRemoteChildStatePayloadStore:
-                CreatePlatformSceneRemoteChildStatePayloadStore());
+                CreatePlatformSceneRemoteChildStatePayloadStore(),
+            sceneApplyStatePayloadStore:
+                CreatePlatformSceneApplyStatePayloadStore());
         var localPairingRuntime = new DesktopLocalPairingRuntime(
             new SystemDesktopLocalPairingNetworkFactory(
                 identityStartup,
@@ -128,6 +130,27 @@ public static class DesktopCompositionRoot
         return new UnsupportedSceneRemoteChildStatePayloadStore();
     }
 
+    private static ISceneApplyStatePayloadStore
+        CreatePlatformSceneApplyStatePayloadStore()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return new WindowsSceneApplyStatePayloadStore();
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return new MacOSSceneApplyStatePayloadStore();
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            return new LinuxSceneApplyStatePayloadStore();
+        }
+
+        return new UnsupportedSceneApplyStatePayloadStore();
+    }
+
     private static string GetLocalDisplayName()
     {
         string candidate = Environment.MachineName.Normalize(NormalizationForm.FormC);
@@ -207,5 +230,22 @@ public static class DesktopCompositionRoot
         private static PlatformNotSupportedException CreateException() =>
             new(
                 "Protected Scene remote child state supports Windows, macOS, and Linux only.");
+    }
+
+    private sealed class UnsupportedSceneApplyStatePayloadStore :
+        ISceneApplyStatePayloadStore
+    {
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<byte[]?>(CreateException());
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> payload,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(CreateException());
+
+        private static PlatformNotSupportedException CreateException() =>
+            new(
+                "Protected Scene Apply state supports Windows, macOS, and Linux only.");
     }
 }

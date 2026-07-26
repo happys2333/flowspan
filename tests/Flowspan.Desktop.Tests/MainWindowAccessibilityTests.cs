@@ -5,6 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Flowspan.Application;
 using Flowspan.Domain;
@@ -23,6 +24,23 @@ public sealed class MainWindowAccessibilityTests
     private static HeadlessUnitTestSession HeadlessSession =>
         HeadlessUnitTestSession.GetOrStartForAssembly(
             typeof(MainWindowAccessibilityTests).Assembly);
+
+    // The headless key helpers flush every pending dispatcher job and render
+    // tick before the raw key is delivered. Interaction with virtualized item
+    // content must therefore start from an already-stable visual tree, or the
+    // pending virtualization work can recycle the focused container between
+    // Focus() and key delivery, silently dropping the key on a detached
+    // control. Mirrors the flush loop in HeadlessWindowExtensions.
+    private static void DrainPendingUiJobs()
+    {
+        for (var i = 0; i < 10; i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
 
     [Fact]
     public async Task ShellDeclaresTextStatesAndSupportsKeyboardDisclosure()
@@ -376,6 +394,14 @@ public sealed class MainWindowAccessibilityTests
                 "TARGET-LOCAL REPLACE HISTORY — NO UNDO ACTION",
                 status.Text);
             Assert.Equal(2, records.ItemCount);
+            // Realize both recovery records before keyboard interaction: the
+            // Scene panel enlarged the window content, and the unscrolled
+            // headless viewport otherwise leaves record 2 unrealized, so
+            // directional selection would have no target container.
+            records.ScrollIntoView(1);
+            DrainPendingUiJobs();
+            records.ScrollIntoView(0);
+            DrainPendingUiJobs();
             Control first = Assert.IsAssignableFrom<Control>(
                 records.ContainerFromIndex(0));
             Assert.True(first.Focus());
@@ -433,6 +459,12 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "Activate the confirmed target-local undo",
                 undo.GetValue(AutomationProperties.NameProperty));
+            // Realize both recovery records before keyboard interaction; see
+            // ReplaceRecoveryRecordsWithoutAnEligibleCapsuleRemainReadOnly.
+            records.ScrollIntoView(1);
+            DrainPendingUiJobs();
+            records.ScrollIntoView(0);
+            DrainPendingUiJobs();
             Control first = Assert.IsAssignableFrom<Control>(
                 records.ContainerFromIndex(0));
             Assert.True(first.Focus());
@@ -462,6 +494,213 @@ public sealed class MainWindowAccessibilityTests
             shownWindow.Close();
         }, CancellationToken.None);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task SceneApplyAndCompensationAreKeyboardOperableNamedAndTruthful()
+    {
+        var scenes = new AccessibilitySceneService();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            sceneApplyService: scenes);
+        await viewModel.InitializeAsync();
+        viewModel.Scenes.SelectScene(scenes.Scene, currentGroupRevision: 2);
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        MainWindow? window = null;
+        var workflowCompleted = false;
+
+        try
+        {
+            // The default per-test isolation rebuilds the Avalonia application
+            // (locator, KeyboardDevice, FocusManager) for every Dispatch call, so
+            // a window created in an earlier Dispatch can never receive keys sent
+            // in a later one: its impl captured the old KeyboardDevice while
+            // Focus() targets the new. The whole keyboard workflow therefore runs
+            // inside one async Dispatch, which keeps a single application alive
+            // across awaits by pumping a dispatcher frame.
+            await session.Dispatch<int>(async () =>
+            {
+                window = new MainWindow { DataContext = viewModel };
+                MainWindow shownWindow = window;
+                window.Closed += (_, _) => closed.TrySetResult();
+                window.Show();
+                Button preview = Assert.IsType<Button>(
+                    window.FindControl<Button>("ScenePreviewButton"));
+                TextBlock previewStatus = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>("ScenePreviewStatusText"));
+                TextBlock expiry = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>("ScenePreviewExpiryText"));
+                TextBlock staleGroup = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>("SceneStaleGroupWarningText"));
+                ListBox previewItems = Assert.IsType<ListBox>(
+                    window.FindControl<ListBox>("ScenePreviewList"));
+                CheckBox applyConfirmation = Assert.IsType<CheckBox>(
+                    window.FindControl<CheckBox>("SceneApplyConfirmationCheckBox"));
+                Button apply = Assert.IsType<Button>(
+                    window.FindControl<Button>("SceneApplyButton"));
+
+                Assert.Equal(
+                    "Preview selected Scene without mutation",
+                    preview.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Scene preview status",
+                    previewStatus.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Scene preview expiry state",
+                    expiry.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Scene stale Group warning",
+                    staleGroup.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Ordered Scene actions and blockers",
+                    previewItems.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Confirm this exact expiring Scene preview",
+                    applyConfirmation.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Apply the exact confirmed Scene preview",
+                    apply.GetValue(AutomationProperties.NameProperty));
+                Assert.True(preview.IsEnabled);
+                Assert.False(apply.IsEnabled);
+                Assert.True(preview.Focus());
+
+                window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+                await scenes.PreviewRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                DrainPendingUiJobs();
+
+                Assert.Equal(2, previewItems.ItemCount);
+                Assert.Equal(
+                    "PREVIEW READY — BLOCKERS PRESENT",
+                    viewModel.Scenes.PreviewStatus);
+                Assert.Contains(
+                    "saved revision 1",
+                    viewModel.Scenes.StaleGroupWarning);
+
+                previewItems.ScrollIntoView(1);
+                DrainPendingUiJobs();
+                Control replaceContainer = Assert.IsAssignableFrom<Control>(
+                    previewItems.ContainerFromIndex(1));
+                CheckBox replaceConfirmation = replaceContainer
+                    .GetVisualDescendants()
+                    .OfType<CheckBox>()
+                    .Single(control => control
+                        .GetValue(AutomationProperties.NameProperty)?
+                        .StartsWith("Confirm Scene item", StringComparison.Ordinal)
+                        is true);
+                replaceConfirmation.BringIntoView();
+                DrainPendingUiJobs();
+
+                Assert.StartsWith(
+                    "Confirm Scene item 2 replacement of Activity",
+                    replaceConfirmation.GetValue(AutomationProperties.NameProperty));
+                Assert.True(replaceConfirmation.Focus());
+                Assert.True(replaceConfirmation.IsFocused);
+                shownWindow.KeyPressQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                Assert.True(replaceConfirmation.IsChecked);
+                Assert.True(viewModel.Scenes.PreviewItems[1].IsReplaceConfirmed);
+                Assert.False(apply.IsEnabled);
+
+                Assert.True(applyConfirmation.Focus());
+                shownWindow.KeyPressQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                Assert.True(viewModel.Scenes.HasAcknowledgedApply);
+                Assert.True(apply.IsEnabled);
+                Assert.True(apply.Focus());
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+
+                await scenes.ApplyRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                DrainPendingUiJobs();
+                TextBlock resultStatus = Assert.IsType<TextBlock>(
+                shownWindow.FindControl<TextBlock>("SceneApplyResultStatusText"));
+                ListBox resultItems = Assert.IsType<ListBox>(
+                    shownWindow.FindControl<ListBox>("SceneApplyResultList"));
+                CheckBox compensationConfirmation = Assert.IsType<CheckBox>(
+                    shownWindow.FindControl<CheckBox>(
+                        "SceneCompensationConfirmationCheckBox"));
+                Button compensate = Assert.IsType<Button>(
+                    shownWindow.FindControl<Button>("SceneCompensateButton"));
+
+                Assert.Equal(
+                    "Scene Apply overall result",
+                    resultStatus.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Ordered Scene Apply item outcomes",
+                    resultItems.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal("SCENE PARTIALLY COMPLETED", resultStatus.Text);
+                Assert.Equal(2, resultItems.ItemCount);
+                Assert.Equal(
+                    "Confirm explicit reverse-order Scene Replace compensation",
+                    compensationConfirmation.GetValue(
+                        AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Attempt explicit safe Scene compensation",
+                    compensate.GetValue(AutomationProperties.NameProperty));
+                Assert.False(compensate.IsEnabled);
+                Assert.True(compensationConfirmation.Focus());
+                shownWindow.KeyPressQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                Assert.True(compensate.IsEnabled);
+                Assert.True(compensate.Focus());
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+
+                await scenes.CompensationRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                DrainPendingUiJobs();
+                TextBlock compensationStatus = Assert.IsType<TextBlock>(
+                shownWindow.FindControl<TextBlock>("SceneCompensationStatusText"));
+                ListBox compensationItems = Assert.IsType<ListBox>(
+                    shownWindow.FindControl<ListBox>("SceneCompensationResultList"));
+                TextBlock sharing = Assert.IsType<TextBlock>(
+                    shownWindow.FindControl<TextBlock>("SharingStatusText"));
+
+                Assert.Equal(
+                    "Scene compensation overall status",
+                    compensationStatus.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Reverse-order Scene compensation item outcomes",
+                    compensationItems.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal("COMPENSATION COMPLETED", compensationStatus.Text);
+                Assert.Single(compensationItems.Items);
+                Assert.Equal("NOT SHARING", sharing.Text);
+                return 0;
+            }, CancellationToken.None);
+            workflowCompleted = true;
+        }
+        finally
+        {
+            try
+            {
+                await session.Dispatch(() => window?.Close(), CancellationToken.None);
+                if (window is not null)
+                {
+                    await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+            }
+            catch when (!workflowCompleted)
+            {
+                // Keep the original workflow failure as the reported error
+                // instead of masking it with a cleanup exception.
+            }
+        }
     }
 
     [Fact]
@@ -880,6 +1119,194 @@ public sealed class MainWindowAccessibilityTests
             [capsule.Id]);
     }
 
+    private sealed class AccessibilitySceneService : IDesktopSceneApplyService
+    {
+        private static readonly DeviceId SourceDevice =
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111");
+        private static readonly DeviceId TargetDevice =
+            DeviceId.Parse("33333333-3333-3333-3333-333333333333");
+        private static readonly ActivityKind Kind =
+            ActivityKind.Parse("workspace.note/v1");
+        private readonly SceneCompensationResult compensation;
+        private readonly SceneApplyPreview preview;
+        private readonly SceneApplyResult result;
+
+        public AccessibilitySceneService()
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            ActivityId blockedActivity = ActivityId.Parse(
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+            ActivityId incomingActivity = ActivityId.Parse(
+                "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+            ActivityGroup group = ActivityGroup.Create(
+                GroupId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                "Accessibility group",
+                [blockedActivity, incomingActivity]);
+            SceneActivityPlan blockedPlan = SceneActivityPlan.Place(
+                blockedActivity,
+                ActivityPlacement.On(TargetDevice, "protected-slot"),
+                SceneSourceDisposition.PreserveSource,
+                SceneConflictPolicy.ReplaceWithUndo);
+            SceneActivityPlan replacePlan = SceneActivityPlan.Place(
+                incomingActivity,
+                ActivityPlacement.On(TargetDevice, "focus"),
+                SceneSourceDisposition.PreserveSource,
+                SceneConflictPolicy.ReplaceWithUndo);
+            Scene = ScenePlan.CreateFromGroup(
+                SceneId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+                "Keyboard Scene",
+                group,
+                [blockedPlan, replacePlan]);
+            SceneSourceSelection blockedSource = CreateSource(
+                index: 0,
+                blockedActivity,
+                "blocked-source");
+            SceneSourceSelection replaceSource = CreateSource(
+                index: 1,
+                incomingActivity,
+                "replace-source");
+            SceneReplaceTargetSnapshot replaceTarget =
+                SceneReplaceTargetSnapshot.Create(
+                    ActivityId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                    revision: 9,
+                    descriptorDigest: new string('E', 64),
+                    Kind,
+                    replacePlan.Placement);
+            SceneApplyItemPreview blocked =
+                SceneApplyItemPreview.BlockedByOccupancy(
+                    blockedPlan,
+                    blockedSource,
+                    SceneSlotOccupancy.Opaque,
+                    OperationId.Parse(
+                        "10101010-1010-1010-1010-101010101010"),
+                    CorrelationId.Parse(
+                        "11111111-1111-1111-1111-111111111111"));
+            SceneApplyItemPreview replace = SceneApplyItemPreview.Replace(
+                replacePlan,
+                replaceSource,
+                replaceTarget,
+                OperationId.Parse("12121212-1212-1212-1212-121212121212"),
+                CorrelationId.Parse("13131313-1313-1313-1313-131313131313"));
+            preview = SceneApplyPreview.Create(
+                Scene,
+                OperationId.Parse("14141414-1414-1414-1414-141414141414"),
+                CorrelationId.Parse("15151515-1515-1515-1515-151515151515"),
+                now,
+                now.AddMinutes(5),
+                [blocked, replace],
+                observedGroupRevision: 2);
+            var capsule = new UndoCapsuleReference(
+                UndoCapsuleId.Parse("16161616-1616-1616-1616-161616161616"),
+                replace.ChildOperationId,
+                replace.ChildCorrelationId,
+                TargetDevice,
+                replaceTarget.ActivityId,
+                replaceTarget.Revision,
+                replaceTarget.DescriptorDigest,
+                incomingActivity,
+                replaceSource.DescriptorDigest,
+                now.AddMinutes(10));
+            SceneApplyItemResult blockedResult =
+                SceneApplyItemResult.FromPreviewOnly(blocked, now.AddSeconds(2));
+            SceneApplyItemResult replaceResult = SceneApplyItemResult.FromOperation(
+                replace,
+                OperationReceipt.FromRecordedResult(
+                    replace.ChildOperationId,
+                    replace.ChildCorrelationId,
+                    OperationKind.Replace,
+                    OperationStatus.Committed,
+                    SourceDevice,
+                    TargetDevice,
+                    incomingActivity,
+                    Kind,
+                    replaceSource.DescriptorDigest,
+                    now.AddSeconds(2),
+                    FailureCode.None),
+                capsule);
+            result = SceneApplyResult.Create(
+                preview,
+                now.AddSeconds(1),
+                now.AddSeconds(2),
+                [blockedResult, replaceResult]);
+            OperationContext undoContext = SceneApplyCompensator.CreateStableContext(
+                result,
+                replaceResult,
+                capsule);
+            compensation = SceneCompensationResult.Create(
+                result.ParentOperationId,
+                [
+                    SceneCompensationItemResult.FromUndo(
+                        replace.Index,
+                        TargetDevice,
+                        UndoReplaceResult.Committed(
+                            undoContext,
+                            capsule.Id,
+                            now.AddSeconds(3))),
+                ]);
+        }
+
+        public bool IsSceneApplyReady => true;
+
+        public ScenePlan Scene { get; }
+
+        public TaskCompletionSource PreviewRequested { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ApplyRequested { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CompensationRequested { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask<SceneApplyPreview> PreviewSceneAsync(
+            ScenePlan scene,
+            IEnumerable<SceneSourceSelection> selectedSources,
+            long? observedGroupRevision,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PreviewRequested.TrySetResult();
+            return ValueTask.FromResult(preview);
+        }
+
+        public ValueTask<SceneApplyExecutionResult> ApplySceneAsync(
+            ScenePlan scene,
+            SceneApplyPreview requestedPreview,
+            SceneApplyApproval approval,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.Equal(preview.Fingerprint, approval.PreviewFingerprint);
+            // ImmutableArray<T> equality compares backing-array references; the
+            // approval carries equal confirmation records in Scene order inside
+            // its own array, so the binding must be compared by value.
+            Assert.True(preview.RequiredReplaceConfirmations
+                .SequenceEqual(approval.ReplaceConfirmations));
+            ApplyRequested.TrySetResult();
+            return ValueTask.FromResult(SceneApplyExecutionResult.Accepted(result));
+        }
+
+        public ValueTask<SceneCompensationResult> CompensateSceneAsync(
+            SceneApplyResult applyResult,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CompensationRequested.TrySetResult();
+            return ValueTask.FromResult(compensation);
+        }
+
+        private static SceneSourceSelection CreateSource(
+            int index,
+            ActivityId activityId,
+            string slot) => SceneSourceSelection.Create(
+            index,
+            activityId,
+            revision: 7,
+            descriptorDigest: new string((char)('A' + index), 64),
+            Kind,
+            ActivityPlacement.On(SourceDevice, slot));
+    }
+
     private sealed class AccessibilityActivityService : IDesktopActivityService
     {
         private static readonly DeviceId LocalId =
@@ -1028,6 +1455,7 @@ public sealed class MainWindowAccessibilityTests
                 UndoCapsuleId.Parse("77777777-7777-7777-7777-777777777777"),
                 context.OperationId,
                 context.CorrelationId,
+                TargetId,
                 selectedTarget.ActivityId,
                 selectedTarget.Revision,
                 selectedTarget.DescriptorDigest,

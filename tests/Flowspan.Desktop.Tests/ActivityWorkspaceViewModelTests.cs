@@ -1379,6 +1379,7 @@ public sealed class ActivityWorkspaceViewModelTests
             UndoCapsuleId.Parse("66666666-6666-6666-6666-666666666666"),
             context.OperationId,
             context.CorrelationId,
+            TargetId,
             selectedTarget.ActivityId,
             selectedTarget.Revision,
             selectedTarget.DescriptorDigest,

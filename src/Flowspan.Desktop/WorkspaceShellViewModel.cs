@@ -43,7 +43,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         IDesktopTrustAuthority? trustAuthority = null,
         DesktopLocalPairingRuntime? localPairingRuntime = null,
         DesktopLocalNetworkPermissionGuide? localNetworkPermissionGuide = null,
-        IDesktopActivityService? activityService = null)
+        IDesktopActivityService? activityService = null,
+        IDesktopSceneApplyService? sceneApplyService = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
@@ -66,9 +67,15 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             effectiveDispatcher,
             TrustedDevices.InitializeAsync,
             localNetworkPermissionGuide);
+        IDesktopActivityService effectiveActivityService =
+            activityService ?? UnavailableDesktopActivityService.Instance;
         Activities = new ActivityWorkspaceViewModel(
-            activityService ?? UnavailableDesktopActivityService.Instance,
+            effectiveActivityService,
             effectiveDispatcher);
+        Scenes = new SceneApplyViewModel(
+            sceneApplyService
+                ?? effectiveActivityService as IDesktopSceneApplyService
+                ?? UnavailableDesktopSceneApplyService.Instance);
         toggleIdentityDetailsCommand = new RelayCommand(
             ToggleIdentityDetails,
             () => IsIdentityAvailable);
@@ -84,6 +91,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     public ActivityWorkspaceViewModel Activities { get; }
 
     public LocalPairingViewModel LocalPairing { get; }
+
+    public SceneApplyViewModel Scenes { get; }
 
     public TrustedDevicesViewModel TrustedDevices { get; }
 
@@ -338,6 +347,15 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         try
         {
             await LocalPairing.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            Scenes.Dispose();
         }
         catch (Exception exception)
         {

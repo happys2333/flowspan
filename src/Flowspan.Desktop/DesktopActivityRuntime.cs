@@ -8,7 +8,9 @@ using Flowspan.Transport;
 
 namespace Flowspan.Desktop;
 
-internal sealed class DesktopActivityRuntime : IDesktopActivityService
+internal sealed class DesktopActivityRuntime :
+    IDesktopActivityService,
+    IDesktopSceneApplyService
 {
     private static readonly TimeSpan OperationLifetime = TimeSpan.FromSeconds(30);
     private readonly Func<CancellationToken, ValueTask<DeviceIdentity>> getIdentity;
@@ -18,6 +20,7 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
     private readonly IReplaceStatePayloadStore? replaceStatePayloadStore;
     private readonly ISceneRemoteChildStatePayloadStore?
         sceneRemoteChildStatePayloadStore;
+    private readonly ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore;
     private readonly TimeProvider timeProvider;
     private InMemoryActivityCatalog? catalog;
     private AuthenticatedActivitySessionHandler? handler;
@@ -25,6 +28,10 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
     private ReplaceEndpoint? replaceEndpoint;
     private PersistentReplaceStateStore? replaceState;
     private PersistentSceneRemoteChildJournal? sceneRemoteChildJournal;
+    private PersistentSceneApplyJournal? sceneApplyJournal;
+    private SceneApplyPlanner? sceneApplyPlanner;
+    private SceneApplyCoordinator? sceneApplyCoordinator;
+    private SceneApplyCompensator? sceneApplyCompensator;
     private TrustSessionCoordinator? trust;
     private int disposed;
 
@@ -34,7 +41,8 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         TimeProvider? timeProvider = null,
         IReplaceStatePayloadStore? replaceStatePayloadStore = null,
         ISceneRemoteChildStatePayloadStore?
-            sceneRemoteChildStatePayloadStore = null)
+            sceneRemoteChildStatePayloadStore = null,
+        ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore = null)
     {
         ArgumentNullException.ThrowIfNull(getIdentity);
         ArgumentNullException.ThrowIfNull(getTrust);
@@ -44,6 +52,7 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         this.replaceStatePayloadStore = replaceStatePayloadStore;
         this.sceneRemoteChildStatePayloadStore =
             sceneRemoteChildStatePayloadStore;
+        this.sceneApplyStatePayloadStore = sceneApplyStatePayloadStore;
     }
 
     public event Action? Changed;
@@ -65,6 +74,91 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             DesktopReplaceRecoveryResult recovery = GetReplaceRecoveryState();
             return recovery.IsAvailable
                 && !recovery.Records.Any(static record => record.IsRecoveryRequired);
+        }
+    }
+
+    public bool IsSceneApplyReady =>
+        Volatile.Read(ref disposed) == 0
+        && Volatile.Read(ref sceneApplyPlanner) is not null
+        && Volatile.Read(ref sceneApplyCoordinator) is not null
+        && Volatile.Read(ref sceneApplyCompensator) is not null;
+
+    public async ValueTask<SceneApplyPreview> PreviewSceneAsync(
+        ScenePlan scene,
+        IEnumerable<SceneSourceSelection> selectedSources,
+        long? observedGroupRevision,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(selectedSources);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        SceneApplyPlanner current = sceneApplyPlanner
+            ?? throw new InvalidOperationException(
+                "The protected Scene Apply runtime is unavailable.");
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+        return await current.PreviewAsync(
+            scene,
+            selectedSources,
+            observedGroupRevision,
+            linked.Token).ConfigureAwait(false);
+    }
+
+    public async ValueTask<SceneApplyExecutionResult> ApplySceneAsync(
+        ScenePlan scene,
+        SceneApplyPreview preview,
+        SceneApplyApproval approval,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(preview);
+        ArgumentNullException.ThrowIfNull(approval);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        SceneApplyCoordinator current = sceneApplyCoordinator
+            ?? throw new InvalidOperationException(
+                "The protected Scene Apply runtime is unavailable.");
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+        try
+        {
+            return await current.ApplyAsync(
+                scene,
+                preview,
+                approval,
+                linked.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            PublishChanged();
+        }
+    }
+
+    public async ValueTask<SceneCompensationResult> CompensateSceneAsync(
+        SceneApplyResult applyResult,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(applyResult);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        SceneApplyCompensator current = sceneApplyCompensator
+            ?? throw new InvalidOperationException(
+                "The protected Scene compensation runtime is unavailable.");
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+        try
+        {
+            return await current.CompensateAsync(
+                applyResult,
+                linked.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            PublishChanged();
         }
     }
 
@@ -678,6 +772,9 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             }
 
             PersistentSceneRemoteChildJournal? newSceneRemoteChildJournal = null;
+            PersistentSceneApplyJournal? newSceneApplyJournal = null;
+            SceneApplyPreflightEndpoint? scenePreflight = null;
+            SceneActivityOperationEndpoint? sceneEndpoint = null;
             ISceneControlPeer? authorizedScenePeer = null;
             var sceneRoutes = new DeferredSceneOperationRouteDirectory();
             if (sceneRemoteChildStatePayloadStore is not null)
@@ -688,17 +785,19 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                         await PersistentSceneRemoteChildJournal.OpenAsync(
                             sceneRemoteChildStatePayloadStore,
                             linked.Token).ConfigureAwait(false);
-                    var sceneEndpoint = new SceneActivityOperationEndpoint(
-                        newNode,
-                        new SceneApplyPreflightEndpoint(
+                    scenePreflight = new SceneApplyPreflightEndpoint(
+                        identity.DeviceId,
+                        new TimeProviderClock(timeProvider),
+                        newCatalog,
+                        adapterRegistry,
+                        new DesktopSceneReplaceUndoAvailability(
                             identity.DeviceId,
-                            new TimeProviderClock(timeProvider),
-                            newCatalog,
-                            adapterRegistry,
-                            new DesktopSceneReplaceUndoAvailability(
-                                identity.DeviceId,
-                                newReplaceState)),
-                        newReplaceEndpoint);
+                            newReplaceState));
+                    sceneEndpoint = new SceneActivityOperationEndpoint(
+                        newNode,
+                        scenePreflight,
+                        newReplaceEndpoint,
+                        new TimeProviderClock(timeProvider));
                     var scenePeer = new SceneControlPeer(
                         new TimeProviderClock(timeProvider),
                         sceneEndpoint,
@@ -721,10 +820,35 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                     newSceneRemoteChildJournal?.Dispose();
                     newSceneRemoteChildJournal = null;
                     authorizedScenePeer = null;
+                    sceneEndpoint = null;
+                    scenePreflight = null;
+                }
+            }
+
+            if (sceneApplyStatePayloadStore is not null)
+            {
+                try
+                {
+                    newSceneApplyJournal =
+                        await PersistentSceneApplyJournal.OpenAsync(
+                            sceneApplyStatePayloadStore,
+                            linked.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (linked.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    newSceneApplyJournal?.Dispose();
+                    newSceneApplyJournal = null;
                 }
             }
 
             AuthenticatedActivitySessionHandler newHandler;
+            SceneApplyPlanner? newSceneApplyPlanner = null;
+            SceneApplyCoordinator? newSceneApplyCoordinator = null;
+            SceneApplyCompensator? newSceneApplyCompensator = null;
             try
             {
                 IReplacePeer? authorizedReplacePeer = newReplaceEndpoint is null
@@ -747,9 +871,41 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                 {
                     sceneRoutes.SetInner(newHandler);
                 }
+
+                if (authorizedScenePeer is not null
+                    && scenePreflight is not null
+                    && sceneEndpoint is not null
+                    && newSceneApplyJournal is not null)
+                {
+                    var clock = new TimeProviderClock(timeProvider);
+                    var localOperationPort = new RoutedSceneActivityOperationPort(
+                        clock,
+                        identity.DeviceId,
+                        sceneEndpoint,
+                        newHandler);
+                    var operationPort = new CoordinatorSceneActivityOperationPort(
+                        clock,
+                        identity.DeviceId,
+                        localOperationPort,
+                        newHandler);
+                    newSceneApplyPlanner = new SceneApplyPlanner(
+                        clock,
+                        new RoutedSceneApplyPreflightPort(
+                            identity.DeviceId,
+                            scenePreflight,
+                            newHandler));
+                    newSceneApplyCoordinator = new SceneApplyCoordinator(
+                        clock,
+                        newSceneApplyJournal,
+                        operationPort);
+                    newSceneApplyCompensator = new SceneApplyCompensator(
+                        clock,
+                        operationPort);
+                }
             }
             catch
             {
+                newSceneApplyJournal?.Dispose();
                 newSceneRemoteChildJournal?.Dispose();
                 newReplaceEndpoint?.Dispose();
                 newReplaceState?.Dispose();
@@ -762,6 +918,10 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             replaceEndpoint = newReplaceEndpoint;
             replaceState = newReplaceState;
             sceneRemoteChildJournal = newSceneRemoteChildJournal;
+            sceneApplyJournal = newSceneApplyJournal;
+            sceneApplyPlanner = newSceneApplyPlanner;
+            sceneApplyCoordinator = newSceneApplyCoordinator;
+            sceneApplyCompensator = newSceneApplyCompensator;
             Volatile.Write(ref node, newNode);
         }
         finally
@@ -811,6 +971,13 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                 sceneRemoteChildJournal;
             sceneRemoteChildJournal = null;
             currentSceneJournal?.Dispose();
+            sceneApplyPlanner = null;
+            sceneApplyCoordinator = null;
+            sceneApplyCompensator = null;
+            PersistentSceneApplyJournal? currentSceneApplyJournal =
+                sceneApplyJournal;
+            sceneApplyJournal = null;
+            currentSceneApplyJournal?.Dispose();
             catalog = null;
             trust = null;
         }
@@ -1007,6 +1174,12 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             return false;
         }
 
+        public IReadOnlyList<DeviceId> GetSceneParticipantDeviceIds()
+        {
+            ISceneOperationRouteDirectory? current = Volatile.Read(ref inner);
+            return current?.GetSceneParticipantDeviceIds() ?? [];
+        }
+
         public bool TryGetReplaceChannel(
             DeviceId peerDeviceId,
             out IReplaceChannel? channel)
@@ -1029,6 +1202,38 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             if (current is not null)
             {
                 return current.TryGetSceneExactSlotChannel(
+                    peerDeviceId,
+                    out channel);
+            }
+
+            channel = null;
+            return false;
+        }
+
+        public bool TryGetSceneSourceLookupChannel(
+            DeviceId peerDeviceId,
+            out ISceneSourceLookupChannel? channel)
+        {
+            ISceneOperationRouteDirectory? current = Volatile.Read(ref inner);
+            if (current is not null)
+            {
+                return current.TryGetSceneSourceLookupChannel(
+                    peerDeviceId,
+                    out channel);
+            }
+
+            channel = null;
+            return false;
+        }
+
+        public bool TryGetSceneChildOperationChannel(
+            DeviceId peerDeviceId,
+            out ISceneChildOperationChannel? channel)
+        {
+            ISceneOperationRouteDirectory? current = Volatile.Read(ref inner);
+            if (current is not null)
+            {
+                return current.TryGetSceneChildOperationChannel(
                     peerDeviceId,
                     out channel);
             }
@@ -1199,6 +1404,18 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             Refresh(coordinatorDeviceId);
             Refresh(instruction.TargetDeviceId);
             return peer.ExecuteChildAsync(
+                coordinatorDeviceId,
+                instruction,
+                cancellationToken);
+        }
+
+        public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+            DeviceId coordinatorDeviceId,
+            SceneUndoReplaceInstruction instruction,
+            CancellationToken cancellationToken)
+        {
+            Refresh(coordinatorDeviceId);
+            return peer.UndoReplaceAsync(
                 coordinatorDeviceId,
                 instruction,
                 cancellationToken);
