@@ -425,9 +425,9 @@ public sealed class PersistentSceneApplyJournalTests
 
         string original = Encoding.UTF8.GetString(
             Assert.IsType<byte[]>(payloadStore.Payload));
-        string acceptedAt = AcceptedAt.ToString(
-            "O",
-            CultureInfo.InvariantCulture);
+        string acceptedAt = AcceptedAt
+            .ToString("O", CultureInfo.InvariantCulture)
+            .Replace("+", "\\u002B", StringComparison.Ordinal);
         string[] tamperedPayloads =
         [
             ReplaceRequired(

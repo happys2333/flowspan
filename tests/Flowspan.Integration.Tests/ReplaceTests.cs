@@ -348,6 +348,30 @@ public sealed class ReplaceTests
     }
 
     [Fact]
+    public async Task TargetSlotMoveRejectsBeforeCaptureOrMutation()
+    {
+        Fixture fixture = new(captureSucceeds: true);
+        fixture.AuthorizeReplace();
+        Assert.True(fixture.Catalog.TryUpdate(
+            fixture.Original,
+            ActivityInstance.Active(
+                fixture.Original.Descriptor,
+                ActivityPlacement.On(
+                    fixture.Original.Placement.DeviceId,
+                    "other"),
+                fixture.Original.Revision)));
+
+        ReplaceOperationResult result = await fixture.ReplaceAsync();
+
+        Assert.Equal(OperationStatus.Rejected, result.Receipt.Status);
+        Assert.Equal(FailureCode.RevisionConflict, result.Receipt.FailureCode);
+        Assert.Null(result.UndoCapsule);
+        Assert.Equal(0, fixture.Adapter.CaptureCount);
+        Assert.Equal(0, fixture.Adapter.ResumeCount);
+        Assert.False(fixture.Catalog.TryGet(fixture.Incoming.Id, out _));
+    }
+
+    [Fact]
     public async Task TargetDescriptorMismatchRejectsBeforeCaptureOrMutation()
     {
         Fixture fixture = new(

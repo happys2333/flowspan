@@ -49,9 +49,15 @@
     sources, and perform no child operation for exact-destination No Change.
   - Block occupied Move-plus-Replace before mutation; do not silently preserve
     its source or expose target-only undo that could remove its last instance.
+  - [x] Route same-host Handoff, Move, and Replace through the real `FlowspanNode`,
+    `DirectActivityChannel`, and `ReplaceEndpoint` production boundaries. Recheck
+    the exact source, source-side `activity.receive`, target-side `scene.apply`,
+    exact destination slot, exact Replace target, and durable undo availability
+    immediately before mutation, and pass the exact locally-read source snapshot
+    into the node so a post-preview descriptor can never be sent. Derive the
+    child deadline and undo expiry only from `AcceptedAt`.
   - Recheck current Trust, additional `scene.apply`, child-operation Capability,
-    connection, source, occupancy, exact Replace target, and undo evidence at
-    their proper boundaries.
+    and connection evidence at their proper boundaries.
   - Introduce protocol 1.4 strict source-lookup, exact-slot, and payload-free
     remote-child messages. Run a remote selected source locally on that source
     Device; never route its Activity descriptor through the Scene coordinator.

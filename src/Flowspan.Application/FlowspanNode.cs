@@ -68,20 +68,53 @@ public sealed class FlowspanNode : IActivityPeer
         [NotNullWhen(true)] out ActivityInstance? activity) =>
         catalog.TryGet(activityId, out activity);
 
+    public ValueTask<OperationReceipt> HandoffAsync(
+        ActivityId activityId,
+        IActivityChannel channel,
+        string targetSlot,
+        OperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HandoffAsync(
+            activityId,
+            channel,
+            targetSlot,
+            context,
+            expectedSource: null,
+            cancellationToken);
+
     public async ValueTask<OperationReceipt> HandoffAsync(
         ActivityId activityId,
         IActivityChannel channel,
         string targetSlot,
         OperationContext context,
+        ActivityInstance? expectedSource,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(activityId);
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(context);
 
-        if (!catalog.TryGet(activityId, out ActivityInstance? sourceActivity)
-            || sourceActivity is null)
+        if (!TryReadExpectedSource(
+                activityId,
+                expectedSource,
+                out ActivityInstance? sourceActivity,
+                out bool sourceChanged))
         {
+            if (sourceChanged)
+            {
+                OperationReceipt conflicted = OperationReceipt.Rejected(
+                    context.OperationId,
+                    context.CorrelationId,
+                    OperationKind.Handoff,
+                    DeviceId,
+                    channel.TargetDeviceId,
+                    expectedSource!.Descriptor,
+                    clock.UtcNow,
+                    FailureCode.RevisionConflict);
+                receiptSink.Write(conflicted);
+                return conflicted;
+            }
+
             OperationReceipt missing = OperationReceipt.RejectedMissingActivity(
                 context.OperationId,
                 context.CorrelationId,
@@ -109,20 +142,53 @@ public sealed class FlowspanNode : IActivityPeer
         return receipt;
     }
 
+    public ValueTask<OperationReceipt> MoveAsync(
+        ActivityId activityId,
+        IActivityChannel channel,
+        string targetSlot,
+        OperationContext context,
+        CancellationToken cancellationToken = default) =>
+        MoveAsync(
+            activityId,
+            channel,
+            targetSlot,
+            context,
+            expectedSource: null,
+            cancellationToken);
+
     public async ValueTask<OperationReceipt> MoveAsync(
         ActivityId activityId,
         IActivityChannel channel,
         string targetSlot,
         OperationContext context,
+        ActivityInstance? expectedSource,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(activityId);
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(context);
 
-        if (!catalog.TryGet(activityId, out ActivityInstance? sourceActivity)
-            || sourceActivity is null)
+        if (!TryReadExpectedSource(
+                activityId,
+                expectedSource,
+                out ActivityInstance? sourceActivity,
+                out bool sourceChanged))
         {
+            if (sourceChanged)
+            {
+                OperationReceipt conflicted = OperationReceipt.Rejected(
+                    context.OperationId,
+                    context.CorrelationId,
+                    OperationKind.Move,
+                    DeviceId,
+                    channel.TargetDeviceId,
+                    expectedSource!.Descriptor,
+                    clock.UtcNow,
+                    FailureCode.RevisionConflict);
+                receiptSink.Write(conflicted);
+                return conflicted;
+            }
+
             OperationReceipt missing = OperationReceipt.RejectedMissingActivity(
                 context.OperationId,
                 context.CorrelationId,
@@ -320,6 +386,30 @@ public sealed class FlowspanNode : IActivityPeer
             offer.Descriptor,
             clock.UtcNow,
             failureCode);
+    }
+
+    private bool TryReadExpectedSource(
+        ActivityId activityId,
+        ActivityInstance? expectedSource,
+        [NotNullWhen(true)] out ActivityInstance? sourceActivity,
+        out bool sourceChanged)
+    {
+        sourceChanged = false;
+        if (!catalog.TryGet(activityId, out sourceActivity)
+            || sourceActivity is null)
+        {
+            sourceActivity = null;
+            return false;
+        }
+
+        if (expectedSource is not null && sourceActivity != expectedSource)
+        {
+            sourceActivity = null;
+            sourceChanged = true;
+            return false;
+        }
+
+        return true;
     }
 
     private OperationReceipt ResolveDelivery(

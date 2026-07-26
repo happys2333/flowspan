@@ -172,6 +172,26 @@ occupants before sensitivity, kind, Adapter, or undo eligibility filtering.
 This direct port proves application semantics but is not evidence for the
 protocol-1.4 authenticated transport that remains in task 5.
 
+`SceneActivityOperationEndpoint` binds one Device's `FlowspanNode`, its
+`SceneApplyPreflightEndpoint`, and an optional `ReplaceEndpoint` behind one
+grant refresh, and `DirectSceneActivityOperationPort` executes an approved item
+against those real production boundaries. Immediately before mutation it
+re-locates the exact source, rereads it from the source node, and requires an
+exact match on Activity ID, revision, descriptor digest, kind, placement,
+lifecycle, and sensitivity. A missing Activity is `ActivityNotFound`; a present
+but changed one is `RevisionConflict`. The exact locally-read snapshot is then
+passed into `FlowspanNode.HandoffAsync`/`MoveAsync`, which compares it again at
+the send boundary, so a descriptor that changed after the recheck is never
+offered to the target. Replace resolves only when exact-slot occupancy still
+returns the same eligible conflict with durable undo availability, and it flows
+through `DirectReplaceChannel` into the real `ReplaceEndpoint`, which itself
+verifies revision, descriptor digest, exact placement, and lifecycle before
+capturing undo. The child deadline is `AcceptedAt` plus five minutes and the
+undo expiry is `AcceptedAt` plus `ReplaceEndpoint.MaximumUndoRetention`; neither
+is read from retry-time clocks, because both participate in request digests and
+must stay stable across duplicate attempts. A same-Device transfer to a
+different slot fails closed at the receiving catalog rather than mutating.
+
 The action matrix is closed and tested:
 
 | Current state | Source disposition | Conflict policy | Resolution |

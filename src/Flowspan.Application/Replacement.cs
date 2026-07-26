@@ -825,6 +825,7 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
                 || !DigestsEqual(
                     original.Descriptor.DescriptorDigest,
                     command.ExpectedTargetDescriptorDigest)
+                || original.Placement != command.TargetPlacement
                 || original.Lifecycle != ActivityLifecycle.Active)
             {
                 return Reject(command, senderDeviceId, FailureCode.RevisionConflict);

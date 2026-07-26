@@ -157,6 +157,29 @@ public sealed record SceneSourceLookup
             []);
     }
 
+    public bool Equals(SceneSourceLookup? other) =>
+        other is not null
+        && Index == other.Index
+        && ActivityId == other.ActivityId
+        && Status == other.Status
+        && Reason == other.Reason
+        && Candidates.SequenceEqual(other.Candidates);
+
+    public override int GetHashCode()
+    {
+        var hash = default(HashCode);
+        hash.Add(Index);
+        hash.Add(ActivityId);
+        hash.Add(Status);
+        hash.Add(Reason);
+        foreach (SceneSourceSelection candidate in Candidates)
+        {
+            hash.Add(candidate);
+        }
+
+        return hash.ToHashCode();
+    }
+
     public override string ToString() =>
         $"Scene source lookup {Index} ({Status}, {Candidates.Length} candidates)";
 

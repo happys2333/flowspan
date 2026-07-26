@@ -26,6 +26,30 @@ public sealed class DirectActivityChannel : IActivityChannel
     }
 }
 
+public sealed class DirectReplaceChannel : IReplaceChannel
+{
+    private readonly IReplacePeer target;
+
+    public DirectReplaceChannel(IReplacePeer target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        this.target = target;
+    }
+
+    public DeviceId TargetDeviceId => target.DeviceId;
+
+    public async ValueTask<ReplaceDeliveryResult> SendAsync(
+        DeviceId senderDeviceId,
+        ReplaceActivityCommand command,
+        CancellationToken cancellationToken)
+    {
+        ReplaceOperationResult result = await target
+            .ReplaceAsync(senderDeviceId, command, cancellationToken)
+            .ConfigureAwait(false);
+        return ReplaceDeliveryResult.Acknowledged(result);
+    }
+}
+
 public enum ActivityDeliveryFault
 {
     None,
