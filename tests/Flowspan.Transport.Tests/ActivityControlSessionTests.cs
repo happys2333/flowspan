@@ -213,6 +213,359 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task OutboundSceneSourceLookupWaitsForExactlyBoundResult()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        SceneSourceLookupQuery query = SceneSourceLookupQuery.Create(
+            OperationContext.Create(
+                OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                Now.AddSeconds(30)),
+            PeerId,
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            index: 0);
+
+        ValueTask<SceneSourceLookupDeliveryResult> querying =
+            session.QuerySourceAsync(LocalId, query, CancellationToken.None);
+        ControlMessage request = await connection.ReadSentAsync();
+        SceneSourceSelection source = SceneSourceSelection.Create(
+            index: 0,
+            query.ActivityId,
+            revision: 7,
+            descriptorDigest: new string('A', 64),
+            ActivityKind.Parse("workspace.note/v1"),
+            ActivityPlacement.On(PeerId, "desktop"));
+        SceneSourceLookup expected = SceneSourceLookup.FromObservation(
+            index: 0,
+            query.ActivityId,
+            [source],
+            isComplete: true);
+        connection.Receive(SceneControlMessageCodec.CreateSourceLookupResult(
+            request.Version,
+            PeerId,
+            LocalId,
+            query,
+            expected,
+            Now.AddSeconds(1)));
+
+        SceneSourceLookupDeliveryResult delivered = await querying;
+
+        Assert.Equal(SceneControlDeliveryStatus.Acknowledged, delivered.Status);
+        Assert.Equal(expected, delivered.Result);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task OutboundSceneExactSlotWaitsForExactlyBoundResult()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ActivityId activityId =
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        SceneSourceSelection source = SceneSourceSelection.Create(
+            index: 0,
+            activityId,
+            revision: 7,
+            descriptorDigest: new string('A', 64),
+            ActivityKind.Parse("workspace.note/v1"),
+            ActivityPlacement.On(LocalId, "desktop"));
+        SceneExactSlotQuery query = SceneExactSlotQuery.Create(
+            OperationContext.Create(
+                OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                Now.AddSeconds(30)),
+            SceneActivityPlan.Place(
+                activityId,
+                ActivityPlacement.On(PeerId, "focus"),
+                SceneSourceDisposition.PreserveSource,
+                SceneConflictPolicy.RequireEmpty),
+            source);
+        SceneExactSlotInspection expected = SceneExactSlotInspection.Observed(
+            SceneSlotOccupancy.Empty);
+
+        ValueTask<SceneExactSlotDeliveryResult> inspecting =
+            session.InspectSlotAsync(LocalId, query, CancellationToken.None);
+        ControlMessage request = await connection.ReadSentAsync();
+        connection.Receive(SceneControlMessageCodec.CreateExactSlotResult(
+            request.Version,
+            PeerId,
+            LocalId,
+            query,
+            expected,
+            Now.AddSeconds(1)));
+
+        SceneExactSlotDeliveryResult delivered = await inspecting;
+
+        Assert.Equal(SceneControlDeliveryStatus.Acknowledged, delivered.Status);
+        Assert.Equal(expected, delivered.Result);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task OutboundRemoteSceneChildWaitsForExactlyBoundResult()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        DeviceId targetId =
+            DeviceId.Parse("33333333-3333-3333-3333-333333333333");
+        ActivityId activityId =
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        OperationId childOperationId =
+            OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        CorrelationId childCorrelationId =
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        SceneSourceSelection source = SceneSourceSelection.Create(
+            index: 0,
+            activityId,
+            revision: 7,
+            descriptorDigest: new string('A', 64),
+            ActivityKind.Parse("workspace.note/v1"),
+            ActivityPlacement.On(PeerId, "desktop"));
+        SceneRemoteChildInstruction instruction =
+            SceneRemoteChildInstruction.Create(
+                LocalId,
+                SceneId.Parse("abababab-abab-abab-abab-abababababab"),
+                sceneRevision: 5,
+                sceneDigest: new string('C', 64),
+                previewFingerprint: new string('D', 64),
+                OperationId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                CorrelationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                acceptedAt: Now,
+                SceneApplyItemPreview.TransferToEmpty(
+                    SceneActivityPlan.Place(
+                        activityId,
+                        ActivityPlacement.On(targetId, "focus"),
+                        SceneSourceDisposition.PreserveSource,
+                        SceneConflictPolicy.RequireEmpty),
+                    source,
+                    childOperationId,
+                    childCorrelationId));
+        SceneActivityOperationResult expected = SceneActivityOperationResult.Create(
+            OperationReceipt.FromRecordedResult(
+                childOperationId,
+                childCorrelationId,
+                OperationKind.Handoff,
+                OperationStatus.Committed,
+                PeerId,
+                targetId,
+                activityId,
+                source.Kind,
+                source.DescriptorDigest,
+                Now.AddSeconds(1),
+                FailureCode.None),
+            undoCapsule: null);
+
+        ValueTask<SceneChildDeliveryResult> executing = session.ExecuteChildAsync(
+            LocalId,
+            instruction,
+            CancellationToken.None);
+        ControlMessage request = await connection.ReadSentAsync();
+        connection.Receive(SceneControlMessageCodec.CreateChildResult(
+            request.Version,
+            PeerId,
+            LocalId,
+            instruction,
+            expected,
+            Now.AddSeconds(1)));
+
+        SceneChildDeliveryResult delivered = await executing;
+
+        Assert.Equal(SceneControlDeliveryStatus.Acknowledged, delivered.Status);
+        Assert.Equal(expected, delivered.Result);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task InboundSceneSourceLookupRunsOnAuthenticatedLocalPeer()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var scenePeer = new RecordingSceneControlPeer(LocalId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            scenePeer,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        SceneSourceLookupQuery query = SceneSourceLookupQuery.Create(
+            OperationContext.Create(
+                OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                Now.AddSeconds(30)),
+            LocalId,
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            index: 0);
+        connection.Receive(SceneControlMessageCodec.CreateSourceLookupQuery(
+            ProtocolFeatures.SceneApplyMinimumVersion,
+            PeerId,
+            query,
+            Now));
+
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ControlMessage response = await connection.ReadSentAsync();
+        SceneSourceLookup decoded =
+            SceneControlMessageCodec.DecodeSourceLookupResult(
+                response,
+                PeerId,
+                query);
+
+        Assert.Equal(scenePeer.Result, decoded);
+        Assert.Equal(PeerId, scenePeer.LastCoordinatorDeviceId);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task InboundSceneExactSlotRunsOnAuthenticatedLocalPeer()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var scenePeer = new RecordingSceneControlPeer(LocalId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            scenePeer,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        ActivityId activityId =
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        SceneExactSlotQuery query = SceneExactSlotQuery.Create(
+            OperationContext.Create(
+                OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                Now.AddSeconds(30)),
+            SceneActivityPlan.Place(
+                activityId,
+                ActivityPlacement.On(LocalId, "focus"),
+                SceneSourceDisposition.PreserveSource,
+                SceneConflictPolicy.RequireEmpty),
+            SceneSourceSelection.Create(
+                index: 0,
+                activityId,
+                revision: 7,
+                descriptorDigest: new string('A', 64),
+                ActivityKind.Parse("workspace.note/v1"),
+                ActivityPlacement.On(PeerId, "desktop")));
+        connection.Receive(SceneControlMessageCodec.CreateExactSlotQuery(
+            ProtocolFeatures.SceneApplyMinimumVersion,
+            PeerId,
+            query,
+            Now));
+
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ControlMessage response = await connection.ReadSentAsync();
+        SceneExactSlotInspection decoded =
+            SceneControlMessageCodec.DecodeExactSlotResult(
+                response,
+                PeerId,
+                query);
+
+        Assert.Equal(scenePeer.SlotResult, decoded);
+        Assert.Equal(PeerId, scenePeer.LastCoordinatorDeviceId);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task InboundRemoteSceneChildRunsOnAuthenticatedSourcePeer()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var scenePeer = new RecordingSceneControlPeer(LocalId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            scenePeer,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        DeviceId targetId =
+            DeviceId.Parse("33333333-3333-3333-3333-333333333333");
+        ActivityId activityId =
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        SceneSourceSelection source = SceneSourceSelection.Create(
+            index: 0,
+            activityId,
+            revision: 7,
+            descriptorDigest: new string('A', 64),
+            ActivityKind.Parse("workspace.note/v1"),
+            ActivityPlacement.On(LocalId, "desktop"));
+        SceneRemoteChildInstruction instruction =
+            SceneRemoteChildInstruction.Create(
+                PeerId,
+                SceneId.Parse("abababab-abab-abab-abab-abababababab"),
+                sceneRevision: 5,
+                sceneDigest: new string('C', 64),
+                previewFingerprint: new string('D', 64),
+                OperationId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                CorrelationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                acceptedAt: Now,
+                SceneApplyItemPreview.TransferToEmpty(
+                    SceneActivityPlan.Place(
+                        activityId,
+                        ActivityPlacement.On(targetId, "focus"),
+                        SceneSourceDisposition.PreserveSource,
+                        SceneConflictPolicy.RequireEmpty),
+                    source,
+                    OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                    CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc")));
+        connection.Receive(SceneControlMessageCodec.CreateChildInstruction(
+            ProtocolFeatures.SceneApplyMinimumVersion,
+            PeerId,
+            instruction,
+            Now));
+
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ControlMessage response = await connection.ReadSentAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(1));
+        SceneActivityOperationResult decoded =
+            SceneControlMessageCodec.DecodeChildResult(
+                response,
+                PeerId,
+                instruction);
+
+        Assert.Equal(scenePeer.ChildResult, decoded);
+        Assert.Equal(instruction, scenePeer.LastInstruction);
+        Assert.Equal(PeerId, scenePeer.LastCoordinatorDeviceId);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
     public async Task PendingInventoryReservesCorrelationAcrossOperationTypes()
     {
         var connection = new FakeActivityControlConnection(LocalId, PeerId);
@@ -700,6 +1053,100 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task SessionEndMarksAllSentSceneRequestsAsUncertain()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        SceneSourceLookupQuery sourceQuery = SceneSourceLookupQuery.Create(
+            OperationContext.Create(
+                OperationId.Parse("10101010-1010-1010-1010-101010101010"),
+                CorrelationId.Parse("11111111-1111-1111-1111-111111111111"),
+                Now.AddSeconds(30)),
+            PeerId,
+            ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            index: 0);
+        SceneSourceSelection source = SceneSourceSelection.Create(
+            index: 1,
+            ActivityId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+            revision: 7,
+            descriptorDigest: new string('A', 64),
+            ActivityKind.Parse("workspace.note/v1"),
+            ActivityPlacement.On(LocalId, "desktop"));
+        SceneExactSlotQuery slotQuery = SceneExactSlotQuery.Create(
+            OperationContext.Create(
+                OperationId.Parse("20202020-2020-2020-2020-202020202020"),
+                CorrelationId.Parse("22222222-2222-2222-2222-222222222222"),
+                Now.AddSeconds(30)),
+            SceneActivityPlan.Place(
+                source.ActivityId,
+                ActivityPlacement.On(PeerId, "focus"),
+                SceneSourceDisposition.PreserveSource,
+                SceneConflictPolicy.RequireEmpty),
+            source);
+        SceneApplyItemPreview childItem =
+            SceneApplyItemPreview.TransferToEmpty(
+                SceneActivityPlan.Place(
+                    ActivityId.Parse(
+                        "cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                    ActivityPlacement.On(LocalId, "focus"),
+                    SceneSourceDisposition.PreserveSource,
+                    SceneConflictPolicy.RequireEmpty),
+                SceneSourceSelection.Create(
+                    index: 2,
+                    ActivityId.Parse(
+                        "cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                    revision: 9,
+                    descriptorDigest: new string('B', 64),
+                    ActivityKind.Parse("workspace.note/v1"),
+                    ActivityPlacement.On(PeerId, "desktop")),
+                OperationId.Parse("30303030-3030-3030-3030-303030303030"),
+                CorrelationId.Parse(
+                    "33333333-3333-3333-3333-333333333333"));
+        SceneRemoteChildInstruction child =
+            SceneRemoteChildInstruction.Create(
+                LocalId,
+                SceneId.Parse("40404040-4040-4040-4040-404040404040"),
+                sceneRevision: 5,
+                sceneDigest: new string('C', 64),
+                previewFingerprint: new string('D', 64),
+                OperationId.Parse("50505050-5050-5050-5050-505050505050"),
+                CorrelationId.Parse("60606060-6060-6060-6060-606060606060"),
+                acceptedAt: Now,
+                childItem);
+
+        ValueTask<SceneSourceLookupDeliveryResult> sourceSending =
+            session.QuerySourceAsync(LocalId, sourceQuery, CancellationToken.None);
+        ValueTask<SceneExactSlotDeliveryResult> slotSending =
+            session.InspectSlotAsync(LocalId, slotQuery, CancellationToken.None);
+        ValueTask<SceneChildDeliveryResult> childSending =
+            session.ExecuteChildAsync(LocalId, child, CancellationToken.None);
+        await connection.ReadSentAsync();
+        await connection.ReadSentAsync();
+        await connection.ReadSentAsync();
+
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+
+        Assert.Equal(
+            SceneControlDeliveryStatus.AcknowledgementLost,
+            (await sourceSending).Status);
+        Assert.Equal(
+            SceneControlDeliveryStatus.AcknowledgementLost,
+            (await slotSending).Status);
+        Assert.Equal(
+            SceneControlDeliveryStatus.AcknowledgementLost,
+            (await childSending).Status);
+    }
+
+    [Fact]
     public async Task UnsolicitedOrWrongCorrelationInventoryResultFaultsClosed()
     {
         var connection = new FakeActivityControlConnection(LocalId, PeerId);
@@ -1139,6 +1586,246 @@ public sealed class ActivityControlSessionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
     }
 
+    [Fact]
+    public async Task AuthenticatedCoordinatorRoutesRemoteChildSourceToTarget()
+    {
+        DeviceId coordinatorId = DeviceId.Parse(
+            "11111111-1111-1111-1111-111111111111");
+        DeviceId sourceId = DeviceId.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        DeviceId targetId = DeviceId.Parse(
+            "33333333-3333-3333-3333-333333333333");
+        using DeviceIdentity coordinatorIdentity =
+            DeviceIdentity.Generate(coordinatorId, "Coordinator");
+        using DeviceIdentity sourceIdentity =
+            DeviceIdentity.Generate(sourceId, "Source");
+        using DeviceIdentity targetIdentity =
+            DeviceIdentity.Generate(targetId, "Target");
+        ProtocolVersion version = ProtocolFeatures.SceneApplyMinimumVersion;
+
+        using var targetListener = new TcpListener(IPAddress.Loopback, 0);
+        targetListener.Start(backlog: 1);
+        var targetEndpoint = Assert.IsType<IPEndPoint>(
+            targetListener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> acceptingTarget =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                targetListener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(
+                        Capability.SceneApply,
+                        Capability.ActivityOffer)),
+                [version]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceToTarget =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                targetEndpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(
+                        Capability.SceneApply,
+                        Capability.ActivityReceive)),
+                [version]);
+        await using AuthenticatedTcpControlConnection targetToSource =
+            await acceptingTarget;
+
+        using var sourceListener = new TcpListener(IPAddress.Loopback, 0);
+        sourceListener.Start(backlog: 1);
+        var sourceEndpoint = Assert.IsType<IPEndPoint>(
+            sourceListener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> acceptingSource =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                sourceListener,
+                sourceIdentity,
+                new TrustRecord(
+                    coordinatorIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(Capability.SceneApply)),
+                [version]).AsTask();
+        await using AuthenticatedTcpControlConnection coordinatorToSource =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                sourceEndpoint,
+                coordinatorIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(Capability.SceneApply)),
+                [version]);
+        await using AuthenticatedTcpControlConnection sourceToCoordinator =
+            await acceptingSource;
+
+        var coordinatorCatalog = new InMemoryActivityCatalog();
+        var sourceCatalog = new InMemoryActivityCatalog();
+        var targetCatalog = new InMemoryActivityCatalog();
+        FlowspanNode coordinatorNode = CreateNode(
+            coordinatorId,
+            "Coordinator",
+            coordinatorCatalog);
+        FlowspanNode sourceNode = CreateNode(
+            sourceId,
+            "Source",
+            sourceCatalog);
+        FlowspanNode targetNode = CreateNode(
+            targetId,
+            "Target",
+            targetCatalog);
+        ActivityInstance sourceActivity = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                ActivityKind.Parse("workspace.note/v1"),
+                sourceId,
+                "source-title-canary",
+                JsonSerializer.Serialize(new
+                {
+                    text = "END-TO-END-SOURCE-PAYLOAD-CANARY",
+                })),
+            ActivityPlacement.On(sourceId, "desktop"),
+            revision: 7);
+        Assert.True(sourceNode.AddLocalActivity(sourceActivity));
+
+        var adapters = new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]);
+        var sourcePreflight = new SceneApplyPreflightEndpoint(
+            sourceId,
+            new FixedClock(Now),
+            sourceCatalog,
+            adapters,
+            NeverSceneUndoAvailable.Instance);
+        var targetPreflight = new SceneApplyPreflightEndpoint(
+            targetId,
+            new FixedClock(Now),
+            targetCatalog,
+            adapters,
+            NeverSceneUndoAvailable.Instance);
+        var sourceOperationEndpoint = new SceneActivityOperationEndpoint(
+            sourceNode,
+            sourcePreflight);
+        var targetOperationEndpoint = new SceneActivityOperationEndpoint(
+            targetNode,
+            targetPreflight);
+        sourceOperationEndpoint.SetPeerGrant(
+            coordinatorId,
+            CapabilityGrant.Of(Capability.SceneApply));
+        sourceOperationEndpoint.SetPeerGrant(
+            targetId,
+            CapabilityGrant.Of(Capability.ActivityReceive));
+        targetPreflight.SetPeerGrant(
+            sourceId,
+            CapabilityGrant.Of(Capability.SceneApply));
+        targetNode.SetPeerGrant(
+            sourceId,
+            CapabilityGrant.Of(Capability.ActivityOffer));
+
+        var sourceRoutes = new ForwardingSceneOperationRouteDirectory();
+        var sourceScenePeer = new SceneControlPeer(
+            new FixedClock(Now),
+            sourceOperationEndpoint,
+            new RoutedSceneActivityOperationPort(
+                new FixedClock(Now),
+                sourceOperationEndpoint,
+                sourceRoutes),
+            new InMemorySceneRemoteChildJournal());
+        var targetScenePeer = new SceneControlPeer(
+            new FixedClock(Now),
+            targetOperationEndpoint,
+            new RejectingSceneOperationPort(),
+            new InMemorySceneRemoteChildJournal());
+        await using var coordinatorHandler =
+            new AuthenticatedActivitySessionHandler(
+                coordinatorNode,
+                new FixedTimeProvider(Now));
+        await using var sourceHandler =
+            new AuthenticatedActivitySessionHandler(
+                sourceNode,
+                sourceScenePeer,
+                new FixedTimeProvider(Now));
+        sourceRoutes.Inner = sourceHandler;
+        await using var targetHandler =
+            new AuthenticatedActivitySessionHandler(
+                targetNode,
+                targetScenePeer,
+                new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task sourceTargetRun = sourceHandler.RunAsync(
+            sourceToTarget,
+            stop.Token).AsTask();
+        Task targetSourceRun = targetHandler.RunAsync(
+            targetToSource,
+            stop.Token).AsTask();
+        Task coordinatorSourceRun = coordinatorHandler.RunAsync(
+            coordinatorToSource,
+            stop.Token).AsTask();
+        Task sourceCoordinatorRun = sourceHandler.RunAsync(
+            sourceToCoordinator,
+            stop.Token).AsTask();
+        Assert.True(coordinatorHandler.TryGetSceneChildOperationChannel(
+            sourceId,
+            out ISceneChildOperationChannel? childChannel));
+        Assert.NotNull(childChannel);
+        Assert.True(sourceHandler.TryGetChannel(
+            targetId,
+            out IActivityChannel? _));
+        SceneSourceSelection source = SceneSourceSelection.Create(
+            index: 0,
+            sourceActivity.Descriptor.Id,
+            sourceActivity.Revision,
+            sourceActivity.Descriptor.DescriptorDigest,
+            sourceActivity.Descriptor.Kind,
+            sourceActivity.Placement);
+        SceneApplyItemPreview item = SceneApplyItemPreview.TransferToEmpty(
+            SceneActivityPlan.Place(
+                sourceActivity.Descriptor.Id,
+                ActivityPlacement.On(targetId, "focus"),
+                SceneSourceDisposition.PreserveSource,
+                SceneConflictPolicy.RequireEmpty),
+            source,
+            OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"));
+        SceneRemoteChildInstruction instruction =
+            SceneRemoteChildInstruction.Create(
+                coordinatorId,
+                SceneId.Parse("abababab-abab-abab-abab-abababababab"),
+                sceneRevision: 5,
+                sceneDigest: new string('C', 64),
+                previewFingerprint: new string('D', 64),
+                OperationId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                CorrelationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                acceptedAt: Now,
+                item);
+
+        SceneChildDeliveryResult delivery = await childChannel.ExecuteChildAsync(
+            coordinatorId,
+            instruction,
+            CancellationToken.None);
+
+        Assert.Equal(SceneControlDeliveryStatus.Acknowledged, delivery.Status);
+        Assert.Equal(OperationStatus.Committed, delivery.Result?.Receipt.Status);
+        Assert.True(sourceCatalog.TryGet(
+            sourceActivity.Descriptor.Id,
+            out ActivityInstance? preserved));
+        Assert.Equal(ActivityLifecycle.Active, preserved.Lifecycle);
+        Assert.True(targetCatalog.TryGet(
+            sourceActivity.Descriptor.Id,
+            out ActivityInstance? received));
+        Assert.Contains(
+            "END-TO-END-SOURCE-PAYLOAD-CANARY",
+            received.Descriptor.PayloadJson,
+            StringComparison.Ordinal);
+        Assert.Empty(coordinatorCatalog.GetSnapshot());
+
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => sourceTargetRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => targetSourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => coordinatorSourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => sourceCoordinatorRun);
+    }
+
     private static ActivityTransferOffer CreateOffer(
         DeviceId sourceId,
         DeviceId targetId)
@@ -1210,6 +1897,56 @@ public sealed class ActivityControlSessionTests
         public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
+    private sealed class NeverSceneUndoAvailable :
+        ISceneReplaceUndoAvailability
+    {
+        private NeverSceneUndoAvailable()
+        {
+        }
+
+        public static NeverSceneUndoAvailable Instance { get; } = new();
+
+        public bool HasDurableUndoFor(ActivityInstance target) => false;
+    }
+
+    private sealed class RejectingSceneOperationPort :
+        ISceneActivityOperationPort
+    {
+        public ValueTask<SceneActivityOperationResult> ExecuteAsync(
+            SceneActivityPreparation preparation,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromException<SceneActivityOperationResult>(
+                new InvalidOperationException(
+                    "No target-local Scene child execution was expected."));
+    }
+
+    private sealed class ForwardingSceneOperationRouteDirectory :
+        ISceneOperationRouteDirectory
+    {
+        public ISceneOperationRouteDirectory? Inner { get; set; }
+
+        public bool TryGetChannel(
+            DeviceId peerDeviceId,
+            out IActivityChannel? channel) =>
+            RequireInner().TryGetChannel(peerDeviceId, out channel);
+
+        public bool TryGetReplaceChannel(
+            DeviceId peerDeviceId,
+            out IReplaceChannel? channel) =>
+            RequireInner().TryGetReplaceChannel(peerDeviceId, out channel);
+
+        public bool TryGetSceneExactSlotChannel(
+            DeviceId peerDeviceId,
+            out ISceneExactSlotChannel? channel) =>
+            RequireInner().TryGetSceneExactSlotChannel(
+                peerDeviceId,
+                out channel);
+
+        private ISceneOperationRouteDirectory RequireInner() => Inner
+            ?? throw new InvalidOperationException(
+                "The Scene route directory is not initialized.");
+    }
+
     private sealed class RejectingActivityPeer(DeviceId deviceId) : IActivityPeer
     {
         public DeviceId DeviceId { get; } = deviceId;
@@ -1234,9 +1971,96 @@ public sealed class ActivityControlSessionTests
                 new InvalidOperationException("No inbound Replace was expected."));
     }
 
+    private sealed class RecordingSceneControlPeer : ISceneControlPeer
+    {
+        public RecordingSceneControlPeer(DeviceId deviceId)
+        {
+            DeviceId = deviceId;
+            ActivityId activityId =
+                ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+            Result = SceneSourceLookup.FromObservation(
+                index: 0,
+                activityId,
+                [
+                    SceneSourceSelection.Create(
+                        index: 0,
+                        activityId,
+                        revision: 7,
+                        descriptorDigest: new string('A', 64),
+                        ActivityKind.Parse("workspace.note/v1"),
+                        ActivityPlacement.On(deviceId, "desktop")),
+                ],
+                isComplete: true);
+        }
+
+        public DeviceId DeviceId { get; }
+
+        public DeviceId? LastCoordinatorDeviceId { get; private set; }
+
+        public SceneSourceLookup Result { get; }
+
+        public SceneExactSlotInspection SlotResult { get; } =
+            SceneExactSlotInspection.Observed(SceneSlotOccupancy.Empty);
+
+        public SceneActivityOperationResult? ChildResult { get; private set; }
+
+        public SceneRemoteChildInstruction? LastInstruction { get; private set; }
+
+        public ValueTask<SceneSourceLookup> LocateSourceAsync(
+            DeviceId coordinatorDeviceId,
+            SceneSourceLookupQuery query,
+            CancellationToken cancellationToken)
+        {
+            LastCoordinatorDeviceId = coordinatorDeviceId;
+            return ValueTask.FromResult(Result);
+        }
+
+        public ValueTask<SceneExactSlotInspection> InspectExactSlotAsync(
+            DeviceId coordinatorDeviceId,
+            SceneExactSlotQuery query,
+            CancellationToken cancellationToken)
+        {
+            LastCoordinatorDeviceId = coordinatorDeviceId;
+            return ValueTask.FromResult(SlotResult);
+        }
+
+        public ValueTask<SceneActivityOperationResult> ExecuteChildAsync(
+            DeviceId coordinatorDeviceId,
+            SceneRemoteChildInstruction instruction,
+            CancellationToken cancellationToken)
+        {
+            LastCoordinatorDeviceId = coordinatorDeviceId;
+            LastInstruction = instruction;
+            SceneSourceSelection source = instruction.Item.Source!;
+            OperationKind kind = instruction.Item.Action switch
+            {
+                SceneApplyAction.Handoff => OperationKind.Handoff,
+                SceneApplyAction.Move => OperationKind.Move,
+                SceneApplyAction.Replace => OperationKind.Replace,
+                _ => throw new InvalidOperationException(),
+            };
+            ChildResult = SceneActivityOperationResult.Create(
+                OperationReceipt.FromRecordedResult(
+                    instruction.Item.ChildOperationId,
+                    instruction.Item.ChildCorrelationId,
+                    kind,
+                    OperationStatus.Committed,
+                    source.DeviceId,
+                    instruction.Item.Destination.DeviceId,
+                    instruction.Item.ActivityId,
+                    source.Kind,
+                    source.DescriptorDigest,
+                    Now,
+                    FailureCode.None),
+                undoCapsule: null);
+            return ValueTask.FromResult(ChildResult);
+        }
+    }
+
     private sealed class FakeActivityControlConnection(
         DeviceId localDeviceId,
-        DeviceId peerDeviceId) : IActivityControlConnection
+        DeviceId peerDeviceId,
+        ProtocolVersion? protocolVersion = null) : IActivityControlConnection
     {
         private readonly Channel<ControlMessage> incoming = Channel.CreateUnbounded<ControlMessage>();
         private readonly Channel<ControlMessage> outgoing = Channel.CreateUnbounded<ControlMessage>();
@@ -1246,7 +2070,8 @@ public sealed class ActivityControlSessionTests
 
         public DeviceId PeerDeviceId { get; } = peerDeviceId;
 
-        public ProtocolVersion ProtocolVersion { get; } = new(1, 0);
+        public ProtocolVersion ProtocolVersion { get; } =
+            protocolVersion ?? new ProtocolVersion(1, 0);
 
         public void Receive(ControlMessage message) =>
             incoming.Writer.TryWrite(message);

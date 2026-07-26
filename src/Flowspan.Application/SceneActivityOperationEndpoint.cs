@@ -81,6 +81,483 @@ public sealed class SceneActivityOperationEndpoint
     internal ReplaceEndpoint? ReplaceEndpoint => replaceEndpoint;
 }
 
+public interface ISceneOperationRouteDirectory
+{
+    public bool TryGetChannel(
+        DeviceId peerDeviceId,
+        out IActivityChannel? channel);
+
+    public bool TryGetReplaceChannel(
+        DeviceId peerDeviceId,
+        out IReplaceChannel? channel);
+
+    public bool TryGetSceneExactSlotChannel(
+        DeviceId peerDeviceId,
+        out ISceneExactSlotChannel? channel);
+}
+
+public sealed class RoutedSceneActivityOperationPort :
+    ISceneActivityOperationPort
+{
+    private readonly IClock clock;
+    private readonly DeviceId? coordinatorDeviceId;
+    private readonly ISceneOperationRouteDirectory routes;
+    private readonly SceneActivityOperationEndpoint sourceEndpoint;
+
+    public RoutedSceneActivityOperationPort(
+        IClock clock,
+        DeviceId coordinatorDeviceId,
+        SceneActivityOperationEndpoint sourceEndpoint,
+        ISceneOperationRouteDirectory routes)
+        : this(
+            clock,
+            sourceEndpoint,
+            routes,
+            coordinatorDeviceId
+                ?? throw new ArgumentNullException(nameof(coordinatorDeviceId)))
+    {
+    }
+
+    public RoutedSceneActivityOperationPort(
+        IClock clock,
+        SceneActivityOperationEndpoint sourceEndpoint,
+        ISceneOperationRouteDirectory routes)
+        : this(clock, sourceEndpoint, routes, coordinatorDeviceId: null)
+    {
+    }
+
+    private RoutedSceneActivityOperationPort(
+        IClock clock,
+        SceneActivityOperationEndpoint sourceEndpoint,
+        ISceneOperationRouteDirectory routes,
+        DeviceId? coordinatorDeviceId)
+    {
+        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        this.coordinatorDeviceId = coordinatorDeviceId;
+        this.sourceEndpoint = sourceEndpoint
+            ?? throw new ArgumentNullException(nameof(sourceEndpoint));
+        this.routes = routes ?? throw new ArgumentNullException(nameof(routes));
+    }
+
+    public async ValueTask<SceneActivityOperationResult> ExecuteAsync(
+        SceneActivityPreparation preparation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        SceneApplyItemPreview item = preparation.Item;
+        SceneSourceSelection source = item.Source
+            ?? throw new ArgumentException(
+                "An executable Scene item requires an exact source.",
+                nameof(preparation));
+        OperationKind operationKind = item.Action switch
+        {
+            SceneApplyAction.Handoff => OperationKind.Handoff,
+            SceneApplyAction.Move => OperationKind.Move,
+            SceneApplyAction.Replace => OperationKind.Replace,
+            _ => throw new ArgumentException(
+                "A routed Scene operation requires an executable item.",
+                nameof(preparation)),
+        };
+        if (source.DeviceId != sourceEndpoint.DeviceId)
+        {
+            throw new ArgumentException(
+                "A routed Scene operation source must match its local endpoint.",
+                nameof(preparation));
+        }
+
+
+        DeviceId requestingCoordinator =
+            preparation.RemoteCoordinatorDeviceId
+            ?? coordinatorDeviceId
+            ?? throw new ArgumentException(
+                "A routed Scene operation requires an authenticated coordinator.",
+                nameof(preparation));
+        if (coordinatorDeviceId is not null
+            && preparation.RemoteCoordinatorDeviceId is not null
+            && coordinatorDeviceId != preparation.RemoteCoordinatorDeviceId)
+        {
+            throw new ArgumentException(
+                "A routed Scene operation coordinator changed after composition.",
+                nameof(preparation));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        DateTimeOffset deadline = StableDeadline(preparation.AcceptedAt);
+        OperationContext childContext = OperationContext.Create(
+            item.ChildOperationId,
+            item.ChildCorrelationId,
+            deadline);
+        if (deadline <= clock.UtcNow)
+        {
+            return Failed(
+                OperationStatus.Rejected,
+                FailureCode.DeadlineExpired);
+        }
+
+        SceneSourceLookup currentSource;
+        try
+        {
+            currentSource = await sourceEndpoint.LocateSourceAsync(
+                requestingCoordinator,
+                item.ActivityId,
+                item.Index,
+                childContext,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return Failed(
+                OperationStatus.Failed,
+                FailureCode.PeerUnavailable);
+        }
+
+        if (currentSource.Status == SceneSourceLookupStatus.Unavailable)
+        {
+            return Failed(
+                StatusFor(currentSource.Reason),
+                FailureFor(currentSource.Reason));
+        }
+
+        if (currentSource.UniqueSource is null)
+        {
+            return Failed(
+                OperationStatus.Rejected,
+                currentSource.Status == SceneSourceLookupStatus.NotFound
+                    ? FailureCode.ActivityNotFound
+                    : FailureCode.RevisionConflict);
+        }
+
+        if (currentSource.UniqueSource != source)
+        {
+            return Failed(
+                OperationStatus.Rejected,
+                FailureCode.RevisionConflict);
+        }
+
+        if (!sourceEndpoint.Node.TryGetActivity(
+                item.ActivityId,
+                out ActivityInstance? liveSource))
+        {
+            return Failed(
+                OperationStatus.Rejected,
+                FailureCode.ActivityNotFound);
+        }
+
+        if (!Matches(liveSource, source))
+        {
+            return Failed(
+                OperationStatus.Rejected,
+                FailureCode.RevisionConflict);
+        }
+
+        if (!sourceEndpoint.Allows(
+                item.Destination.DeviceId,
+                Capability.ActivityReceive))
+        {
+            return Failed(
+                OperationStatus.Rejected,
+                FailureCode.CapabilityDenied);
+        }
+
+        if (!routes.TryGetSceneExactSlotChannel(
+                item.Destination.DeviceId,
+                out ISceneExactSlotChannel? slotChannel)
+            || slotChannel is null
+            || slotChannel.TargetDeviceId != item.Destination.DeviceId)
+        {
+            return Failed(
+                OperationStatus.Failed,
+                FailureCode.PeerUnavailable);
+        }
+
+        SceneActivityPlan exactPlan = SceneActivityPlan.Place(
+            item.ActivityId,
+            item.Destination,
+            item.SourceDisposition,
+            item.ConflictPolicy);
+        SceneExactSlotQuery query = SceneExactSlotQuery.Create(
+            childContext,
+            exactPlan,
+            source);
+        SceneExactSlotDeliveryResult slotDelivery;
+        try
+        {
+            slotDelivery = await slotChannel.InspectSlotAsync(
+                sourceEndpoint.DeviceId,
+                query,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return Failed(
+                OperationStatus.Failed,
+                FailureCode.PeerUnavailable);
+        }
+
+        if (slotDelivery.Status != SceneControlDeliveryStatus.Acknowledged
+            || slotDelivery.Result is null)
+        {
+            return Failed(
+                slotDelivery.Status
+                    == SceneControlDeliveryStatus.ProtocolUnsupported
+                    ? OperationStatus.Rejected
+                    : OperationStatus.Failed,
+                slotDelivery.Status switch
+                {
+                    SceneControlDeliveryStatus.ProtocolUnsupported =>
+                        FailureCode.ProtocolIncompatible,
+                    SceneControlDeliveryStatus.NotDelivered
+                        or SceneControlDeliveryStatus.AcknowledgementLost =>
+                        FailureCode.PeerUnavailable,
+                    _ => FailureCode.InternalFailure,
+                });
+        }
+
+        SceneExactSlotInspection currentSlot = slotDelivery.Result;
+        if (currentSlot.IsBlocked)
+        {
+            return Failed(
+                StatusFor(currentSlot.Reason),
+                FailureFor(currentSlot.Reason));
+        }
+
+        if (item.Action == SceneApplyAction.Replace)
+        {
+            return await ExecuteReplaceAsync(
+                item,
+                source,
+                liveSource,
+                currentSlot,
+                preparation.AcceptedAt,
+                childContext,
+                Failed,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (currentSlot.Occupancy?.Kind != SceneSlotOccupancyKind.Empty)
+        {
+            return Failed(
+                OperationStatus.Rejected,
+                FailureCode.RevisionConflict);
+        }
+
+        if (!routes.TryGetChannel(
+                item.Destination.DeviceId,
+                out IActivityChannel? channel)
+            || channel is null
+            || channel.TargetDeviceId != item.Destination.DeviceId)
+        {
+            return Failed(
+                OperationStatus.Failed,
+                FailureCode.PeerUnavailable);
+        }
+
+        try
+        {
+            OperationReceipt receipt = item.Action switch
+            {
+                SceneApplyAction.Handoff =>
+                    await sourceEndpoint.Node.HandoffAsync(
+                        item.ActivityId,
+                        channel,
+                        item.Destination.Slot,
+                        childContext,
+                        liveSource,
+                        cancellationToken).ConfigureAwait(false),
+                SceneApplyAction.Move =>
+                    await sourceEndpoint.Node.MoveAsync(
+                        item.ActivityId,
+                        channel,
+                        item.Destination.Slot,
+                        childContext,
+                        liveSource,
+                        cancellationToken).ConfigureAwait(false),
+                _ => throw new InvalidOperationException(
+                    "The Scene transfer action changed during execution."),
+            };
+            return SceneActivityOperationResult.Create(receipt, null);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return Failed(
+                OperationStatus.Recovering,
+                FailureCode.AcknowledgementLost);
+        }
+
+        SceneActivityOperationResult Failed(
+            OperationStatus status,
+            FailureCode failureCode) =>
+            SceneActivityOperationResult.Create(
+                OperationReceipt.FromRecordedResult(
+                    item.ChildOperationId,
+                    item.ChildCorrelationId,
+                    operationKind,
+                    status,
+                    source.DeviceId,
+                    item.Destination.DeviceId,
+                    item.ActivityId,
+                    source.Kind,
+                    source.DescriptorDigest,
+                    clock.UtcNow,
+                    failureCode),
+                null);
+    }
+
+    private async ValueTask<SceneActivityOperationResult> ExecuteReplaceAsync(
+        SceneApplyItemPreview item,
+        SceneSourceSelection source,
+        ActivityInstance liveSource,
+        SceneExactSlotInspection currentSlot,
+        DateTimeOffset acceptedAt,
+        OperationContext childContext,
+        Func<OperationStatus, FailureCode, SceneActivityOperationResult> failed,
+        CancellationToken cancellationToken)
+    {
+        SceneSlotOccupancy? occupancy = currentSlot.Occupancy;
+        SceneReplaceTargetSnapshot? currentTarget = occupancy?.Target;
+        SceneReplaceTargetSnapshot? expectedTarget = item.ReplaceTarget;
+        if (occupancy?.Kind != SceneSlotOccupancyKind.EligibleConflict
+            || currentTarget is null
+            || expectedTarget is null
+            || currentTarget != expectedTarget)
+        {
+            return failed(
+                OperationStatus.Rejected,
+                FailureCode.RevisionConflict);
+        }
+
+        if (!occupancy.HasDurableUndoAvailability)
+        {
+            return failed(OperationStatus.Rejected, FailureCode.UndoUnavailable);
+        }
+
+        if (!routes.TryGetReplaceChannel(
+                item.Destination.DeviceId,
+                out IReplaceChannel? channel)
+            || channel is null
+            || channel.TargetDeviceId != item.Destination.DeviceId)
+        {
+            return failed(OperationStatus.Failed, FailureCode.PeerUnavailable);
+        }
+
+        DateTimeOffset undoExpiresAt = acceptedAt.ToUniversalTime()
+            + ReplaceEndpoint.MaximumUndoRetention;
+        ReplaceActivityCommand command = ReplaceActivityCommand.Create(
+            childContext,
+            currentTarget.ActivityId,
+            currentTarget.Revision,
+            currentTarget.DescriptorDigest,
+            liveSource.Descriptor,
+            item.Destination,
+            undoExpiresAt);
+        ReplaceDeliveryResult delivery;
+        try
+        {
+            delivery = await channel.SendAsync(
+                source.DeviceId,
+                command,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return failed(
+                OperationStatus.Recovering,
+                FailureCode.AcknowledgementLost);
+        }
+
+        if (delivery.Status != ActivityDeliveryStatus.Acknowledged
+            || delivery.Result is null)
+        {
+            return failed(
+                delivery.Status == ActivityDeliveryStatus.AcknowledgementLost
+                    ? OperationStatus.Recovering
+                    : OperationStatus.Failed,
+                delivery.Status == ActivityDeliveryStatus.AcknowledgementLost
+                    ? FailureCode.AcknowledgementLost
+                    : FailureCode.PeerUnavailable);
+        }
+
+        return SceneActivityOperationResult.Create(
+            delivery.Result.Receipt,
+            delivery.Result.Receipt.IsSuccess
+                ? delivery.Result.UndoCapsule
+                : null);
+    }
+
+    private static DateTimeOffset StableDeadline(DateTimeOffset acceptedAt)
+    {
+        DateTimeOffset canonical = acceptedAt.ToUniversalTime();
+        if (canonical
+            > DateTimeOffset.MaxValue
+                - DirectSceneActivityOperationPort.MaximumChildLifetime)
+        {
+            throw new InvalidOperationException(
+                "The Scene acceptance time cannot represent a child deadline.");
+        }
+
+        return canonical + DirectSceneActivityOperationPort.MaximumChildLifetime;
+    }
+
+    private static bool Matches(
+        ActivityInstance current,
+        SceneSourceSelection expected) =>
+        current.Descriptor.Id == expected.ActivityId
+        && current.Revision == expected.Revision
+        && string.Equals(
+            current.Descriptor.DescriptorDigest,
+            expected.DescriptorDigest,
+            StringComparison.Ordinal)
+        && current.Descriptor.Kind == expected.Kind
+        && current.Placement == expected.Placement
+        && current.Lifecycle == ActivityLifecycle.Active
+        && current.Descriptor.Sensitivity == ActivitySensitivity.Normal;
+
+    private static OperationStatus StatusFor(SceneApplyItemReason reason) =>
+        reason switch
+        {
+            SceneApplyItemReason.CapabilityDenied
+                or SceneApplyItemReason.ProtocolUnsupported =>
+                OperationStatus.Rejected,
+            SceneApplyItemReason.SourceLookupUnavailable
+                or SceneApplyItemReason.DestinationUnavailable =>
+                OperationStatus.Failed,
+            _ => OperationStatus.Rejected,
+        };
+
+    private static FailureCode FailureFor(SceneApplyItemReason reason) =>
+        reason switch
+        {
+            SceneApplyItemReason.CapabilityDenied =>
+                FailureCode.CapabilityDenied,
+            SceneApplyItemReason.ProtocolUnsupported =>
+                FailureCode.ProtocolIncompatible,
+            SceneApplyItemReason.SourceLookupUnavailable
+                or SceneApplyItemReason.DestinationUnavailable =>
+                FailureCode.PeerUnavailable,
+            _ => FailureCode.InternalFailure,
+        };
+}
+
 public sealed class DirectSceneActivityOperationPort :
     ISceneActivityOperationPort
 {

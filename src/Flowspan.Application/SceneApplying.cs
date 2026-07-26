@@ -806,6 +806,8 @@ public static class SceneApplyApprovalVerifier
 internal static class SceneApplyBinding
 {
     private const string PreviewDomain = "flowspan.scene-apply-preview/v1";
+    private const string RemoteChildDomain =
+        "flowspan.scene-remote-child/v1";
     private const string ReplaceConfirmationDomain =
         "flowspan.scene-apply-replace-confirmation/v1";
 
@@ -943,6 +945,61 @@ internal static class SceneApplyBinding
         Append(hash, target.DescriptorDigest);
         Append(hash, target.Kind.Value);
         Append(hash, target.Placement.Slot);
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    public static string ComputeRemoteChildInstructionDigest(
+        SceneRemoteChildInstruction instruction)
+    {
+        ArgumentNullException.ThrowIfNull(instruction);
+        SceneApplyItemPreview item = instruction.Item;
+        SceneSourceSelection source = item.Source
+            ?? throw new ArgumentException(
+                "A remote Scene child requires exact source evidence.",
+                nameof(instruction));
+        using IncrementalHash hash = IncrementalHash.CreateHash(
+            HashAlgorithmName.SHA256);
+        Append(hash, RemoteChildDomain);
+        Append(hash, instruction.CoordinatorDeviceId.ToString());
+        Append(hash, instruction.SourceDeviceId.ToString());
+        Append(hash, instruction.TargetDeviceId.ToString());
+        Append(hash, instruction.SceneId.ToString());
+        Append(hash, Format(instruction.SceneRevision));
+        Append(hash, instruction.SceneDigest);
+        Append(hash, instruction.PreviewFingerprint);
+        Append(hash, instruction.ParentOperationId.ToString());
+        Append(hash, instruction.ParentCorrelationId.ToString());
+        Append(
+            hash,
+            instruction.AcceptedAt.ToString("O", CultureInfo.InvariantCulture));
+        Append(
+            hash,
+            instruction.Deadline.ToString("O", CultureInfo.InvariantCulture));
+        Append(hash, Format(item.Index));
+        Append(hash, item.ActivityId.ToString());
+        Append(hash, item.Destination.DeviceId.ToString());
+        Append(hash, item.Destination.Slot);
+        Append(hash, Format(item.SourceDisposition));
+        Append(hash, Format(item.ConflictPolicy));
+        Append(hash, item.ChildOperationId.ToString());
+        Append(hash, item.ChildCorrelationId.ToString());
+        Append(hash, Format(item.Action));
+        Append(hash, source.DeviceId.ToString());
+        Append(hash, Format(source.Revision));
+        Append(hash, source.DescriptorDigest);
+        Append(hash, source.Kind.Value);
+        Append(hash, source.Placement.Slot);
+        Append(hash, item.ReplaceTarget is null ? "none" : "some");
+        if (item.ReplaceTarget is { } target)
+        {
+            Append(hash, target.DeviceId.ToString());
+            Append(hash, target.ActivityId.ToString());
+            Append(hash, Format(target.Revision));
+            Append(hash, target.DescriptorDigest);
+            Append(hash, target.Kind.Value);
+            Append(hash, target.Placement.Slot);
+        }
+
         return Convert.ToHexString(hash.GetHashAndReset());
     }
 

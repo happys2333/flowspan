@@ -22,6 +22,12 @@ public enum ControlMessageType
     ActivitySwapDecision,
     ActivitySwapDecisionResult,
     OperationReceipt,
+    SceneSourceLookup,
+    SceneSourceLookupResult,
+    SceneSlotInspection,
+    SceneSlotInspectionResult,
+    SceneChildOperation,
+    SceneChildOperationResult,
 }
 
 public sealed record ControlMessage
@@ -180,6 +186,20 @@ public sealed record ControlMessage
         {
             throw new ArgumentException(
                 $"The '{type}' control message requires protocol {ProtocolFeatures.ActivitySwapMinimumVersion} or later.",
+                nameof(version));
+        }
+
+        bool sceneMessage = type is
+            ControlMessageType.SceneSourceLookup
+            or ControlMessageType.SceneSourceLookupResult
+            or ControlMessageType.SceneSlotInspection
+            or ControlMessageType.SceneSlotInspectionResult
+            or ControlMessageType.SceneChildOperation
+            or ControlMessageType.SceneChildOperationResult;
+        if (sceneMessage && !ProtocolFeatures.SupportsSceneApply(version))
+        {
+            throw new ArgumentException(
+                $"The '{type}' control message requires protocol {ProtocolFeatures.SceneApplyMinimumVersion} or later.",
                 nameof(version));
         }
     }
@@ -404,6 +424,12 @@ public static class ControlMessageCodec
         ControlMessageType.ActivitySwapDecision => "activity.swap.decision",
         ControlMessageType.ActivitySwapDecisionResult => "activity.swap.decision.result",
         ControlMessageType.OperationReceipt => "operation.receipt",
+        ControlMessageType.SceneSourceLookup => "scene.source.lookup",
+        ControlMessageType.SceneSourceLookupResult => "scene.source.lookup.result",
+        ControlMessageType.SceneSlotInspection => "scene.slot.inspection",
+        ControlMessageType.SceneSlotInspectionResult => "scene.slot.inspection.result",
+        ControlMessageType.SceneChildOperation => "scene.child.operation",
+        ControlMessageType.SceneChildOperationResult => "scene.child.operation.result",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown message type."),
     };
 
@@ -422,6 +448,12 @@ public static class ControlMessageCodec
         "activity.swap.decision" => ControlMessageType.ActivitySwapDecision,
         "activity.swap.decision.result" => ControlMessageType.ActivitySwapDecisionResult,
         "operation.receipt" => ControlMessageType.OperationReceipt,
+        "scene.source.lookup" => ControlMessageType.SceneSourceLookup,
+        "scene.source.lookup.result" => ControlMessageType.SceneSourceLookupResult,
+        "scene.slot.inspection" => ControlMessageType.SceneSlotInspection,
+        "scene.slot.inspection.result" => ControlMessageType.SceneSlotInspectionResult,
+        "scene.child.operation" => ControlMessageType.SceneChildOperation,
+        "scene.child.operation.result" => ControlMessageType.SceneChildOperationResult,
         _ => throw new InvalidDataException($"The control message type '{type}' is unknown."),
     };
 }

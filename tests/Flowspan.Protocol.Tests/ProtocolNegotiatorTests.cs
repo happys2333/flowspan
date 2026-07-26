@@ -77,7 +77,20 @@ public sealed class ProtocolNegotiatorTests
     }
 
     [Fact]
-    public void ProductionProfileAdvertisesAllV1MinorsAndPrefersLiveRekey()
+    public void SceneApplyRequiresNegotiatedProtocolOnePointFour()
+    {
+        Assert.False(ProtocolFeatures.SupportsSceneApply(
+            new ProtocolVersion(1, 3)));
+        Assert.True(ProtocolFeatures.SupportsSceneApply(
+            new ProtocolVersion(1, 4)));
+        Assert.True(ProtocolFeatures.SupportsSceneApply(
+            new ProtocolVersion(1, 5)));
+        Assert.False(ProtocolFeatures.SupportsSceneApply(
+            new ProtocolVersion(2, 0)));
+    }
+
+    [Fact]
+    public void ProductionProfileAdvertisesAllV1MinorsAndPrefersSceneApply()
     {
         Assert.Equal(
             [
@@ -85,6 +98,7 @@ public sealed class ProtocolNegotiatorTests
                 new ProtocolVersion(1, 1),
                 new ProtocolVersion(1, 2),
                 new ProtocolVersion(1, 3),
+                new ProtocolVersion(1, 4),
             ],
             ProtocolFeatures.ProductionSupportedVersions.ToArray());
 
@@ -95,5 +109,18 @@ public sealed class ProtocolNegotiatorTests
         Assert.True(result.Succeeded);
         Assert.Equal(new ProtocolVersion(1, 3), result.Version);
         Assert.True(ProtocolFeatures.SupportsLiveRekey(result.Version));
+        Assert.False(ProtocolFeatures.SupportsSceneApply(result.Version));
+    }
+
+    [Fact]
+    public void SceneApplyPeersNegotiateProtocolOnePointFour()
+    {
+        ProtocolNegotiationResult result = ProtocolNegotiator.Negotiate(
+            ProtocolFeatures.ProductionSupportedVersions,
+            ProtocolFeatures.ProductionSupportedVersions);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(new ProtocolVersion(1, 4), result.Version);
+        Assert.True(ProtocolFeatures.SupportsSceneApply(result.Version));
     }
 }

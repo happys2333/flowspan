@@ -566,11 +566,11 @@ public sealed class DesktopTrustedPeerConnectionsTests
                 "NOT SHARING",
                 Assert.Single(listenerConnections.GetSnapshot()).StatusLabel);
             Assert.Equal(
-                ProtocolFeatures.SecureSessionRekeyMinimumVersion,
+                ProtocolFeatures.SceneApplyMinimumVersion,
                 await connectorSession.ProtocolVersion.Task.WaitAsync(
                     TimeSpan.FromSeconds(1)));
             Assert.Equal(
-                ProtocolFeatures.SecureSessionRekeyMinimumVersion,
+                ProtocolFeatures.SceneApplyMinimumVersion,
                 await listenerSession.ProtocolVersion.Task.WaitAsync(
                     TimeSpan.FromSeconds(1)));
         }

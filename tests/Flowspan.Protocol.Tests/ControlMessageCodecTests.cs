@@ -193,6 +193,73 @@ public sealed class ControlMessageCodecTests
         Assert.Throws<InvalidDataException>(() => ControlMessageCodec.Decode(downgraded));
     }
 
+    [Theory]
+    [InlineData(ControlMessageType.SceneSourceLookup)]
+    [InlineData(ControlMessageType.SceneSourceLookupResult)]
+    [InlineData(ControlMessageType.SceneSlotInspection)]
+    [InlineData(ControlMessageType.SceneSlotInspectionResult)]
+    [InlineData(ControlMessageType.SceneChildOperation)]
+    [InlineData(ControlMessageType.SceneChildOperationResult)]
+    public void ProtocolBelowOnePointFourRejectsSceneMessageTypes(ControlMessageType type)
+    {
+        Assert.Throws<ArgumentException>(() => ControlMessage.Create(
+            ProtocolFeatures.SecureSessionRekeyMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(30),
+            "{}"));
+    }
+
+    [Theory]
+    [InlineData(ControlMessageType.SceneSourceLookup)]
+    [InlineData(ControlMessageType.SceneSourceLookupResult)]
+    [InlineData(ControlMessageType.SceneSlotInspection)]
+    [InlineData(ControlMessageType.SceneSlotInspectionResult)]
+    [InlineData(ControlMessageType.SceneChildOperation)]
+    [InlineData(ControlMessageType.SceneChildOperationResult)]
+    public void ProtocolOnePointFourAcceptsSceneMessageTypes(ControlMessageType type)
+    {
+        ControlMessage message = ControlMessage.Create(
+            ProtocolFeatures.SceneApplyMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(30),
+            "{}");
+
+        ControlMessage decoded = ControlMessageCodec.Decode(
+            ControlMessageCodec.Encode(message));
+
+        Assert.Equal(type, decoded.Type);
+        Assert.Equal(ProtocolFeatures.SceneApplyMinimumVersion, decoded.Version);
+    }
+
+    [Fact]
+    public void DecoderRejectsSceneFrameDowngradedBelowProtocolOnePointFour()
+    {
+        ControlMessage scene = ControlMessage.Create(
+            ProtocolFeatures.SceneApplyMinimumVersion,
+            ControlMessageType.SceneChildOperation,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(30),
+            "{}");
+        string encoded = Encoding.UTF8.GetString(ControlMessageCodec.Encode(scene));
+        byte[] downgraded = Encoding.UTF8.GetBytes(encoded.Replace(
+            "\"minor\":4",
+            "\"minor\":3",
+            StringComparison.Ordinal));
+
+        Assert.Throws<InvalidDataException>(() => ControlMessageCodec.Decode(downgraded));
+    }
+
     private static ControlMessage Create(string bodyJson) => ControlMessage.Create(
         new ProtocolVersion(1, 0),
         ControlMessageType.Hello,

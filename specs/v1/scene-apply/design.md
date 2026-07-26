@@ -1,6 +1,6 @@
 # Scene Apply Design
 
-Status: approved design for task 8.2; implementation pending
+Status: approved design for task 8.2; implementation in progress
 
 ## Design summary
 
@@ -169,8 +169,9 @@ selecting a candidate; if any participating endpoint is denied, unavailable,
 malformed, or over-bound, it discards all partial candidates. Exact-slot
 inspection runs only on the destination endpoint and examines matching
 occupants before sensitivity, kind, Adapter, or undo eligibility filtering.
-This direct port proves application semantics but is not evidence for the
-protocol-1.4 authenticated transport that remains in task 5.
+This direct port proves application semantics separately from the protocol-1.4
+authenticated transport and three-identity encrypted loopback evidence now
+implemented under task 5; neither is physical-device evidence.
 
 `SceneActivityOperationEndpoint` binds one Device's `FlowspanNode`, its
 `SceneApplyPreflightEndpoint`, and an optional `ReplaceEndpoint` behind one
@@ -288,10 +289,32 @@ closed.
 The remote runner reloads its current peer-relative `scene.apply` grant for the
 coordinator, revalidates the exact local source, and durably deduplicates by the
 frozen child Operation/digest before invoking anything. The source-to-target
-operation still performs its own existing authenticated capability checks. A
-recorded terminal child is replayed exactly; disconnect, lost acknowledgement,
-or Started-without-terminal evidence returns Recovering. This is direct peer
-orchestration, not an Internet relay or permission delegation.
+operation performs the last-moment exact-slot query over the source's own
+authenticated session to the target and then uses the existing Activity or
+Replace channel. Consequently, the target reloads `scene.apply` for the
+authenticated source for this final read-only recheck, while the initial
+preview still reloads `scene.apply` for the coordinator on every participant.
+This is an additional direct-peer authorization check, not coordinator
+impersonation or permission delegation. Existing source-side
+`activity.receive` and target-side `activity.offer`/`activity.replace` checks
+remain independent.
+
+The authenticated coordinator identity is carried in the remote preparation,
+so one source runtime can safely serve multiple coordinator peers without a
+composition-time identity binding. A recorded terminal child is replayed only
+after its receipt and optional Undo reference are revalidated against the exact
+instruction. Binding conflict, disconnect, lost mutation acknowledgement,
+ambiguous persistence, malformed durable result, or Started-without-terminal
+evidence returns Recovering or a proven terminal rejection without repeating
+Adapter work. This is direct peer orchestration, not an Internet relay.
+
+`PersistentSceneRemoteChildJournal` stores at most 1,024 payload-free Started or
+Terminal records with complete-candidate persistence and reload-after-ambiguous-
+save behavior. Its authenticated file uses purpose `FSRC` and independent DPAPI,
+Keychain, or Secret Service keys; it cannot be opened as Scene Apply state. The
+Desktop production composition exposes protocol-1.4 Scene endpoints only when
+this durable journal opens successfully. The six canonical protocol-1.4 frames
+and SHA-256 hashes are frozen in `scene-control-v1.4.json`.
 
 ## Replace and compensation
 
@@ -338,6 +361,12 @@ ambiguous save does not publish the candidate in memory and blocks further
 writes until reopen. Corrupt, unsupported, rollback-ambiguous, or structurally
 conflicting records fail closed.
 
+The remote-child journal is independently bounded and purpose-separated from
+both the apply journal and Replace state. It persists only binding digests,
+child identifiers, payload-free receipts, and optional Undo Capsule references;
+unknown/duplicate fields and mismatched terminal operation identities fail
+closed on reopen.
+
 ## Verification matrix
 
 - exact saved order and immutable preview/approval fingerprints;
@@ -361,9 +390,10 @@ conflicting records fail closed.
   expired, consumed, failed, and Recovering results;
 - every journal write failure, strict codec/bound/tamper negatives, and canary
   redaction;
-- Desktop keyboard/accessibility contracts and same-host encrypted operation
-  routing, including a three-identity coordinator/remote-source/target path in
-  which the coordinator never observes descriptor payload;
+- Desktop keyboard/accessibility contracts and authenticated encrypted
+  operation routing, including a three-identity loopback
+  coordinator/remote-source/target path in which the coordinator never
+  observes descriptor payload;
 - protocol-1.4 feature negotiation, golden strict messages, hostile binding,
   duplicate, timeout, disconnect, and acknowledgement-loss cases, plus 1.0–1.3
   unsupported behavior;

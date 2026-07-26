@@ -27,6 +27,9 @@ internal sealed partial class ActivityControlSession :
     IReplaceTargetInventoryChannel,
     IReplaceChannel,
     ISwapEndpointChannel,
+    ISceneSourceLookupChannel,
+    ISceneExactSlotChannel,
+    ISceneChildOperationChannel,
     IAsyncDisposable
 {
     private readonly IActivityControlConnection connection;
@@ -37,8 +40,15 @@ internal sealed partial class ActivityControlSession :
     private readonly ConcurrentDictionary<CorrelationId, PendingReplaceInventory>
         pendingInventories = new();
     private readonly ConcurrentDictionary<CorrelationId, PendingReplace> pendingReplaces = new();
+    private readonly ConcurrentDictionary<CorrelationId, PendingSceneSourceLookup>
+        pendingSceneSourceLookups = new();
+    private readonly ConcurrentDictionary<CorrelationId, PendingSceneExactSlot>
+        pendingSceneExactSlots = new();
+    private readonly ConcurrentDictionary<CorrelationId, PendingSceneChild>
+        pendingSceneChildren = new();
     private readonly IReplaceTargetInventoryPeer? replaceInventoryPeer;
     private readonly IReplacePeer? replacePeer;
+    private readonly ISceneControlPeer? scenePeer;
     private readonly TimeProvider timeProvider;
     private int disposed;
     private int lifetimeStopRequested;
@@ -55,6 +65,21 @@ internal sealed partial class ActivityControlSession :
             null,
             null,
             timeProvider)
+    {
+    }
+
+    public ActivityControlSession(
+        IActivityControlConnection connection,
+        IActivityPeer localPeer,
+        ISceneControlPeer scenePeer,
+        TimeProvider? timeProvider = null) : this(
+            connection,
+            localPeer,
+            null,
+            null,
+            null,
+            timeProvider,
+            scenePeer)
     {
     }
 
@@ -93,7 +118,8 @@ internal sealed partial class ActivityControlSession :
         IReplacePeer? replacePeer,
         IReplaceTargetInventoryPeer? replaceInventoryPeer,
         ISwapEndpointPeer? swapPeer,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ISceneControlPeer? scenePeer = null)
     {
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentNullException.ThrowIfNull(localPeer);
@@ -127,11 +153,21 @@ internal sealed partial class ActivityControlSession :
                 nameof(swapPeer));
         }
 
+
+        if (scenePeer is not null
+            && connection.LocalDeviceId != scenePeer.DeviceId)
+        {
+            throw new ArgumentException(
+                "The Scene peer must represent the authenticated local device.",
+                nameof(scenePeer));
+        }
+
         this.connection = connection;
         this.localPeer = localPeer;
         this.replacePeer = replacePeer;
         this.replaceInventoryPeer = replaceInventoryPeer;
         this.swapPeer = swapPeer;
+        this.scenePeer = scenePeer;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -141,6 +177,11 @@ internal sealed partial class ActivityControlSession :
         Volatile.Read(ref disposed) == 0
         && Volatile.Read(ref stopped) == 0
         && ProtocolFeatures.SupportsActivitySwap(connection.ProtocolVersion);
+
+    public bool SupportsSceneApply =>
+        Volatile.Read(ref disposed) == 0
+        && Volatile.Read(ref stopped) == 0
+        && ProtocolFeatures.SupportsSceneApply(connection.ProtocolVersion);
 
     public void Cancel()
     {
@@ -213,6 +254,27 @@ internal sealed partial class ActivityControlSession :
                         break;
                     case ControlMessageType.OperationReceipt:
                         HandleReceipt(message);
+                        break;
+                    case ControlMessageType.SceneSourceLookup:
+                        await HandleSceneSourceLookupAsync(message, linked.Token)
+                            .ConfigureAwait(false);
+                        break;
+                    case ControlMessageType.SceneSourceLookupResult:
+                        HandleSceneSourceLookupResult(message);
+                        break;
+                    case ControlMessageType.SceneSlotInspection:
+                        await HandleSceneExactSlotAsync(message, linked.Token)
+                            .ConfigureAwait(false);
+                        break;
+                    case ControlMessageType.SceneSlotInspectionResult:
+                        HandleSceneExactSlotResult(message);
+                        break;
+                    case ControlMessageType.SceneChildOperation:
+                        await HandleSceneChildAsync(message, linked.Token)
+                            .ConfigureAwait(false);
+                        break;
+                    case ControlMessageType.SceneChildOperationResult:
+                        HandleSceneChildResult(message);
                         break;
                     default:
                         throw new InvalidDataException(
@@ -482,6 +544,268 @@ internal sealed partial class ActivityControlSession :
         }
     }
 
+    public async ValueTask<SceneSourceLookupDeliveryResult> QuerySourceAsync(
+        DeviceId requestingDeviceId,
+        SceneSourceLookupQuery query,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(query);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (!ProtocolFeatures.SupportsSceneApply(connection.ProtocolVersion))
+        {
+            return SceneSourceLookupDeliveryResult.ProtocolUnsupported;
+        }
+
+        if (Volatile.Read(ref running) == 0 || Volatile.Read(ref stopped) != 0)
+        {
+            return SceneSourceLookupDeliveryResult.NotDelivered;
+        }
+
+        if (requestingDeviceId != connection.LocalDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A Scene source lookup requester must match the authenticated local Device.");
+        }
+
+        if (query.TargetDeviceId != TargetDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A Scene source lookup target must match the authenticated peer.");
+        }
+
+        var pendingLookup = new PendingSceneSourceLookup(query);
+        ReserveCorrelation(query.Context.CorrelationId);
+        if (!pendingSceneSourceLookups.TryAdd(
+                query.Context.CorrelationId,
+                pendingLookup))
+        {
+            ReleaseCorrelation(query.Context.CorrelationId);
+            throw new InvalidOperationException(
+                "The Scene source lookup could not register its reserved correlation ID.");
+        }
+
+        bool sent = false;
+        try
+        {
+            if (Volatile.Read(ref stopped) != 0)
+            {
+                return SceneSourceLookupDeliveryResult.NotDelivered;
+            }
+
+            ControlMessage message = SceneControlMessageCodec.CreateSourceLookupQuery(
+                connection.ProtocolVersion,
+                connection.LocalDeviceId,
+                query,
+                timeProvider.GetUtcNow());
+            await connection.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            sent = true;
+            try
+            {
+                return await pendingLookup.Completion.Task
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Cancel();
+                throw;
+            }
+        }
+        catch (Exception exception) when (
+            !sent
+            && exception is IOException or SocketException or TimeoutException)
+        {
+            return SceneSourceLookupDeliveryResult.NotDelivered;
+        }
+        finally
+        {
+            if (!sent
+                && pendingSceneSourceLookups.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingSceneSourceLookup>(
+                        query.Context.CorrelationId,
+                        pendingLookup)))
+            {
+                ReleaseCorrelation(query.Context.CorrelationId);
+            }
+        }
+    }
+
+    public async ValueTask<SceneExactSlotDeliveryResult> InspectSlotAsync(
+        DeviceId requestingDeviceId,
+        SceneExactSlotQuery query,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(query);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (!ProtocolFeatures.SupportsSceneApply(connection.ProtocolVersion))
+        {
+            return SceneExactSlotDeliveryResult.ProtocolUnsupported;
+        }
+
+        if (Volatile.Read(ref running) == 0 || Volatile.Read(ref stopped) != 0)
+        {
+            return SceneExactSlotDeliveryResult.NotDelivered;
+        }
+
+        if (requestingDeviceId != connection.LocalDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A Scene exact-slot requester must match the authenticated local Device.");
+        }
+
+        if (query.TargetDeviceId != TargetDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A Scene exact-slot target must match the authenticated peer.");
+        }
+
+        var pendingInspection = new PendingSceneExactSlot(query);
+        ReserveCorrelation(query.Context.CorrelationId);
+        if (!pendingSceneExactSlots.TryAdd(
+                query.Context.CorrelationId,
+                pendingInspection))
+        {
+            ReleaseCorrelation(query.Context.CorrelationId);
+            throw new InvalidOperationException(
+                "The Scene exact-slot query could not register its reserved correlation ID.");
+        }
+
+        bool sent = false;
+        try
+        {
+            if (Volatile.Read(ref stopped) != 0)
+            {
+                return SceneExactSlotDeliveryResult.NotDelivered;
+            }
+
+            ControlMessage message = SceneControlMessageCodec.CreateExactSlotQuery(
+                connection.ProtocolVersion,
+                connection.LocalDeviceId,
+                query,
+                timeProvider.GetUtcNow());
+            await connection.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            sent = true;
+            try
+            {
+                return await pendingInspection.Completion.Task
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Cancel();
+                throw;
+            }
+        }
+        catch (Exception exception) when (
+            !sent
+            && exception is IOException or SocketException or TimeoutException)
+        {
+            return SceneExactSlotDeliveryResult.NotDelivered;
+        }
+        finally
+        {
+            if (!sent
+                && pendingSceneExactSlots.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingSceneExactSlot>(
+                        query.Context.CorrelationId,
+                        pendingInspection)))
+            {
+                ReleaseCorrelation(query.Context.CorrelationId);
+            }
+        }
+    }
+
+    public async ValueTask<SceneChildDeliveryResult> ExecuteChildAsync(
+        DeviceId requestingDeviceId,
+        SceneRemoteChildInstruction instruction,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(instruction);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (!ProtocolFeatures.SupportsSceneApply(connection.ProtocolVersion))
+        {
+            return SceneChildDeliveryResult.ProtocolUnsupported;
+        }
+
+        if (Volatile.Read(ref running) == 0 || Volatile.Read(ref stopped) != 0)
+        {
+            return SceneChildDeliveryResult.NotDelivered;
+        }
+
+        if (requestingDeviceId != connection.LocalDeviceId
+            || instruction.CoordinatorDeviceId != connection.LocalDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A remote Scene child requester must match the authenticated local Device.");
+        }
+
+        if (instruction.SourceDeviceId != TargetDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A remote Scene child source must match the authenticated peer.");
+        }
+
+        var pendingChild = new PendingSceneChild(instruction);
+        ReserveCorrelation(instruction.Item.ChildCorrelationId);
+        if (!pendingSceneChildren.TryAdd(
+                instruction.Item.ChildCorrelationId,
+                pendingChild))
+        {
+            ReleaseCorrelation(instruction.Item.ChildCorrelationId);
+            throw new InvalidOperationException(
+                "The remote Scene child could not register its reserved correlation ID.");
+        }
+
+        bool sent = false;
+        try
+        {
+            if (Volatile.Read(ref stopped) != 0)
+            {
+                return SceneChildDeliveryResult.NotDelivered;
+            }
+
+            ControlMessage message = SceneControlMessageCodec.CreateChildInstruction(
+                connection.ProtocolVersion,
+                connection.LocalDeviceId,
+                instruction,
+                timeProvider.GetUtcNow());
+            await connection.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            sent = true;
+            try
+            {
+                return await pendingChild.Completion.Task
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Cancel();
+                throw;
+            }
+        }
+        catch (Exception exception) when (
+            !sent
+            && exception is IOException or SocketException or TimeoutException)
+        {
+            return SceneChildDeliveryResult.NotDelivered;
+        }
+        finally
+        {
+            if (!sent
+                && pendingSceneChildren.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingSceneChild>(
+                        instruction.Item.ChildCorrelationId,
+                        pendingChild)))
+            {
+                ReleaseCorrelation(instruction.Item.ChildCorrelationId);
+            }
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) == 0)
@@ -700,6 +1024,175 @@ internal sealed partial class ActivityControlSession :
             ReplaceTargetInventoryDeliveryResult.Acknowledged(result));
     }
 
+    private void HandleSceneSourceLookupResult(ControlMessage message)
+    {
+        if (!pendingSceneSourceLookups.TryGetValue(
+                message.CorrelationId,
+                out PendingSceneSourceLookup? pendingLookup))
+        {
+            throw new InvalidDataException(
+                "The Activity session received an unsolicited Scene source lookup result.");
+        }
+
+        SceneSourceLookup result = SceneControlMessageCodec.DecodeSourceLookupResult(
+            message,
+            connection.LocalDeviceId,
+            pendingLookup.Query);
+        if (!pendingSceneSourceLookups.TryRemove(
+                new KeyValuePair<CorrelationId, PendingSceneSourceLookup>(
+                    pendingLookup.Query.Context.CorrelationId,
+                    pendingLookup)))
+        {
+            throw new InvalidDataException(
+                "The Scene source lookup result raced with session shutdown.");
+        }
+
+        ReleaseCorrelation(pendingLookup.Query.Context.CorrelationId);
+        pendingLookup.Completion.TrySetResult(
+            SceneSourceLookupDeliveryResult.Acknowledged(result));
+    }
+
+    private async ValueTask HandleSceneSourceLookupAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        if (scenePeer is null)
+        {
+            throw new InvalidDataException(
+                "The local Activity session does not expose Scene source lookup.");
+        }
+
+        SceneSourceLookupQuery query =
+            SceneControlMessageCodec.DecodeSourceLookupQuery(
+                message,
+                connection.LocalDeviceId);
+        SceneSourceLookup result = await scenePeer.LocateSourceAsync(
+            connection.PeerDeviceId,
+            query,
+            cancellationToken).ConfigureAwait(false);
+        ControlMessage response = SceneControlMessageCodec.CreateSourceLookupResult(
+            connection.ProtocolVersion,
+            connection.LocalDeviceId,
+            connection.PeerDeviceId,
+            query,
+            result,
+            timeProvider.GetUtcNow());
+        await connection.SendAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    private void HandleSceneExactSlotResult(ControlMessage message)
+    {
+        if (!pendingSceneExactSlots.TryGetValue(
+                message.CorrelationId,
+                out PendingSceneExactSlot? pendingInspection))
+        {
+            throw new InvalidDataException(
+                "The Activity session received an unsolicited Scene exact-slot result.");
+        }
+
+        SceneExactSlotInspection result =
+            SceneControlMessageCodec.DecodeExactSlotResult(
+                message,
+                connection.LocalDeviceId,
+                pendingInspection.Query);
+        if (!pendingSceneExactSlots.TryRemove(
+                new KeyValuePair<CorrelationId, PendingSceneExactSlot>(
+                    pendingInspection.Query.Context.CorrelationId,
+                    pendingInspection)))
+        {
+            throw new InvalidDataException(
+                "The Scene exact-slot result raced with session shutdown.");
+        }
+
+        ReleaseCorrelation(pendingInspection.Query.Context.CorrelationId);
+        pendingInspection.Completion.TrySetResult(
+            SceneExactSlotDeliveryResult.Acknowledged(result));
+    }
+
+    private async ValueTask HandleSceneExactSlotAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        if (scenePeer is null)
+        {
+            throw new InvalidDataException(
+                "The local Activity session does not expose Scene exact-slot inspection.");
+        }
+
+        SceneExactSlotQuery query = SceneControlMessageCodec.DecodeExactSlotQuery(
+            message,
+            connection.LocalDeviceId);
+        SceneExactSlotInspection result = await scenePeer.InspectExactSlotAsync(
+            connection.PeerDeviceId,
+            query,
+            cancellationToken).ConfigureAwait(false);
+        ControlMessage response = SceneControlMessageCodec.CreateExactSlotResult(
+            connection.ProtocolVersion,
+            connection.LocalDeviceId,
+            connection.PeerDeviceId,
+            query,
+            result,
+            timeProvider.GetUtcNow());
+        await connection.SendAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    private void HandleSceneChildResult(ControlMessage message)
+    {
+        if (!pendingSceneChildren.TryGetValue(
+                message.CorrelationId,
+                out PendingSceneChild? pendingChild))
+        {
+            throw new InvalidDataException(
+                "The Activity session received an unsolicited remote Scene child result.");
+        }
+
+        SceneActivityOperationResult result =
+            SceneControlMessageCodec.DecodeChildResult(
+                message,
+                connection.LocalDeviceId,
+                pendingChild.Instruction);
+        if (!pendingSceneChildren.TryRemove(
+                new KeyValuePair<CorrelationId, PendingSceneChild>(
+                    pendingChild.Instruction.Item.ChildCorrelationId,
+                    pendingChild)))
+        {
+            throw new InvalidDataException(
+                "The remote Scene child result raced with session shutdown.");
+        }
+
+        ReleaseCorrelation(pendingChild.Instruction.Item.ChildCorrelationId);
+        pendingChild.Completion.TrySetResult(
+            SceneChildDeliveryResult.Acknowledged(result));
+    }
+
+    private async ValueTask HandleSceneChildAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        if (scenePeer is null)
+        {
+            throw new InvalidDataException(
+                "The local Activity session does not execute remote Scene children.");
+        }
+
+        SceneRemoteChildInstruction instruction =
+            SceneControlMessageCodec.DecodeChildInstruction(
+                message,
+                connection.LocalDeviceId);
+        SceneActivityOperationResult result = await scenePeer.ExecuteChildAsync(
+            connection.PeerDeviceId,
+            instruction,
+            cancellationToken).ConfigureAwait(false);
+        ControlMessage response = SceneControlMessageCodec.CreateChildResult(
+            connection.ProtocolVersion,
+            connection.LocalDeviceId,
+            connection.PeerDeviceId,
+            instruction,
+            result,
+            timeProvider.GetUtcNow());
+        await connection.SendAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
     private static void ValidateReplaceResult(
         ReplaceActivityCommand command,
         ReplaceOperationResult result,
@@ -781,6 +1274,48 @@ internal sealed partial class ActivityControlSession :
             }
         }
 
+        foreach ((CorrelationId correlationId, PendingSceneSourceLookup lookup)
+                 in pendingSceneSourceLookups)
+        {
+            if (pendingSceneSourceLookups.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingSceneSourceLookup>(
+                        correlationId,
+                        lookup)))
+            {
+                ReleaseCorrelation(correlationId);
+                lookup.Completion.TrySetResult(
+                    SceneSourceLookupDeliveryResult.AcknowledgementLost);
+            }
+        }
+
+        foreach ((CorrelationId correlationId, PendingSceneExactSlot inspection)
+                 in pendingSceneExactSlots)
+        {
+            if (pendingSceneExactSlots.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingSceneExactSlot>(
+                        correlationId,
+                        inspection)))
+            {
+                ReleaseCorrelation(correlationId);
+                inspection.Completion.TrySetResult(
+                    SceneExactSlotDeliveryResult.AcknowledgementLost);
+            }
+        }
+
+        foreach ((CorrelationId correlationId, PendingSceneChild child)
+                 in pendingSceneChildren)
+        {
+            if (pendingSceneChildren.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingSceneChild>(
+                        correlationId,
+                        child)))
+            {
+                ReleaseCorrelation(correlationId);
+                child.Completion.TrySetResult(
+                    SceneChildDeliveryResult.AcknowledgementLost);
+            }
+        }
+
         CompleteSwapPendingAsUncertain();
     }
 
@@ -835,10 +1370,35 @@ internal sealed partial class ActivityControlSession :
         public TaskCompletionSource<ReplaceTargetInventoryDeliveryResult> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
+
+    private sealed class PendingSceneSourceLookup(SceneSourceLookupQuery query)
+    {
+        public SceneSourceLookupQuery Query { get; } = query;
+
+        public TaskCompletionSource<SceneSourceLookupDeliveryResult> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class PendingSceneExactSlot(SceneExactSlotQuery query)
+    {
+        public SceneExactSlotQuery Query { get; } = query;
+
+        public TaskCompletionSource<SceneExactSlotDeliveryResult> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class PendingSceneChild(SceneRemoteChildInstruction instruction)
+    {
+        public SceneRemoteChildInstruction Instruction { get; } = instruction;
+
+        public TaskCompletionSource<SceneChildDeliveryResult> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 }
 
 public sealed class AuthenticatedActivitySessionHandler :
     IAuthenticatedControlSessionHandler,
+    ISceneOperationRouteDirectory,
     IAsyncDisposable
 {
     private readonly ConcurrentDictionary<DeviceId, Registration> sessions = new();
@@ -846,6 +1406,7 @@ public sealed class AuthenticatedActivitySessionHandler :
     private readonly IActivityPeer localPeer;
     private readonly IReplaceTargetInventoryPeer? replaceInventoryPeer;
     private readonly IReplacePeer? replacePeer;
+    private readonly ISceneControlPeer? scenePeer;
     private readonly ISwapEndpointPeer? swapPeer;
     private readonly TimeProvider timeProvider;
     private int disposed;
@@ -858,6 +1419,19 @@ public sealed class AuthenticatedActivitySessionHandler :
             null,
             null,
             timeProvider)
+    {
+    }
+
+    public AuthenticatedActivitySessionHandler(
+        IActivityPeer localPeer,
+        ISceneControlPeer scenePeer,
+        TimeProvider? timeProvider = null) : this(
+            localPeer,
+            null,
+            null,
+            null,
+            timeProvider,
+            scenePeer)
     {
     }
 
@@ -891,7 +1465,8 @@ public sealed class AuthenticatedActivitySessionHandler :
         IReplacePeer? replacePeer,
         IReplaceTargetInventoryPeer? replaceInventoryPeer,
         ISwapEndpointPeer? swapPeer,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ISceneControlPeer? scenePeer = null)
     {
         ArgumentNullException.ThrowIfNull(localPeer);
         if (replacePeer is not null && replacePeer.DeviceId != localPeer.DeviceId)
@@ -916,10 +1491,19 @@ public sealed class AuthenticatedActivitySessionHandler :
                 nameof(swapPeer));
         }
 
+
+        if (scenePeer is not null && scenePeer.DeviceId != localPeer.DeviceId)
+        {
+            throw new ArgumentException(
+                "The Activity and Scene peers must represent the same local device.",
+                nameof(scenePeer));
+        }
+
         this.localPeer = localPeer;
         this.replacePeer = replacePeer;
         this.replaceInventoryPeer = replaceInventoryPeer;
         this.swapPeer = swapPeer;
+        this.scenePeer = scenePeer;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -930,6 +1514,9 @@ public sealed class AuthenticatedActivitySessionHandler :
 
     public bool IsSwapEndpointAvailable =>
         Volatile.Read(ref disposed) == 0 && swapPeer is not null;
+
+    public bool IsSceneEndpointAvailable =>
+        Volatile.Read(ref disposed) == 0 && scenePeer is not null;
 
     public IReadOnlyList<DeviceId> GetConnectedPeers()
     {
@@ -1008,6 +1595,57 @@ public sealed class AuthenticatedActivitySessionHandler :
         return false;
     }
 
+    public bool TryGetSceneSourceLookupChannel(
+        DeviceId peerDeviceId,
+        out ISceneSourceLookupChannel? channel)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.Session.SupportsSceneApply)
+        {
+            channel = registration.Session;
+            return true;
+        }
+
+        channel = null;
+        return false;
+    }
+
+    public bool TryGetSceneExactSlotChannel(
+        DeviceId peerDeviceId,
+        out ISceneExactSlotChannel? channel)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.Session.SupportsSceneApply)
+        {
+            channel = registration.Session;
+            return true;
+        }
+
+        channel = null;
+        return false;
+    }
+
+    public bool TryGetSceneChildOperationChannel(
+        DeviceId peerDeviceId,
+        out ISceneChildOperationChannel? channel)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.Session.SupportsSceneApply)
+        {
+            channel = registration.Session;
+            return true;
+        }
+
+        channel = null;
+        return false;
+    }
+
     public async ValueTask RunAsync(
         AuthenticatedTcpControlConnection connection,
         CancellationToken cancellationToken = default)
@@ -1021,7 +1659,8 @@ public sealed class AuthenticatedActivitySessionHandler :
             replacePeer,
             replaceInventoryPeer,
             swapPeer,
-            timeProvider);
+            timeProvider,
+            scenePeer);
         var registration = new Registration(session);
         if (!sessions.TryAdd(connection.PeerIdentity.DeviceId, registration))
         {

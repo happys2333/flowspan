@@ -3,6 +3,95 @@ using Flowspan.Domain;
 
 namespace Flowspan.Application;
 
+public sealed record SceneSourceLookupQuery
+{
+    private SceneSourceLookupQuery(
+        OperationContext context,
+        DeviceId targetDeviceId,
+        ActivityId activityId,
+        int index)
+    {
+        Context = context;
+        TargetDeviceId = targetDeviceId;
+        ActivityId = activityId;
+        Index = index;
+    }
+
+    public OperationContext Context { get; }
+
+    public DeviceId TargetDeviceId { get; }
+
+    public ActivityId ActivityId { get; }
+
+    public int Index { get; }
+
+    public static SceneSourceLookupQuery Create(
+        OperationContext context,
+        DeviceId targetDeviceId,
+        ActivityId activityId,
+        int index)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(targetDeviceId);
+        ArgumentNullException.ThrowIfNull(activityId);
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            index,
+            ScenePlan.MaximumActivities);
+        return new SceneSourceLookupQuery(
+            context,
+            targetDeviceId,
+            activityId,
+            index);
+    }
+}
+
+public sealed record SceneExactSlotQuery
+{
+    private SceneExactSlotQuery(
+        OperationContext context,
+        SceneActivityPlan item,
+        SceneSourceSelection source)
+    {
+        Context = context;
+        Item = item;
+        Source = source;
+    }
+
+    public OperationContext Context { get; }
+
+    public SceneActivityPlan Item { get; }
+
+    public SceneSourceSelection Source { get; }
+
+    public DeviceId TargetDeviceId => Item.Placement.DeviceId;
+
+    public static SceneExactSlotQuery Create(
+        OperationContext context,
+        SceneActivityPlan item,
+        SceneSourceSelection source)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.ActivityId != item.ActivityId)
+        {
+            throw new ArgumentException(
+                "A Scene exact-slot query source must match its Activity plan.",
+                nameof(source));
+        }
+
+        if (source.Placement == item.Placement)
+        {
+            throw new ArgumentException(
+                "An exact-destination Scene source does not require a slot query.",
+                nameof(source));
+        }
+
+        return new SceneExactSlotQuery(context, item, source);
+    }
+}
+
 public enum SceneSourceLookupStatus
 {
     NotFound,

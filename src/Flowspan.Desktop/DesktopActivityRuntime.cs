@@ -16,12 +16,15 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly IReplaceStatePayloadStore? replaceStatePayloadStore;
+    private readonly ISceneRemoteChildStatePayloadStore?
+        sceneRemoteChildStatePayloadStore;
     private readonly TimeProvider timeProvider;
     private InMemoryActivityCatalog? catalog;
     private AuthenticatedActivitySessionHandler? handler;
     private FlowspanNode? node;
     private ReplaceEndpoint? replaceEndpoint;
     private PersistentReplaceStateStore? replaceState;
+    private PersistentSceneRemoteChildJournal? sceneRemoteChildJournal;
     private TrustSessionCoordinator? trust;
     private int disposed;
 
@@ -29,7 +32,9 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         Func<CancellationToken, ValueTask<DeviceIdentity>> getIdentity,
         Func<CancellationToken, ValueTask<TrustSessionCoordinator>> getTrust,
         TimeProvider? timeProvider = null,
-        IReplaceStatePayloadStore? replaceStatePayloadStore = null)
+        IReplaceStatePayloadStore? replaceStatePayloadStore = null,
+        ISceneRemoteChildStatePayloadStore?
+            sceneRemoteChildStatePayloadStore = null)
     {
         ArgumentNullException.ThrowIfNull(getIdentity);
         ArgumentNullException.ThrowIfNull(getTrust);
@@ -37,6 +42,8 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         this.getTrust = getTrust;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.replaceStatePayloadStore = replaceStatePayloadStore;
+        this.sceneRemoteChildStatePayloadStore =
+            sceneRemoteChildStatePayloadStore;
     }
 
     public event Action? Changed;
@@ -670,6 +677,53 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                 }
             }
 
+            PersistentSceneRemoteChildJournal? newSceneRemoteChildJournal = null;
+            ISceneControlPeer? authorizedScenePeer = null;
+            var sceneRoutes = new DeferredSceneOperationRouteDirectory();
+            if (sceneRemoteChildStatePayloadStore is not null)
+            {
+                try
+                {
+                    newSceneRemoteChildJournal =
+                        await PersistentSceneRemoteChildJournal.OpenAsync(
+                            sceneRemoteChildStatePayloadStore,
+                            linked.Token).ConfigureAwait(false);
+                    var sceneEndpoint = new SceneActivityOperationEndpoint(
+                        newNode,
+                        new SceneApplyPreflightEndpoint(
+                            identity.DeviceId,
+                            new TimeProviderClock(timeProvider),
+                            newCatalog,
+                            adapterRegistry,
+                            new DesktopSceneReplaceUndoAvailability(
+                                identity.DeviceId,
+                                newReplaceState)),
+                        newReplaceEndpoint);
+                    var scenePeer = new SceneControlPeer(
+                        new TimeProviderClock(timeProvider),
+                        sceneEndpoint,
+                        new RoutedSceneActivityOperationPort(
+                            new TimeProviderClock(timeProvider),
+                            sceneEndpoint,
+                            sceneRoutes),
+                        newSceneRemoteChildJournal);
+                    authorizedScenePeer = new TrustBoundSceneControlPeer(
+                        scenePeer,
+                        sceneEndpoint,
+                        coordinator);
+                }
+                catch (OperationCanceledException) when (linked.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    newSceneRemoteChildJournal?.Dispose();
+                    newSceneRemoteChildJournal = null;
+                    authorizedScenePeer = null;
+                }
+            }
+
             AuthenticatedActivitySessionHandler newHandler;
             try
             {
@@ -686,10 +740,17 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                     authorizedPeer,
                     authorizedReplacePeer,
                     authorizedInventoryPeer,
-                    timeProvider);
+                    swapPeer: null,
+                    timeProvider,
+                    authorizedScenePeer);
+                if (authorizedScenePeer is not null)
+                {
+                    sceneRoutes.SetInner(newHandler);
+                }
             }
             catch
             {
+                newSceneRemoteChildJournal?.Dispose();
                 newReplaceEndpoint?.Dispose();
                 newReplaceState?.Dispose();
                 throw;
@@ -700,6 +761,7 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             handler = newHandler;
             replaceEndpoint = newReplaceEndpoint;
             replaceState = newReplaceState;
+            sceneRemoteChildJournal = newSceneRemoteChildJournal;
             Volatile.Write(ref node, newNode);
         }
         finally
@@ -745,6 +807,10 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
             PersistentReplaceStateStore? currentReplaceState = replaceState;
             replaceState = null;
             currentReplaceState?.Dispose();
+            PersistentSceneRemoteChildJournal? currentSceneJournal =
+                sceneRemoteChildJournal;
+            sceneRemoteChildJournal = null;
+            currentSceneJournal?.Dispose();
             catalog = null;
             trust = null;
         }
@@ -881,6 +947,97 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
         public DateTimeOffset UtcNow => timeProvider.GetUtcNow();
     }
 
+    private sealed class DesktopSceneReplaceUndoAvailability(
+        DeviceId deviceId,
+        PersistentReplaceStateStore? replaceState) :
+        ISceneReplaceUndoAvailability
+    {
+        public bool HasDurableUndoFor(ActivityInstance target)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            if (replaceState is null
+                || target.Placement.DeviceId != deviceId
+                || replaceState.CapsuleCount
+                    >= PersistentReplaceStateStore.MaximumCapsuleCount)
+            {
+                return false;
+            }
+
+            try
+            {
+                return !replaceState.GetRestartRecoveryPlan(deviceId)
+                    .IsBlockedByUnresolvedOperation;
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                return false;
+            }
+        }
+    }
+
+    private sealed class DeferredSceneOperationRouteDirectory :
+        ISceneOperationRouteDirectory
+    {
+        private ISceneOperationRouteDirectory? inner;
+
+        public void SetInner(ISceneOperationRouteDirectory routeDirectory)
+        {
+            ArgumentNullException.ThrowIfNull(routeDirectory);
+            if (Interlocked.CompareExchange(
+                    ref inner,
+                    routeDirectory,
+                    comparand: null) is not null)
+            {
+                throw new InvalidOperationException(
+                    "The Scene operation route directory is already initialized.");
+            }
+        }
+
+        public bool TryGetChannel(
+            DeviceId peerDeviceId,
+            out IActivityChannel? channel)
+        {
+            ISceneOperationRouteDirectory? current = Volatile.Read(ref inner);
+            if (current is not null)
+            {
+                return current.TryGetChannel(peerDeviceId, out channel);
+            }
+
+            channel = null;
+            return false;
+        }
+
+        public bool TryGetReplaceChannel(
+            DeviceId peerDeviceId,
+            out IReplaceChannel? channel)
+        {
+            ISceneOperationRouteDirectory? current = Volatile.Read(ref inner);
+            if (current is not null)
+            {
+                return current.TryGetReplaceChannel(peerDeviceId, out channel);
+            }
+
+            channel = null;
+            return false;
+        }
+
+        public bool TryGetSceneExactSlotChannel(
+            DeviceId peerDeviceId,
+            out ISceneExactSlotChannel? channel)
+        {
+            ISceneOperationRouteDirectory? current = Volatile.Read(ref inner);
+            if (current is not null)
+            {
+                return current.TryGetSceneExactSlotChannel(
+                    peerDeviceId,
+                    out channel);
+            }
+
+            channel = null;
+            return false;
+        }
+    }
+
     private sealed record OutboundOperationPreparation(
         FlowspanNode Node,
         OperationContext Context,
@@ -1000,6 +1157,61 @@ internal sealed class DesktopActivityRuntime : IDesktopActivityService
                     timeProvider.GetUtcNow(),
                     failureCode),
                 null);
+        }
+    }
+
+    private sealed class TrustBoundSceneControlPeer(
+        SceneControlPeer peer,
+        SceneActivityOperationEndpoint endpoint,
+        TrustSessionCoordinator trust) : ISceneControlPeer
+    {
+        public DeviceId DeviceId => peer.DeviceId;
+
+        public ValueTask<SceneSourceLookup> LocateSourceAsync(
+            DeviceId coordinatorDeviceId,
+            SceneSourceLookupQuery query,
+            CancellationToken cancellationToken)
+        {
+            Refresh(coordinatorDeviceId);
+            return peer.LocateSourceAsync(
+                coordinatorDeviceId,
+                query,
+                cancellationToken);
+        }
+
+        public ValueTask<SceneExactSlotInspection> InspectExactSlotAsync(
+            DeviceId coordinatorDeviceId,
+            SceneExactSlotQuery query,
+            CancellationToken cancellationToken)
+        {
+            Refresh(coordinatorDeviceId);
+            return peer.InspectExactSlotAsync(
+                coordinatorDeviceId,
+                query,
+                cancellationToken);
+        }
+
+        public ValueTask<SceneActivityOperationResult> ExecuteChildAsync(
+            DeviceId coordinatorDeviceId,
+            SceneRemoteChildInstruction instruction,
+            CancellationToken cancellationToken)
+        {
+            Refresh(coordinatorDeviceId);
+            Refresh(instruction.TargetDeviceId);
+            return peer.ExecuteChildAsync(
+                coordinatorDeviceId,
+                instruction,
+                cancellationToken);
+        }
+
+        private void Refresh(DeviceId peerDeviceId)
+        {
+            CapabilityGrant grant = trust.TryGetCurrentTrust(
+                peerDeviceId,
+                out TrustRecord? record)
+                ? record.GrantedCapabilities
+                : CapabilityGrant.None;
+            endpoint.SetPeerGrant(peerDeviceId, grant);
         }
     }
 }

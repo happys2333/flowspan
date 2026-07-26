@@ -32,7 +32,7 @@
   - Prove payload/title/exception canaries are absent from plaintext and files.
   - _Requirements: SA4, SA7_
 
-- [ ] 5. Route Handoff, Move, and Replace through current production boundaries
+- [x] 5. Route Handoff, Move, and Replace through current production boundaries
   - [x] Add the application-layer `SceneApplyPlanner`, frozen parent/child ID
     source, and narrow read-only preflight port. Prove saved-order exact-ID
     lookup, exact-destination No Change without a slot query, explicit
@@ -42,12 +42,12 @@
     peer-relative `scene.apply`, discards partial source evidence on any denied
     or unavailable participant, inspects exact-slot occupancy before eligibility
     filtering, and redacts protected/ambiguous occupants.
-  - Implement authenticated purpose-scoped exact-Activity-ID source lookup and
+  - [x] Implement authenticated purpose-scoped exact-Activity-ID source lookup and
     Scene-specific exact-slot occupancy ports; never infer Empty from filtered
     Replace inventory.
-  - Require explicit source selection plus full repreview for multiple active
+  - [x] Require explicit source selection plus full repreview for multiple active
     sources, and perform no child operation for exact-destination No Change.
-  - Block occupied Move-plus-Replace before mutation; do not silently preserve
+  - [x] Block occupied Move-plus-Replace before mutation; do not silently preserve
     its source or expose target-only undo that could remove its last instance.
   - [x] Route same-host Handoff, Move, and Replace through the real `FlowspanNode`,
     `DirectActivityChannel`, and `ReplaceEndpoint` production boundaries. Recheck
@@ -56,14 +56,14 @@
     immediately before mutation, and pass the exact locally-read source snapshot
     into the node so a post-preview descriptor can never be sent. Derive the
     child deadline and undo expiry only from `AcceptedAt`.
-  - Recheck current Trust, additional `scene.apply`, child-operation Capability,
+  - [x] Recheck current Trust, additional `scene.apply`, child-operation Capability,
     and connection evidence at their proper boundaries.
-  - Introduce protocol 1.4 strict source-lookup, exact-slot, and payload-free
+  - [x] Introduce protocol 1.4 strict source-lookup, exact-slot, and payload-free
     remote-child messages. Run a remote selected source locally on that source
     Device; never route its Activity descriptor through the Scene coordinator.
-  - Durably deduplicate remote child instructions with the frozen child IDs and
+  - [x] Durably deduplicate remote child instructions with the frozen child IDs and
     reduce disconnect/lost acknowledgement/unknown durable state to Recovering.
-  - Add same-host authenticated mixed-Scene integration, opaque occupancy,
+  - [x] Add remaining same-host authenticated mixed-Scene integration, opaque occupancy,
     independent authorization-denial, heuristic-selection-negative, race, and
     fault tests.
   - _Requirements: SA1–SA5, SA7_

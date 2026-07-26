@@ -6,6 +6,48 @@ namespace Flowspan.Platform.MacOS.Tests;
 public sealed class MacOSReplaceStateStoreTests
 {
     [Fact]
+    public async Task SceneRemoteChildKeychainKeyAndFileUseIndependentPurpose()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-macos-scene-remote-child-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "scene-remote-child-state.fsrc");
+        byte[] payload =
+            "MACOS-SCENE-REMOTE-CHILD-PLAINTEXT-CANARY"u8.ToArray();
+        var keychain = new FakeMacOSKeychain();
+        try
+        {
+            var first = new MacOSSceneRemoteChildStatePayloadStore(
+                statePath,
+                keychain);
+            await first.SaveAsync(payload);
+
+            Assert.DoesNotContain(
+                "MACOS-SCENE-REMOTE-CHILD-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(statePath)),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                payload,
+                await new MacOSSceneRemoteChildStatePayloadStore(
+                    statePath,
+                    keychain).LoadAsync());
+            Assert.NotEqual(
+                MacOSSceneRemoteChildStatePayloadStore.GetDefaultStatePath(),
+                MacOSSceneApplyStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
+                MacOSSceneRemoteChildStateKeyStore.DefaultService,
+                MacOSSceneApplyStateKeyStore.DefaultService);
+            Assert.NotEqual(
+                MacOSSceneRemoteChildStateKeyStore.DefaultAccount,
+                MacOSSceneApplyStateKeyStore.DefaultAccount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SceneApplyKeychainKeyAndFileUseIndependentPurpose()
     {
         string directory = Path.Combine(

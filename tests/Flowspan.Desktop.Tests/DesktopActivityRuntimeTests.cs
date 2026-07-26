@@ -45,6 +45,45 @@ public sealed class DesktopActivityRuntimeTests
     }
 
     [Fact]
+    public async Task SceneEndpointRequiresDurableRemoteChildJournal()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var available = CreateRuntime(
+            identity,
+            trust,
+            sceneRemoteChildStatePayloadStore:
+                new MemorySceneRemoteChildStatePayloadStore());
+
+        await available.InitializeAsync();
+
+        AuthenticatedActivitySessionHandler handler =
+            await available.GetSessionHandlerAsync();
+        Assert.True(handler.IsSceneEndpointAvailable);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task SceneJournalFailureLeavesActivityRuntimeReadyButSceneClosed()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using var runtime = CreateRuntime(
+            identity,
+            trust,
+            sceneRemoteChildStatePayloadStore:
+                new FailingSceneRemoteChildStatePayloadStore());
+
+        await runtime.InitializeAsync();
+
+        Assert.True(runtime.IsReady);
+        AuthenticatedActivitySessionHandler handler =
+            await runtime.GetSessionHandlerAsync();
+        Assert.False(handler.IsSceneEndpointAvailable);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
     public async Task LocalReceiveGrantIsRequiredBeforeAnyOutboundPayload()
     {
         using DeviceIdentity source = DeviceIdentity.Generate(SourceId, "Source");
@@ -1221,7 +1260,9 @@ public sealed class DesktopActivityRuntimeTests
         DeviceIdentity identity,
         TrustSessionCoordinator trust,
         IReplaceStatePayloadStore? replaceStatePayloadStore = null,
-        DateTimeOffset? utcNow = null) => new(
+        DateTimeOffset? utcNow = null,
+        ISceneRemoteChildStatePayloadStore?
+            sceneRemoteChildStatePayloadStore = null) => new(
         cancellationToken =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1233,7 +1274,8 @@ public sealed class DesktopActivityRuntimeTests
             return ValueTask.FromResult(trust);
         },
         new FixedTimeProvider(utcNow ?? Now),
-        replaceStatePayloadStore);
+        replaceStatePayloadStore,
+        sceneRemoteChildStatePayloadStore);
 
     private static async Task<UndoCapsule> CreateCommittedReplaceStateAsync(
         IReplaceStatePayloadStore payloadStore)
@@ -1324,5 +1366,44 @@ public sealed class DesktopActivityRuntimeTests
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException(
                 new IOException("Injected protected Replace state failure."));
+    }
+
+    private sealed class MemorySceneRemoteChildStatePayloadStore :
+        ISceneRemoteChildStatePayloadStore
+    {
+        private byte[]? payload;
+
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(payload?.ToArray());
+        }
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> value,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            payload = value.ToArray();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FailingSceneRemoteChildStatePayloadStore :
+        ISceneRemoteChildStatePayloadStore
+    {
+        public ValueTask<byte[]?> LoadAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<byte[]?>(
+                new IOException(
+                    "Injected protected Scene remote child state failure."));
+
+        public ValueTask SaveAsync(
+            ReadOnlyMemory<byte> payload,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(
+                new IOException(
+                    "Injected protected Scene remote child state failure."));
     }
 }

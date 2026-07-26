@@ -45,12 +45,15 @@ public static class ProtocolFeatures
 
     public static ProtocolVersion SecureSessionRekeyMinimumVersion { get; } = new(1, 3);
 
+    public static ProtocolVersion SceneApplyMinimumVersion { get; } = new(1, 4);
+
     public static ImmutableArray<ProtocolVersion> ProductionSupportedVersions { get; } =
     [
         new ProtocolVersion(1, 0),
         ActivitySwapMinimumVersion,
         SecureSessionFinishedMinimumVersion,
         SecureSessionRekeyMinimumVersion,
+        SceneApplyMinimumVersion,
     ];
 
     public static bool SupportsActivitySwap(ProtocolVersion version) =>
@@ -64,6 +67,10 @@ public static class ProtocolFeatures
     public static bool SupportsLiveRekey(ProtocolVersion version) =>
         version.Major == SecureSessionRekeyMinimumVersion.Major
         && version.Minor >= SecureSessionRekeyMinimumVersion.Minor;
+
+    public static bool SupportsSceneApply(ProtocolVersion version) =>
+        version.Major == SceneApplyMinimumVersion.Major
+        && version.Minor >= SceneApplyMinimumVersion.Minor;
 }
 
 public readonly record struct ProtocolNegotiationResult(

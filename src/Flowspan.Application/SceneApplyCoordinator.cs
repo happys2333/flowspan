@@ -6,6 +6,7 @@ namespace Flowspan.Application;
 public sealed record SceneActivityPreparation
 {
     private SceneActivityPreparation(
+        DeviceId? remoteCoordinatorDeviceId,
         SceneId sceneId,
         long sceneRevision,
         string sceneDigest,
@@ -15,6 +16,7 @@ public sealed record SceneActivityPreparation
         DateTimeOffset acceptedAt,
         SceneApplyItemPreview item)
     {
+        RemoteCoordinatorDeviceId = remoteCoordinatorDeviceId;
         SceneId = sceneId;
         SceneRevision = sceneRevision;
         SceneDigest = sceneDigest;
@@ -26,6 +28,8 @@ public sealed record SceneActivityPreparation
     }
 
     public SceneId SceneId { get; }
+
+    public DeviceId? RemoteCoordinatorDeviceId { get; }
 
     public long SceneRevision { get; }
 
@@ -58,6 +62,7 @@ public sealed record SceneActivityPreparation
         }
 
         return new SceneActivityPreparation(
+            remoteCoordinatorDeviceId: null,
             preview.SceneId,
             preview.SceneRevision,
             preview.SceneDigest,
@@ -66,6 +71,22 @@ public sealed record SceneActivityPreparation
             preview.ParentCorrelationId,
             acceptedAt.ToUniversalTime(),
             item);
+    }
+
+    internal static SceneActivityPreparation Create(
+        SceneRemoteChildInstruction instruction)
+    {
+        ArgumentNullException.ThrowIfNull(instruction);
+        return new SceneActivityPreparation(
+            instruction.CoordinatorDeviceId,
+            instruction.SceneId,
+            instruction.SceneRevision,
+            instruction.SceneDigest,
+            instruction.PreviewFingerprint,
+            instruction.ParentOperationId,
+            instruction.ParentCorrelationId,
+            instruction.AcceptedAt,
+            instruction.Item);
     }
 
     public override string ToString() =>

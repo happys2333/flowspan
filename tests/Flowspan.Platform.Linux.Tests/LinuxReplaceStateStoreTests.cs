@@ -7,6 +7,62 @@ namespace Flowspan.Platform.Linux.Tests;
 public sealed class LinuxReplaceStateStoreTests
 {
     [Fact]
+    public async Task SceneRemoteChildSecretServiceKeyAndFileUseIndependentPurpose()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-linux-scene-remote-child-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "scene-remote-child-state.fsrc");
+        string keyLockPath = Path.Combine(
+            directory,
+            "scene-remote-child-key.lock");
+        byte[] payload =
+            "LINUX-SCENE-REMOTE-CHILD-PLAINTEXT-CANARY"u8.ToArray();
+        using var runner = new FakeSecretToolRunner();
+        try
+        {
+            var first = new LinuxSceneRemoteChildStatePayloadStore(
+                statePath,
+                runner,
+                keyLockPath);
+            await first.SaveAsync(payload);
+
+            Assert.DoesNotContain(
+                "LINUX-SCENE-REMOTE-CHILD-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(statePath)),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                payload,
+                await new LinuxSceneRemoteChildStatePayloadStore(
+                    statePath,
+                    runner,
+                    keyLockPath).LoadAsync());
+            Assert.NotEqual(
+                LinuxSceneRemoteChildStatePayloadStore.GetDefaultStatePath(),
+                LinuxSceneApplyStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
+                LinuxSceneRemoteChildStateKeyStore
+                    .GetDefaultCoordinationLockPath(),
+                LinuxSceneApplyStateKeyStore.GetDefaultCoordinationLockPath());
+            Assert.NotEqual(
+                LinuxSceneRemoteChildStateKeyStore.DefaultAccount,
+                LinuxSceneApplyStateKeyStore.DefaultAccount);
+            Assert.Contains(runner.Arguments, static arguments =>
+                arguments.Contains(
+                    "scene-remote-child-state-key",
+                    StringComparer.Ordinal));
+            Assert.DoesNotContain(runner.Arguments, static arguments =>
+                arguments.Contains(
+                    "scene-apply-state-key",
+                    StringComparer.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SceneApplySecretServiceKeyAndFileUseIndependentPurpose()
     {
         string directory = Path.Combine(

@@ -6,6 +6,53 @@ namespace Flowspan.Platform.Windows.Tests;
 public sealed class WindowsReplaceStateStoreTests
 {
     [Fact]
+    public async Task SceneRemoteChildDpapiKeyAndFileUseIndependentPurpose()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-windows-scene-remote-child-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "scene-remote-child-state.fsrc");
+        string keyPath = Path.Combine(
+            directory,
+            "scene-remote-child-state-key.dpapi");
+        byte[] payload =
+            "WINDOWS-SCENE-REMOTE-CHILD-PLAINTEXT-CANARY"u8.ToArray();
+        var protector = new FakeWindowsDataProtector();
+        try
+        {
+            var first = new WindowsSceneRemoteChildStatePayloadStore(
+                statePath,
+                keyPath,
+                protector);
+            await first.SaveAsync(payload);
+
+            Assert.DoesNotContain(
+                "WINDOWS-SCENE-REMOTE-CHILD-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(statePath)),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                payload,
+                await new WindowsSceneRemoteChildStatePayloadStore(
+                    statePath,
+                    keyPath,
+                    protector).LoadAsync());
+            Assert.NotEqual(
+                WindowsSceneRemoteChildStatePayloadStore.GetDefaultStatePath(),
+                WindowsSceneApplyStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
+                WindowsSceneRemoteChildStateKeyStore.GetDefaultKeyPath(),
+                WindowsSceneApplyStateKeyStore.GetDefaultKeyPath());
+            Assert.NotEqual(
+                WindowsSceneRemoteChildStateKeyStore.ProtectionContext,
+                WindowsSceneApplyStateKeyStore.ProtectionContext);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SceneApplyDpapiKeyAndFileUseIndependentPurpose()
     {
         string directory = Path.Combine(

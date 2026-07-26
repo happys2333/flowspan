@@ -26,6 +26,10 @@ public interface ISceneApplyStateKeyStore : IAuthenticatedStateKeyStore
 {
 }
 
+public interface ISceneRemoteChildStateKeyStore : IAuthenticatedStateKeyStore
+{
+}
+
 public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
 {
     public const int KeyBytes = 32;

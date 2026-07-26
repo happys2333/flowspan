@@ -116,7 +116,8 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     Capability.ActivityOffer,
                     Capability.ActivityReceive,
                     Capability.ActivityReplace,
-                    Capability.ActivitySwap),
+                    Capability.ActivitySwap,
+                    Capability.SceneApply),
                 versions,
                 capabilityMatch: CapabilityRequirementMatch.Any);
             var inbound = new FlowspanTcpInboundListener(
