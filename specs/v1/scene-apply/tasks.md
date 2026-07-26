@@ -38,6 +38,10 @@
     lookup, exact-destination No Change without a slot query, explicit
     multi-source selection with full repreview, per-item unavailable blockers,
     cancellation, and duplicate-ID rejection.
+  - [x] Add same-host preflight peers and a direct aggregate port that rechecks
+    peer-relative `scene.apply`, discards partial source evidence on any denied
+    or unavailable participant, inspects exact-slot occupancy before eligibility
+    filtering, and redacts protected/ambiguous occupants.
   - Implement authenticated purpose-scoped exact-Activity-ID source lookup and
     Scene-specific exact-slot occupancy ports; never infer Empty from filtered
     Replace inventory.

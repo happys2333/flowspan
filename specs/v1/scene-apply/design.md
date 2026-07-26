@@ -161,6 +161,17 @@ Empty blocks every non-Empty result. Replace With Undo resolves Replace only for
 Eligible Conflict with Preserve Source and current durable target-owned undo
 availability; Opaque and Ambiguous fail closed.
 
+The portable same-host contract harness models one `SceneApplyPreflightEndpoint`
+per Device. Each endpoint reloads the coordinator's peer-relative
+`scene.apply` grant for every query and reads only its current local Activity
+snapshot. `DirectSceneApplyPreflightPort` aggregates exact-ID responses without
+selecting a candidate; if any participating endpoint is denied, unavailable,
+malformed, or over-bound, it discards all partial candidates. Exact-slot
+inspection runs only on the destination endpoint and examines matching
+occupants before sensitivity, kind, Adapter, or undo eligibility filtering.
+This direct port proves application semantics but is not evidence for the
+protocol-1.4 authenticated transport that remains in task 5.
+
 The action matrix is closed and tested:
 
 | Current state | Source disposition | Conflict policy | Resolution |
