@@ -862,7 +862,9 @@ public static class SceneControlMessageCodec
             UndoCapsuleReference? undo = undoElement.ValueKind switch
             {
                 JsonValueKind.Null => null,
-                JsonValueKind.Object => DecodeUndo(undoElement),
+                JsonValueKind.Object => DecodeUndo(
+                    undoElement,
+                    receipt.TargetDeviceId),
                 _ => throw new InvalidDataException(
                     "The remote Scene child undo reference has the wrong type."),
             };
@@ -881,6 +883,244 @@ public static class SceneControlMessageCodec
         {
             throw new InvalidDataException(
                 "The remote Scene child result body is malformed.",
+                exception);
+        }
+    }
+
+    public static ControlMessage CreateUndoReplaceInstruction(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        SceneUndoReplaceInstruction instruction,
+        DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(instruction);
+        if (senderDeviceId != instruction.CoordinatorDeviceId)
+        {
+            throw new ArgumentException(
+                "A remote Scene undo instruction must be sent by its coordinator.",
+                nameof(senderDeviceId));
+        }
+
+        string body = JsonSerializer.Serialize(new
+        {
+            coordinatorDeviceId = instruction.CoordinatorDeviceId.ToString(),
+            targetDeviceId = instruction.TargetDeviceId.ToString(),
+            operationId = instruction.Context.OperationId.ToString(),
+            correlationId = instruction.Context.CorrelationId.ToString(),
+            deadline = instruction.Context.Deadline,
+            bindingDigest = instruction.BindingDigest,
+            undoCapsule = ToWireUndo(instruction.Capsule),
+        });
+        return ControlMessage.Create(
+            version,
+            ControlMessageType.SceneUndoReplace,
+            Guid.NewGuid(),
+            instruction.Context.CorrelationId,
+            senderDeviceId,
+            sentAt,
+            OperationDeadlineTimeToLive(
+                instruction.Context.Deadline,
+                sentAt,
+                "remote Scene undo instruction"),
+            body);
+    }
+
+    public static SceneUndoReplaceInstruction DecodeUndoReplaceInstruction(
+        ControlMessage message,
+        DeviceId expectedTargetDeviceId)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expectedTargetDeviceId);
+        RequireType(message, ControlMessageType.SceneUndoReplace);
+        try
+        {
+            JsonElement root = message.Body;
+            RequireOnly(
+                root,
+                "coordinatorDeviceId",
+                "targetDeviceId",
+                "operationId",
+                "correlationId",
+                "deadline",
+                "bindingDigest",
+                "undoCapsule");
+            DeviceId coordinatorDeviceId = DeviceId.Parse(
+                RequireString(root, "coordinatorDeviceId"));
+            DeviceId targetDeviceId = DeviceId.Parse(
+                RequireString(root, "targetDeviceId"));
+            CorrelationId correlationId = CorrelationId.Parse(
+                RequireString(root, "correlationId"));
+            DateTimeOffset deadline = RequireUtc(root, "deadline");
+            ValidateOperationDeadline(
+                message,
+                deadline,
+                "remote Scene undo instruction");
+            if (coordinatorDeviceId != message.SenderDeviceId
+                || targetDeviceId != expectedTargetDeviceId
+                || correlationId != message.CorrelationId)
+            {
+                throw new InvalidDataException(
+                    "The remote Scene undo participants or correlation do not match the authenticated envelope.");
+            }
+
+            UndoCapsuleReference capsule = DecodeUndo(
+                Require(root, "undoCapsule", JsonValueKind.Object),
+                targetDeviceId);
+            SceneUndoReplaceInstruction instruction =
+                SceneUndoReplaceInstruction.Create(
+                    coordinatorDeviceId,
+                    capsule,
+                    OperationContext.Create(
+                        OperationId.Parse(RequireString(root, "operationId")),
+                        correlationId,
+                        deadline));
+            if (!string.Equals(
+                    RequireString(root, "bindingDigest"),
+                    instruction.BindingDigest,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "The remote Scene undo binding digest does not match its instruction.");
+            }
+
+            return instruction;
+        }
+        catch (Exception exception) when (IsMalformedValue(exception))
+        {
+            throw new InvalidDataException(
+                "The remote Scene undo instruction body is malformed.",
+                exception);
+        }
+    }
+
+    public static ControlMessage CreateUndoReplaceResult(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        DeviceId requestingDeviceId,
+        SceneUndoReplaceInstruction instruction,
+        UndoReplaceResult result,
+        DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(instruction);
+        ArgumentNullException.ThrowIfNull(result);
+        if (senderDeviceId != instruction.TargetDeviceId
+            || requestingDeviceId != instruction.CoordinatorDeviceId)
+        {
+            throw new ArgumentException(
+                "A remote Scene undo result participants must match its instruction.",
+                nameof(senderDeviceId));
+        }
+
+        ValidateUndoResult(instruction, result);
+        if (sentAt.ToUniversalTime() < result.OccurredAt.ToUniversalTime())
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sentAt),
+                "A remote Scene undo result cannot be sent before it occurred.");
+        }
+
+        string body = JsonSerializer.Serialize(new
+        {
+            coordinatorDeviceId = instruction.CoordinatorDeviceId.ToString(),
+            targetDeviceId = instruction.TargetDeviceId.ToString(),
+            operationId = instruction.Context.OperationId.ToString(),
+            correlationId = instruction.Context.CorrelationId.ToString(),
+            deadline = instruction.Context.Deadline,
+            bindingDigest = instruction.BindingDigest,
+            undoCapsuleId = instruction.Capsule.Id.ToString(),
+            status = ToWireName(result.Status),
+            failureCode = ToWireName(result.FailureCode),
+            occurredAt = result.OccurredAt,
+        });
+        return ControlMessage.Create(
+            version,
+            ControlMessageType.SceneUndoReplaceResult,
+            Guid.NewGuid(),
+            instruction.Context.CorrelationId,
+            senderDeviceId,
+            sentAt,
+            ResultTimeToLive,
+            body);
+    }
+
+    public static UndoReplaceResult DecodeUndoReplaceResult(
+        ControlMessage message,
+        DeviceId expectedRecipientDeviceId,
+        SceneUndoReplaceInstruction expectedInstruction)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expectedRecipientDeviceId);
+        ArgumentNullException.ThrowIfNull(expectedInstruction);
+        RequireType(message, ControlMessageType.SceneUndoReplaceResult);
+        if (message.CorrelationId != expectedInstruction.Context.CorrelationId)
+        {
+            throw new InvalidDataException(
+                "The remote Scene undo result correlation does not match its instruction.");
+        }
+
+        try
+        {
+            JsonElement root = message.Body;
+            RequireOnly(
+                root,
+                "coordinatorDeviceId",
+                "targetDeviceId",
+                "operationId",
+                "correlationId",
+                "deadline",
+                "bindingDigest",
+                "undoCapsuleId",
+                "status",
+                "failureCode",
+                "occurredAt");
+            if (DeviceId.Parse(RequireString(root, "coordinatorDeviceId"))
+                    != expectedRecipientDeviceId
+                || expectedRecipientDeviceId
+                    != expectedInstruction.CoordinatorDeviceId
+                || DeviceId.Parse(RequireString(root, "targetDeviceId"))
+                    != expectedInstruction.TargetDeviceId
+                || message.SenderDeviceId
+                    != expectedInstruction.TargetDeviceId
+                || OperationId.Parse(RequireString(root, "operationId"))
+                    != expectedInstruction.Context.OperationId
+                || CorrelationId.Parse(RequireString(root, "correlationId"))
+                    != expectedInstruction.Context.CorrelationId
+                || RequireUtc(root, "deadline")
+                    != expectedInstruction.Context.Deadline
+                || !string.Equals(
+                    RequireString(root, "bindingDigest"),
+                    expectedInstruction.BindingDigest,
+                    StringComparison.Ordinal)
+                || UndoCapsuleId.Parse(RequireString(root, "undoCapsuleId"))
+                    != expectedInstruction.Capsule.Id)
+            {
+                throw new InvalidDataException(
+                    "The remote Scene undo result does not match its authenticated instruction.");
+            }
+
+            UndoReplaceResult result = UndoReplaceResult.FromRecordedResult(
+                expectedInstruction.Context.OperationId,
+                expectedInstruction.Context.CorrelationId,
+                expectedInstruction.Capsule.Id,
+                ParseOperationStatus(RequireString(root, "status")),
+                ParseFailureCode(RequireString(root, "failureCode")),
+                RequireUtc(root, "occurredAt"));
+            ValidateUndoResult(expectedInstruction, result);
+            if (result.OccurredAt > message.SentAt)
+            {
+                throw new InvalidDataException(
+                    "The remote Scene undo result predates its outcome.");
+            }
+
+            return result;
+        }
+        catch (Exception exception) when (IsMalformedValue(exception))
+        {
+            throw new InvalidDataException(
+                "The remote Scene undo result body is malformed.",
                 exception);
         }
     }
@@ -911,6 +1151,27 @@ public static class SceneControlMessageCodec
         return TimeSpan.FromMilliseconds(milliseconds);
     }
 
+    private static TimeSpan OperationDeadlineTimeToLive(
+        DateTimeOffset deadline,
+        DateTimeOffset sentAt,
+        string purpose)
+    {
+        DateTimeOffset canonicalDeadline = deadline.ToUniversalTime();
+        DateTimeOffset canonicalSentAt = sentAt.ToUniversalTime();
+        TimeSpan remaining = canonicalDeadline - canonicalSentAt;
+        if (remaining <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sentAt),
+                $"A {purpose} message must be sent before its deadline.");
+        }
+
+        double milliseconds = Math.Min(
+            Math.Ceiling(remaining.TotalMilliseconds),
+            ControlMessage.MaximumTimeToLiveMilliseconds);
+        return TimeSpan.FromMilliseconds(milliseconds);
+    }
+
     private static void ValidateDeadline(
         ControlMessage message,
         DateTimeOffset deadline,
@@ -922,6 +1183,23 @@ public static class SceneControlMessageCodec
         {
             throw new InvalidDataException(
                 $"The {purpose} deadline is outside the authenticated envelope lifetime.");
+        }
+    }
+
+    private static void ValidateOperationDeadline(
+        ControlMessage message,
+        DateTimeOffset deadline,
+        string purpose)
+    {
+        TimeSpan expectedTimeToLive = OperationDeadlineTimeToLive(
+            deadline,
+            message.SentAt,
+            purpose);
+        if (message.TimeToLiveMilliseconds
+            != expectedTimeToLive.TotalMilliseconds)
+        {
+            throw new InvalidDataException(
+                $"The {purpose} envelope lifetime is not canonical for its operation deadline.");
         }
     }
 
@@ -1185,7 +1463,9 @@ public static class SceneControlMessageCodec
         expiresAt = undo.ExpiresAt,
     };
 
-    private static UndoCapsuleReference DecodeUndo(JsonElement undo)
+    private static UndoCapsuleReference DecodeUndo(
+        JsonElement undo,
+        DeviceId targetDeviceId)
     {
         RequireOnly(
             undo,
@@ -1202,6 +1482,7 @@ public static class SceneControlMessageCodec
             UndoCapsuleId.Parse(RequireString(undo, "id")),
             OperationId.Parse(RequireString(undo, "operationId")),
             CorrelationId.Parse(RequireString(undo, "correlationId")),
+            targetDeviceId,
             ActivityId.Parse(RequireString(undo, "targetActivityId")),
             RequireInt64(undo, "expectedTargetRevision"),
             RequireString(undo, "targetDescriptorDigest"),
@@ -1260,6 +1541,7 @@ public static class SceneControlMessageCodec
         if (undo is null
             || undo.OperationId != item.ChildOperationId
             || undo.CorrelationId != item.ChildCorrelationId
+            || undo.TargetDeviceId != item.Destination.DeviceId
             || undo.TargetActivityId != target.ActivityId
             || undo.TargetDescriptorDigest != target.DescriptorDigest
             || undo.IncomingActivityId != item.ActivityId
@@ -1267,6 +1549,20 @@ public static class SceneControlMessageCodec
         {
             throw new ArgumentException(
                 "A successful remote Scene Replace requires its exact undo reference.",
+                nameof(result));
+        }
+    }
+
+    private static void ValidateUndoResult(
+        SceneUndoReplaceInstruction instruction,
+        UndoReplaceResult result)
+    {
+        if (result.OperationId != instruction.Context.OperationId
+            || result.CorrelationId != instruction.Context.CorrelationId
+            || result.CapsuleId != instruction.Capsule.Id)
+        {
+            throw new ArgumentException(
+                "A remote Scene undo result does not match its instruction.",
                 nameof(result));
         }
     }

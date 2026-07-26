@@ -257,6 +257,112 @@ public sealed class SceneApplyCoordinatorTests
         Assert.Empty(port.CalledIndices);
     }
 
+    [Fact]
+    public async Task TerminalContinuationHoldsForEveryLengthOneThrough64()
+    {
+        for (int itemCount = 1;
+             itemCount <= ScenePlan.MaximumActivities;
+             itemCount++)
+        {
+            CoordinatorFixture fixture = CreateFixture(
+                Enumerable.Repeat(FixtureItem.Handoff, itemCount).ToArray());
+            var clock = new MutableClock(AcceptedAt);
+            Dictionary<int, OperationStatus> statuses = Enumerable
+                .Range(0, itemCount)
+                .ToDictionary(
+                    static index => index,
+                    static index => index % 2 == 0
+                        ? OperationStatus.Committed
+                        : OperationStatus.Failed);
+            var port = new ScriptedOperationPort(
+                fixture.Descriptors,
+                clock,
+                statuses);
+            var coordinator = new SceneApplyCoordinator(
+                clock,
+                new InMemorySceneApplyJournal(),
+                port);
+
+            SceneApplyExecutionResult execution = await coordinator.ApplyAsync(
+                fixture.Scene,
+                fixture.Preview,
+                fixture.Approval,
+                CancellationToken.None);
+
+            SceneApplyResult result = Assert.IsType<SceneApplyResult>(
+                execution.Result);
+            Assert.Equal(Enumerable.Range(0, itemCount), port.CalledIndices);
+            Assert.Equal(itemCount, result.Items.Length);
+            Assert.DoesNotContain(
+                result.Items,
+                static item => item.Outcome
+                    is SceneApplyItemOutcome.Recovering
+                    or SceneApplyItemOutcome.NotAttempted);
+        }
+    }
+
+    [Fact]
+    public async Task RecoveringHaltsAtEveryBoundaryForLengthsOneThrough64()
+    {
+        for (int itemCount = 1;
+             itemCount <= ScenePlan.MaximumActivities;
+             itemCount++)
+        {
+            for (int recoveringIndex = 0;
+                 recoveringIndex < itemCount;
+                 recoveringIndex++)
+            {
+                CoordinatorFixture fixture = CreateFixture(
+                    Enumerable.Repeat(
+                        FixtureItem.Handoff,
+                        itemCount).ToArray());
+                var clock = new MutableClock(AcceptedAt);
+                Dictionary<int, OperationStatus> statuses = Enumerable
+                    .Range(0, itemCount)
+                    .ToDictionary(
+                        static index => index,
+                        index => index == recoveringIndex
+                            ? OperationStatus.Recovering
+                            : OperationStatus.Committed);
+                var port = new ScriptedOperationPort(
+                    fixture.Descriptors,
+                    clock,
+                    statuses);
+                var coordinator = new SceneApplyCoordinator(
+                    clock,
+                    new InMemorySceneApplyJournal(),
+                    port);
+
+                SceneApplyExecutionResult execution =
+                    await coordinator.ApplyAsync(
+                        fixture.Scene,
+                        fixture.Preview,
+                        fixture.Approval,
+                        CancellationToken.None);
+
+                SceneApplyResult result = Assert.IsType<SceneApplyResult>(
+                    execution.Result);
+                Assert.Equal(SceneApplyOverallStatus.Recovering, result.Status);
+                Assert.Equal(
+                    Enumerable.Range(0, recoveringIndex + 1),
+                    port.CalledIndices);
+                Assert.All(
+                    result.Items.Take(recoveringIndex),
+                    static item => Assert.Equal(
+                        SceneApplyItemOutcome.Committed,
+                        item.Outcome));
+                Assert.Equal(
+                    SceneApplyItemOutcome.Recovering,
+                    result.Items[recoveringIndex].Outcome);
+                Assert.All(
+                    result.Items.Skip(recoveringIndex + 1),
+                    static item => Assert.Equal(
+                        SceneApplyItemReason.NotAttemptedAfterRecovering,
+                        item.Reason));
+            }
+        }
+    }
+
     private static CoordinatorFixture CreateFixture(params FixtureItem[] kinds)
     {
         DeviceId sourceDevice = DeviceId.Parse(

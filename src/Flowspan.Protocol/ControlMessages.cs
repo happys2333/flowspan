@@ -28,6 +28,8 @@ public enum ControlMessageType
     SceneSlotInspectionResult,
     SceneChildOperation,
     SceneChildOperationResult,
+    SceneUndoReplace,
+    SceneUndoReplaceResult,
 }
 
 public sealed record ControlMessage
@@ -195,7 +197,9 @@ public sealed record ControlMessage
             or ControlMessageType.SceneSlotInspection
             or ControlMessageType.SceneSlotInspectionResult
             or ControlMessageType.SceneChildOperation
-            or ControlMessageType.SceneChildOperationResult;
+            or ControlMessageType.SceneChildOperationResult
+            or ControlMessageType.SceneUndoReplace
+            or ControlMessageType.SceneUndoReplaceResult;
         if (sceneMessage && !ProtocolFeatures.SupportsSceneApply(version))
         {
             throw new ArgumentException(
@@ -430,6 +434,8 @@ public static class ControlMessageCodec
         ControlMessageType.SceneSlotInspectionResult => "scene.slot.inspection.result",
         ControlMessageType.SceneChildOperation => "scene.child.operation",
         ControlMessageType.SceneChildOperationResult => "scene.child.operation.result",
+        ControlMessageType.SceneUndoReplace => "scene.undo.replace",
+        ControlMessageType.SceneUndoReplaceResult => "scene.undo.replace.result",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown message type."),
     };
 
@@ -454,6 +460,8 @@ public static class ControlMessageCodec
         "scene.slot.inspection.result" => ControlMessageType.SceneSlotInspectionResult,
         "scene.child.operation" => ControlMessageType.SceneChildOperation,
         "scene.child.operation.result" => ControlMessageType.SceneChildOperationResult,
+        "scene.undo.replace" => ControlMessageType.SceneUndoReplace,
+        "scene.undo.replace.result" => ControlMessageType.SceneUndoReplaceResult,
         _ => throw new InvalidDataException($"The control message type '{type}' is unknown."),
     };
 }

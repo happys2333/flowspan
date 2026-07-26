@@ -212,6 +212,75 @@ public sealed class SceneControlPeer : ISceneControlPeer
         }
     }
 
+    public async ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        DeviceId coordinatorDeviceId,
+        SceneUndoReplaceInstruction instruction,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(coordinatorDeviceId);
+        ArgumentNullException.ThrowIfNull(instruction);
+        if (coordinatorDeviceId != instruction.CoordinatorDeviceId
+            || instruction.TargetDeviceId != DeviceId)
+        {
+            throw new ArgumentException(
+                "A remote Scene undo participants do not match this target peer.",
+                nameof(instruction));
+        }
+
+        OperationContext context = instruction.Context;
+        UndoCapsuleReference capsule = instruction.Capsule;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (context.Deadline <= clock.UtcNow)
+        {
+            return UndoReplaceResult.Rejected(
+                context,
+                capsule.Id,
+                FailureCode.DeadlineExpired,
+                clock.UtcNow);
+        }
+
+        if (!endpoint.Allows(coordinatorDeviceId, Capability.SceneApply))
+        {
+            return UndoReplaceResult.Rejected(
+                context,
+                capsule.Id,
+                FailureCode.CapabilityDenied,
+                clock.UtcNow);
+        }
+
+        UndoReplaceResult result;
+        try
+        {
+            result = await endpoint.UndoReplaceAsync(
+                capsule,
+                context,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return UndoReplaceResult.Recovering(
+                context,
+                capsule.Id,
+                FailureCode.InternalFailure,
+                clock.UtcNow);
+        }
+
+        return result.OperationId == context.OperationId
+            && result.CorrelationId == context.CorrelationId
+            && result.CapsuleId == capsule.Id
+                ? result
+                : UndoReplaceResult.Recovering(
+                    context,
+                    capsule.Id,
+                    FailureCode.InternalFailure,
+                    clock.UtcNow);
+    }
+
     private SceneActivityOperationResult Failed(
         SceneRemoteChildInstruction instruction,
         OperationStatus status,
@@ -281,6 +350,7 @@ public sealed class SceneControlPeer : ISceneControlPeer
             && undo is not null
             && undo.OperationId == item.ChildOperationId
             && undo.CorrelationId == item.ChildCorrelationId
+            && undo.TargetDeviceId == item.Destination.DeviceId
             && undo.TargetActivityId == target.ActivityId
             && undo.TargetDescriptorDigest == target.DescriptorDigest
             && undo.IncomingActivityId == item.ActivityId

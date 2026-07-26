@@ -131,6 +131,7 @@ public sealed class ActivityControlSessionTests
             UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
             command.Context.OperationId,
             command.Context.CorrelationId,
+            PeerId,
             command.TargetActivityId,
             command.ExpectedTargetRevision,
             command.ExpectedTargetDescriptorDigest,
@@ -404,6 +405,51 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
+    public async Task OutboundRemoteSceneUndoWaitsForExactlyBoundResult()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = session.RunAsync(stop.Token).AsTask();
+        SceneUndoReplaceInstruction instruction = CreateSceneUndoInstruction(
+            LocalId,
+            PeerId,
+            OperationId.Parse("18181818-1818-1818-1818-181818181818"),
+            CorrelationId.Parse("19191919-1919-1919-1919-191919191919"));
+        UndoReplaceResult expected = UndoReplaceResult.Committed(
+            instruction.Context,
+            instruction.Capsule.Id,
+            Now.AddSeconds(1));
+
+        ValueTask<SceneUndoReplaceDeliveryResult> undoing =
+            session.UndoReplaceAsync(
+                LocalId,
+                instruction,
+                CancellationToken.None);
+        ControlMessage request = await connection.ReadSentAsync();
+        connection.Receive(SceneControlMessageCodec.CreateUndoReplaceResult(
+            request.Version,
+            PeerId,
+            LocalId,
+            instruction,
+            expected,
+            Now.AddSeconds(1)));
+
+        SceneUndoReplaceDeliveryResult delivered = await undoing;
+
+        Assert.Equal(SceneControlDeliveryStatus.Acknowledged, delivered.Status);
+        Assert.Equal(expected, delivered.Result);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
     public async Task InboundSceneSourceLookupRunsOnAuthenticatedLocalPeer()
     {
         var connection = new FakeActivityControlConnection(
@@ -561,6 +607,111 @@ public sealed class ActivityControlSessionTests
         Assert.Equal(scenePeer.ChildResult, decoded);
         Assert.Equal(instruction, scenePeer.LastInstruction);
         Assert.Equal(PeerId, scenePeer.LastCoordinatorDeviceId);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task InboundRemoteSceneUndoRunsOnAuthenticatedTargetPeer()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var scenePeer = new RecordingSceneControlPeer(LocalId);
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            scenePeer,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        SceneUndoReplaceInstruction instruction = CreateSceneUndoInstruction(
+            PeerId,
+            LocalId,
+            OperationId.Parse("18181818-1818-1818-1818-181818181818"),
+            CorrelationId.Parse("19191919-1919-1919-1919-191919191919"));
+        connection.Receive(
+            SceneControlMessageCodec.CreateUndoReplaceInstruction(
+                ProtocolFeatures.SceneApplyMinimumVersion,
+                PeerId,
+                instruction,
+                Now));
+
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ControlMessage response = await connection.ReadSentAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(1));
+        UndoReplaceResult decoded =
+            SceneControlMessageCodec.DecodeUndoReplaceResult(
+                response,
+                PeerId,
+                instruction);
+
+        Assert.Equal(scenePeer.UndoResult, decoded);
+        Assert.Equal(instruction, scenePeer.LastUndoInstruction);
+        Assert.Equal(PeerId, scenePeer.LastCoordinatorDeviceId);
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
+    [Fact]
+    public async Task InboundRemoteSceneUndoWithoutReplaceEndpointStaysDeliverable()
+    {
+        var connection = new FakeActivityControlConnection(
+            LocalId,
+            PeerId,
+            ProtocolFeatures.SceneApplyMinimumVersion);
+        var catalog = new InMemoryActivityCatalog();
+        FlowspanNode node = CreateNode(LocalId, "Local", catalog);
+        var preflight = new SceneApplyPreflightEndpoint(
+            LocalId,
+            new FixedClock(Now),
+            catalog,
+            new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]),
+            NeverSceneUndoAvailable.Instance);
+        var operationEndpoint = new SceneActivityOperationEndpoint(
+            node,
+            preflight,
+            clock: new FixedClock(Now));
+        operationEndpoint.SetPeerGrant(
+            PeerId,
+            CapabilityGrant.Of(Capability.SceneApply));
+        var scenePeer = new SceneControlPeer(
+            new FixedClock(Now),
+            operationEndpoint,
+            new RejectingSceneOperationPort(),
+            new InMemorySceneRemoteChildJournal());
+        var session = new ActivityControlSession(
+            connection,
+            new RejectingActivityPeer(LocalId),
+            scenePeer,
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        SceneUndoReplaceInstruction instruction = CreateSceneUndoInstruction(
+            PeerId,
+            LocalId,
+            OperationId.Parse("18181818-1818-1818-1818-181818181818"),
+            CorrelationId.Parse("19191919-1919-1919-1919-191919191919"));
+        connection.Receive(
+            SceneControlMessageCodec.CreateUndoReplaceInstruction(
+                ProtocolFeatures.SceneApplyMinimumVersion,
+                PeerId,
+                instruction,
+                Now));
+
+        Task run = session.RunAsync(stop.Token).AsTask();
+        ControlMessage response = await connection.ReadSentAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(1));
+        UndoReplaceResult decoded =
+            SceneControlMessageCodec.DecodeUndoReplaceResult(
+                response,
+                PeerId,
+                instruction);
+
+        Assert.Equal(OperationStatus.Failed, decoded.Status);
+        Assert.Equal(FailureCode.UndoUnavailable, decoded.FailureCode);
+        Assert.Equal(Now, decoded.OccurredAt);
         stop.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
     }
@@ -1121,6 +1272,11 @@ public sealed class ActivityControlSessionTests
                 CorrelationId.Parse("60606060-6060-6060-6060-606060606060"),
                 acceptedAt: Now,
                 childItem);
+        SceneUndoReplaceInstruction undo = CreateSceneUndoInstruction(
+            LocalId,
+            PeerId,
+            OperationId.Parse("70707070-7070-7070-7070-707070707070"),
+            CorrelationId.Parse("70717171-7171-7171-7171-717171717171"));
 
         ValueTask<SceneSourceLookupDeliveryResult> sourceSending =
             session.QuerySourceAsync(LocalId, sourceQuery, CancellationToken.None);
@@ -1128,6 +1284,9 @@ public sealed class ActivityControlSessionTests
             session.InspectSlotAsync(LocalId, slotQuery, CancellationToken.None);
         ValueTask<SceneChildDeliveryResult> childSending =
             session.ExecuteChildAsync(LocalId, child, CancellationToken.None);
+        ValueTask<SceneUndoReplaceDeliveryResult> undoSending =
+            session.UndoReplaceAsync(LocalId, undo, CancellationToken.None);
+        await connection.ReadSentAsync();
         await connection.ReadSentAsync();
         await connection.ReadSentAsync();
         await connection.ReadSentAsync();
@@ -1144,6 +1303,9 @@ public sealed class ActivityControlSessionTests
         Assert.Equal(
             SceneControlDeliveryStatus.AcknowledgementLost,
             (await childSending).Status);
+        Assert.Equal(
+            SceneControlDeliveryStatus.AcknowledgementLost,
+            (await undoSending).Status);
     }
 
     [Fact]
@@ -1278,6 +1440,7 @@ public sealed class ActivityControlSessionTests
             UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
             command.Context.OperationId,
             command.Context.CorrelationId,
+            PeerId,
             ActivityId.From(Guid.NewGuid()),
             command.ExpectedTargetRevision,
             command.ExpectedTargetDescriptorDigest,
@@ -1587,7 +1750,7 @@ public sealed class ActivityControlSessionTests
     }
 
     [Fact]
-    public async Task AuthenticatedCoordinatorRoutesRemoteChildSourceToTarget()
+    public async Task AuthenticatedCoordinatorRoutesRemoteReplaceAndStableCompensation()
     {
         DeviceId coordinatorId = DeviceId.Parse(
             "11111111-1111-1111-1111-111111111111");
@@ -1657,6 +1820,33 @@ public sealed class ActivityControlSessionTests
         await using AuthenticatedTcpControlConnection sourceToCoordinator =
             await acceptingSource;
 
+        using var coordinatorTargetListener = new TcpListener(
+            IPAddress.Loopback,
+            0);
+        coordinatorTargetListener.Start(backlog: 1);
+        var coordinatorTargetEndpoint = Assert.IsType<IPEndPoint>(
+            coordinatorTargetListener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> acceptingCoordinatorAtTarget =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                coordinatorTargetListener,
+                targetIdentity,
+                new TrustRecord(
+                    coordinatorIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(Capability.SceneApply)),
+                [version]).AsTask();
+        await using AuthenticatedTcpControlConnection coordinatorToTarget =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                coordinatorTargetEndpoint,
+                coordinatorIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.Of(Capability.SceneApply)),
+                [version]);
+        await using AuthenticatedTcpControlConnection targetToCoordinator =
+            await acceptingCoordinatorAtTarget;
+
         var coordinatorCatalog = new InMemoryActivityCatalog();
         var sourceCatalog = new InMemoryActivityCatalog();
         var targetCatalog = new InMemoryActivityCatalog();
@@ -1685,6 +1875,19 @@ public sealed class ActivityControlSessionTests
             ActivityPlacement.On(sourceId, "desktop"),
             revision: 7);
         Assert.True(sourceNode.AddLocalActivity(sourceActivity));
+        ActivityInstance targetActivity = ActivityInstance.Active(
+            ActivityDescriptor.Create(
+                ActivityId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+                ActivityKind.Parse("workspace.note/v1"),
+                targetId,
+                "target-title-canary",
+                JsonSerializer.Serialize(new
+                {
+                    text = "END-TO-END-TARGET-PAYLOAD-CANARY",
+                })),
+            ActivityPlacement.On(targetId, "focus"),
+            revision: 9);
+        Assert.True(targetNode.AddLocalActivity(targetActivity));
 
         var adapters = new ActivityAdapterRegistry([new WorkspaceNoteAdapter()]);
         var sourcePreflight = new SceneApplyPreflightEndpoint(
@@ -1693,27 +1896,60 @@ public sealed class ActivityControlSessionTests
             sourceCatalog,
             adapters,
             NeverSceneUndoAvailable.Instance);
+        var coordinatorPreflight = new SceneApplyPreflightEndpoint(
+            coordinatorId,
+            new FixedClock(Now),
+            coordinatorCatalog,
+            adapters,
+            NeverSceneUndoAvailable.Instance);
         var targetPreflight = new SceneApplyPreflightEndpoint(
             targetId,
             new FixedClock(Now),
             targetCatalog,
             adapters,
-            NeverSceneUndoAvailable.Instance);
+            AlwaysSceneUndoAvailable.Instance);
         var sourceOperationEndpoint = new SceneActivityOperationEndpoint(
             sourceNode,
-            sourcePreflight);
+            sourcePreflight,
+            clock: new FixedClock(Now));
+        var targetReplaceState = new InMemoryReplaceStateStore();
+        using var targetReplaceEndpoint = new ReplaceEndpoint(
+            targetId,
+            new FixedClock(Now),
+            targetCatalog,
+            new InMemoryOperationJournal(),
+            adapters,
+            targetReplaceState,
+            new DeterministicUndoCapsuleIdSource(
+            [
+                UndoCapsuleId.Parse(
+                    "12121212-1212-1212-1212-121212121212"),
+            ]),
+            NullReceiptSink.Instance);
         var targetOperationEndpoint = new SceneActivityOperationEndpoint(
             targetNode,
-            targetPreflight);
+            targetPreflight,
+            targetReplaceEndpoint,
+            new FixedClock(Now));
+        var coordinatorOperationEndpoint = new SceneActivityOperationEndpoint(
+            coordinatorNode,
+            coordinatorPreflight,
+            clock: new FixedClock(Now));
         sourceOperationEndpoint.SetPeerGrant(
             coordinatorId,
             CapabilityGrant.Of(Capability.SceneApply));
         sourceOperationEndpoint.SetPeerGrant(
             targetId,
             CapabilityGrant.Of(Capability.ActivityReceive));
-        targetPreflight.SetPeerGrant(
+        targetOperationEndpoint.SetPeerGrant(
             sourceId,
             CapabilityGrant.Of(Capability.SceneApply));
+        targetOperationEndpoint.SetPeerGrant(
+            coordinatorId,
+            CapabilityGrant.Of(Capability.SceneApply));
+        targetReplaceEndpoint.SetPeerGrant(
+            sourceId,
+            CapabilityGrant.Of(Capability.ActivityReplace));
         targetNode.SetPeerGrant(
             sourceId,
             CapabilityGrant.Of(Capability.ActivityOffer));
@@ -1745,8 +1981,11 @@ public sealed class ActivityControlSessionTests
         await using var targetHandler =
             new AuthenticatedActivitySessionHandler(
                 targetNode,
-                targetScenePeer,
-                new FixedTimeProvider(Now));
+                targetReplaceEndpoint,
+                replaceInventoryPeer: null,
+                swapPeer: null,
+                timeProvider: new FixedTimeProvider(Now),
+                scenePeer: targetScenePeer);
         using var stop = new CancellationTokenSource();
         Task sourceTargetRun = sourceHandler.RunAsync(
             sourceToTarget,
@@ -1760,48 +1999,86 @@ public sealed class ActivityControlSessionTests
         Task sourceCoordinatorRun = sourceHandler.RunAsync(
             sourceToCoordinator,
             stop.Token).AsTask();
-        Assert.True(coordinatorHandler.TryGetSceneChildOperationChannel(
-            sourceId,
-            out ISceneChildOperationChannel? childChannel));
-        Assert.NotNull(childChannel);
+        Task coordinatorTargetRun = coordinatorHandler.RunAsync(
+            coordinatorToTarget,
+            stop.Token).AsTask();
+        Task targetCoordinatorRun = targetHandler.RunAsync(
+            targetToCoordinator,
+            stop.Token).AsTask();
         Assert.True(sourceHandler.TryGetChannel(
             targetId,
             out IActivityChannel? _));
-        SceneSourceSelection source = SceneSourceSelection.Create(
-            index: 0,
-            sourceActivity.Descriptor.Id,
-            sourceActivity.Revision,
-            sourceActivity.Descriptor.DescriptorDigest,
-            sourceActivity.Descriptor.Kind,
-            sourceActivity.Placement);
-        SceneApplyItemPreview item = SceneApplyItemPreview.TransferToEmpty(
-            SceneActivityPlan.Place(
-                sourceActivity.Descriptor.Id,
-                ActivityPlacement.On(targetId, "focus"),
-                SceneSourceDisposition.PreserveSource,
-                SceneConflictPolicy.RequireEmpty),
-            source,
-            OperationId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
-            CorrelationId.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"));
-        SceneRemoteChildInstruction instruction =
-            SceneRemoteChildInstruction.Create(
+        var planner = new SceneApplyPlanner(
+            new FixedClock(Now),
+            new RoutedSceneApplyPreflightPort(
                 coordinatorId,
-                SceneId.Parse("abababab-abab-abab-abab-abababababab"),
-                sceneRevision: 5,
-                sceneDigest: new string('C', 64),
-                previewFingerprint: new string('D', 64),
-                OperationId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
-                CorrelationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
-                acceptedAt: Now,
-                item);
-
-        SceneChildDeliveryResult delivery = await childChannel.ExecuteChildAsync(
+                coordinatorPreflight,
+                coordinatorHandler),
+            new DeterministicSceneApplyIdSource(
+                [
+                    OperationId.Parse(
+                        "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                    OperationId.Parse(
+                        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                ],
+                [
+                    CorrelationId.Parse(
+                        "ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                    CorrelationId.Parse(
+                        "cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                ]));
+        ScenePlan scene = ScenePlan.Create(
+            SceneId.Parse("abababab-abab-abab-abab-abababababab"),
+            "scene-title-canary",
+            [
+                SceneActivityPlan.Place(
+                    sourceActivity.Descriptor.Id,
+                    ActivityPlacement.On(targetId, "focus"),
+                    SceneSourceDisposition.PreserveSource,
+                    SceneConflictPolicy.ReplaceWithUndo),
+            ]);
+        SceneApplyPreview preview = await planner.PreviewAsync(
+            scene,
+            [],
+            observedGroupRevision: null,
+            CancellationToken.None);
+        SceneApplyItemPreview item = Assert.Single(preview.Items);
+        Assert.Equal(SceneApplyAction.Replace, item.Action);
+        Assert.Equal(sourceId, item.Source?.DeviceId);
+        Assert.Equal(targetActivity.Descriptor.Id, item.ReplaceTarget?.ActivityId);
+        var localPort = new RoutedSceneActivityOperationPort(
+            new FixedClock(Now),
             coordinatorId,
-            instruction,
+            coordinatorOperationEndpoint,
+            coordinatorHandler);
+        var operationPort = new CoordinatorSceneActivityOperationPort(
+            new FixedClock(Now),
+            coordinatorId,
+            localPort,
+            coordinatorHandler);
+        var coordinator = new SceneApplyCoordinator(
+            new FixedClock(Now),
+            new InMemorySceneApplyJournal(),
+            operationPort);
+
+        SceneApplyExecutionResult execution = await coordinator.ApplyAsync(
+            scene,
+            preview,
+            SceneApplyApproval.Create(
+                preview.Fingerprint,
+                preview.RequiredReplaceConfirmations),
             CancellationToken.None);
 
-        Assert.Equal(SceneControlDeliveryStatus.Acknowledged, delivery.Status);
-        Assert.Equal(OperationStatus.Committed, delivery.Result?.Receipt.Status);
+        SceneApplyResult result = Assert.IsType<SceneApplyResult>(
+            execution.Result);
+        Assert.Equal(SceneApplyOverallStatus.Completed, result.Status);
+        Assert.Equal(
+            SceneApplyItemOutcome.Committed,
+            Assert.Single(result.Items).Outcome);
+        UndoCapsuleReference capsule = Assert.IsType<UndoCapsuleReference>(
+            Assert.Single(result.Items).UndoCapsule);
+        Assert.Equal(targetId, capsule.TargetDeviceId);
+        Assert.Equal(targetActivity.Descriptor.Id, capsule.TargetActivityId);
         Assert.True(sourceCatalog.TryGet(
             sourceActivity.Descriptor.Id,
             out ActivityInstance? preserved));
@@ -1813,7 +2090,34 @@ public sealed class ActivityControlSessionTests
             "END-TO-END-SOURCE-PAYLOAD-CANARY",
             received.Descriptor.PayloadJson,
             StringComparison.Ordinal);
+        Assert.False(targetCatalog.TryGet(targetActivity.Descriptor.Id, out _));
         Assert.Empty(coordinatorCatalog.GetSnapshot());
+
+        var compensator = new SceneApplyCompensator(
+            new FixedClock(Now),
+            operationPort);
+        SceneCompensationResult compensation = await compensator.CompensateAsync(
+            result,
+            CancellationToken.None);
+        SceneCompensationResult replay = await compensator.CompensateAsync(
+            result,
+            CancellationToken.None);
+
+        Assert.Equal(SceneCompensationStatus.Completed, compensation.Status);
+        Assert.Equal(compensation.Status, replay.Status);
+        Assert.True(compensation.Items.SequenceEqual(replay.Items));
+        Assert.Equal(
+            SceneCompensationItemOutcome.Committed,
+            Assert.Single(compensation.Items).Outcome);
+        Assert.True(targetCatalog.TryGet(
+            targetActivity.Descriptor.Id,
+            out ActivityInstance? restored));
+        Assert.Contains(
+            "END-TO-END-TARGET-PAYLOAD-CANARY",
+            restored.Descriptor.PayloadJson,
+            StringComparison.Ordinal);
+        Assert.False(targetCatalog.TryGet(sourceActivity.Descriptor.Id, out _));
+        Assert.True(sourceCatalog.TryGet(sourceActivity.Descriptor.Id, out _));
 
         stop.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -1824,6 +2128,10 @@ public sealed class ActivityControlSessionTests
             () => coordinatorSourceRun);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => sourceCoordinatorRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => coordinatorTargetRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => targetCoordinatorRun);
     }
 
     private static ActivityTransferOffer CreateOffer(
@@ -1875,6 +2183,30 @@ public sealed class ActivityControlSessionTests
             Now.AddMinutes(10));
     }
 
+    private static SceneUndoReplaceInstruction CreateSceneUndoInstruction(
+        DeviceId coordinatorId,
+        DeviceId targetId,
+        OperationId operationId,
+        CorrelationId correlationId)
+    {
+        DateTimeOffset expiresAt = Now.AddMinutes(5);
+        return SceneUndoReplaceInstruction.Create(
+            coordinatorId,
+            new UndoCapsuleReference(
+                UndoCapsuleId.Parse("12121212-1212-1212-1212-121212121212"),
+                OperationId.Parse("13131313-1313-1313-1313-131313131313"),
+                CorrelationId.Parse("14141414-1414-1414-1414-141414141414"),
+                targetId,
+                ActivityId.Parse("15151515-1515-1515-1515-151515151515"),
+                ExpectedTargetRevision: 9,
+                TargetDescriptorDigest: new string('E', 64),
+                IncomingActivityId: ActivityId.Parse(
+                    "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                IncomingDescriptorDigest: new string('A', 64),
+                expiresAt),
+            OperationContext.Create(operationId, correlationId, expiresAt));
+    }
+
     private static FlowspanNode CreateNode(
         DeviceId deviceId,
         string name,
@@ -1909,6 +2241,18 @@ public sealed class ActivityControlSessionTests
         public bool HasDurableUndoFor(ActivityInstance target) => false;
     }
 
+    private sealed class AlwaysSceneUndoAvailable :
+        ISceneReplaceUndoAvailability
+    {
+        private AlwaysSceneUndoAvailable()
+        {
+        }
+
+        public static AlwaysSceneUndoAvailable Instance { get; } = new();
+
+        public bool HasDurableUndoFor(ActivityInstance target) => true;
+    }
+
     private sealed class RejectingSceneOperationPort :
         ISceneActivityOperationPort
     {
@@ -1925,6 +2269,9 @@ public sealed class ActivityControlSessionTests
     {
         public ISceneOperationRouteDirectory? Inner { get; set; }
 
+        public IReadOnlyList<DeviceId> GetSceneParticipantDeviceIds() =>
+            RequireInner().GetSceneParticipantDeviceIds();
+
         public bool TryGetChannel(
             DeviceId peerDeviceId,
             out IActivityChannel? channel) =>
@@ -1939,6 +2286,20 @@ public sealed class ActivityControlSessionTests
             DeviceId peerDeviceId,
             out ISceneExactSlotChannel? channel) =>
             RequireInner().TryGetSceneExactSlotChannel(
+                peerDeviceId,
+                out channel);
+
+        public bool TryGetSceneSourceLookupChannel(
+            DeviceId peerDeviceId,
+            out ISceneSourceLookupChannel? channel) =>
+            RequireInner().TryGetSceneSourceLookupChannel(
+                peerDeviceId,
+                out channel);
+
+        public bool TryGetSceneChildOperationChannel(
+            DeviceId peerDeviceId,
+            out ISceneChildOperationChannel? channel) =>
+            RequireInner().TryGetSceneChildOperationChannel(
                 peerDeviceId,
                 out channel);
 
@@ -2006,6 +2367,10 @@ public sealed class ActivityControlSessionTests
 
         public SceneRemoteChildInstruction? LastInstruction { get; private set; }
 
+        public SceneUndoReplaceInstruction? LastUndoInstruction { get; private set; }
+
+        public UndoReplaceResult? UndoResult { get; private set; }
+
         public ValueTask<SceneSourceLookup> LocateSourceAsync(
             DeviceId coordinatorDeviceId,
             SceneSourceLookupQuery query,
@@ -2054,6 +2419,20 @@ public sealed class ActivityControlSessionTests
                     FailureCode.None),
                 undoCapsule: null);
             return ValueTask.FromResult(ChildResult);
+        }
+
+        public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+            DeviceId coordinatorDeviceId,
+            SceneUndoReplaceInstruction instruction,
+            CancellationToken cancellationToken)
+        {
+            LastCoordinatorDeviceId = coordinatorDeviceId;
+            LastUndoInstruction = instruction;
+            UndoResult = UndoReplaceResult.Committed(
+                instruction.Context,
+                instruction.Capsule.Id,
+                Now);
+            return ValueTask.FromResult(UndoResult);
         }
     }
 

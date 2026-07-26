@@ -808,6 +808,8 @@ internal static class SceneApplyBinding
     private const string PreviewDomain = "flowspan.scene-apply-preview/v1";
     private const string RemoteChildDomain =
         "flowspan.scene-remote-child/v1";
+    private const string UndoReplaceDomain =
+        "flowspan.scene-undo-replace/v1";
     private const string ReplaceConfirmationDomain =
         "flowspan.scene-apply-replace-confirmation/v1";
 
@@ -836,95 +838,127 @@ internal static class SceneApplyBinding
         SceneGroupRevisionWarning? groupRevisionWarning,
         ImmutableArray<SceneApplyItemPreview> items)
     {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Append(hash, PreviewDomain);
-        Append(hash, scene.Id.ToString());
-        Append(hash, Format(scene.Revision));
-        Append(hash, sceneDigest);
-        Append(hash, parentOperationId.ToString());
-        Append(hash, parentCorrelationId.ToString());
-        Append(hash, createdAt.ToString("O", CultureInfo.InvariantCulture));
-        Append(hash, expiresAt.ToString("O", CultureInfo.InvariantCulture));
-        Append(hash, scene.GroupBinding is null ? "none" : "some");
+        byte[] encoded = EncodePreviewFingerprintInput(
+            scene,
+            sceneDigest,
+            parentOperationId,
+            parentCorrelationId,
+            createdAt,
+            expiresAt,
+            groupRevisionWarning,
+            items);
+        return Convert.ToHexString(SHA256.HashData(encoded));
+    }
+
+    internal static byte[] EncodePreviewFingerprintInput(
+        ScenePlan scene,
+        string sceneDigest,
+        OperationId parentOperationId,
+        CorrelationId parentCorrelationId,
+        DateTimeOffset createdAt,
+        DateTimeOffset expiresAt,
+        SceneGroupRevisionWarning? groupRevisionWarning,
+        ImmutableArray<SceneApplyItemPreview> items)
+    {
+        using var output = new MemoryStream();
+        Append(output, PreviewDomain);
+        Append(output, scene.Id.ToString());
+        Append(output, Format(scene.Revision));
+        Append(output, sceneDigest);
+        Append(output, parentOperationId.ToString());
+        Append(output, parentCorrelationId.ToString());
+        Append(output, createdAt.ToString("O", CultureInfo.InvariantCulture));
+        Append(output, expiresAt.ToString("O", CultureInfo.InvariantCulture));
+        Append(output, scene.GroupBinding is null ? "none" : "some");
         if (scene.GroupBinding is not null)
         {
-            Append(hash, scene.GroupBinding.GroupId.ToString());
-            Append(hash, Format(scene.GroupBinding.GroupRevision));
+            Append(output, scene.GroupBinding.GroupId.ToString());
+            Append(output, Format(scene.GroupBinding.GroupRevision));
         }
 
-        Append(hash, groupRevisionWarning is null ? "none" : "some");
+        Append(output, groupRevisionWarning is null ? "none" : "some");
         if (groupRevisionWarning is not null)
         {
-            Append(hash, groupRevisionWarning.GroupId.ToString());
-            Append(hash, Format(groupRevisionWarning.BoundRevision));
-            Append(hash, Format(groupRevisionWarning.ObservedRevision));
+            Append(output, groupRevisionWarning.GroupId.ToString());
+            Append(output, Format(groupRevisionWarning.BoundRevision));
+            Append(output, Format(groupRevisionWarning.ObservedRevision));
         }
 
-        Append(hash, Format(items.Length));
+        Append(output, Format(items.Length));
         foreach (SceneApplyItemPreview item in items)
         {
-            Append(hash, Format(item.Index));
-            Append(hash, item.ActivityId.ToString());
-            Append(hash, item.Destination.DeviceId.ToString());
-            Append(hash, item.Destination.Slot);
-            Append(hash, Format(item.SourceDisposition));
-            Append(hash, Format(item.ConflictPolicy));
-            Append(hash, item.ChildOperationId.ToString());
-            Append(hash, item.ChildCorrelationId.ToString());
-            Append(hash, item.Source is null ? "none" : "some");
+            Append(output, Format(item.Index));
+            Append(output, item.ActivityId.ToString());
+            Append(output, item.Destination.DeviceId.ToString());
+            Append(output, item.Destination.Slot);
+            Append(output, Format(item.SourceDisposition));
+            Append(output, Format(item.ConflictPolicy));
+            Append(output, item.ChildOperationId.ToString());
+            Append(output, item.ChildCorrelationId.ToString());
+            Append(output, item.Source is null ? "none" : "some");
             if (item.Source is not null)
             {
-                Append(hash, item.Source.DeviceId.ToString());
-                Append(hash, Format(item.Source.Revision));
-                Append(hash, item.Source.DescriptorDigest);
-                Append(hash, item.Source.Kind.Value);
-                Append(hash, item.Source.Placement.Slot);
+                Append(output, item.Source.DeviceId.ToString());
+                Append(output, Format(item.Source.Revision));
+                Append(output, item.Source.DescriptorDigest);
+                Append(output, item.Source.Kind.Value);
+                Append(output, item.Source.Placement.Slot);
             }
             else
             {
                 SceneSourceLookup lookup = item.SourceLookup
                     ?? throw new InvalidOperationException(
                         "A Scene source blocker requires lookup evidence.");
-                Append(hash, Format(lookup.Status));
-                Append(hash, Format(lookup.Candidates.Length));
+                Append(output, Format(lookup.Status));
+                Append(output, Format(lookup.Candidates.Length));
                 foreach (SceneSourceSelection candidate in lookup.Candidates)
                 {
-                    Append(hash, candidate.DeviceId.ToString());
-                    Append(hash, Format(candidate.Revision));
-                    Append(hash, candidate.DescriptorDigest);
-                    Append(hash, candidate.Kind.Value);
-                    Append(hash, candidate.Placement.Slot);
+                    Append(output, candidate.DeviceId.ToString());
+                    Append(output, Format(candidate.Revision));
+                    Append(output, candidate.DescriptorDigest);
+                    Append(output, candidate.Kind.Value);
+                    Append(output, candidate.Placement.Slot);
                 }
             }
 
-            Append(hash, Format(item.Action));
-            Append(hash, Format(item.Reason));
-            Append(hash, Format(item.Occupancy.Kind));
+            Append(output, Format(item.Action));
+            Append(output, Format(item.Reason));
+            Append(output, Format(item.Occupancy.Kind));
             if (item.Occupancy.Kind == SceneSlotOccupancyKind.EligibleConflict)
             {
                 Append(
-                    hash,
+                    output,
                     item.Occupancy.HasDurableUndoAvailability
                         ? "undo-available"
                         : "undo-unavailable");
             }
 
-            Append(hash, item.ReplaceTarget is null ? "none" : "some");
+            Append(output, item.ReplaceTarget is null ? "none" : "some");
             if (item.ReplaceTarget is not null)
             {
-                Append(hash, item.ReplaceTarget.DeviceId.ToString());
-                Append(hash, item.ReplaceTarget.ActivityId.ToString());
-                Append(hash, Format(item.ReplaceTarget.Revision));
-                Append(hash, item.ReplaceTarget.DescriptorDigest);
-                Append(hash, item.ReplaceTarget.Kind.Value);
-                Append(hash, item.ReplaceTarget.Placement.Slot);
+                Append(output, item.ReplaceTarget.DeviceId.ToString());
+                Append(output, item.ReplaceTarget.ActivityId.ToString());
+                Append(output, Format(item.ReplaceTarget.Revision));
+                Append(output, item.ReplaceTarget.DescriptorDigest);
+                Append(output, item.ReplaceTarget.Kind.Value);
+                Append(output, item.ReplaceTarget.Placement.Slot);
             }
         }
 
-        return Convert.ToHexString(hash.GetHashAndReset());
+        return output.ToArray();
     }
 
     public static string ComputeReplaceConfirmationFingerprint(
+        string previewFingerprint,
+        SceneApplyItemPreview item)
+    {
+        byte[] encoded = EncodeReplaceConfirmationFingerprintInput(
+            previewFingerprint,
+            item);
+        return Convert.ToHexString(SHA256.HashData(encoded));
+    }
+
+    internal static byte[] EncodeReplaceConfirmationFingerprintInput(
         string previewFingerprint,
         SceneApplyItemPreview item)
     {
@@ -933,19 +967,18 @@ internal static class SceneApplyBinding
             ?? throw new ArgumentException(
                 "A Scene Replace confirmation requires an exact target.",
                 nameof(item));
-        using IncrementalHash hash = IncrementalHash.CreateHash(
-            HashAlgorithmName.SHA256);
-        Append(hash, ReplaceConfirmationDomain);
-        Append(hash, previewFingerprint);
-        Append(hash, Format(item.Index));
-        Append(hash, item.ActivityId.ToString());
-        Append(hash, target.DeviceId.ToString());
-        Append(hash, target.ActivityId.ToString());
-        Append(hash, Format(target.Revision));
-        Append(hash, target.DescriptorDigest);
-        Append(hash, target.Kind.Value);
-        Append(hash, target.Placement.Slot);
-        return Convert.ToHexString(hash.GetHashAndReset());
+        using var output = new MemoryStream();
+        Append(output, ReplaceConfirmationDomain);
+        Append(output, previewFingerprint);
+        Append(output, Format(item.Index));
+        Append(output, item.ActivityId.ToString());
+        Append(output, target.DeviceId.ToString());
+        Append(output, target.ActivityId.ToString());
+        Append(output, Format(target.Revision));
+        Append(output, target.DescriptorDigest);
+        Append(output, target.Kind.Value);
+        Append(output, target.Placement.Slot);
+        return output.ToArray();
     }
 
     public static string ComputeRemoteChildInstructionDigest(
@@ -1000,6 +1033,35 @@ internal static class SceneApplyBinding
             Append(hash, target.Placement.Slot);
         }
 
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    public static string ComputeUndoReplaceInstructionDigest(
+        SceneUndoReplaceInstruction instruction)
+    {
+        ArgumentNullException.ThrowIfNull(instruction);
+        UndoCapsuleReference capsule = instruction.Capsule;
+        using IncrementalHash hash = IncrementalHash.CreateHash(
+            HashAlgorithmName.SHA256);
+        Append(hash, UndoReplaceDomain);
+        Append(hash, instruction.CoordinatorDeviceId.ToString());
+        Append(hash, instruction.TargetDeviceId.ToString());
+        Append(hash, instruction.Context.OperationId.ToString());
+        Append(hash, instruction.Context.CorrelationId.ToString());
+        Append(
+            hash,
+            instruction.Context.Deadline.ToString("O", CultureInfo.InvariantCulture));
+        Append(hash, capsule.Id.ToString());
+        Append(hash, capsule.OperationId.ToString());
+        Append(hash, capsule.CorrelationId.ToString());
+        Append(hash, capsule.TargetActivityId.ToString());
+        Append(hash, Format(capsule.ExpectedTargetRevision));
+        Append(hash, capsule.TargetDescriptorDigest);
+        Append(hash, capsule.IncomingActivityId.ToString());
+        Append(hash, capsule.IncomingDescriptorDigest);
+        Append(
+            hash,
+            capsule.ExpiresAt.ToString("O", CultureInfo.InvariantCulture));
         return Convert.ToHexString(hash.GetHashAndReset());
     }
 
@@ -1081,5 +1143,14 @@ internal static class SceneApplyBinding
         BinaryPrimitives.WriteInt32BigEndian(length, encoded.Length);
         hash.AppendData(length);
         hash.AppendData(encoded);
+    }
+
+    private static void Append(Stream output, string value)
+    {
+        byte[] encoded = Encoding.UTF8.GetBytes(value);
+        Span<byte> length = stackalloc byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32BigEndian(length, encoded.Length);
+        output.Write(length);
+        output.Write(encoded);
     }
 }

@@ -6,6 +6,7 @@ namespace Flowspan.Application;
 
 public sealed class SceneActivityOperationEndpoint
 {
+    private readonly IClock clock;
     private readonly FlowspanNode node;
     private readonly ConcurrentDictionary<DeviceId, CapabilityGrant> peerGrants =
         new();
@@ -15,12 +16,14 @@ public sealed class SceneActivityOperationEndpoint
     public SceneActivityOperationEndpoint(
         FlowspanNode node,
         SceneApplyPreflightEndpoint preflight,
-        ReplaceEndpoint? replaceEndpoint = null)
+        ReplaceEndpoint? replaceEndpoint = null,
+        IClock? clock = null)
     {
         this.node = node ?? throw new ArgumentNullException(nameof(node));
         this.preflight = preflight
             ?? throw new ArgumentNullException(nameof(preflight));
         this.replaceEndpoint = replaceEndpoint;
+        this.clock = clock ?? SystemClock.Instance;
         if (preflight.DeviceId != node.DeviceId
             || (replaceEndpoint is not null
                 && replaceEndpoint.DeviceId != node.DeviceId))
@@ -79,10 +82,27 @@ public sealed class SceneActivityOperationEndpoint
     internal FlowspanNode Node => node;
 
     internal ReplaceEndpoint? ReplaceEndpoint => replaceEndpoint;
+
+    internal ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        UndoCapsuleReference capsule,
+        OperationContext context,
+        CancellationToken cancellationToken) =>
+        replaceEndpoint is null
+            ? ValueTask.FromResult(UndoReplaceResult.Failed(
+                context,
+                capsule.Id,
+                FailureCode.UndoUnavailable,
+                clock.UtcNow))
+            : replaceEndpoint.UndoReplaceAsync(
+                capsule,
+                context,
+                cancellationToken);
 }
 
 public interface ISceneOperationRouteDirectory
 {
+    public IReadOnlyList<DeviceId> GetSceneParticipantDeviceIds();
+
     public bool TryGetChannel(
         DeviceId peerDeviceId,
         out IActivityChannel? channel);
@@ -94,6 +114,14 @@ public interface ISceneOperationRouteDirectory
     public bool TryGetSceneExactSlotChannel(
         DeviceId peerDeviceId,
         out ISceneExactSlotChannel? channel);
+
+    public bool TryGetSceneSourceLookupChannel(
+        DeviceId peerDeviceId,
+        out ISceneSourceLookupChannel? channel);
+
+    public bool TryGetSceneChildOperationChannel(
+        DeviceId peerDeviceId,
+        out ISceneChildOperationChannel? channel);
 }
 
 public sealed class RoutedSceneActivityOperationPort :
@@ -416,6 +444,42 @@ public sealed class RoutedSceneActivityOperationPort :
                     clock.UtcNow,
                     failureCode),
                 null);
+    }
+
+    public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        UndoCapsuleReference capsule,
+        OperationContext context,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(capsule);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        DeviceId requestingCoordinator = coordinatorDeviceId
+            ?? sourceEndpoint.DeviceId;
+        if (capsule.TargetDeviceId != sourceEndpoint.DeviceId)
+        {
+            return ValueTask.FromResult(UndoReplaceResult.Failed(
+                context,
+                capsule.Id,
+                FailureCode.PeerUnavailable,
+                clock.UtcNow));
+        }
+
+        if (!sourceEndpoint.Allows(
+                requestingCoordinator,
+                Capability.SceneApply))
+        {
+            return ValueTask.FromResult(UndoReplaceResult.Rejected(
+                context,
+                capsule.Id,
+                FailureCode.CapabilityDenied,
+                clock.UtcNow));
+        }
+
+        return sourceEndpoint.UndoReplaceAsync(
+            capsule,
+            context,
+            cancellationToken);
     }
 
     private async ValueTask<SceneActivityOperationResult> ExecuteReplaceAsync(
@@ -809,6 +873,42 @@ public sealed class DirectSceneActivityOperationPort :
                     clock.UtcNow,
                     failureCode),
                 null);
+    }
+
+    public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        UndoCapsuleReference capsule,
+        OperationContext context,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(capsule);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!endpoints.TryGetValue(
+                capsule.TargetDeviceId,
+                out SceneActivityOperationEndpoint? targetEndpoint))
+        {
+            return ValueTask.FromResult(UndoReplaceResult.Failed(
+                context,
+                capsule.Id,
+                FailureCode.PeerUnavailable,
+                clock.UtcNow));
+        }
+
+        if (!targetEndpoint.Allows(
+                coordinatorDeviceId,
+                Capability.SceneApply))
+        {
+            return ValueTask.FromResult(UndoReplaceResult.Rejected(
+                context,
+                capsule.Id,
+                FailureCode.CapabilityDenied,
+                clock.UtcNow));
+        }
+
+        return targetEndpoint.UndoReplaceAsync(
+            capsule,
+            context,
+            cancellationToken);
     }
 
     private static async ValueTask<SceneActivityOperationResult> ExecuteReplaceAsync(

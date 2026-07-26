@@ -690,7 +690,7 @@ public sealed class SceneControlPeerTests
             catalog,
             adapters,
             NeverUndoAvailable.Instance);
-        return new SceneActivityOperationEndpoint(node, preflight);
+        return new SceneActivityOperationEndpoint(node, preflight, clock: clock);
     }
 
     private static SceneRemoteChildInstruction CreateInstruction()
@@ -844,7 +844,8 @@ public sealed class SceneControlPeerTests
                     : NeverUndoAvailable.Instance);
             sourceEndpoint = new SceneActivityOperationEndpoint(
                 SourceNode,
-                sourcePreflight);
+                sourcePreflight,
+                clock: clock);
             sourceEndpoint.SetPeerGrant(
                 CoordinatorId,
                 CapabilityGrant.Of(Capability.SceneApply));
@@ -1140,6 +1141,9 @@ public sealed class SceneControlPeerTests
 
         public int ReplaceSendCount => replaceChannel?.SendCount ?? 0;
 
+        public IReadOnlyList<DeviceId> GetSceneParticipantDeviceIds() =>
+            [targetNode.DeviceId];
+
         public bool TryGetChannel(
             DeviceId peerDeviceId,
             out IActivityChannel? channel)
@@ -1168,6 +1172,22 @@ public sealed class SceneControlPeerTests
                 ? slotChannel
                 : null;
             return channel is not null;
+        }
+
+        public bool TryGetSceneSourceLookupChannel(
+            DeviceId peerDeviceId,
+            out ISceneSourceLookupChannel? channel)
+        {
+            channel = null;
+            return false;
+        }
+
+        public bool TryGetSceneChildOperationChannel(
+            DeviceId peerDeviceId,
+            out ISceneChildOperationChannel? channel)
+        {
+            channel = null;
+            return false;
         }
     }
 

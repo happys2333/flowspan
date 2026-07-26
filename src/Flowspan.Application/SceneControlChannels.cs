@@ -99,6 +99,29 @@ public sealed record SceneChildDeliveryResult(
     }
 }
 
+public sealed record SceneUndoReplaceDeliveryResult(
+    SceneControlDeliveryStatus Status,
+    UndoReplaceResult? Result)
+{
+    public static SceneUndoReplaceDeliveryResult NotDelivered { get; } =
+        new(SceneControlDeliveryStatus.NotDelivered, null);
+
+    public static SceneUndoReplaceDeliveryResult AcknowledgementLost { get; } =
+        new(SceneControlDeliveryStatus.AcknowledgementLost, null);
+
+    public static SceneUndoReplaceDeliveryResult ProtocolUnsupported { get; } =
+        new(SceneControlDeliveryStatus.ProtocolUnsupported, null);
+
+    public static SceneUndoReplaceDeliveryResult Acknowledged(
+        UndoReplaceResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return new SceneUndoReplaceDeliveryResult(
+            SceneControlDeliveryStatus.Acknowledged,
+            result);
+    }
+}
+
 public interface ISceneChildOperationChannel
 {
     public DeviceId TargetDeviceId { get; }
@@ -107,6 +130,13 @@ public interface ISceneChildOperationChannel
         DeviceId requestingDeviceId,
         SceneRemoteChildInstruction instruction,
         CancellationToken cancellationToken);
+
+    public ValueTask<SceneUndoReplaceDeliveryResult> UndoReplaceAsync(
+        DeviceId requestingDeviceId,
+        SceneUndoReplaceInstruction instruction,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult(
+            SceneUndoReplaceDeliveryResult.ProtocolUnsupported);
 }
 
 public interface ISceneControlPeer
@@ -127,4 +157,12 @@ public interface ISceneControlPeer
         DeviceId coordinatorDeviceId,
         SceneRemoteChildInstruction instruction,
         CancellationToken cancellationToken);
+
+    public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        DeviceId coordinatorDeviceId,
+        SceneUndoReplaceInstruction instruction,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromException<UndoReplaceResult>(
+            new NotSupportedException(
+                "This Scene control peer does not support remote compensation."));
 }

@@ -133,6 +133,7 @@ public sealed record UndoCapsule
             id,
             operationId,
             correlationId,
+            targetDeviceId,
             originalActivity.Descriptor.Id,
             originalActivity.Revision,
             originalActivity.Descriptor.DescriptorDigest,
@@ -217,12 +218,16 @@ public sealed record UndoCapsuleReference(
     UndoCapsuleId Id,
     OperationId OperationId,
     CorrelationId CorrelationId,
+    DeviceId TargetDeviceId,
     ActivityId TargetActivityId,
     long ExpectedTargetRevision,
     string TargetDescriptorDigest,
     ActivityId IncomingActivityId,
     string IncomingDescriptorDigest,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt)
+{
+    public DateTimeOffset ExpiresAt { get; init; } = ExpiresAt.ToUniversalTime();
+}
 
 public sealed record ReplaceOperationResult(
     OperationReceipt Receipt,
@@ -1112,6 +1117,28 @@ public sealed class ReplaceEndpoint : IReplacePeer, IDisposable
 
             return UndoReplaceResult.Committed(context, capsuleId, clock.UtcNow);
         }
+    }
+
+    public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        UndoCapsuleReference reference,
+        OperationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(context);
+        if (reference.TargetDeviceId != DeviceId
+            || !replaceState.TryGet(reference.Id, out UndoCapsule? capsule)
+            || capsule is null
+            || capsule.Reference != reference)
+        {
+            return ValueTask.FromResult(UndoReplaceResult.Rejected(
+                context,
+                reference.Id,
+                FailureCode.UndoCapsuleInvalid,
+                clock.UtcNow));
+        }
+
+        return UndoReplaceAsync(reference.Id, context, cancellationToken);
     }
 
     private static string ComputeUndoRequestDigest(

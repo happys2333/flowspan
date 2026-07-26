@@ -46,6 +46,8 @@ internal sealed partial class ActivityControlSession :
         pendingSceneExactSlots = new();
     private readonly ConcurrentDictionary<CorrelationId, PendingSceneChild>
         pendingSceneChildren = new();
+    private readonly ConcurrentDictionary<CorrelationId, PendingSceneUndoReplace>
+        pendingSceneUndoReplaces = new();
     private readonly IReplaceTargetInventoryPeer? replaceInventoryPeer;
     private readonly IReplacePeer? replacePeer;
     private readonly ISceneControlPeer? scenePeer;
@@ -275,6 +277,13 @@ internal sealed partial class ActivityControlSession :
                         break;
                     case ControlMessageType.SceneChildOperationResult:
                         HandleSceneChildResult(message);
+                        break;
+                    case ControlMessageType.SceneUndoReplace:
+                        await HandleSceneUndoReplaceAsync(message, linked.Token)
+                            .ConfigureAwait(false);
+                        break;
+                    case ControlMessageType.SceneUndoReplaceResult:
+                        HandleSceneUndoReplaceResult(message);
                         break;
                     default:
                         throw new InvalidDataException(
@@ -806,6 +815,96 @@ internal sealed partial class ActivityControlSession :
         }
     }
 
+    public async ValueTask<SceneUndoReplaceDeliveryResult> UndoReplaceAsync(
+        DeviceId requestingDeviceId,
+        SceneUndoReplaceInstruction instruction,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requestingDeviceId);
+        ArgumentNullException.ThrowIfNull(instruction);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (!ProtocolFeatures.SupportsSceneApply(connection.ProtocolVersion))
+        {
+            return SceneUndoReplaceDeliveryResult.ProtocolUnsupported;
+        }
+
+        if (Volatile.Read(ref running) == 0 || Volatile.Read(ref stopped) != 0)
+        {
+            return SceneUndoReplaceDeliveryResult.NotDelivered;
+        }
+
+        if (requestingDeviceId != connection.LocalDeviceId
+            || instruction.CoordinatorDeviceId != connection.LocalDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A remote Scene undo requester must match the authenticated local Device.");
+        }
+
+        if (instruction.TargetDeviceId != TargetDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A remote Scene undo target must match the authenticated peer.");
+        }
+
+        var pendingUndo = new PendingSceneUndoReplace(instruction);
+        ReserveCorrelation(instruction.Context.CorrelationId);
+        if (!pendingSceneUndoReplaces.TryAdd(
+                instruction.Context.CorrelationId,
+                pendingUndo))
+        {
+            ReleaseCorrelation(instruction.Context.CorrelationId);
+            throw new InvalidOperationException(
+                "The remote Scene undo could not register its reserved correlation ID.");
+        }
+
+        bool sent = false;
+        try
+        {
+            if (Volatile.Read(ref stopped) != 0)
+            {
+                return SceneUndoReplaceDeliveryResult.NotDelivered;
+            }
+
+            ControlMessage message =
+                SceneControlMessageCodec.CreateUndoReplaceInstruction(
+                    connection.ProtocolVersion,
+                    connection.LocalDeviceId,
+                    instruction,
+                    timeProvider.GetUtcNow());
+            await connection.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            sent = true;
+            try
+            {
+                return await pendingUndo.Completion.Task
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                Cancel();
+                throw;
+            }
+        }
+        catch (Exception exception) when (
+            !sent
+            && exception is IOException or SocketException or TimeoutException)
+        {
+            return SceneUndoReplaceDeliveryResult.NotDelivered;
+        }
+        finally
+        {
+            if (!sent
+                && pendingSceneUndoReplaces.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingSceneUndoReplace>(
+                        instruction.Context.CorrelationId,
+                        pendingUndo)))
+            {
+                ReleaseCorrelation(instruction.Context.CorrelationId);
+            }
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) == 0)
@@ -1193,6 +1292,64 @@ internal sealed partial class ActivityControlSession :
         await connection.SendAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
+    private void HandleSceneUndoReplaceResult(ControlMessage message)
+    {
+        if (!pendingSceneUndoReplaces.TryGetValue(
+                message.CorrelationId,
+                out PendingSceneUndoReplace? pendingUndo))
+        {
+            throw new InvalidDataException(
+                "The Activity session received an unsolicited remote Scene undo result.");
+        }
+
+        UndoReplaceResult result =
+            SceneControlMessageCodec.DecodeUndoReplaceResult(
+                message,
+                connection.LocalDeviceId,
+                pendingUndo.Instruction);
+        if (!pendingSceneUndoReplaces.TryRemove(
+                new KeyValuePair<CorrelationId, PendingSceneUndoReplace>(
+                    pendingUndo.Instruction.Context.CorrelationId,
+                    pendingUndo)))
+        {
+            throw new InvalidDataException(
+                "The remote Scene undo result raced with session shutdown.");
+        }
+
+        ReleaseCorrelation(pendingUndo.Instruction.Context.CorrelationId);
+        pendingUndo.Completion.TrySetResult(
+            SceneUndoReplaceDeliveryResult.Acknowledged(result));
+    }
+
+    private async ValueTask HandleSceneUndoReplaceAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        if (scenePeer is null)
+        {
+            throw new InvalidDataException(
+                "The local Activity session does not execute remote Scene undo.");
+        }
+
+        SceneUndoReplaceInstruction instruction =
+            SceneControlMessageCodec.DecodeUndoReplaceInstruction(
+                message,
+                connection.LocalDeviceId);
+        UndoReplaceResult result = await scenePeer.UndoReplaceAsync(
+            connection.PeerDeviceId,
+            instruction,
+            cancellationToken).ConfigureAwait(false);
+        ControlMessage response =
+            SceneControlMessageCodec.CreateUndoReplaceResult(
+                connection.ProtocolVersion,
+                connection.LocalDeviceId,
+                connection.PeerDeviceId,
+                instruction,
+                result,
+                timeProvider.GetUtcNow());
+        await connection.SendAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
     private static void ValidateReplaceResult(
         ReplaceActivityCommand command,
         ReplaceOperationResult result,
@@ -1316,6 +1473,20 @@ internal sealed partial class ActivityControlSession :
             }
         }
 
+        foreach ((CorrelationId correlationId, PendingSceneUndoReplace undo)
+                 in pendingSceneUndoReplaces)
+        {
+            if (pendingSceneUndoReplaces.TryRemove(
+                    new KeyValuePair<CorrelationId, PendingSceneUndoReplace>(
+                        correlationId,
+                        undo)))
+            {
+                ReleaseCorrelation(correlationId);
+                undo.Completion.TrySetResult(
+                    SceneUndoReplaceDeliveryResult.AcknowledgementLost);
+            }
+        }
+
         CompleteSwapPendingAsUncertain();
     }
 
@@ -1392,6 +1563,15 @@ internal sealed partial class ActivityControlSession :
         public SceneRemoteChildInstruction Instruction { get; } = instruction;
 
         public TaskCompletionSource<SceneChildDeliveryResult> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class PendingSceneUndoReplace(
+        SceneUndoReplaceInstruction instruction)
+    {
+        public SceneUndoReplaceInstruction Instruction { get; } = instruction;
+
+        public TaskCompletionSource<SceneUndoReplaceDeliveryResult> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }
@@ -1594,6 +1774,13 @@ public sealed class AuthenticatedActivitySessionHandler :
         channel = null;
         return false;
     }
+
+    public IReadOnlyList<DeviceId> GetSceneParticipantDeviceIds() =>
+        sessions
+            .Where(static pair => pair.Value.Session.SupportsSceneApply)
+            .Select(static pair => pair.Key)
+            .OrderBy(static deviceId => deviceId.Value)
+            .ToArray();
 
     public bool TryGetSceneSourceLookupChannel(
         DeviceId peerDeviceId,

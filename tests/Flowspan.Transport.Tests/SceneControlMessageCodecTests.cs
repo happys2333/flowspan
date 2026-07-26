@@ -148,6 +148,69 @@ public sealed class SceneControlMessageCodecTests
     }
 
     [Fact]
+    public void BothUndoProtocolOnePointFourFramesAndHashesMatchFrozenFixture()
+    {
+        SceneUndoReplaceInstruction instruction = CreateUndoInstruction();
+        UndoReplaceResult result = UndoReplaceResult.Committed(
+            instruction.Context,
+            instruction.Capsule.Id,
+            Now.AddSeconds(3));
+        (string Name, ControlMessage Message)[] messages =
+        [
+            ("undo-replace", Freeze(
+                SceneControlMessageCodec.CreateUndoReplaceInstruction(
+                    Version,
+                    CoordinatorId,
+                    instruction,
+                    Now),
+                "07070707-0707-0707-0707-070707070707")),
+            ("undo-replace-result", Freeze(
+                SceneControlMessageCodec.CreateUndoReplaceResult(
+                    Version,
+                    DestinationId,
+                    CoordinatorId,
+                    instruction,
+                    result,
+                    Now.AddSeconds(3)),
+                "08080808-0808-0808-0808-080808080808")),
+        ];
+        string fixturePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Fixtures",
+            "scene-undo-control-v1.4.json");
+        using JsonDocument document = JsonDocument.Parse(
+            File.ReadAllBytes(fixturePath));
+        JsonElement root = document.RootElement;
+        Assert.Equal(1, root.GetProperty("formatVersion").GetInt32());
+        Assert.Equal(Version.ToString(), root.GetProperty("protocol").GetString());
+        JsonElement[] fixtures = root.GetProperty("fixtures")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(messages.Length, fixtures.Length);
+        for (int index = 0; index < messages.Length; index++)
+        {
+            (string name, ControlMessage message) = messages[index];
+            JsonElement fixture = fixtures[index];
+            byte[] actualFrame = ControlMessageCodec.Encode(message);
+            string expectedFrame = fixture.GetProperty("frame").GetString()
+                ?? throw new InvalidDataException(
+                    "A Scene undo fixture frame is null.");
+            string expectedHash = fixture.GetProperty("sha256").GetString()
+                ?? throw new InvalidDataException(
+                    "A Scene undo fixture hash is null.");
+
+            Assert.Equal(name, fixture.GetProperty("name").GetString());
+            Assert.Equal(expectedFrame, Encoding.UTF8.GetString(actualFrame));
+            Assert.Equal(
+                expectedHash,
+                Convert.ToHexString(SHA256.HashData(actualFrame)));
+            ControlMessage decoded = ControlMessageCodec.Decode(actualFrame);
+            Assert.Equal(message.Type, decoded.Type);
+            Assert.Equal(actualFrame, ControlMessageCodec.Encode(decoded));
+        }
+    }
+
+    [Fact]
     public void SourceLookupQueryRoundTripsEveryBinding()
     {
         SceneSourceLookupQuery query = SceneSourceLookupQuery.Create(
@@ -423,6 +486,111 @@ public sealed class SceneControlMessageCodecTests
     }
 
     [Fact]
+    public void RemoteUndoInstructionAndResultRoundTripEveryPayloadFreeBinding()
+    {
+        SceneUndoReplaceInstruction instruction = CreateUndoInstruction();
+        UndoReplaceResult expected = UndoReplaceResult.Committed(
+            instruction.Context,
+            instruction.Capsule.Id,
+            Now.AddSeconds(3));
+
+        ControlMessage request =
+            SceneControlMessageCodec.CreateUndoReplaceInstruction(
+                Version,
+                CoordinatorId,
+                instruction,
+                Now);
+        SceneUndoReplaceInstruction decodedInstruction =
+            SceneControlMessageCodec.DecodeUndoReplaceInstruction(
+                request,
+                DestinationId);
+        ControlMessage response =
+            SceneControlMessageCodec.CreateUndoReplaceResult(
+                Version,
+                DestinationId,
+                CoordinatorId,
+                instruction,
+                expected,
+                Now.AddSeconds(3));
+        UndoReplaceResult decodedResult =
+            SceneControlMessageCodec.DecodeUndoReplaceResult(
+                response,
+                CoordinatorId,
+                instruction);
+
+        Assert.Equal(instruction, decodedInstruction);
+        Assert.Equal(expected, decodedResult);
+        Assert.Equal(ControlMessageType.SceneUndoReplace, request.Type);
+        Assert.Equal(ControlMessageType.SceneUndoReplaceResult, response.Type);
+        Assert.Equal(instruction.Context.CorrelationId, request.CorrelationId);
+        Assert.DoesNotContain(
+            "payload",
+            request.Body.GetRawText(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "title",
+            request.Body.GetRawText(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("bindingDigest")]
+    [InlineData("targetDeviceId")]
+    [InlineData("operationId")]
+    public void RemoteUndoResultRejectsChangedFrozenBinding(string field)
+    {
+        SceneUndoReplaceInstruction instruction = CreateUndoInstruction();
+        UndoReplaceResult result = UndoReplaceResult.Committed(
+            instruction.Context,
+            instruction.Capsule.Id,
+            Now.AddSeconds(3));
+        ControlMessage message =
+            SceneControlMessageCodec.CreateUndoReplaceResult(
+                Version,
+                DestinationId,
+                CoordinatorId,
+                instruction,
+                result,
+                Now.AddSeconds(3));
+        JsonObject body = JsonNode.Parse(message.Body.GetRawText())!.AsObject();
+        body[field] = field switch
+        {
+            "bindingDigest" => new string('F', 64),
+            "targetDeviceId" => SourceId.ToString(),
+            _ => ParentOperationId.ToString(),
+        };
+
+        Assert.Throws<InvalidDataException>(() =>
+            SceneControlMessageCodec.DecodeUndoReplaceResult(
+                WithBody(message, body),
+                CoordinatorId,
+                instruction));
+    }
+
+    [Theory]
+    [InlineData("payloadJson")]
+    [InlineData("title")]
+    [InlineData("unknownField")]
+    public void RemoteUndoInstructionRejectsPayloadLikeOrUnknownFields(
+        string field)
+    {
+        SceneUndoReplaceInstruction instruction = CreateUndoInstruction();
+        ControlMessage message =
+            SceneControlMessageCodec.CreateUndoReplaceInstruction(
+                Version,
+                CoordinatorId,
+                instruction,
+                Now);
+        JsonObject body = JsonNode.Parse(message.Body.GetRawText())!.AsObject();
+        body[field] = "secret-canary";
+
+        Assert.Throws<InvalidDataException>(() =>
+            SceneControlMessageCodec.DecodeUndoReplaceInstruction(
+                WithBody(message, body),
+                DestinationId));
+    }
+
+    [Fact]
     public void RemoteChildInstructionRejectsWrongAuthenticatedSource()
     {
         SceneRemoteChildInstruction instruction = CreateHandoffInstruction();
@@ -548,6 +716,21 @@ public sealed class SceneControlMessageCodecTests
             SceneControlMessageCodec.DecodeChildInstruction(
                 WithBody(childMessage, childBody),
                 SourceId));
+
+        SceneUndoReplaceInstruction undo = CreateUndoInstruction();
+        ControlMessage undoMessage =
+            SceneControlMessageCodec.CreateUndoReplaceInstruction(
+                Version,
+                CoordinatorId,
+                undo,
+                Now);
+        JsonObject undoBody = JsonNode.Parse(
+            undoMessage.Body.GetRawText())!.AsObject();
+        undoBody["deadline"] = Now;
+        Assert.Throws<InvalidDataException>(() =>
+            SceneControlMessageCodec.DecodeUndoReplaceInstruction(
+                WithBody(undoMessage, undoBody),
+                DestinationId));
     }
 
     [Fact]
@@ -603,6 +786,29 @@ public sealed class SceneControlMessageCodecTests
             ParentCorrelationId,
             acceptedAt: Now,
             item);
+    }
+
+    private static SceneUndoReplaceInstruction CreateUndoInstruction()
+    {
+        DateTimeOffset expiresAt = Now.AddMinutes(5);
+        var capsule = new UndoCapsuleReference(
+            UndoCapsuleId.Parse("12121212-1212-1212-1212-121212121212"),
+            OperationId.Parse("13131313-1313-1313-1313-131313131313"),
+            CorrelationId.Parse("14141414-1414-1414-1414-141414141414"),
+            DestinationId,
+            ActivityId.Parse("15151515-1515-1515-1515-151515151515"),
+            ExpectedTargetRevision: 9,
+            TargetDescriptorDigest: new string('E', 64),
+            IncomingActivityId: ActivityId,
+            IncomingDescriptorDigest: new string('A', 64),
+            expiresAt);
+        return SceneUndoReplaceInstruction.Create(
+            CoordinatorId,
+            capsule,
+            OperationContext.Create(
+                OperationId.Parse("16161616-1616-1616-1616-161616161616"),
+                CorrelationId.Parse("17171717-1717-1717-1717-171717171717"),
+                expiresAt));
     }
 
     private static SceneSourceSelection CreateSourceSelection() =>

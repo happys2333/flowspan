@@ -121,6 +121,14 @@ public interface ISceneActivityOperationPort
     public ValueTask<SceneActivityOperationResult> ExecuteAsync(
         SceneActivityPreparation preparation,
         CancellationToken cancellationToken);
+
+    public ValueTask<UndoReplaceResult> UndoReplaceAsync(
+        UndoCapsuleReference capsule,
+        OperationContext context,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromException<UndoReplaceResult>(
+            new NotSupportedException(
+                "This Scene operation port does not support compensation."));
 }
 
 public enum SceneApplyJournalItemStatus

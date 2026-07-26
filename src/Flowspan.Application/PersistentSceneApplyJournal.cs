@@ -782,7 +782,7 @@ internal static class SceneApplyStatePayloadCodec
             "occurredAt");
         UndoCapsuleReference? undo = encoded.Undo is null
             ? null
-            : DecodeUndo(encoded.Undo);
+            : DecodeUndo(encoded.Undo, item.Destination.DeviceId);
         SceneApplyItemResult restored = outcome switch
         {
             SceneApplyItemOutcome.Blocked or SceneApplyItemOutcome.NoChange =>
@@ -871,7 +871,9 @@ internal static class SceneApplyStatePayloadCodec
             undo.IncomingDescriptorDigest,
             FormatTimestamp(undo.ExpiresAt));
 
-    private static UndoCapsuleReference DecodeUndo(UndoDto encoded)
+    private static UndoCapsuleReference DecodeUndo(
+        UndoDto encoded,
+        DeviceId targetDeviceId)
     {
         if (encoded is null)
         {
@@ -883,6 +885,7 @@ internal static class SceneApplyStatePayloadCodec
             UndoCapsuleId.Parse(encoded.Id),
             OperationId.Parse(encoded.OperationId),
             CorrelationId.Parse(encoded.CorrelationId),
+            targetDeviceId,
             ActivityId.Parse(encoded.TargetActivityId),
             encoded.ExpectedTargetRevision,
             SceneApplyBinding.ValidateDigest(

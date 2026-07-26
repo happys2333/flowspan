@@ -537,8 +537,9 @@ public sealed class ActivityControlMessageCodecTests
             UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
             Context.OperationId,
             Context.CorrelationId,
+            TargetId,
             TargetDescriptor.Id,
-            ExpectedTargetRevision: 7,
+            7,
             TargetDescriptor.DescriptorDigest,
             Descriptor.Id,
             Descriptor.DescriptorDigest,
@@ -566,6 +567,46 @@ public sealed class ActivityControlMessageCodecTests
             TargetDescriptor.PayloadDigest,
             message.Body.GetRawText(),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReplaceResultRejectsNonUtcUndoCapsuleExpiry()
+    {
+        OperationReceipt receipt = OperationReceipt.Committed(
+            Context.OperationId,
+            Context.CorrelationId,
+            OperationKind.Replace,
+            SourceId,
+            TargetId,
+            Descriptor,
+            Now.AddSeconds(1));
+        var capsule = new UndoCapsuleReference(
+            UndoCapsuleId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+            Context.OperationId,
+            Context.CorrelationId,
+            TargetId,
+            TargetDescriptor.Id,
+            7,
+            TargetDescriptor.DescriptorDigest,
+            Descriptor.Id,
+            Descriptor.DescriptorDigest,
+            Now.AddMinutes(10));
+        var result = new ReplaceOperationResult(receipt, capsule);
+        ControlMessage valid = ActivityControlMessageCodec.CreateReplaceResult(
+            new ProtocolVersion(1, 0),
+            TargetId,
+            result,
+            Now.AddSeconds(1));
+        JsonObject body = JsonNode.Parse(valid.Body.GetRawText())!.AsObject();
+        body["undoCapsule"]!["expiresAt"] = "2026-07-14T18:10:00+02:00";
+
+        ControlMessage forged = WithBody(valid, body);
+
+        Assert.Throws<InvalidDataException>(() =>
+            ActivityControlMessageCodec.DecodeReplaceResult(
+                forged,
+                SourceId,
+                Context.CorrelationId));
     }
 
     [Fact]

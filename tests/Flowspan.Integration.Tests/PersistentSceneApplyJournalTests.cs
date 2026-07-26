@@ -73,6 +73,44 @@ public sealed class PersistentSceneApplyJournalTests
     }
 
     [Fact]
+    public async Task OperationExceptionTextNeverEntersDurableJournalPayload()
+    {
+        Fixture fixture = CreateFixture();
+        var payloadStore = new InMemoryPayloadStore();
+        var clock = new MutableClock(AcceptedAt);
+        var throwingPort = new RecordingOperationPort(
+            fixture.Descriptor,
+            clock,
+            failIfCalled: true);
+        using PersistentSceneApplyJournal journal =
+            await PersistentSceneApplyJournal.OpenAsync(payloadStore);
+        var coordinator = new SceneApplyCoordinator(
+            clock,
+            journal,
+            throwingPort);
+
+        SceneApplyExecutionResult execution = await coordinator.ApplyAsync(
+            fixture.Scene,
+            fixture.Preview,
+            fixture.Approval,
+            CancellationToken.None);
+
+        Assert.Equal(
+            SceneApplyOverallStatus.Recovering,
+            execution.Result?.Status);
+        string plaintext = Encoding.UTF8.GetString(
+            Assert.IsType<byte[]>(payloadStore.Payload));
+        Assert.DoesNotContain(
+            "replayed-operation-exception-canary",
+            plaintext,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "InvalidOperationException",
+            plaintext,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AmbiguousSavePoisonsOpenJournalUntilDurableStateIsReopened()
     {
         Fixture fixture = CreateFixture();
@@ -941,6 +979,7 @@ public sealed class PersistentSceneApplyJournalTests
                     "10101010-1010-1010-1010-101010101010"),
                 item.ChildOperationId,
                 item.ChildCorrelationId,
+                item.Destination.DeviceId,
                 target.ActivityId,
                 target.Revision,
                 target.DescriptorDigest,

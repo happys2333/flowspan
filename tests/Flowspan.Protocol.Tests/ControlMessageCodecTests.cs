@@ -200,6 +200,8 @@ public sealed class ControlMessageCodecTests
     [InlineData(ControlMessageType.SceneSlotInspectionResult)]
     [InlineData(ControlMessageType.SceneChildOperation)]
     [InlineData(ControlMessageType.SceneChildOperationResult)]
+    [InlineData(ControlMessageType.SceneUndoReplace)]
+    [InlineData(ControlMessageType.SceneUndoReplaceResult)]
     public void ProtocolBelowOnePointFourRejectsSceneMessageTypes(ControlMessageType type)
     {
         Assert.Throws<ArgumentException>(() => ControlMessage.Create(
@@ -220,6 +222,8 @@ public sealed class ControlMessageCodecTests
     [InlineData(ControlMessageType.SceneSlotInspectionResult)]
     [InlineData(ControlMessageType.SceneChildOperation)]
     [InlineData(ControlMessageType.SceneChildOperationResult)]
+    [InlineData(ControlMessageType.SceneUndoReplace)]
+    [InlineData(ControlMessageType.SceneUndoReplaceResult)]
     public void ProtocolOnePointFourAcceptsSceneMessageTypes(ControlMessageType type)
     {
         ControlMessage message = ControlMessage.Create(

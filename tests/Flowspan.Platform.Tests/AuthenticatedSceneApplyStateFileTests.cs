@@ -14,7 +14,9 @@ public sealed class AuthenticatedSceneApplyStateFileTests
             $"flowspan-scene-apply-state-{Guid.NewGuid():N}");
         string path = Path.Combine(directory, "scene-apply-state.fsaf");
         byte[] payload = Encoding.UTF8.GetBytes(
-            "{\"attempt\":\"SCENE-APPLY-PLAINTEXT-CANARY\"}");
+            "{\"attempt\":\"SCENE-APPLY-PLAINTEXT-CANARY\","
+            + "\"title\":\"SCENE-APPLY-TITLE-CANARY\","
+            + "\"exception\":\"SCENE-APPLY-EXCEPTION-CANARY\"}");
         var keyStore = new FixedSceneApplyStateKeyStore(
             Enumerable.Range(1, 32).Select(static value => (byte)value).ToArray());
         var store = new AuthenticatedSceneApplyStateFile(path, keyStore);
@@ -26,6 +28,14 @@ public sealed class AuthenticatedSceneApplyStateFileTests
             Assert.Equal("FSAF"u8.ToArray(), protectedBytes[..4]);
             Assert.DoesNotContain(
                 "SCENE-APPLY-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(protectedBytes),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "SCENE-APPLY-TITLE-CANARY",
+                Encoding.UTF8.GetString(protectedBytes),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "SCENE-APPLY-EXCEPTION-CANARY",
                 Encoding.UTF8.GetString(protectedBytes),
                 StringComparison.Ordinal);
             byte[]? restored = await new AuthenticatedSceneApplyStateFile(

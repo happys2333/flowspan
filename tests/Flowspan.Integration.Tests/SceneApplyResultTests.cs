@@ -206,6 +206,7 @@ public sealed class SceneApplyResultTests
             UndoCapsuleId.Parse("88888888-8888-8888-8888-888888888888"),
             item.ChildOperationId,
             item.ChildCorrelationId,
+            item.Destination.DeviceId,
             target.ActivityId,
             target.Revision,
             target.DescriptorDigest,

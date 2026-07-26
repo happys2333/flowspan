@@ -58,6 +58,21 @@ public sealed class SceneApplyPreviewTests
         Assert.Equal(
             "6080446C319F41BE8EDEC1E2C17291ED6365AAB38484B963946EE00A647B0A69",
             preview.Fingerprint);
+        byte[] bindingBytes = SceneApplyBinding.EncodePreviewFingerprintInput(
+            scene,
+            preview.SceneDigest,
+            preview.ParentOperationId,
+            preview.ParentCorrelationId,
+            preview.CreatedAt,
+            preview.ExpiresAt,
+            preview.GroupRevisionWarning,
+            preview.Items);
+        Assert.Equal(
+            "AAAAH2Zsb3dzcGFuLnNjZW5lLWFwcGx5LXByZXZpZXcvdjEAAAAkMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMzAAAAATEAAABAMzhGRjVFNzg4NzU0MDAzNUM2RjczMzBCMEREQjY4QUY3RDdFM0ZCNDRGODE3MEYzQkQ5OURGNzdFQzdBRkE4QgAAACQ2NjY2NjY2Ni02NjY2LTY2NjYtNjY2Ni02NjY2NjY2NjY2NjYAAAAkNzc3Nzc3NzctNzc3Ny03Nzc3LTc3NzctNzc3Nzc3Nzc3Nzc3AAAAITIwMjYtMDctMjVUMDg6MDA6MDAuMDAwMDAwMCswMDowMAAAACEyMDI2LTA3LTI1VDA4OjA1OjAwLjAwMDAwMDArMDA6MDAAAAAEbm9uZQAAAARub25lAAAAATEAAAABMAAAACRhYWFhYWFhYS1hYWFhLWFhYWEtYWFhYS1hYWFhYWFhYWFhYWEAAAAkMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIyAAAACW1haW4t8J+agAAAAA9wcmVzZXJ2ZS1zb3VyY2UAAAANcmVxdWlyZS1lbXB0eQAAACQ0NDQ0NDQ0NC00NDQ0LTQ0NDQtNDQ0NC00NDQ0NDQ0NDQ0NDQAAAAkNTU1NTU1NTUtNTU1NS01NTU1LTU1NTUtNTU1NTU1NTU1NTU1AAAABHNvbWUAAAAkMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIyAAAAATcAAABAQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQAAABF3b3Jrc3BhY2Uubm90ZS92MQAAAAltYWluLfCfmoAAAAAJbm8tY2hhbmdlAAAABG5vbmUAAAANbm90LWluc3BlY3RlZAAAAARub25l",
+            Convert.ToBase64String(bindingBytes));
+        Assert.Equal(
+            preview.Fingerprint,
+            Convert.ToHexString(SHA256.HashData(bindingBytes)));
         Assert.Equal(
             preview.Fingerprint,
             SceneApplyPreview.Create(
@@ -179,6 +194,19 @@ public sealed class SceneApplyPreviewTests
             []);
         SceneReplaceConfirmation exact = Assert.Single(
             preview.RequiredReplaceConfirmations);
+        byte[] confirmationBytes =
+            SceneApplyBinding.EncodeReplaceConfirmationFingerprintInput(
+                preview.Fingerprint,
+                item);
+        Assert.Equal(
+            "AAAALGZsb3dzcGFuLnNjZW5lLWFwcGx5LXJlcGxhY2UtY29uZmlybWF0aW9uL3YxAAAAQDMxMEM4M0JGMUU1QzM5RTUxNzdCMTJFN0EwNUREMkQwMUQ4QzQxMkE5Q0E2NEQ0RDgzQzE4MUZFQzI2Q0EzM0UAAAABMAAAACRhYWFhYWFhYS1hYWFhLWFhYWEtYWFhYS1hYWFhYWFhYWFhYWEAAAAkMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIyAAAAJGJiYmJiYmJiLWJiYmItYmJiYi1iYmJiLWJiYmJiYmJiYmJiYgAAAAE5AAAAQEJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIAAAARd29ya3NwYWNlLm5vdGUvdjEAAAAEbWFpbg==",
+            Convert.ToBase64String(confirmationBytes));
+        Assert.Equal(
+            "EB1480202D2DD1176A1BA4B4A0619E4309FB1115EF1D8666A60BD775F3ABDBA8",
+            exact.Fingerprint);
+        Assert.Equal(
+            exact.Fingerprint,
+            Convert.ToHexString(SHA256.HashData(confirmationBytes)));
         SceneApplyApproval confirmed = SceneApplyApproval.Create(
             preview.Fingerprint,
             [exact]);

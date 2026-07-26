@@ -109,8 +109,9 @@ public sealed class SceneActivityOperationPortTests
 
         SceneApplyExecutionResult execution = await fixture.ApplyAsync(scene);
 
-        SceneApplyItemResult item = Assert.Single(
-            Assert.IsType<SceneApplyResult>(execution.Result).Items);
+        SceneApplyResult applyResult = Assert.IsType<SceneApplyResult>(
+            execution.Result);
+        SceneApplyItemResult item = Assert.Single(applyResult.Items);
         Assert.Equal(SceneApplyItemOutcome.Blocked, item.Outcome);
         Assert.Equal(SceneApplyItemReason.SourceSelectionRequired, item.Reason);
         Assert.False(fixture.TargetNode.TryGetActivity(
@@ -305,8 +306,9 @@ public sealed class SceneActivityOperationPortTests
 
         SceneApplyExecutionResult execution = await fixture.ApplyAsync(scene);
 
-        SceneApplyItemResult item = Assert.Single(
-            Assert.IsType<SceneApplyResult>(execution.Result).Items);
+        SceneApplyResult applyResult = Assert.IsType<SceneApplyResult>(
+            execution.Result);
+        SceneApplyItemResult item = Assert.Single(applyResult.Items);
         Assert.Equal(SceneApplyItemOutcome.Committed, item.Outcome);
         UndoCapsuleReference undo = Assert.IsType<UndoCapsuleReference>(
             item.UndoCapsule);
@@ -326,6 +328,26 @@ public sealed class SceneActivityOperationPortTests
             IncomingActivity,
             out ActivityInstance? preserved));
         Assert.Equal(ActivityLifecycle.Active, preserved.Lifecycle);
+
+        SceneCompensationResult compensation =
+            await fixture.CompensateAsync(applyResult);
+        SceneCompensationResult replay =
+            await fixture.CompensateAsync(applyResult);
+
+        Assert.Equal(SceneCompensationStatus.Completed, compensation.Status);
+        Assert.Equal(compensation.ParentOperationId, replay.ParentOperationId);
+        Assert.Equal(compensation.Status, replay.Status);
+        Assert.True(compensation.Items.SequenceEqual(replay.Items));
+        Assert.Equal(
+            SceneCompensationItemOutcome.Committed,
+            Assert.Single(compensation.Items).Outcome);
+        Assert.True(fixture.TargetNode.TryGetActivity(
+            OccupyingActivity,
+            out ActivityInstance? restored));
+        Assert.Equal(
+            ActivityPlacement.On(TargetDevice, "destination"),
+            restored.Placement);
+        Assert.False(fixture.TargetNode.TryGetActivity(IncomingActivity, out _));
     }
 
     [Fact]
@@ -660,11 +682,13 @@ public sealed class SceneActivityOperationPortTests
 
             SourceOperation = new SceneActivityOperationEndpoint(
                 SourceNode,
-                SourcePreflight);
+                SourcePreflight,
+                clock: clock);
             TargetOperation = new SceneActivityOperationEndpoint(
                 TargetNode,
                 TargetPreflight,
-                TargetReplace);
+                TargetReplace,
+                clock);
             preflightPort = new DirectSceneApplyPreflightPort(
                 this.coordinatorDeviceId,
                 [SourcePreflight, TargetPreflight]);
@@ -812,6 +836,12 @@ public sealed class SceneActivityOperationPortTests
                     preview.RequiredReplaceConfirmations),
                 CancellationToken.None);
         }
+
+        public ValueTask<SceneCompensationResult> CompensateAsync(
+            SceneApplyResult applyResult) =>
+            new SceneApplyCompensator(clock, operationPort).CompensateAsync(
+                applyResult,
+                CancellationToken.None);
 
         public async ValueTask<SceneApplyExecutionResult> ApplyAsync(
             ScenePlan scene)

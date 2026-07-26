@@ -766,7 +766,8 @@ public static class ActivityControlMessageCodec
             UndoCapsuleReference? capsule = DecodeUndoCapsule(
                 root,
                 operationId,
-                message.CorrelationId);
+                message.CorrelationId,
+                targetDeviceId);
             var result = new ReplaceOperationResult(receipt, capsule);
             ValidateReplaceCapsuleBinding(result);
             return result;
@@ -943,7 +944,8 @@ public static class ActivityControlMessageCodec
     private static UndoCapsuleReference? DecodeUndoCapsule(
         JsonElement root,
         OperationId operationId,
-        CorrelationId correlationId)
+        CorrelationId correlationId,
+        DeviceId targetDeviceId)
     {
         if (!root.TryGetProperty("undoCapsule", out JsonElement value))
         {
@@ -982,12 +984,13 @@ public static class ActivityControlMessageCodec
             UndoCapsuleId.Parse(RequireString(value, "id")),
             operationId,
             correlationId,
+            targetDeviceId,
             ActivityId.Parse(RequireString(value, "targetActivityId")),
             expectedTargetRevision,
             RequireDigest(value, "targetDescriptorDigest"),
             ActivityId.Parse(RequireString(value, "incomingActivityId")),
             RequireDigest(value, "incomingDescriptorDigest"),
-            RequireDateTimeOffset(value, "expiresAt"));
+            RequireUtcDateTimeOffset(value, "expiresAt"));
     }
 
     private static void ValidateReplaceCapsuleBinding(ReplaceOperationResult result)
@@ -1006,6 +1009,7 @@ public static class ActivityControlMessageCodec
 
         if (capsule.OperationId != result.Receipt.OperationId
             || capsule.CorrelationId != result.Receipt.CorrelationId
+            || capsule.TargetDeviceId != result.Receipt.TargetDeviceId
             || capsule.IncomingActivityId != result.Receipt.ActivityId
             || result.Receipt.DescriptorDigest is not string receiptDigest
             || !DigestsEqual(capsule.IncomingDescriptorDigest, receiptDigest))
@@ -1023,6 +1027,17 @@ public static class ActivityControlMessageCodec
         return value.TryGetDateTimeOffset(out DateTimeOffset parsed)
             ? parsed
             : throw new InvalidDataException($"The '{name}' field is not a timestamp.");
+    }
+
+    private static DateTimeOffset RequireUtcDateTimeOffset(
+        JsonElement parent,
+        string name)
+    {
+        DateTimeOffset parsed = RequireDateTimeOffset(parent, name);
+        return parsed.Offset == TimeSpan.Zero
+            ? parsed
+            : throw new InvalidDataException(
+                $"The '{name}' field must be a canonical UTC timestamp.");
     }
 
     private static long RequireInt64(JsonElement parent, string name)

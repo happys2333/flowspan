@@ -403,6 +403,7 @@ internal static class SceneRemoteChildStatePayloadCodec
                 UndoCapsuleId.Parse(encoded.Undo.Id),
                 OperationId.Parse(encoded.Undo.OperationId),
                 CorrelationId.Parse(encoded.Undo.CorrelationId),
+                decodedReceipt.TargetDeviceId,
                 ActivityId.Parse(encoded.Undo.TargetActivityId),
                 encoded.Undo.ExpectedTargetRevision,
                 encoded.Undo.TargetDescriptorDigest,

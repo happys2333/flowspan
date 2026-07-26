@@ -266,6 +266,7 @@ public sealed record SceneApplyItemResult
         ArgumentNullException.ThrowIfNull(undoCapsule.Id);
         ArgumentNullException.ThrowIfNull(undoCapsule.OperationId);
         ArgumentNullException.ThrowIfNull(undoCapsule.CorrelationId);
+        ArgumentNullException.ThrowIfNull(undoCapsule.TargetDeviceId);
         ArgumentNullException.ThrowIfNull(undoCapsule.TargetActivityId);
         ArgumentNullException.ThrowIfNull(undoCapsule.IncomingActivityId);
         SceneReplaceTargetSnapshot target = item.ReplaceTarget
@@ -274,6 +275,7 @@ public sealed record SceneApplyItemResult
                 nameof(item));
         if (undoCapsule.OperationId != item.ChildOperationId
             || undoCapsule.CorrelationId != item.ChildCorrelationId
+            || undoCapsule.TargetDeviceId != item.Destination.DeviceId
             || undoCapsule.TargetActivityId != target.ActivityId
             || undoCapsule.ExpectedTargetRevision != target.Revision
             || !string.Equals(
