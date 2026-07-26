@@ -110,6 +110,124 @@ public sealed class PersistentSceneApplyJournalTests
         Assert.True(restored.Matches(fixture.Preview));
     }
 
+    [Theory]
+    [InlineData(JournalSaveBoundary.Started)]
+    [InlineData(JournalSaveBoundary.Outcome)]
+    [InlineData(JournalSaveBoundary.Completed)]
+    public async Task EveryUpdateSaveBoundaryPoisonsWithoutPublishingCandidate(
+        JournalSaveBoundary boundary)
+    {
+        Fixture fixture = CreateFixture();
+        var payloadStore = new InMemoryPayloadStore();
+        SceneApplyItemResult committed = CreateCommittedHandoffResult(fixture);
+        SceneApplyResult completed = SceneApplyResult.Create(
+            fixture.Preview,
+            AcceptedAt,
+            AcceptedAt,
+            [committed]);
+        SceneApplyJournalItemStatus expectedOpenStatus;
+        bool expectedDurableCompletion;
+        using (PersistentSceneApplyJournal journal =
+               await PersistentSceneApplyJournal.OpenAsync(payloadStore))
+        {
+            await journal.CreateAsync(
+                fixture.Preview,
+                AcceptedAt,
+                CancellationToken.None);
+            if (boundary is JournalSaveBoundary.Outcome
+                or JournalSaveBoundary.Completed)
+            {
+                await journal.RecordItemStartedAsync(
+                    fixture.Preview.ParentOperationId,
+                    0,
+                    AcceptedAt,
+                    CancellationToken.None);
+            }
+
+            if (boundary == JournalSaveBoundary.Completed)
+            {
+                await journal.RecordItemOutcomeAsync(
+                    fixture.Preview.ParentOperationId,
+                    committed,
+                    CancellationToken.None);
+            }
+
+            SceneApplyJournalState before = Assert.IsType<SceneApplyJournalState>(
+                await journal.LoadAsync(
+                    fixture.Preview.ParentOperationId,
+                    CancellationToken.None));
+            expectedOpenStatus = before.Items[0].Status;
+            expectedDurableCompletion =
+                boundary == JournalSaveBoundary.Completed;
+            int saveCountBeforeFailure = payloadStore.SaveCount;
+            payloadStore.FailAfterNextWrite = true;
+
+            await Assert.ThrowsAsync<SceneApplyStatePersistenceException>(
+                async () =>
+                {
+                    switch (boundary)
+                    {
+                        case JournalSaveBoundary.Started:
+                            await journal.RecordItemStartedAsync(
+                                fixture.Preview.ParentOperationId,
+                                0,
+                                AcceptedAt,
+                                CancellationToken.None);
+                            break;
+                        case JournalSaveBoundary.Outcome:
+                            await journal.RecordItemOutcomeAsync(
+                                fixture.Preview.ParentOperationId,
+                                committed,
+                                CancellationToken.None);
+                            break;
+                        case JournalSaveBoundary.Completed:
+                            await journal.RecordCompletedAsync(
+                                fixture.Preview.ParentOperationId,
+                                completed,
+                                CancellationToken.None);
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException(
+                                nameof(boundary));
+                    }
+                });
+
+            SceneApplyJournalState unchanged =
+                Assert.IsType<SceneApplyJournalState>(
+                    await journal.LoadAsync(
+                        fixture.Preview.ParentOperationId,
+                        CancellationToken.None));
+            Assert.Equal(expectedOpenStatus, unchanged.Items[0].Status);
+            Assert.False(unchanged.IsCompleted);
+            Assert.Equal(saveCountBeforeFailure + 1, payloadStore.SaveCount);
+            await Assert.ThrowsAsync<SceneApplyStatePersistenceException>(
+                async () =>
+                await journal.CreateAsync(
+                    fixture.Preview,
+                    AcceptedAt,
+                    CancellationToken.None));
+            Assert.Equal(saveCountBeforeFailure + 1, payloadStore.SaveCount);
+        }
+
+        using PersistentSceneApplyJournal reopened =
+            await PersistentSceneApplyJournal.OpenAsync(payloadStore);
+        SceneApplyJournalState durable = Assert.IsType<SceneApplyJournalState>(
+            await reopened.LoadAsync(
+                fixture.Preview.ParentOperationId,
+                CancellationToken.None));
+        SceneApplyJournalItemStatus expectedDurableStatus = boundary switch
+        {
+            JournalSaveBoundary.Started =>
+                SceneApplyJournalItemStatus.Started,
+            JournalSaveBoundary.Outcome
+            or JournalSaveBoundary.Completed =>
+                SceneApplyJournalItemStatus.Terminal,
+            _ => throw new ArgumentOutOfRangeException(nameof(boundary)),
+        };
+        Assert.Equal(expectedDurableStatus, durable.Items[0].Status);
+        Assert.Equal(expectedDurableCompletion, durable.IsCompleted);
+    }
+
     [Fact]
     public async Task StrictCodecRejectsTerminalItemWithoutResultEvidence()
     {
@@ -496,6 +614,26 @@ public sealed class PersistentSceneApplyJournalTests
             descriptor);
     }
 
+    private static SceneApplyItemResult CreateCommittedHandoffResult(
+        Fixture fixture)
+    {
+        SceneApplyItemPreview item = fixture.Preview.Items[0];
+        SceneSourceSelection source =
+            Assert.IsType<SceneSourceSelection>(item.Source);
+        OperationReceipt receipt = OperationReceipt.Committed(
+            item.ChildOperationId,
+            item.ChildCorrelationId,
+            OperationKind.Handoff,
+            source.DeviceId,
+            item.Destination.DeviceId,
+            fixture.Descriptor,
+            AcceptedAt);
+        return SceneApplyItemResult.FromOperation(
+            item,
+            receipt,
+            undoCapsule: null);
+    }
+
     private static ReplaceFixture CreateReplaceFixture()
     {
         DeviceId sourceDevice =
@@ -687,6 +825,13 @@ public sealed class PersistentSceneApplyJournalTests
         SceneApplyPreview Preview,
         SceneSourceLookup SourceLookup,
         SceneSlotOccupancy Occupancy);
+
+    public enum JournalSaveBoundary
+    {
+        Started,
+        Outcome,
+        Completed,
+    }
 
     private sealed class MutableClock(DateTimeOffset utcNow) : IClock
     {
