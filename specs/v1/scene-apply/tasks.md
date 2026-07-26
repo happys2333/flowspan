@@ -33,6 +33,11 @@
   - _Requirements: SA4, SA7_
 
 - [ ] 5. Route Handoff, Move, and Replace through current production boundaries
+  - [x] Add the application-layer `SceneApplyPlanner`, frozen parent/child ID
+    source, and narrow read-only preflight port. Prove saved-order exact-ID
+    lookup, exact-destination No Change without a slot query, explicit
+    multi-source selection with full repreview, per-item unavailable blockers,
+    cancellation, and duplicate-ID rejection.
   - Implement authenticated purpose-scoped exact-Activity-ID source lookup and
     Scene-specific exact-slot occupancy ports; never infer Empty from filtered
     Replace inventory.

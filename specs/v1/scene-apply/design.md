@@ -84,7 +84,7 @@ public interface ISceneApplyPreflightPort
         OperationContext childContext,
         CancellationToken cancellationToken);
 
-    ValueTask<SceneSlotOccupancy> InspectExactSlotAsync(
+    ValueTask<SceneExactSlotInspection> InspectExactSlotAsync(
         SceneActivityPlan item,
         SceneSourceSelection source,
         OperationContext childContext,
@@ -116,7 +116,9 @@ The interfaces are deliberately narrow:
 
 - the planner sees only current payload-free evidence;
 - the preflight port performs authenticated, purpose-scoped exact-ID and exact-
-  slot queries; it never exposes a general Activity inventory;
+  slot queries; its exact-slot result separates a successful occupancy
+  observation from Capability Denied, Protocol Unsupported, and Destination
+  Unavailable blockers, and it never exposes a general Activity inventory;
 - the operation port owns last-moment Trust, orchestration and operation-
   specific Capability, catalog, connection, and exact source/Replace snapshot
   revalidation and calls existing operations;

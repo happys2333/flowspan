@@ -224,6 +224,58 @@ public sealed record SceneSlotOccupancy
         $"Scene slot occupancy ({Kind})";
 }
 
+public sealed record SceneExactSlotInspection
+{
+    private SceneExactSlotInspection(
+        SceneSlotOccupancy? occupancy,
+        SceneApplyItemReason reason)
+    {
+        Occupancy = occupancy;
+        Reason = reason;
+    }
+
+    public SceneSlotOccupancy? Occupancy { get; }
+
+    public SceneApplyItemReason Reason { get; }
+
+    public bool IsBlocked => Reason != SceneApplyItemReason.None;
+
+    public static SceneExactSlotInspection Observed(
+        SceneSlotOccupancy occupancy)
+    {
+        ArgumentNullException.ThrowIfNull(occupancy);
+        if (occupancy.Kind == SceneSlotOccupancyKind.NotInspected)
+        {
+            throw new ArgumentException(
+                "A completed exact-slot inspection requires an occupancy result.",
+                nameof(occupancy));
+        }
+
+        return new SceneExactSlotInspection(
+            occupancy,
+            SceneApplyItemReason.None);
+    }
+
+    public static SceneExactSlotInspection Blocked(
+        SceneApplyItemReason reason)
+    {
+        if (reason is not (
+            SceneApplyItemReason.CapabilityDenied
+            or SceneApplyItemReason.ProtocolUnsupported
+            or SceneApplyItemReason.DestinationUnavailable))
+        {
+            throw new ArgumentOutOfRangeException(nameof(reason));
+        }
+
+        return new SceneExactSlotInspection(null, reason);
+    }
+
+    public override string ToString() =>
+        IsBlocked
+            ? $"Scene exact-slot inspection blocked ({Reason})"
+            : $"Scene exact-slot inspection observed ({Occupancy!.Kind})";
+}
+
 public static class SceneApplyItemResolver
 {
     public static SceneApplyItemPreview Resolve(
@@ -326,7 +378,7 @@ public static class SceneApplyItemResolver
             childCorrelationId);
     }
 
-    private static SceneSourceSelection? ResolveSource(
+    internal static SceneSourceSelection? ResolveSource(
         SceneSourceLookup lookup,
         SceneSourceSelection? explicitSelection,
         SceneSlotOccupancy? occupancy)
