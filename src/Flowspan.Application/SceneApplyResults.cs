@@ -447,7 +447,7 @@ public sealed record SceneApplyResult
     public override string ToString() =>
         $"Scene apply result ({Status}, {Items.Length} items)";
 
-    private static SceneApplyOverallStatus Reduce(
+    internal static SceneApplyOverallStatus Reduce(
         ImmutableArray<SceneApplyItemResult> items)
     {
         if (items.Any(static item =>

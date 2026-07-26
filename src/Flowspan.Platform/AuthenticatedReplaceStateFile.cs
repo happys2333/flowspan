@@ -22,6 +22,10 @@ public interface ISwapEndpointStateKeyStore : IAuthenticatedStateKeyStore
 {
 }
 
+public interface ISceneApplyStateKeyStore : IAuthenticatedStateKeyStore
+{
+}
+
 public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
 {
     public const int KeyBytes = 32;

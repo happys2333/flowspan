@@ -153,12 +153,71 @@ public sealed record SceneApplyJournalItem
             null,
             null);
 
+    internal static SceneApplyJournalItem Restore(
+        SceneApplyItemPreview boundItem,
+        SceneApplyJournalItemStatus status,
+        DateTimeOffset? startedAt,
+        SceneApplyItemResult? result)
+    {
+        ArgumentNullException.ThrowIfNull(boundItem);
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(nameof(status));
+        }
+
+        DateTimeOffset? canonicalStartedAt = startedAt?.ToUniversalTime();
+        bool validShape = status switch
+        {
+            SceneApplyJournalItemStatus.Pending =>
+                canonicalStartedAt is null && result is null,
+            SceneApplyJournalItemStatus.Started =>
+                canonicalStartedAt is not null
+                && result is null
+                && IsExecutable(boundItem.Action),
+            SceneApplyJournalItemStatus.Terminal =>
+                result is not null
+                && IsValidTerminalShape(
+                    boundItem,
+                    canonicalStartedAt,
+                    result),
+            _ => false,
+        };
+        if (!validShape)
+        {
+            throw new InvalidDataException(
+                "A restored Scene journal item has an invalid status shape.");
+        }
+
+        if (result is not null
+            && (result.Index != boundItem.Index
+                || result.ActivityId != boundItem.ActivityId
+                || result.RequestedSourceDisposition != boundItem.SourceDisposition
+                || result.RequestedConflictPolicy != boundItem.ConflictPolicy
+                || result.Action != boundItem.Action
+                || result.ChildOperationId != boundItem.ChildOperationId
+                || result.ChildCorrelationId != boundItem.ChildCorrelationId))
+        {
+            throw new InvalidDataException(
+                "A restored Scene result does not match its bound journal item.");
+        }
+
+        return new SceneApplyJournalItem(
+            boundItem.Index,
+            boundItem.ChildOperationId,
+            boundItem.ChildCorrelationId,
+            boundItem,
+            status,
+            canonicalStartedAt,
+            result);
+    }
+
     internal SceneApplyJournalItem Start(DateTimeOffset startedAt)
     {
-        if (Status != SceneApplyJournalItemStatus.Pending)
+        if (Status != SceneApplyJournalItemStatus.Pending
+            || !IsExecutable(BoundItem.Action))
         {
             throw new InvalidOperationException(
-                "Only a pending Scene journal item can start.");
+                "Only a pending executable Scene journal item can start.");
         }
 
         return new SceneApplyJournalItem(
@@ -181,7 +240,8 @@ public sealed record SceneApplyJournalItem
             || result.RequestedConflictPolicy != BoundItem.ConflictPolicy
             || result.Action != BoundItem.Action
             || result.ChildOperationId != ChildOperationId
-            || result.ChildCorrelationId != ChildCorrelationId)
+            || result.ChildCorrelationId != ChildCorrelationId
+            || !IsValidTerminalShape(BoundItem, StartedAt, result))
         {
             throw new InvalidOperationException(
                 "The terminal Scene result does not match an open journal item.");
@@ -195,6 +255,34 @@ public sealed record SceneApplyJournalItem
             SceneApplyJournalItemStatus.Terminal,
             StartedAt,
             result);
+    }
+
+    private static bool IsExecutable(SceneApplyAction action) =>
+        action is SceneApplyAction.Handoff
+            or SceneApplyAction.Move
+            or SceneApplyAction.Replace;
+
+    private static bool IsValidTerminalShape(
+        SceneApplyItemPreview boundItem,
+        DateTimeOffset? startedAt,
+        SceneApplyItemResult result)
+    {
+        if (startedAt is not null)
+        {
+            bool hasOperationOutcome = result.Outcome is
+                SceneApplyItemOutcome.Committed
+                or SceneApplyItemOutcome.CommittedWithWarning
+                or SceneApplyItemOutcome.Rejected
+                or SceneApplyItemOutcome.Failed
+                or SceneApplyItemOutcome.Recovering;
+            return IsExecutable(boundItem.Action)
+                && result.OccurredAt >= startedAt.Value
+                && hasOperationOutcome;
+        }
+
+        return result.Outcome is SceneApplyItemOutcome.Blocked
+            or SceneApplyItemOutcome.NoChange
+            or SceneApplyItemOutcome.NotAttempted;
     }
 }
 
@@ -271,6 +359,182 @@ public sealed record SceneApplyJournalState
             null);
     }
 
+    internal static SceneApplyJournalState Restore(
+        SceneId sceneId,
+        long sceneRevision,
+        string sceneDigest,
+        string previewFingerprint,
+        OperationId parentOperationId,
+        CorrelationId parentCorrelationId,
+        DateTimeOffset acceptedAt,
+        IEnumerable<SceneApplyJournalItem> items,
+        DateTimeOffset? completedAt,
+        SceneApplyOverallStatus? completedStatus)
+    {
+        ArgumentNullException.ThrowIfNull(sceneId);
+        ArgumentOutOfRangeException.ThrowIfLessThan(sceneRevision, 1);
+        string canonicalSceneDigest = SceneApplyBinding.ValidateDigest(
+            sceneDigest,
+            nameof(sceneDigest));
+        string canonicalPreviewFingerprint = SceneApplyBinding.ValidateDigest(
+            previewFingerprint,
+            nameof(previewFingerprint));
+        ArgumentNullException.ThrowIfNull(parentOperationId);
+        ArgumentNullException.ThrowIfNull(parentCorrelationId);
+        if (acceptedAt.Offset != TimeSpan.Zero)
+        {
+            throw new InvalidDataException(
+                "A restored Scene acceptance timestamp must be canonical UTC.");
+        }
+
+        ArgumentNullException.ThrowIfNull(items);
+        ImmutableArray<SceneApplyJournalItem> restoredItems =
+            items.ToImmutableArray();
+        if (restoredItems.Length is < 1 or > ScenePlan.MaximumActivities
+            || restoredItems.Any(static item => item is null))
+        {
+            throw new InvalidDataException(
+                "A restored Scene attempt must contain 1 through 64 items.");
+        }
+
+        var operationIds = new HashSet<OperationId> { parentOperationId };
+        var correlationIds = new HashSet<CorrelationId> { parentCorrelationId };
+        int phase = 0;
+        bool hasStarted = false;
+        SceneApplyItemReason? boundaryReason = null;
+        for (int index = 0; index < restoredItems.Length; index++)
+        {
+            SceneApplyJournalItem item = restoredItems[index];
+            if (item.Index != index
+                || !operationIds.Add(item.ChildOperationId)
+                || !correlationIds.Add(item.ChildCorrelationId))
+            {
+                throw new InvalidDataException(
+                    "Restored Scene items must be ordered with distinct child identities.");
+            }
+
+            if (item.StartedAt is not null
+                && (item.StartedAt.Value.Offset != TimeSpan.Zero
+                    || item.StartedAt.Value < acceptedAt))
+            {
+                throw new InvalidDataException(
+                    "A restored Scene item start time is invalid.");
+            }
+
+            switch (item.Status)
+            {
+                case SceneApplyJournalItemStatus.Terminal:
+                    if (phase != 0)
+                    {
+                        throw new InvalidDataException(
+                            "A terminal Scene journal item cannot follow an open item.");
+                    }
+
+                    SceneApplyItemResult result = item.Result
+                        ?? throw new InvalidDataException(
+                            "A terminal Scene journal item requires a result.");
+                    if (result.OccurredAt.Offset != TimeSpan.Zero
+                        || result.OccurredAt < acceptedAt)
+                    {
+                        throw new InvalidDataException(
+                            "A restored Scene item result time is invalid.");
+                    }
+
+                    if (boundaryReason is not null
+                        && (result.Outcome != SceneApplyItemOutcome.NotAttempted
+                            || result.Reason != boundaryReason.Value))
+                    {
+                        throw new InvalidDataException(
+                            "A restored Scene attempt executed after a terminal boundary.");
+                    }
+
+                    if (result.Outcome == SceneApplyItemOutcome.Recovering)
+                    {
+                        boundaryReason =
+                            SceneApplyItemReason.NotAttemptedAfterRecovering;
+                    }
+                    else if (result.Outcome == SceneApplyItemOutcome.NotAttempted)
+                    {
+                        if (result.Reason != SceneApplyItemReason.Cancelled
+                            && boundaryReason is null)
+                        {
+                            throw new InvalidDataException(
+                                "A Recovering remainder requires a preceding uncertain item.");
+                        }
+
+                        boundaryReason ??= SceneApplyItemReason.Cancelled;
+                    }
+
+                    break;
+                case SceneApplyJournalItemStatus.Started:
+                    if (phase != 0 || hasStarted)
+                    {
+                        throw new InvalidDataException(
+                            "A restored Scene attempt can contain only one next Started item.");
+                    }
+
+                    hasStarted = true;
+                    phase = 1;
+                    break;
+                case SceneApplyJournalItemStatus.Pending:
+                    phase = 2;
+                    break;
+                default:
+                    throw new InvalidDataException(
+                        "A restored Scene journal item has an unknown status.");
+            }
+        }
+
+        if ((completedAt is null) != (completedStatus is null))
+        {
+            throw new InvalidDataException(
+                "A restored Scene completion timestamp and status must appear together.");
+        }
+
+        DateTimeOffset? canonicalCompletedAt = completedAt?.ToUniversalTime();
+        if (completedStatus is not null
+            && !Enum.IsDefined(completedStatus.Value))
+        {
+            throw new InvalidDataException(
+                "A restored Scene attempt has an unknown completion status.");
+        }
+
+        if (canonicalCompletedAt is not null)
+        {
+            if (completedAt!.Value.Offset != TimeSpan.Zero
+                || canonicalCompletedAt.Value < acceptedAt
+                || restoredItems.Any(static item =>
+                    item.Status != SceneApplyJournalItemStatus.Terminal))
+            {
+                throw new InvalidDataException(
+                    "A completed restored Scene attempt must contain only terminal evidence.");
+            }
+
+            ImmutableArray<SceneApplyItemResult> results = restoredItems
+                .Select(static item => item.Result!)
+                .ToImmutableArray();
+            if (results.Any(result =>
+                    result.OccurredAt > canonicalCompletedAt.Value)
+                || SceneApplyResult.Reduce(results) != completedStatus)
+            {
+                throw new InvalidDataException(
+                    "A restored Scene completion does not match its item evidence.");
+            }
+        }
+
+        return new SceneApplyJournalState(
+            sceneId,
+            sceneRevision,
+            canonicalSceneDigest,
+            canonicalPreviewFingerprint,
+            parentOperationId,
+            parentCorrelationId,
+            acceptedAt,
+            restoredItems,
+            canonicalCompletedAt,
+            completedStatus);
+    }
+
     public bool Matches(SceneApplyPreview preview)
     {
         ArgumentNullException.ThrowIfNull(preview);
@@ -308,6 +572,13 @@ public sealed record SceneApplyJournalState
         DateTimeOffset startedAt)
     {
         EnsureOpenIndex(index);
+        EnsureNextOpenIndex(index);
+        if (FindBoundaryBefore(index) is not null)
+        {
+            throw new InvalidOperationException(
+                "A Scene journal cannot start execution after a terminal boundary.");
+        }
+
         if (startedAt.ToUniversalTime() < AcceptedAt)
         {
             throw new ArgumentOutOfRangeException(nameof(startedAt));
@@ -323,9 +594,27 @@ public sealed record SceneApplyJournalState
     {
         ArgumentNullException.ThrowIfNull(result);
         EnsureOpenIndex(result.Index);
+        EnsureNextOpenIndex(result.Index);
         if (result.OccurredAt < AcceptedAt)
         {
             throw new ArgumentOutOfRangeException(nameof(result));
+        }
+
+        SceneApplyItemReason? boundaryReason = FindBoundaryBefore(result.Index);
+        if (boundaryReason is not null
+            && (result.Outcome != SceneApplyItemOutcome.NotAttempted
+                || result.Reason != boundaryReason.Value))
+        {
+            throw new InvalidOperationException(
+                "A Scene journal cannot record execution after a terminal boundary.");
+        }
+
+        if (boundaryReason is null
+            && result.Outcome == SceneApplyItemOutcome.NotAttempted
+            && result.Reason == SceneApplyItemReason.NotAttemptedAfterRecovering)
+        {
+            throw new InvalidOperationException(
+                "A Recovering remainder requires a preceding uncertain item.");
         }
 
         ImmutableArray<SceneApplyJournalItem> updated = Items.SetItem(
@@ -370,6 +659,40 @@ public sealed record SceneApplyJournalState
 
         ArgumentOutOfRangeException.ThrowIfNegative(index);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Items.Length);
+    }
+
+    private void EnsureNextOpenIndex(int index)
+    {
+        if (Items.Take(index).Any(static item =>
+                item.Status != SceneApplyJournalItemStatus.Terminal)
+            || Items.Skip(index + 1).Any(static item =>
+                item.Status != SceneApplyJournalItemStatus.Pending))
+        {
+            throw new InvalidOperationException(
+                "Scene journal mutations must follow exact saved order.");
+        }
+    }
+
+    private SceneApplyItemReason? FindBoundaryBefore(int index)
+    {
+        for (int earlier = 0; earlier < index; earlier++)
+        {
+            SceneApplyItemResult result = Items[earlier].Result
+                ?? throw new InvalidOperationException(
+                    "A preceding Scene journal item requires a terminal result.");
+            if (result.Outcome == SceneApplyItemOutcome.Recovering)
+            {
+                return SceneApplyItemReason.NotAttemptedAfterRecovering;
+            }
+
+            if (result.Outcome == SceneApplyItemOutcome.NotAttempted
+                && result.Reason == SceneApplyItemReason.Cancelled)
+            {
+                return SceneApplyItemReason.Cancelled;
+            }
+        }
+
+        return null;
     }
 
     private SceneApplyJournalState Copy(

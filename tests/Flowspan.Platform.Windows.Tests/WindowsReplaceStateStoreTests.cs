@@ -6,6 +6,50 @@ namespace Flowspan.Platform.Windows.Tests;
 public sealed class WindowsReplaceStateStoreTests
 {
     [Fact]
+    public async Task SceneApplyDpapiKeyAndFileUseIndependentPurpose()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-windows-scene-apply-{Guid.NewGuid():N}");
+        string statePath = Path.Combine(directory, "scene-apply-state.fsaf");
+        string keyPath = Path.Combine(directory, "scene-apply-state-key.dpapi");
+        byte[] payload = "WINDOWS-SCENE-APPLY-PLAINTEXT-CANARY"u8.ToArray();
+        var protector = new FakeWindowsDataProtector();
+        try
+        {
+            var first = new WindowsSceneApplyStatePayloadStore(
+                statePath,
+                keyPath,
+                protector);
+            await first.SaveAsync(payload);
+
+            Assert.DoesNotContain(
+                "WINDOWS-SCENE-APPLY-PLAINTEXT-CANARY",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(statePath)),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                payload,
+                await new WindowsSceneApplyStatePayloadStore(
+                    statePath,
+                    keyPath,
+                    protector).LoadAsync());
+            Assert.NotEqual(
+                WindowsSceneApplyStatePayloadStore.GetDefaultStatePath(),
+                WindowsSwapStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
+                WindowsSceneApplyStateKeyStore.GetDefaultKeyPath(),
+                WindowsSwapStateKeyStore.GetDefaultKeyPath());
+            Assert.NotEqual(
+                WindowsSceneApplyStateKeyStore.ProtectionContext,
+                WindowsSwapStateKeyStore.ProtectionContext);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SwapEndpointDpapiKeyAndFileUseIndependentPurpose()
     {
         string directory = Path.Combine(
