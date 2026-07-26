@@ -6,7 +6,7 @@
   - Record the non-atomic orchestration decision in ADR 0017.
   - _Requirements: SA1–SA7_
 
-- [ ] 2. Implement payload-free preview and approval models
+- [x] 2. Implement payload-free preview and approval models
   - Add bounded immutable preview, item preparation, confirmation fingerprint,
     result, and reason models.
   - Bind exact user-selected source snapshots, No Change, exact-slot occupancy
@@ -18,14 +18,14 @@
     defensive-copy, canonical-value, malformed-surrogate, and redaction cases.
   - _Requirements: SA1–SA2, SA5_
 
-- [ ] 3. Implement deterministic apply reducer
+- [x] 3. Implement deterministic apply reducer
   - Persist attempt and item boundaries, execute exact saved order, continue
     after proven terminal outcomes, and halt on Recovering/unknown outcomes.
   - Add table/property tests for mixed outcomes, cancellation, replay, and 64-
     item bounds through public interfaces.
   - _Requirements: SA3–SA5_
 
-- [ ] 4. Add protected durable apply journal
+- [x] 4. Add protected durable apply journal
   - Add strict bounded state codec, complete-candidate atomic persistence,
     purpose-separated platform key stores, reopen-after-ambiguous-save, and
     restart reduction.
@@ -68,20 +68,20 @@
     fault tests.
   - _Requirements: SA1–SA5, SA7_
 
-- [ ] 6. Implement explicit safe compensation
+- [x] 6. Implement explicit safe compensation
   - Record payload-free Undo Capsule references only for committed Preserve-
     Source Replace and invoke exact target-local undo in reverse Scene order
     only on explicit request.
   - Cover stale, expired, consumed, failed, cancelled, and Recovering undo.
   - _Requirements: SA5–SA7_
 
-- [ ] 7. Add Desktop preview, confirmation, and partial-result presentation
+- [x] 7. Add Desktop preview, confirmation, and partial-result presentation
   - Show ordered actions/blockers, source disposition, exact Replace targets,
     stale/expiry state, explicit destructive confirmation, and truthful results.
   - Add keyboard, accessible-name, persistent NOT SHARING, and redaction tests.
   - _Requirements: SA1–SA3, SA5, SA7_
 
-- [ ] 8. Close task-8.2 automated evidence
+- [x] 8. Close task-8.2 automated evidence
   - Run local full/focused/property/fault/security stress and dual review.
   - Verify implementation and task-status commits on Windows/macOS/Ubuntu,
     Secret Scan, CodeQL, Gitleaks SARIF, and downloaded TRX sums.
