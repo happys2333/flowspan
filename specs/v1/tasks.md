@@ -562,7 +562,7 @@ means its linked evidence exists; it does not imply the entire product works.
     workflows. Scene apply (8.2), repository/UI (8.3), physical-device,
     packaging, and v1 acceptance remain open.
   - _Requirements: R7.1–R7.2_
-- [ ] 8.2 Implement deterministic apply, per-Activity result, replace protection,
+- [x] 8.2 Implement deterministic apply, per-Activity result, replace protection,
   and compensating undo where safe.
   - Requirements, design, executable tasks, and the previewed best-effort
     orchestration decision are tracked in `specs/v1/scene-apply/` and ADR 0017.
@@ -579,9 +579,17 @@ means its linked evidence exists; it does not imply the entire product works.
     Remote sources execute the existing operation on the source Device through
     strict payload-free protocol-1.4 Scene control; the coordinator never
     receives Activity content, and 1.0–1.3 peers fail as unsupported before send.
+  - Remote compensation and Desktop presentation are complete at `ad4cc02` and
+    `26ff858`; exact-commit CI, Secret Scan, Gitleaks, CodeQL, and downloaded
+    TRX evidence are recorded in
+    `docs/evidence/2026-07-26-scene-apply-desktop-and-compensation.md`.
   - _Requirements: R7.3–R7.4, R11.2_
-- [ ] 8.3 Implement inspect/delete/export for trust, history, Scenes, and redacted
+- [-] 8.3 Implement inspect/delete/export for trust, history, Scenes, and redacted
   diagnostics.
+  - The private Scene repository and its inspect/select/delete/redacted-export
+    lifecycle are complete at `9dc3861`; evidence is recorded in
+    `docs/evidence/2026-07-27-private-scene-repository.md`.
+  - Trust, history, and redacted diagnostics lifecycle remain open.
   - _Requirements: R9.5, R11_
 
 ## 9. Packaging and v1 acceptance
