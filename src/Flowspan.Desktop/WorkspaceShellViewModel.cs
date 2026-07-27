@@ -44,7 +44,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         DesktopLocalPairingRuntime? localPairingRuntime = null,
         DesktopLocalNetworkPermissionGuide? localNetworkPermissionGuide = null,
         IDesktopActivityService? activityService = null,
-        IDesktopSceneApplyService? sceneApplyService = null)
+        IDesktopSceneApplyService? sceneApplyService = null,
+        IDesktopSceneRepositoryService? sceneRepositoryService = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
@@ -76,6 +77,10 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             sceneApplyService
                 ?? effectiveActivityService as IDesktopSceneApplyService
                 ?? UnavailableDesktopSceneApplyService.Instance);
+        SceneRepository = new SceneRepositoryViewModel(
+            sceneRepositoryService
+                ?? UnavailableDesktopSceneRepositoryService.Instance,
+            Scenes.SelectScene);
         toggleIdentityDetailsCommand = new RelayCommand(
             ToggleIdentityDetails,
             () => IsIdentityAvailable);
@@ -93,6 +98,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     public LocalPairingViewModel LocalPairing { get; }
 
     public SceneApplyViewModel Scenes { get; }
+
+    public SceneRepositoryViewModel SceneRepository { get; }
 
     public TrustedDevicesViewModel TrustedDevices { get; }
 
@@ -258,6 +265,9 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
                                 .ConfigureAwait(true);
                         }
 
+                        await SceneRepository
+                            .InitializeAsync(linkedCancellation.Token)
+                            .ConfigureAwait(true);
                         LocalPairing.SetPrerequisitesAvailable(
                             localPairingAvailable
                             && TrustedDevices.IsTrustAvailable);
@@ -356,6 +366,15 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         try
         {
             Scenes.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            await SceneRepository.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {

@@ -41,6 +41,10 @@ internal static class Program
                 StringComparison.Ordinal)
             && viewModel.TrustedDevices.Protection.Contains(
                 "TEST MODE",
+                StringComparison.Ordinal)
+            && !viewModel.SceneRepository.IsRepositoryAvailable
+            && viewModel.SceneRepository.RepositoryStatus.Contains(
+                "UNAVAILABLE",
                 StringComparison.Ordinal);
 
         Console.WriteLine(valid

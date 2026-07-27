@@ -966,6 +966,189 @@
                 <Border BorderBrush="{StaticResource SafetyAmberBrush}"
                         BorderThickness="1"
                         Padding="14"
+                        AutomationProperties.Name="Scene repository list, inspection, delete, and export">
+                  <StackPanel Spacing="10">
+                    <TextBlock Classes="label"
+                               Foreground="{StaticResource SafetyAmberBrush}"
+                               Text="SCENE REPOSITORY — PRIVATE LOCAL STORE" />
+                    <TextBlock x:Name="SceneRepositoryStatusText"
+                               Classes="label"
+                               Text="{Binding SceneRepository.RepositoryStatus}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Scene repository status" />
+                    <TextBlock Classes="secondary"
+                               Text="{Binding SceneRepository.RepositoryDescription}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Scene repository guidance" />
+                    <Button x:Name="SceneRepositoryRefreshButton"
+                            Content="REFRESH STORED SCENES"
+                            Command="{Binding SceneRepository.RefreshCommand}"
+                            IsEnabled="{Binding SceneRepository.CanRefresh}"
+                            AutomationProperties.Name="Refresh the stored Scene list"
+                            AutomationProperties.HelpText="Reads the protected local Scene repository without mutating any Scene or Activity." />
+
+                    <ListBox x:Name="SceneRepositoryList"
+                             ItemsSource="{Binding SceneRepository.Scenes}"
+                             SelectedItem="{Binding SceneRepository.SelectedScene, Mode=TwoWay}"
+                             MaxHeight="280"
+                             AutomationProperties.Name="Stored Scenes">
+                      <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SceneRepositoryItemViewModel">
+                          <Border Margin="4"
+                                  BorderBrush="{StaticResource CoolGrayBrush}"
+                                  BorderThickness="1"
+                                  Padding="10">
+                            <StackPanel Spacing="4">
+                              <TextBlock FontWeight="SemiBold"
+                                         Text="{Binding Name}"
+                                         TextWrapping="Wrap"
+                                         AutomationProperties.Name="{Binding AutomationName}" />
+                              <TextBlock Classes="secondary"
+                                         Text="{Binding Summary}"
+                                         TextWrapping="Wrap" />
+                              <SelectableTextBlock Classes="secondary"
+                                                   FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                   FontSize="10"
+                                                   Text="{Binding SceneId}"
+                                                   TextWrapping="Wrap"
+                                                   AutomationProperties.Name="Stored Scene ID" />
+                              <TextBlock Classes="secondary"
+                                         Text="{Binding GroupBinding}"
+                                         TextWrapping="Wrap" />
+                              <SelectableTextBlock Classes="secondary"
+                                                   FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                   FontSize="10"
+                                                   Text="{Binding SceneDigest, StringFormat='Digest: {0}'}"
+                                                   TextWrapping="Wrap"
+                                                   AutomationProperties.Name="Stored Scene canonical digest" />
+                              <TextBlock Classes="secondary"
+                                         Text="{Binding SavedAt, StringFormat='Saved: {0}'}"
+                                         TextWrapping="Wrap" />
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <Border BorderBrush="{StaticResource CoolGrayBrush}"
+                            BorderThickness="1"
+                            Padding="10"
+                            AutomationProperties.Name="Stored Scene ordered item inspection">
+                      <StackPanel Spacing="6">
+                        <TextBlock Classes="label"
+                                   Text="STORED SCENE ITEMS — LOCAL INSPECTION ONLY" />
+                        <ItemsControl x:Name="SceneRepositoryInspectList"
+                                      ItemsSource="{Binding SceneRepository.InspectItems}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DesktopSceneRepositoryPlanItem">
+                              <Border Margin="3"
+                                      Padding="8"
+                                      BorderBrush="{StaticResource CoolGrayBrush}"
+                                      BorderThickness="1">
+                                <StackPanel Spacing="3">
+                                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                    <TextBlock Grid.Column="0" Classes="label" Text="{Binding ItemLabel}" />
+                                    <SelectableTextBlock Grid.Column="1"
+                                                         Classes="secondary"
+                                                         FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                                         FontSize="10"
+                                                         Text="{Binding ActivityId}"
+                                                         TextWrapping="Wrap"
+                                                         AutomationProperties.Name="Stored Scene item Activity ID" />
+                                  </Grid>
+                                  <TextBlock Classes="secondary"
+                                             Text="{Binding Destination, StringFormat='Destination: {0}'}"
+                                             TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary"
+                                             Text="{Binding SourceDisposition}"
+                                             TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary"
+                                             Text="{Binding ConflictPolicy}"
+                                             TextWrapping="Wrap" />
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </Border>
+
+                    <Button x:Name="SceneRepositorySelectButton"
+                            Content="SELECT FOR APPLY PREVIEW"
+                            Command="{Binding SceneRepository.SelectForApplyCommand}"
+                            IsEnabled="{Binding SceneRepository.CanSelectForApply}"
+                            AutomationProperties.Name="Select the stored Scene for apply preview"
+                            AutomationProperties.HelpText="Hands the stored plan to the Scene apply panel. Selection previews, authorizes, and executes nothing." />
+                    <TextBlock x:Name="SceneRepositoryLifecycleStatusText"
+                               Classes="label"
+                               Text="{Binding SceneRepository.LifecycleStatus}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Scene repository lifecycle status" />
+                    <TextBlock Text="{Binding SceneRepository.LifecycleDescription}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Scene repository lifecycle guidance" />
+
+                    <Button x:Name="SceneRepositoryBeginDeleteButton"
+                            Content="Review Scene delete"
+                            Command="{Binding SceneRepository.BeginDeleteCommand}"
+                            IsEnabled="{Binding SceneRepository.CanBeginDelete}"
+                            AutomationProperties.Name="Review stored Scene deletion" />
+                    <Border IsVisible="{Binding SceneRepository.IsDeleteConfirmationVisible}"
+                            BorderBrush="{StaticResource SignalRedBrush}"
+                            BorderThickness="2"
+                            Padding="12"
+                            AutomationProperties.Name="Stored Scene delete confirmation">
+                      <StackPanel Spacing="10">
+                        <TextBlock x:Name="SceneRepositoryDeleteConfirmationText"
+                                   Foreground="{StaticResource SignalRedBrush}"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding SceneRepository.DeleteConfirmation}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Exact stored Scene delete confirmation" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <Button x:Name="SceneRepositoryCancelDeleteButton"
+                                  Content="Cancel"
+                                  Command="{Binding SceneRepository.CancelDeleteCommand}"
+                                  AutomationProperties.Name="Cancel stored Scene deletion" />
+                          <Button x:Name="SceneRepositoryConfirmDeleteButton"
+                                  Background="{StaticResource SignalRedBrush}"
+                                  BorderBrush="{StaticResource SignalRedBrush}"
+                                  Foreground="{StaticResource GraphiteBrush}"
+                                  Content="DELETE SCENE"
+                                  Command="{Binding SceneRepository.ConfirmDeleteCommand}"
+                                  IsEnabled="{Binding SceneRepository.CanConfirmDelete}"
+                                  AutomationProperties.Name="Delete the stored Scene permanently"
+                                  AutomationProperties.HelpText="Removes only the stored plan on this device. Applied Activities, Scene apply journals, and Replace undo state are not affected. This action has no undo." />
+                        </StackPanel>
+                      </StackPanel>
+                    </Border>
+
+                    <Button x:Name="SceneRepositoryExportButton"
+                            Content="EXPORT REDACTED SCENE RECORD"
+                            Command="{Binding SceneRepository.ExportCommand}"
+                            IsEnabled="{Binding SceneRepository.CanExport}"
+                            AutomationProperties.Name="Export a redacted record of the selected stored Scene"
+                            AutomationProperties.HelpText="Writes identifiers, revisions, digests, timestamps, and policies only. Scene names, Activity IDs, Device IDs, and placement slots are never exported." />
+                    <SelectableTextBlock x:Name="SceneRepositoryExportPathText"
+                                         Classes="secondary"
+                                         FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                         FontSize="10"
+                                         Text="{Binding SceneRepository.ExportPath}"
+                                         TextWrapping="Wrap"
+                                         AutomationProperties.Name="Scene export file path" />
+                    <SelectableTextBlock x:Name="SceneRepositoryExportPreviewText"
+                                         Classes="secondary"
+                                         FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                         FontSize="10"
+                                         Text="{Binding SceneRepository.ExportPreview}"
+                                         TextWrapping="Wrap"
+                                         AutomationProperties.Name="Redacted Scene export content" />
+                  </StackPanel>
+                </Border>
+
+                <Border BorderBrush="{StaticResource SafetyAmberBrush}"
+                        BorderThickness="1"
+                        Padding="14"
                         AutomationProperties.Name="Scene Apply preview, confirmation, result, and compensation">
                   <StackPanel Spacing="10">
                     <StackPanel Spacing="4">

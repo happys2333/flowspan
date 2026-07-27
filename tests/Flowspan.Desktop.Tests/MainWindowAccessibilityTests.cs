@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -704,6 +705,191 @@ public sealed class MainWindowAccessibilityTests
     }
 
     [Fact]
+    public async Task SceneRepositoryLifecycleIsKeyboardOperableNamedAndRedacted()
+    {
+        var repository = new AccessibilitySceneRepositoryService();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            sceneRepositoryService: repository);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        MainWindow? window = null;
+        var workflowCompleted = false;
+
+        try
+        {
+            // One async Dispatch keeps a single Avalonia application alive for
+            // the whole keyboard workflow; see
+            // SceneApplyAndCompensationAreKeyboardOperableNamedAndTruthful.
+            await session.Dispatch<int>(async () =>
+            {
+                window = new MainWindow { DataContext = viewModel };
+                MainWindow shownWindow = window;
+                window.Closed += (_, _) => closed.TrySetResult();
+                window.Show();
+                TextBlock status = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>("SceneRepositoryStatusText"));
+                ListBox list = Assert.IsType<ListBox>(
+                    window.FindControl<ListBox>("SceneRepositoryList"));
+                Button select = Assert.IsType<Button>(
+                    window.FindControl<Button>("SceneRepositorySelectButton"));
+                Button beginDelete = Assert.IsType<Button>(
+                    window.FindControl<Button>(
+                        "SceneRepositoryBeginDeleteButton"));
+                Button confirmDelete = Assert.IsType<Button>(
+                    window.FindControl<Button>(
+                        "SceneRepositoryConfirmDeleteButton"));
+                Button export = Assert.IsType<Button>(
+                    window.FindControl<Button>("SceneRepositoryExportButton"));
+
+                Assert.Equal(
+                    "Scene repository status",
+                    status.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Stored Scenes",
+                    list.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Select the stored Scene for apply preview",
+                    select.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Review stored Scene deletion",
+                    beginDelete.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Delete the stored Scene permanently",
+                    confirmDelete.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Export a redacted record of the selected stored Scene",
+                    export.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal("2 SCENES STORED", status.Text);
+                Assert.Equal(2, list.ItemCount);
+                Assert.False(select.IsEnabled);
+                Assert.False(beginDelete.IsEnabled);
+                Assert.False(export.IsEnabled);
+
+                // Realize both stored Scenes before keyboard interaction; see
+                // ReplaceRecoveryRecordsWithoutAnEligibleCapsuleRemainReadOnly.
+                list.ScrollIntoView(1);
+                DrainPendingUiJobs();
+                list.ScrollIntoView(0);
+                DrainPendingUiJobs();
+                Control first = Assert.IsAssignableFrom<Control>(
+                    list.ContainerFromIndex(0));
+                Assert.True(first.Focus());
+                shownWindow.KeyPressQwerty(
+                    PhysicalKey.ArrowDown,
+                    RawInputModifiers.None);
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.ArrowDown,
+                    RawInputModifiers.None);
+                Assert.Equal(1, list.SelectedIndex);
+                SceneRepositoryItemViewModel selected = Assert.IsType<
+                    SceneRepositoryItemViewModel>(
+                    viewModel.SceneRepository.SelectedScene);
+                Assert.Equal("Reading desk", selected.Name);
+                DesktopSceneRepositoryPlanItem inspectItem = Assert.Single(
+                    viewModel.SceneRepository.InspectItems);
+                Assert.Equal("ITEM 1", inspectItem.ItemLabel);
+
+                Assert.True(select.IsEnabled);
+                Assert.True(select.Focus());
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                Assert.Equal("Reading desk", viewModel.Scenes.SceneName);
+                Assert.Equal(
+                    "SCENE SELECTED FOR APPLY",
+                    viewModel.SceneRepository.LifecycleStatus);
+
+                Assert.True(export.IsEnabled);
+                Assert.True(export.Focus());
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                await repository.ExportRequested.Task
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+                DrainPendingUiJobs();
+                Assert.Equal(
+                    "EXPORT WRITTEN",
+                    viewModel.SceneRepository.LifecycleStatus);
+                Assert.Contains(
+                    SceneRepositoryExport.ExportKind,
+                    viewModel.SceneRepository.ExportPreview,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "Reading desk",
+                    viewModel.SceneRepository.ExportPreview,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "reading-slot",
+                    viewModel.SceneRepository.ExportPreview,
+                    StringComparison.Ordinal);
+
+                Assert.True(beginDelete.IsEnabled);
+                Assert.False(
+                    viewModel.SceneRepository.IsDeleteConfirmationVisible);
+                Assert.True(beginDelete.Focus());
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                DrainPendingUiJobs();
+                Assert.True(
+                    viewModel.SceneRepository.IsDeleteConfirmationVisible);
+                TextBlock confirmation = Assert.IsType<TextBlock>(
+                    shownWindow.FindControl<TextBlock>(
+                        "SceneRepositoryDeleteConfirmationText"));
+                Assert.Contains(
+                    "Reading desk",
+                    confirmation.Text,
+                    StringComparison.Ordinal);
+                Assert.EndsWith(
+                    "This action has no undo.",
+                    confirmation.Text);
+                Assert.True(confirmDelete.IsEnabled);
+                Assert.True(confirmDelete.Focus());
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+                await repository.DeleteRequested.Task
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+                DrainPendingUiJobs();
+                Assert.Equal(
+                    "SCENE DELETED",
+                    viewModel.SceneRepository.LifecycleStatus);
+                Assert.Equal(1, list.ItemCount);
+                Assert.Equal(
+                    "1 SCENE STORED",
+                    viewModel.SceneRepository.RepositoryStatus);
+                Assert.False(
+                    viewModel.SceneRepository.IsDeleteConfirmationVisible);
+
+                TextBlock sharing = Assert.IsType<TextBlock>(
+                    shownWindow.FindControl<TextBlock>("SharingStatusText"));
+                Assert.Equal("NOT SHARING", sharing.Text);
+                return 0;
+            }, CancellationToken.None);
+            workflowCompleted = true;
+        }
+        finally
+        {
+            try
+            {
+                await session.Dispatch(() => window?.Close(), CancellationToken.None);
+                if (window is not null)
+                {
+                    await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+            }
+            catch when (!workflowCompleted)
+            {
+                // Keep the original workflow failure as the reported error
+                // instead of masking it with a cleanup exception.
+            }
+        }
+    }
+
+    [Fact]
     public async Task PairingConfirmationRequiresKeyboardCodeAcknowledgement()
     {
         using DeviceIdentity peer = DeviceIdentity.Generate(
@@ -1305,6 +1491,102 @@ public sealed class MainWindowAccessibilityTests
             descriptorDigest: new string((char)('A' + index), 64),
             Kind,
             ActivityPlacement.On(SourceDevice, slot));
+    }
+
+    private sealed class AccessibilitySceneRepositoryService :
+        IDesktopSceneRepositoryService
+    {
+        private static readonly DateTimeOffset StoredAt =
+            new(2026, 7, 26, 9, 0, 0, TimeSpan.Zero);
+        private readonly List<SceneRepositoryEntry> entries = [];
+
+        public AccessibilitySceneRepositoryService()
+        {
+            entries.Add(CreateEntry(
+                "aaaaaaa1-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "Focus desk",
+                "focus-slot"));
+            entries.Add(CreateEntry(
+                "bbbbbbb2-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                "Reading desk",
+                "reading-slot"));
+        }
+
+        public bool IsSceneRepositoryReady => true;
+
+        public TaskCompletionSource DeleteRequested { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ExportRequested { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask InitializeAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask<ImmutableArray<SceneRepositoryEntry>> ListScenesAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(entries.ToImmutableArray());
+        }
+
+        public ValueTask<SceneRepositoryEntry> SaveSceneAsync(
+            ScenePlan scene,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException(
+                "The accessibility workflow does not save Scenes.");
+
+        public ValueTask<bool> DeleteSceneAsync(
+            SceneId sceneId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool removed = entries.RemoveAll(
+                entry => entry.Scene.Id == sceneId) > 0;
+            DeleteRequested.TrySetResult();
+            return ValueTask.FromResult(removed);
+        }
+
+        public ValueTask<DesktopSceneExportResult?> ExportSceneAsync(
+            SceneId sceneId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SceneRepositoryEntry? entry = entries.FirstOrDefault(
+                candidate => candidate.Scene.Id == sceneId);
+            ExportRequested.TrySetResult();
+            return ValueTask.FromResult(entry is null
+                ? null
+                : new DesktopSceneExportResult(
+                    $"/exports/scene-export-{sceneId}.json",
+                    Encoding.UTF8.GetString(
+                        SceneRepositoryExport.EncodeRedacted(
+                            entry,
+                            StoredAt.AddHours(1)))));
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static SceneRepositoryEntry CreateEntry(
+            string sceneId,
+            string name,
+            string slot) => SceneRepositoryEntry.Create(
+            ScenePlan.Create(
+                SceneId.Parse(sceneId),
+                name,
+                [
+                    SceneActivityPlan.Place(
+                        ActivityId.Parse(
+                            "cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                        ActivityPlacement.On(
+                            DeviceId.Parse(
+                                "99999999-9999-9999-9999-999999999999"),
+                            slot),
+                        SceneSourceDisposition.PreserveSource,
+                        SceneConflictPolicy.RequireEmpty),
+                ]),
+            StoredAt);
     }
 
     private sealed class AccessibilityActivityService : IDesktopActivityService
