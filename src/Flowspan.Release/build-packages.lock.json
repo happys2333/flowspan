@@ -1,0 +1,10 @@
+{
+  "schema": "flowspan.build-packages/v1",
+  "packages": [
+    {
+      "id": "Microsoft.NET.ILLink.Tasks",
+      "version": "10.0.10",
+      "contentHash": "f5VCIE7AJpd5YvzNTeMGVzQIgyE9tX\u002BAreTYwQF\u002BREbu\u002BDZo/2Ae\u002BjNSwhPEYrVz6RRkd7y8ubXjk6Nn6Ka\u002BCg=="
+    }
+  ]
+}

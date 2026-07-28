@@ -1,0 +1,11 @@
+<Project>
+  <Import Project="../Directory.Build.props" />
+  <PropertyGroup>
+    <RuntimeIdentifiers>win-x64;osx-arm64;linux-x64</RuntimeIdentifiers>
+    <FlowspanRuntimePackVersion>10.0.10</FlowspanRuntimePackVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FlowspanDistributionBuild)' == 'true'">
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>None</DebugType>
+  </PropertyGroup>
+</Project>

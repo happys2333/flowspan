@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Flowspan.Release/Flowspan.Release.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../src/Flowspan.Release/runtime-packages.lock.json"
+          Link="runtime-packages.lock.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/Flowspan.Release/build-packages.lock.json"
+          Link="build-packages.lock.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/Directory.Build.props"
+          Link="Source.Directory.Build.props"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

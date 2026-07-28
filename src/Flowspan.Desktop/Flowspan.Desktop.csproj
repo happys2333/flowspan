@@ -3,6 +3,21 @@
     <OutputType>WinExe</OutputType>
     <Description>Accessible cross-platform desktop composition root for Flowspan.</Description>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <Product>Flowspan</Product>
+    <RepositoryUrl>https://github.com/happys2333/flowspan</RepositoryUrl>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FlowspanDistributionBuild)' == 'true'">
+    <RuntimeFrameworkVersion>$(FlowspanRuntimePackVersion)</RuntimeFrameworkVersion>
+    <TargetLatestRuntimePatch>false</TargetLatestRuntimePatch>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>None</DebugType>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" />
@@ -19,4 +34,12 @@
     <ProjectReference Include="../Flowspan.Transport/Flowspan.Transport.csproj" />
     <ProjectReference Include="../Flowspan.Transport.Mdns/Flowspan.Transport.Mdns.csproj" />
   </ItemGroup>
+  <Target Name="RemoveDistributionSymbols"
+          AfterTargets="ComputeFilesToPublish"
+          Condition="'$(FlowspanDistributionBuild)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
 </Project>

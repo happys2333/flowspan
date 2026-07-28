@@ -97,6 +97,27 @@
           "Flowspan.Security": "[1.0.0, )"
         }
       }
+    },
+    "net10.0/linux-x64": {
+      "Tmds.LibC": {
+        "type": "Transitive",
+        "resolved": "0.2.0",
+        "contentHash": "+RvLuNHOLW7cxzgDe9yHLoayBgjsuH2/gJtJnuVMxweKrxxYT6TwQNAmt06SFWpjwk68aRcwwD4FfMMA6tZvVA=="
+      }
+    },
+    "net10.0/osx-arm64": {
+      "Tmds.LibC": {
+        "type": "Transitive",
+        "resolved": "0.2.0",
+        "contentHash": "+RvLuNHOLW7cxzgDe9yHLoayBgjsuH2/gJtJnuVMxweKrxxYT6TwQNAmt06SFWpjwk68aRcwwD4FfMMA6tZvVA=="
+      }
+    },
+    "net10.0/win-x64": {
+      "Tmds.LibC": {
+        "type": "Transitive",
+        "resolved": "0.2.0",
+        "contentHash": "+RvLuNHOLW7cxzgDe9yHLoayBgjsuH2/gJtJnuVMxweKrxxYT6TwQNAmt06SFWpjwk68aRcwwD4FfMMA6tZvVA=="
+      }
     }
   }
 }

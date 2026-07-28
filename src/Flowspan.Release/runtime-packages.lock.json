@@ -1,0 +1,41 @@
+{
+  "schema": "flowspan.runtime-packages/v1",
+  "packages": [
+    {
+      "rid": "linux-x64",
+      "id": "Microsoft.NETCore.App.Host.linux-x64",
+      "version": "10.0.10",
+      "contentHash": "\u002BJOrPtOk0ACOBJow8AQ7pEXbFBJIoiUFi0XK9GlBBBodwB2rf63MU6y9j5oAL0mgWSe/NyL2J44WoyLn9z\u002Bc\u002BA=="
+    },
+    {
+      "rid": "linux-x64",
+      "id": "Microsoft.NETCore.App.Runtime.linux-x64",
+      "version": "10.0.10",
+      "contentHash": "6rlyMCyU2XZs9IAxqz7RK1uhcV90zRdINtHoUm7/eumLLStUcy5FGOQ0SNAnkYcL5O6yPyhAt6VmSxZD3Xrn4w=="
+    },
+    {
+      "rid": "osx-arm64",
+      "id": "Microsoft.NETCore.App.Host.osx-arm64",
+      "version": "10.0.10",
+      "contentHash": "dCChQTGuCXtJk7yb4TULs2XMfbbKW44DcOSjX8czwjzqGvXMLHJlrEyJsznHiwcvVppmdXB7U17jNvK3iS23tA=="
+    },
+    {
+      "rid": "osx-arm64",
+      "id": "Microsoft.NETCore.App.Runtime.osx-arm64",
+      "version": "10.0.10",
+      "contentHash": "XxRHSisV/tz6/SY78LtvRMPDSSgDIzkJWNzVSDs7/TKKXUoJI\u002BxWmcNqOdSHTRGnLYTY\u002Be5tOU2\u002BjopCgcbxKQ=="
+    },
+    {
+      "rid": "win-x64",
+      "id": "Microsoft.NETCore.App.Host.win-x64",
+      "version": "10.0.10",
+      "contentHash": "f2x9yrUKOzoVmjCR5VwU5MSeN816u2L4FekcIbXD5oWEvmxTQx1buUKrDUCkfwmGJgIiUsTSMhHATpnnTq84sg=="
+    },
+    {
+      "rid": "win-x64",
+      "id": "Microsoft.NETCore.App.Runtime.win-x64",
+      "version": "10.0.10",
+      "contentHash": "aup0x7tq3XRIe3Db4NzTFzJCOafa8nlmDeLZiJ/35yfynT4NVd4ftRbiA2ywym4Wpvka1JusIqTP9sTOwj/N0g=="
+    }
+  ]
+}

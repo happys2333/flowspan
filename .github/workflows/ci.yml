@@ -84,6 +84,170 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  package:
+    name: Package (${{ matrix.rid }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-15-arm64
+            rid: osx-arm64
+          - os: ubuntu-latest
+            rid: linux-x64
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+
+      - name: Restore locked dependencies
+        shell: bash
+        run: dotnet restore Flowspan.slnx --locked-mode
+
+      - name: Build release tooling
+        shell: bash
+        run: >-
+          dotnet build src/Flowspan.Release/Flowspan.Release.csproj
+          --configuration Release
+          --no-restore
+
+      - name: Verify content-locked build tooling
+        shell: bash
+        run: >-
+          dotnet run --project src/Flowspan.Release/Flowspan.Release.csproj
+          --configuration Release --no-build --no-restore --
+          verify-build-inputs
+          --lock-file src/Flowspan.Release/build-packages.lock.json
+          --nuget-packages "$NUGET_PACKAGES"
+
+      - name: Freeze package inputs
+        shell: bash
+        run: |
+          run_number=${{ github.run_number }}
+          if [ "$run_number" -gt 99999999 ]; then
+            echo "CI run number exceeds the macOS build-version mapping." >&2
+            exit 1
+          fi
+          build_version="$((run_number / 10000)).$(((run_number / 100) % 100)).$((run_number % 100))"
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+          echo "FLOWSPAN_VERSION=0.1.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "FLOWSPAN_BUILD_VERSION=$build_version" >> "$GITHUB_ENV"
+
+      - name: Publish self-contained target
+        shell: bash
+        run: |
+          dotnet publish src/Flowspan.Desktop/Flowspan.Desktop.csproj \
+            --configuration Release \
+            --runtime "${{ matrix.rid }}" \
+            --no-restore \
+            --output artifacts/publish \
+            -p:FlowspanDistributionBuild=true \
+            -p:Version="$FLOWSPAN_VERSION" \
+            -p:InformationalVersion="$FLOWSPAN_VERSION+$GITHUB_SHA"
+          if find artifacts/publish -type f -name '*.pdb' | grep -q .; then
+            echo "Distribution publish unexpectedly contains PDB files." >&2
+            exit 1
+          fi
+          file_count=$(find artifacts/publish -maxdepth 1 -type f | wc -l | tr -d ' ')
+          if [ "$file_count" != 1 ]; then
+            echo "Distribution publish must contain exactly one file." >&2
+            exit 1
+          fi
+
+      - name: Prepare package stage
+        shell: bash
+        run: |
+          dotnet run --project src/Flowspan.Release/Flowspan.Release.csproj \
+            --configuration Release --no-build --no-restore -- \
+            prepare \
+            --publish artifacts/publish \
+            --stage artifacts/stage \
+            --version "$FLOWSPAN_VERSION" \
+            --build-version "$FLOWSPAN_BUILD_VERSION" \
+            --commit "$GITHUB_SHA" \
+            --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --rid "${{ matrix.rid }}" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --channel ci \
+            --minimum-version 0.1.0 \
+            --download-base "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/v$FLOWSPAN_VERSION/" \
+            --builder-id "github-hosted:${{ matrix.os }}" \
+            --invocation-id "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+
+      - name: Validate packaged composition in explicit test mode
+        shell: bash
+        run: |
+          case "${{ matrix.rid }}" in
+            win-x64)
+              entry=artifacts/stage/Flowspan/Flowspan.Desktop.exe
+              no_runtime=$(cygpath -w "$PWD/artifacts/no-shared-runtime")
+              ;;
+            osx-arm64) entry=artifacts/stage/Flowspan.app/Contents/MacOS/Flowspan.Desktop ;;
+            linux-x64) entry=artifacts/stage/flowspan/Flowspan.Desktop ;;
+            *) exit 2 ;;
+          esac
+          mkdir -p artifacts/no-shared-runtime
+          no_runtime=${no_runtime:-"$PWD/artifacts/no-shared-runtime"}
+          DOTNET_ROOT="$no_runtime" \
+          DOTNET_ROOT_X64="$no_runtime" \
+          DOTNET_ROOT_ARM64="$no_runtime" \
+          DOTNET_MULTILEVEL_LOOKUP=0 \
+            "$entry" --validate-composition
+
+      - name: Seal and verify reproducible unsigned package
+        shell: bash
+        run: |
+          seal() {
+            dotnet run --project src/Flowspan.Release/Flowspan.Release.csproj \
+              --configuration Release --no-build --no-restore -- \
+              seal \
+              --stage artifacts/stage \
+              --output "$1" \
+              --lock-file src/Flowspan.Desktop/packages.lock.json \
+              --runtime-lock-file src/Flowspan.Release/runtime-packages.lock.json \
+              --nuget-packages "$NUGET_PACKAGES" \
+              --signature-state unsigned-test-artifact
+          }
+          verify() {
+            dotnet run --project src/Flowspan.Release/Flowspan.Release.csproj \
+              --configuration Release --no-build --no-restore -- \
+              verify --output "$1"
+          }
+          seal artifacts/package-1
+          seal artifacts/package-2
+          verify artifacts/package-1
+          verify artifacts/package-2
+          diff --recursive --brief artifacts/package-1 artifacts/package-2
+
+      - name: Audit direct and transitive dependencies
+        shell: bash
+        run: >-
+          dotnet list Flowspan.slnx package
+          --vulnerable
+          --include-transitive
+          --no-restore
+
+      - name: Upload unsigned test package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flowspan-${{ matrix.rid }}-unsigned-test-${{ github.sha }}
+          path: artifacts/package-1
+          if-no-files-found: error
+          retention-days: 14
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest

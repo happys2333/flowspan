@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Deterministic Flowspan distribution and release evidence tool.</Description>
+    <RuntimeIdentifiers></RuntimeIdentifiers>
+    <DisableTransitiveFrameworkReferenceDownloads>true</DisableTransitiveFrameworkReferenceDownloads>
+    <UsePackageDownload>false</UsePackageDownload>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NuGet.Packaging" PrivateAssets="all" />
+    <PackageDownload Include="Microsoft.NET.ILLink.Tasks" Version="[$(FlowspanRuntimePackVersion)]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Host.linux-x64" Version="[$(FlowspanRuntimePackVersion)]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Host.osx-arm64" Version="[$(FlowspanRuntimePackVersion)]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Host.win-x64" Version="[$(FlowspanRuntimePackVersion)]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64" Version="[$(FlowspanRuntimePackVersion)]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[$(FlowspanRuntimePackVersion)]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.win-x64" Version="[$(FlowspanRuntimePackVersion)]" />
+  </ItemGroup>
+</Project>
