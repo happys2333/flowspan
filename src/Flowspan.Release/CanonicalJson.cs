@@ -7,6 +7,7 @@ public static class CanonicalJson
 {
     private static readonly JsonSerializerOptions Options = new()
     {
+        NewLine = "\n",
         WriteIndented = true,
     };
 
