@@ -470,6 +470,27 @@ public sealed class ReleaseSealerTests
     }
 
     [Fact]
+    public void ArchiveTraversalIsRejectedWithoutOutsideWrite()
+    {
+        using var fixture = new ReleaseTestFixture("win-x64");
+        string path = Path.Combine(fixture.Root, "traversal.zip");
+        string canaryName = $"flowspan-traversal-{Guid.NewGuid():N}";
+        string outside = Path.Combine(Path.GetTempPath(), canaryName);
+        using (FileStream stream = File.Create(path))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+        {
+            ZipArchiveEntry entry = archive.CreateEntry($"../{canaryName}");
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write("outside");
+        }
+
+        Assert.Throws<ReleaseInputException>(() => ArchiveVerifier.Verify(
+            path,
+            SignatureStates.UnsignedTestArtifact));
+        Assert.False(File.Exists(outside));
+    }
+
+    [Fact]
     public void OversizedDeclaredTarEntryIsRejectedBeforeExtraction()
     {
         using var fixture = new ReleaseTestFixture("linux-x64");

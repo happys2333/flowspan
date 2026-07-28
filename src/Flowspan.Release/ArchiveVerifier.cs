@@ -431,11 +431,14 @@ public static class ArchiveVerifier
         string root,
         string relativePath)
     {
+        string destinationRoot = Path.GetFullPath(
+            root + Path.DirectorySeparatorChar);
         string destination = Path.GetFullPath(Path.Combine(
-            root,
+            destinationRoot,
             relativePath.Replace('/', Path.DirectorySeparatorChar)));
-        string relative = Path.GetRelativePath(root, destination);
-        if (relative.StartsWith("..", StringComparison.Ordinal))
+        if (!destination.StartsWith(
+                destinationRoot,
+                StringComparison.Ordinal))
         {
             throw new ReleaseInputException(
                 "A release archive path escapes the extraction root.");
