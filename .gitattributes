@@ -6,3 +6,5 @@
 *.gif binary
 *.ico binary
 *.zip binary
+src/Flowspan.Release/build-packages.lock.json binary
+src/Flowspan.Release/runtime-packages.lock.json binary
