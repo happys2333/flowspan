@@ -584,12 +584,17 @@ means its linked evidence exists; it does not imply the entire product works.
     TRX evidence are recorded in
     `docs/evidence/2026-07-26-scene-apply-desktop-and-compensation.md`.
   - _Requirements: R7.3–R7.4, R11.2_
-- [-] 8.3 Implement inspect/delete/export for trust, history, Scenes, and redacted
+- [x] 8.3 Implement inspect/delete/export for trust, history, Scenes, and redacted
   diagnostics.
   - The private Scene repository and its inspect/select/delete/redacted-export
     lifecycle are complete at `9dc3861`; evidence is recorded in
     `docs/evidence/2026-07-27-private-scene-repository.md`.
-  - Trust, history, and redacted diagnostics lifecycle remain open.
+  - Protected Trust export, operation-history inspect/delete/clear/export, and
+    redacted diagnostics inspect/delete/export are complete at `a9e92c5`;
+    exact local and hosted evidence is recorded in
+    `docs/evidence/2026-07-28-protected-local-audit-and-diagnostics.md`.
+  - This status becomes effective only after the task-status commit carrying
+    this evidence passes CI, Secret Scan, and CodeQL.
   - _Requirements: R9.5, R11_
 
 ## 9. Packaging and v1 acceptance
