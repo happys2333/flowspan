@@ -95,7 +95,7 @@ jobs:
         include:
           - os: windows-latest
             rid: win-x64
-          - os: macos-15-arm64
+          - os: macos-15
             rid: osx-arm64
           - os: ubuntu-latest
             rid: linux-x64
