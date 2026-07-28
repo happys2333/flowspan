@@ -158,6 +158,22 @@ public interface IReceiptSink
     public void Write(OperationReceipt receipt);
 }
 
+public interface IOperationHistoryStatePayloadStore
+{
+    public ValueTask<byte[]?> LoadAsync(
+        CancellationToken cancellationToken = default);
+
+    public ValueTask SaveAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default);
+}
+
+public static class OperationHistoryStorageLimits
+{
+    public const int MaximumEntryCount = 256;
+    public const int MaximumPayloadBytes = 1 * 1024 * 1024;
+}
+
 public sealed class NullReceiptSink : IReceiptSink
 {
     private NullReceiptSink()

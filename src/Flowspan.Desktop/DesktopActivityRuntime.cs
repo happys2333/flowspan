@@ -18,6 +18,7 @@ internal sealed class DesktopActivityRuntime :
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly IReplaceStatePayloadStore? replaceStatePayloadStore;
+    private readonly IReceiptSink receiptSink;
     private readonly ISceneRemoteChildStatePayloadStore?
         sceneRemoteChildStatePayloadStore;
     private readonly ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore;
@@ -42,7 +43,8 @@ internal sealed class DesktopActivityRuntime :
         IReplaceStatePayloadStore? replaceStatePayloadStore = null,
         ISceneRemoteChildStatePayloadStore?
             sceneRemoteChildStatePayloadStore = null,
-        ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore = null)
+        ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore = null,
+        IReceiptSink? receiptSink = null)
     {
         ArgumentNullException.ThrowIfNull(getIdentity);
         ArgumentNullException.ThrowIfNull(getTrust);
@@ -53,6 +55,7 @@ internal sealed class DesktopActivityRuntime :
         this.sceneRemoteChildStatePayloadStore =
             sceneRemoteChildStatePayloadStore;
         this.sceneApplyStatePayloadStore = sceneApplyStatePayloadStore;
+        this.receiptSink = receiptSink ?? NullReceiptSink.Instance;
     }
 
     public event Action? Changed;
@@ -304,6 +307,7 @@ internal sealed class DesktopActivityRuntime :
             OperationKind.Handoff);
         if (preparation.FailureReceipt is not null)
         {
+            receiptSink.Write(preparation.FailureReceipt);
             return preparation.FailureReceipt;
         }
 
@@ -418,6 +422,7 @@ internal sealed class DesktopActivityRuntime :
             OperationKind.Move);
         if (preparation.FailureReceipt is not null)
         {
+            receiptSink.Write(preparation.FailureReceipt);
             return preparation.FailureReceipt;
         }
 
@@ -655,7 +660,7 @@ internal sealed class DesktopActivityRuntime :
                 context,
                 timeProvider.GetUtcNow());
         }
-        return delivered.Status switch
+        DesktopReplaceOperationResult result = delivered.Status switch
         {
             ActivityDeliveryStatus.Acknowledged
                 when delivered.Result is not null =>
@@ -669,6 +674,12 @@ internal sealed class DesktopActivityRuntime :
                 FailureCode.PeerUnavailable,
                 timeProvider.GetUtcNow()),
         };
+        if (result.Receipt is not null)
+        {
+            receiptSink.Write(result.Receipt);
+        }
+
+        return result;
     }
 
     public async ValueTask InitializeAsync(
@@ -703,7 +714,7 @@ internal sealed class DesktopActivityRuntime :
                 newCatalog,
                 new InMemoryOperationJournal(),
                 adapterRegistry,
-                NullReceiptSink.Instance);
+                receiptSink);
             var authorizedPeer = new TrustBoundActivityPeer(
                 newNode,
                 coordinator,
@@ -756,7 +767,7 @@ internal sealed class DesktopActivityRuntime :
                         adapterRegistry,
                         newReplaceState,
                         new CryptographicUndoCapsuleIdSource(),
-                        NullReceiptSink.Instance);
+                        receiptSink);
                 }
                 catch (OperationCanceledException) when (linked.IsCancellationRequested)
                 {

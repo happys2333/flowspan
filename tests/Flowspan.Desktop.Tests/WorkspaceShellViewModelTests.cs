@@ -26,6 +26,10 @@ public sealed class WorkspaceShellViewModelTests
         Assert.False(viewModel.IsEmergencyStopAvailable);
         Assert.Equal("LOCAL WORKSPACE READY", viewModel.StartupStatus);
         Assert.Contains("sharing remain inactive", viewModel.StartupDescription);
+        Assert.False(viewModel.LocalData.IsHistoryAvailable);
+        Assert.Equal(
+            "OPERATION HISTORY UNAVAILABLE",
+            viewModel.LocalData.HistoryStatus);
     }
 
     [Fact]
@@ -99,14 +103,18 @@ public sealed class WorkspaceShellViewModelTests
     {
         var order = new List<string>();
         var activity = new OrderedActivityService(order);
+        var localData = new FakeDesktopLocalDataService(order);
         await using var viewModel = new WorkspaceShellViewModel(
             new OrderedReadyStartup(order),
             trustAuthority: new OrderedReadyTrustAuthority(order),
-            activityService: activity);
+            activityService: activity,
+            localDataService: localData);
 
         await viewModel.InitializeAsync();
 
-        Assert.Equal(["identity-init", "trust-init", "activity-init"], order);
+        Assert.Equal(
+            ["identity-init", "trust-init", "local-data-init", "activity-init"],
+            order);
         Assert.True(viewModel.Activities.IsReady);
     }
 
@@ -161,16 +169,20 @@ public sealed class WorkspaceShellViewModelTests
         var authority = new OrderedTrustAuthority(order);
         var runtime = new DesktopLocalPairingRuntime(
             new OrderedNetworkFactory(order));
+        var localData = new FakeDesktopLocalDataService(order);
         var viewModel = new WorkspaceShellViewModel(
             startup,
             trustAuthority: authority,
             localPairingRuntime: runtime,
-            activityService: new OrderedActivityService(order));
+            activityService: new OrderedActivityService(order),
+            localDataService: localData);
         await runtime.EnableAsync();
 
         await viewModel.DisposeAsync();
 
-        Assert.Equal(["network", "activity", "trust", "identity"], order);
+        Assert.Equal(
+            ["network", "activity", "local-data", "trust", "identity"],
+            order);
     }
 
     private static WorkspaceShellViewModel CreateReadyViewModel() => new(

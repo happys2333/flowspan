@@ -45,7 +45,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         DesktopLocalNetworkPermissionGuide? localNetworkPermissionGuide = null,
         IDesktopActivityService? activityService = null,
         IDesktopSceneApplyService? sceneApplyService = null,
-        IDesktopSceneRepositoryService? sceneRepositoryService = null)
+        IDesktopSceneRepositoryService? sceneRepositoryService = null,
+        IDesktopLocalDataService? localDataService = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
@@ -55,13 +56,16 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         Pairing = new PairingPromptViewModel(
             pairingDecisions ?? new DesktopPairingDecisionSource(),
             effectiveDispatcher);
+        IDesktopLocalDataService effectiveLocalDataService =
+            localDataService ?? UnavailableDesktopLocalDataService.Instance;
         TrustedDevices = new TrustedDevicesViewModel(
             trustAuthority ?? new DesktopTrustAuthority(new InMemoryTrustStore()),
             localPairingRuntime is null
                 ? null
                 : token => localPairingRuntime
                     .RefreshTrustedPeersAsync(token)
-                    .AsTask());
+                    .AsTask(),
+            effectiveLocalDataService);
         LocalPairing = new LocalPairingViewModel(
             localPairingRuntime ?? new DesktopLocalPairingRuntime(
                 UnavailableLocalPairingNetworkFactory.Instance),
@@ -81,6 +85,7 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             sceneRepositoryService
                 ?? UnavailableDesktopSceneRepositoryService.Instance,
             Scenes.SelectScene);
+        LocalData = new LocalDataViewModel(effectiveLocalDataService);
         toggleIdentityDetailsCommand = new RelayCommand(
             ToggleIdentityDetails,
             () => IsIdentityAvailable);
@@ -96,6 +101,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     public ActivityWorkspaceViewModel Activities { get; }
 
     public LocalPairingViewModel LocalPairing { get; }
+
+    public LocalDataViewModel LocalData { get; }
 
     public SceneApplyViewModel Scenes { get; }
 
@@ -258,6 +265,13 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
                                 .ConfigureAwait(true);
                         }
 
+                        if (!LocalData.IsHistoryAvailable)
+                        {
+                            await LocalData
+                                .InitializeAsync(linkedCancellation.Token)
+                                .ConfigureAwait(true);
+                        }
+
                         if (TrustedDevices.IsTrustAvailable && !Activities.IsReady)
                         {
                             await Activities
@@ -384,6 +398,15 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         try
         {
             await Activities.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            await LocalData.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {

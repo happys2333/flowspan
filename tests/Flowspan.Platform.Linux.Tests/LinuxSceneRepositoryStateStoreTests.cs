@@ -46,17 +46,26 @@ public sealed class LinuxSceneRepositoryStateStoreTests
                 LinuxSceneRepositoryStatePayloadStore.GetDefaultStatePath(),
                 LinuxReplaceStatePayloadStore.GetDefaultStatePath());
             Assert.NotEqual(
+                LinuxSceneRepositoryStatePayloadStore.GetDefaultStatePath(),
+                LinuxOperationHistoryStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
                 LinuxSceneRepositoryStateKeyStore.GetDefaultCoordinationLockPath(),
                 LinuxSceneApplyStateKeyStore.GetDefaultCoordinationLockPath());
             Assert.NotEqual(
                 LinuxSceneRepositoryStateKeyStore.GetDefaultCoordinationLockPath(),
                 LinuxReplaceStateKeyStore.GetDefaultCoordinationLockPath());
             Assert.NotEqual(
+                LinuxSceneRepositoryStateKeyStore.GetDefaultCoordinationLockPath(),
+                LinuxOperationHistoryStateKeyStore.GetDefaultCoordinationLockPath());
+            Assert.NotEqual(
                 LinuxSceneRepositoryStateKeyStore.DefaultAccount,
                 LinuxSceneApplyStateKeyStore.DefaultAccount);
             Assert.NotEqual(
                 LinuxSceneRepositoryStateKeyStore.DefaultAccount,
                 LinuxReplaceStateKeyStore.DefaultAccount);
+            Assert.NotEqual(
+                LinuxSceneRepositoryStateKeyStore.DefaultAccount,
+                LinuxOperationHistoryStateKeyStore.DefaultAccount);
             Assert.Contains(runner.Arguments, static arguments =>
                 arguments.Contains(
                     "scene-repository-state-key",
@@ -225,6 +234,44 @@ public sealed class LinuxSceneRepositoryStateStoreTests
             Assert.Equal("start", exception.Operation);
             Assert.Null(exception.ExitCode);
             Assert.NotEmpty(exception.RecoveryAction);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProductionHistoryStoreRejectsOtherPlatformsOrMissingTool()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-linux-history-native-{Guid.NewGuid():N}");
+        byte[] payload = "LINUX-NATIVE-OPERATION-HISTORY"u8.ToArray();
+        try
+        {
+            if (!OperatingSystem.IsLinux())
+            {
+                await Assert.ThrowsAsync<PlatformNotSupportedException>(async () =>
+                    await new LinuxOperationHistoryStatePayloadStore()
+                        .SaveAsync(payload));
+                return;
+            }
+
+            var missing = new LinuxOperationHistoryStatePayloadStore(
+                Path.Combine(directory, "history.fsoh"),
+                new SecretToolProcessRunner(
+                    Path.Combine(directory, "missing-secret-tool")),
+                Path.Combine(directory, "history-key.lock"));
+            LinuxSecretServiceException exception =
+                await Assert.ThrowsAsync<LinuxSecretServiceException>(async () =>
+                    await missing.SaveAsync(payload));
+
+            Assert.Equal("start", exception.Operation);
+            Assert.Null(exception.ExitCode);
         }
         finally
         {

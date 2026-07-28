@@ -345,12 +345,22 @@
           "Avalonia.Desktop": "[12.1.0, )",
           "Avalonia.Themes.Fluent": "[12.1.0, )",
           "Flowspan.Application": "[1.0.0, )",
+          "Flowspan.Diagnostics": "[1.0.0, )",
           "Flowspan.Platform.Linux": "[1.0.0, )",
           "Flowspan.Platform.MacOS": "[1.0.0, )",
           "Flowspan.Platform.Windows": "[1.0.0, )",
           "Flowspan.Security": "[1.0.0, )",
           "Flowspan.Transport": "[1.0.0, )",
           "Flowspan.Transport.Mdns": "[1.0.0, )"
+        }
+      },
+      "flowspan.diagnostics": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Application": "[1.0.0, )",
+          "Flowspan.Domain": "[1.0.0, )",
+          "Flowspan.Protocol": "[1.0.0, )",
+          "Flowspan.Security": "[1.0.0, )"
         }
       },
       "flowspan.domain": {

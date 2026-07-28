@@ -43,17 +43,26 @@ public sealed class MacOSSceneRepositoryStateStoreTests
                 MacOSSceneRepositoryStatePayloadStore.GetDefaultStatePath(),
                 MacOSReplaceStatePayloadStore.GetDefaultStatePath());
             Assert.NotEqual(
+                MacOSSceneRepositoryStatePayloadStore.GetDefaultStatePath(),
+                MacOSOperationHistoryStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
                 MacOSSceneRepositoryStateKeyStore.DefaultService,
                 MacOSSceneApplyStateKeyStore.DefaultService);
             Assert.NotEqual(
                 MacOSSceneRepositoryStateKeyStore.DefaultService,
                 MacOSReplaceStateKeyStore.DefaultService);
             Assert.NotEqual(
+                MacOSSceneRepositoryStateKeyStore.DefaultService,
+                MacOSOperationHistoryStateKeyStore.DefaultService);
+            Assert.NotEqual(
                 MacOSSceneRepositoryStateKeyStore.DefaultAccount,
                 MacOSSceneApplyStateKeyStore.DefaultAccount);
             Assert.NotEqual(
                 MacOSSceneRepositoryStateKeyStore.DefaultAccount,
                 MacOSReplaceStateKeyStore.DefaultAccount);
+            Assert.NotEqual(
+                MacOSSceneRepositoryStateKeyStore.DefaultAccount,
+                MacOSOperationHistoryStateKeyStore.DefaultAccount);
         }
         finally
         {
@@ -182,6 +191,45 @@ public sealed class MacOSSceneRepositoryStateStoreTests
                         keychain,
                         service,
                         account)).LoadAsync());
+        }
+        finally
+        {
+            if (OperatingSystem.IsMacOS())
+            {
+                keychain.DeleteGenericPassword(service, account);
+            }
+
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task NativeOperationHistoryStoreRoundTripsOnlyOnMacOS()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-macos-history-native-{Guid.NewGuid():N}");
+        string service = $"app.flowspan.history.test-{Guid.NewGuid():N}";
+        string account = $"test-history-{Guid.NewGuid():N}";
+        var keychain = new SecurityFrameworkKeychain();
+        var store = new MacOSOperationHistoryStatePayloadStore(
+            Path.Combine(directory, "history.fsoh"),
+            new MacOSOperationHistoryStateKeyStore(keychain, service, account));
+        byte[] payload = "MACOS-NATIVE-OPERATION-HISTORY"u8.ToArray();
+        try
+        {
+            if (!OperatingSystem.IsMacOS())
+            {
+                await Assert.ThrowsAsync<PlatformNotSupportedException>(async () =>
+                    await store.SaveAsync(payload));
+                return;
+            }
+
+            await store.SaveAsync(payload);
+            Assert.Equal(payload, await store.LoadAsync());
         }
         finally
         {

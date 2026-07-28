@@ -194,4 +194,83 @@ public sealed class RedactedExportFileTests
 
         Assert.False(Directory.Exists(directory));
     }
+
+    [Fact]
+    public async Task ManagedListAndDeleteStayInsideDiagnosticPrefix()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-managed-export-{Guid.NewGuid():N}");
+        try
+        {
+            await RedactedExportFile.WriteAsync(
+                directory,
+                "diagnostics-20260728-a.json",
+                "{\"kind\":\"diagnostics\"}"u8.ToArray());
+            await RedactedExportFile.WriteAsync(
+                directory,
+                "history-export-20260728-b.json",
+                "{\"kind\":\"history\"}"u8.ToArray());
+
+            string diagnostic = Assert.Single(
+                RedactedExportFile.ListFiles(directory, "diagnostics-"));
+            Assert.Equal("diagnostics-20260728-a.json", diagnostic);
+            Assert.True(await RedactedExportFile.DeleteAsync(
+                directory,
+                "diagnostics-",
+                diagnostic));
+            Assert.False(await RedactedExportFile.DeleteAsync(
+                directory,
+                "diagnostics-",
+                diagnostic));
+            Assert.True(File.Exists(Path.Combine(
+                directory,
+                "history-export-20260728-b.json")));
+            await Assert.ThrowsAsync<ArgumentException>(async () =>
+                await RedactedExportFile.DeleteAsync(
+                    directory,
+                    "diagnostics-",
+                    "../history-export-20260728-b.json"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ManagedListAndDeleteRejectDanglingSymlinks()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-managed-link-{Guid.NewGuid():N}");
+        string fileName = "diagnostics-20260728-link.json";
+        Directory.CreateDirectory(directory);
+        string linkPath = Path.Combine(directory, fileName);
+        File.CreateSymbolicLink(
+            linkPath,
+            Path.Combine(directory, "missing-target.json"));
+        try
+        {
+            Assert.Throws<IOException>(() =>
+                RedactedExportFile.ListFiles(directory, "diagnostics-"));
+            await Assert.ThrowsAsync<IOException>(async () =>
+                await RedactedExportFile.DeleteAsync(
+                    directory,
+                    "diagnostics-",
+                    fileName));
+            Assert.True(File.GetAttributes(linkPath)
+                .HasFlag(FileAttributes.ReparsePoint));
+        }
+        finally
+        {
+            File.Delete(linkPath);
+            Directory.Delete(directory);
+        }
+    }
 }

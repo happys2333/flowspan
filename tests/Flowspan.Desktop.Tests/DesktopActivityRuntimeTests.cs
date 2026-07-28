@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Flowspan.Application;
+using Flowspan.Diagnostics;
 using Flowspan.Domain;
 using Flowspan.Protocol;
 using Flowspan.Security;
@@ -168,7 +169,11 @@ public sealed class DesktopActivityRuntimeTests
             Now,
             CapabilityGrant.Of(Capability.ActivityOffer)));
         var trust = new TrustSessionCoordinator(store);
-        await using var runtime = CreateRuntime(source, trust);
+        var receipts = new InMemoryReceiptSink();
+        await using var runtime = CreateRuntime(
+            source,
+            trust,
+            receiptSink: receipts);
         await runtime.InitializeAsync();
         DesktopActivitySnapshot activity = runtime.CreateWorkspaceNote(
             "Plan",
@@ -181,6 +186,7 @@ public sealed class DesktopActivityRuntimeTests
 
         Assert.Equal(OperationStatus.Rejected, receipt.Status);
         Assert.Equal(FailureCode.CapabilityDenied, receipt.FailureCode);
+        Assert.Equal(receipt, Assert.Single(receipts.Snapshot()));
         Assert.Empty(runtime.GetTargets());
         Assert.Equal(ActivityLifecycle.Active, Assert.Single(runtime.GetActivities()).Lifecycle);
         await trust.DisposeAsync();
@@ -1337,7 +1343,8 @@ public sealed class DesktopActivityRuntimeTests
         DateTimeOffset? utcNow = null,
         ISceneRemoteChildStatePayloadStore?
             sceneRemoteChildStatePayloadStore = null,
-        ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore = null) => new(
+        ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore = null,
+        IReceiptSink? receiptSink = null) => new(
         cancellationToken =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1351,7 +1358,8 @@ public sealed class DesktopActivityRuntimeTests
         new FixedTimeProvider(utcNow ?? Now),
         replaceStatePayloadStore,
         sceneRemoteChildStatePayloadStore,
-        sceneApplyStatePayloadStore);
+        sceneApplyStatePayloadStore,
+        receiptSink);
 
     private static async Task<UndoCapsule> CreateCommittedReplaceStateAsync(
         IReplaceStatePayloadStore payloadStore)

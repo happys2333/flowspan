@@ -12,7 +12,9 @@
         "type": "Project",
         "dependencies": {
           "Flowspan.Application": "[1.0.0, )",
-          "Flowspan.Domain": "[1.0.0, )"
+          "Flowspan.Domain": "[1.0.0, )",
+          "Flowspan.Protocol": "[1.0.0, )",
+          "Flowspan.Security": "[1.0.0, )"
         }
       },
       "flowspan.domain": {
@@ -22,6 +24,13 @@
         "type": "Project",
         "dependencies": {
           "Flowspan.Domain": "[1.0.0, )"
+        }
+      },
+      "flowspan.security": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Domain": "[1.0.0, )",
+          "Flowspan.Protocol": "[1.0.0, )"
         }
       }
     }

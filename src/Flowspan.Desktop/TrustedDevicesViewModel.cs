@@ -61,7 +61,9 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
     private readonly RelayCommand beginRevokeCommand;
     private readonly RelayCommand cancelRevokeCommand;
     private readonly AsyncRelayCommand confirmRevokeCommand;
+    private readonly AsyncRelayCommand exportTrustCommand;
     private readonly CancellationTokenSource lifetimeCancellation = new();
+    private readonly IDesktopLocalDataService? localDataService;
     private readonly SemaphoreSlim operationGate = new(1, 1);
     private readonly AsyncRelayCommand saveCapabilitiesCommand;
     private TrustedDeviceItemViewModel? selectedDevice;
@@ -79,6 +81,9 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
     private bool isTrustAvailable;
     private string mutationDescription = string.Empty;
     private string mutationStatus = string.Empty;
+    private string trustExportPath = "No Trust export has been written.";
+    private string trustExportPreview =
+        "Exports omit peer names, Device IDs, fingerprints, and keys.";
     private string protection = "Trust Store not loaded";
     private string recoveryAction = string.Empty;
     private string revokeConfirmation = string.Empty;
@@ -89,10 +94,12 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
 
     public TrustedDevicesViewModel(
         IDesktopTrustAuthority authority,
-        Func<CancellationToken, Task>? reconcileConnections = null)
+        Func<CancellationToken, Task>? reconcileConnections = null,
+        IDesktopLocalDataService? localDataService = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
         this.authority = authority;
+        this.localDataService = localDataService;
         this.reconcileConnections = reconcileConnections
             ?? (_ => Task.CompletedTask);
         beginRevokeCommand = new RelayCommand(BeginRevoke, CanBeginRevoke);
@@ -110,6 +117,11 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
                 && HasSelection
                 && HasUnsavedChanges
                 && !IsMutationInProgress);
+        exportTrustCommand = new AsyncRelayCommand(
+            () => ExportTrustAsync(),
+            () => IsTrustAvailable
+                && this.localDataService is not null
+                && !IsMutationInProgress);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -121,6 +133,8 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
     public ICommand CancelRevokeCommand => cancelRevokeCommand;
 
     public ICommand ConfirmRevokeCommand => confirmRevokeCommand;
+
+    public ICommand ExportTrustCommand => exportTrustCommand;
 
     public bool GrantActivityOffer
     {
@@ -254,6 +268,18 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         private set => SetProperty(ref mutationDescription, value);
     }
 
+    public string TrustExportPath
+    {
+        get => trustExportPath;
+        private set => SetProperty(ref trustExportPath, value);
+    }
+
+    public string TrustExportPreview
+    {
+        get => trustExportPreview;
+        private set => SetProperty(ref trustExportPreview, value);
+    }
+
     public TrustedDeviceItemViewModel? SelectedDevice
     {
         get => selectedDevice;
@@ -331,6 +357,37 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
     public Task SaveCapabilitiesAsync(
         CancellationToken cancellationToken = default) =>
         RunMutationAsync(SaveCapabilitiesCoreAsync, cancellationToken);
+
+    public Task ExportTrustAsync(
+        CancellationToken cancellationToken = default) =>
+        RunMutationAsync(ExportTrustCoreAsync, cancellationToken);
+
+    private async Task ExportTrustCoreAsync(CancellationToken cancellationToken)
+    {
+        if (localDataService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            DesktopRedactedExportResult exported = await localDataService
+                .ExportTrustAsync(cancellationToken)
+                .ConfigureAwait(true);
+            TrustExportPath = exported.FullPath;
+            TrustExportPreview = exported.RedactedContent;
+            MutationStatus = "REDACTED TRUST EXPORT WRITTEN";
+            MutationDescription =
+                "The export contains protection state, verification times, and Capability grants only.";
+        }
+        catch (Exception exception)
+            when (exception is not OperationCanceledException)
+        {
+            MutationStatus = "TRUST EXPORT FAILED";
+            MutationDescription =
+                "No export was reported. Exception content is hidden.";
+        }
+    }
 
     private async Task SaveCapabilitiesCoreAsync(
         CancellationToken cancellationToken = default)
@@ -726,6 +783,7 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         beginRevokeCommand.NotifyCanExecuteChanged();
         cancelRevokeCommand.NotifyCanExecuteChanged();
         confirmRevokeCommand.NotifyCanExecuteChanged();
+        exportTrustCommand.NotifyCanExecuteChanged();
         saveCapabilitiesCommand.NotifyCanExecuteChanged();
     }
 

@@ -34,6 +34,10 @@ public interface ISceneRepositoryStateKeyStore : IAuthenticatedStateKeyStore
 {
 }
 
+public interface IOperationHistoryStateKeyStore : IAuthenticatedStateKeyStore
+{
+}
+
 public sealed class AuthenticatedReplaceStateFile : IReplaceStatePayloadStore
 {
     public const int KeyBytes = 32;

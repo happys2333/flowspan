@@ -5,5 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="../Flowspan.Application/Flowspan.Application.csproj" />
     <ProjectReference Include="../Flowspan.Domain/Flowspan.Domain.csproj" />
+    <ProjectReference Include="../Flowspan.Protocol/Flowspan.Protocol.csproj" />
+    <ProjectReference Include="../Flowspan.Security/Flowspan.Security.csproj" />
   </ItemGroup>
 </Project>

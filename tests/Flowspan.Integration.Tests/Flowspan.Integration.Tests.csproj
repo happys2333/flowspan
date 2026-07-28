@@ -13,6 +13,8 @@
     <ProjectReference Include="../../src/Flowspan.Application/Flowspan.Application.csproj" />
     <ProjectReference Include="../../src/Flowspan.Diagnostics/Flowspan.Diagnostics.csproj" />
     <ProjectReference Include="../../src/Flowspan.Domain/Flowspan.Domain.csproj" />
+    <ProjectReference Include="../../src/Flowspan.Protocol/Flowspan.Protocol.csproj" />
+    <ProjectReference Include="../../src/Flowspan.Security/Flowspan.Security.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

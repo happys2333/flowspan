@@ -47,17 +47,26 @@ public sealed class WindowsSceneRepositoryStateStoreTests
                 WindowsSceneRepositoryStatePayloadStore.GetDefaultStatePath(),
                 WindowsReplaceStatePayloadStore.GetDefaultStatePath());
             Assert.NotEqual(
+                WindowsSceneRepositoryStatePayloadStore.GetDefaultStatePath(),
+                WindowsOperationHistoryStatePayloadStore.GetDefaultStatePath());
+            Assert.NotEqual(
                 WindowsSceneRepositoryStateKeyStore.GetDefaultKeyPath(),
                 WindowsSceneApplyStateKeyStore.GetDefaultKeyPath());
             Assert.NotEqual(
                 WindowsSceneRepositoryStateKeyStore.GetDefaultKeyPath(),
                 WindowsReplaceStateKeyStore.GetDefaultKeyPath());
             Assert.NotEqual(
+                WindowsSceneRepositoryStateKeyStore.GetDefaultKeyPath(),
+                WindowsOperationHistoryStateKeyStore.GetDefaultKeyPath());
+            Assert.NotEqual(
                 WindowsSceneRepositoryStateKeyStore.ProtectionContext,
                 WindowsSceneApplyStateKeyStore.ProtectionContext);
             Assert.NotEqual(
                 WindowsSceneRepositoryStateKeyStore.ProtectionContext,
                 WindowsReplaceStateKeyStore.ProtectionContext);
+            Assert.NotEqual(
+                WindowsSceneRepositoryStateKeyStore.ProtectionContext,
+                WindowsOperationHistoryStateKeyStore.ProtectionContext);
         }
         finally
         {
@@ -211,6 +220,39 @@ public sealed class WindowsSceneRepositoryStateStoreTests
             new CurrentUserDpapiProtector(
                 $"Flowspan.Tests.SceneRepositoryState.{Guid.NewGuid():N}"));
         byte[] payload = "WINDOWS-NATIVE-SCENE-REPOSITORY-STATE"u8.ToArray();
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                await Assert.ThrowsAsync<PlatformNotSupportedException>(async () =>
+                    await store.SaveAsync(payload));
+                return;
+            }
+
+            await store.SaveAsync(payload);
+            Assert.Equal(payload, await store.LoadAsync());
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task NativeOperationHistoryStoreRoundTripsOnlyOnWindows()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"flowspan-windows-history-native-{Guid.NewGuid():N}");
+        var store = new WindowsOperationHistoryStatePayloadStore(
+            Path.Combine(directory, "history.fsoh"),
+            Path.Combine(directory, "history-key.dpapi"),
+            new CurrentUserDpapiProtector(
+                $"Flowspan.Tests.OperationHistory.{Guid.NewGuid():N}"));
+        byte[] payload = "WINDOWS-NATIVE-OPERATION-HISTORY"u8.ToArray();
         try
         {
             if (!OperatingSystem.IsWindows())

@@ -223,6 +223,203 @@
             </Border>
           </Grid>
 
+          <Grid ColumnDefinitions="7*,5*">
+            <Border Grid.Column="0"
+                    Background="{StaticResource SteelBrush}"
+                    BorderBrush="{StaticResource CoolGrayBrush}"
+                    BorderThickness="1"
+                    Padding="24"
+                    Margin="0,0,12,0">
+              <StackPanel Spacing="12">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="label"
+                             Foreground="{StaticResource SafetyAmberBrush}"
+                             Text="PRIVATE LOCAL DATA" />
+                  <TextBlock Classes="heading" FontSize="27" Text="Operation history" />
+                </StackPanel>
+                <TextBlock FontWeight="SemiBold"
+                           Text="{Binding LocalData.HistoryStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Operation history status" />
+                <TextBlock Classes="secondary"
+                           Text="{Binding LocalData.HistoryDescription}"
+                           TextWrapping="Wrap" />
+                <Button x:Name="RefreshLocalDataButton"
+                        MinHeight="44"
+                        Content="REFRESH LOCAL DATA"
+                        Command="{Binding LocalData.RefreshCommand}"
+                        AutomationProperties.Name="Refresh operation history and diagnostics" />
+                <ListBox x:Name="OperationHistoryList"
+                         ItemsSource="{Binding LocalData.History}"
+                         SelectedItem="{Binding LocalData.SelectedHistory, Mode=TwoWay}"
+                         MaxHeight="230"
+                         AutomationProperties.Name="Protected operation receipt history">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Margin="8" Spacing="3">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Label}" />
+                        <TextBlock Classes="secondary" Text="{Binding Kind}" />
+                        <TextBlock Classes="secondary" Text="{Binding Status}" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Border IsVisible="{Binding LocalData.HasSelectedHistory}"
+                        BorderBrush="{StaticResource CoolGrayBrush}"
+                        BorderThickness="1"
+                        Padding="12"
+                        AutomationProperties.Name="Selected redacted operation receipt">
+                  <StackPanel Spacing="5">
+                    <TextBlock Classes="label" Text="SELECTED RECEIPT" />
+                    <TextBlock Text="{Binding LocalData.SelectedHistory.Kind, StringFormat='Kind: {0}'}" />
+                    <TextBlock Text="{Binding LocalData.SelectedHistory.Status, StringFormat='Status: {0}'}" />
+                    <TextBlock Text="{Binding LocalData.SelectedHistory.FailureCode, StringFormat='Reason: {0}'}" />
+                    <TextBlock Classes="secondary"
+                               Text="{Binding LocalData.SelectedHistory.OccurredAt, StringFormat='Occurred: {0}'}" />
+                    <TextBlock Classes="secondary"
+                               Text="{Binding LocalData.SelectedHistory.RecordedAt, StringFormat='Recorded: {0}'}" />
+                  </StackPanel>
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button x:Name="ExportHistoryButton"
+                          MinHeight="44"
+                          Content="EXPORT REDACTED HISTORY"
+                          Command="{Binding LocalData.ExportHistoryCommand}"
+                          AutomationProperties.Name="Export redacted operation history" />
+                  <Button x:Name="BeginDeleteHistoryButton"
+                          MinHeight="44"
+                          Content="Review delete"
+                          Command="{Binding LocalData.BeginDeleteHistoryCommand}"
+                          AutomationProperties.Name="Review selected history receipt deletion" />
+                  <Button x:Name="BeginClearHistoryButton"
+                          MinHeight="44"
+                          Content="Review clear all"
+                          Command="{Binding LocalData.BeginClearHistoryCommand}"
+                          AutomationProperties.Name="Review clearing all operation history" />
+                </StackPanel>
+                <Border IsVisible="{Binding LocalData.IsDeleteHistoryVisible}"
+                        BorderBrush="{StaticResource SignalRedBrush}"
+                        BorderThickness="2" Padding="10">
+                  <StackPanel Spacing="8">
+                    <TextBlock Text="{Binding LocalData.HistoryDeleteConfirmation}"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Button Content="Cancel"
+                              Command="{Binding LocalData.CancelDeleteHistoryCommand}"
+                              AutomationProperties.Name="Cancel history receipt deletion" />
+                      <Button x:Name="ConfirmDeleteHistoryButton"
+                              Content="DELETE RECEIPT"
+                              Command="{Binding LocalData.ConfirmDeleteHistoryCommand}"
+                              AutomationProperties.Name="Delete selected history receipt" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+                <Border IsVisible="{Binding LocalData.IsClearHistoryVisible}"
+                        BorderBrush="{StaticResource SignalRedBrush}"
+                        BorderThickness="2" Padding="10">
+                  <StackPanel Spacing="8">
+                    <TextBlock Text="{Binding LocalData.HistoryClearConfirmation}"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Button Content="Cancel"
+                              Command="{Binding LocalData.CancelClearHistoryCommand}"
+                              AutomationProperties.Name="Cancel clearing operation history" />
+                      <Button x:Name="ConfirmClearHistoryButton"
+                              Content="DELETE ALL RECEIPTS"
+                              Command="{Binding LocalData.ConfirmClearHistoryCommand}"
+                              AutomationProperties.Name="Delete all operation history" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+                <TextBlock Classes="secondary" FontSize="11"
+                           Text="{Binding LocalData.HistoryExportPath}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="History export path" />
+                <SelectableTextBlock Classes="secondary"
+                                     FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                     FontSize="10" MaxHeight="130"
+                                     Text="{Binding LocalData.HistoryExportPreview}"
+                                     TextWrapping="Wrap"
+                                     AutomationProperties.Name="Redacted history export preview" />
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1"
+                    Background="#20262A"
+                    BorderBrush="{StaticResource CoolGrayBrush}"
+                    BorderThickness="1"
+                    Padding="24"
+                    Margin="12,0,0,0">
+              <StackPanel Spacing="12">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="label" Text="SUPPORT DATA" />
+                  <TextBlock Classes="heading" FontSize="27" Text="Redacted diagnostics" />
+                </StackPanel>
+                <TextBlock FontWeight="SemiBold"
+                           Text="{Binding LocalData.DiagnosticsStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Redacted diagnostics status" />
+                <TextBlock Classes="secondary"
+                           Text="Versions, active negotiated protocols, authorized Capabilities, operation states, and recent reason codes only. Nothing is uploaded." />
+                <Button x:Name="ExportDiagnosticsButton"
+                        MinHeight="44"
+                        Content="EXPORT REDACTED DIAGNOSTICS"
+                        Command="{Binding LocalData.ExportDiagnosticsCommand}"
+                        AutomationProperties.Name="Export redacted diagnostic bundle" />
+                <TextBlock Classes="secondary" FontSize="11"
+                           Text="{Binding LocalData.DiagnosticsExportPath}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Diagnostic export path" />
+                <SelectableTextBlock Classes="secondary"
+                                     FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                     FontSize="10" MaxHeight="220"
+                                     Text="{Binding LocalData.DiagnosticsPreview}"
+                                     TextWrapping="Wrap"
+                                     AutomationProperties.Name="Exact redacted diagnostic preview" />
+                <TextBlock Classes="label" Text="LOCAL DIAGNOSTIC BUNDLES" />
+                <ListBox x:Name="DiagnosticExportList"
+                         ItemsSource="{Binding LocalData.DiagnosticExports}"
+                         SelectedItem="{Binding LocalData.SelectedDiagnosticExport, Mode=TwoWay}"
+                         MaxHeight="150"
+                         AutomationProperties.Name="Local redacted diagnostic bundle files">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Margin="8"
+                                 Classes="secondary"
+                                 FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                 FontSize="10"
+                                 Text="{Binding FileName}"
+                                 TextWrapping="Wrap" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+                <Button x:Name="BeginDeleteDiagnosticButton"
+                        MinHeight="44"
+                        Content="Review bundle delete"
+                        Command="{Binding LocalData.BeginDeleteDiagnosticCommand}"
+                        AutomationProperties.Name="Review selected diagnostic bundle deletion" />
+                <Border IsVisible="{Binding LocalData.IsDeleteDiagnosticVisible}"
+                        BorderBrush="{StaticResource SignalRedBrush}"
+                        BorderThickness="2" Padding="10">
+                  <StackPanel Spacing="8">
+                    <TextBlock Text="{Binding LocalData.DiagnosticDeleteConfirmation}"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Button Content="Cancel"
+                              Command="{Binding LocalData.CancelDeleteDiagnosticCommand}"
+                              AutomationProperties.Name="Cancel diagnostic bundle deletion" />
+                      <Button x:Name="ConfirmDeleteDiagnosticButton"
+                              Content="DELETE BUNDLE"
+                              Command="{Binding LocalData.ConfirmDeleteDiagnosticCommand}"
+                              AutomationProperties.Name="Delete selected diagnostic bundle" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+          </Grid>
+
           <Border Background="#20262A"
                   BorderBrush="{StaticResource SafetyAmberBrush}"
                   BorderThickness="2"
@@ -1551,6 +1748,24 @@
                                  Text="{Binding TrustedDevices.MutationDescription}"
                                  TextWrapping="Wrap"
                                  AutomationProperties.Name="Trust mutation details" />
+                      <Button x:Name="ExportTrustButton"
+                              MinHeight="44"
+                              Content="EXPORT REDACTED TRUST"
+                              Command="{Binding TrustedDevices.ExportTrustCommand}"
+                              AutomationProperties.Name="Export redacted Trust inventory"
+                              AutomationProperties.HelpText="Writes an owner-only export without peer names, Device IDs, fingerprints, or keys." />
+                      <TextBlock Classes="secondary"
+                                 FontSize="11"
+                                 Text="{Binding TrustedDevices.TrustExportPath}"
+                                 TextWrapping="Wrap"
+                                 AutomationProperties.Name="Trust export path" />
+                      <SelectableTextBlock Classes="secondary"
+                                           FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                           FontSize="10"
+                                           MaxHeight="110"
+                                           Text="{Binding TrustedDevices.TrustExportPreview}"
+                                           TextWrapping="Wrap"
+                                           AutomationProperties.Name="Redacted Trust export preview" />
                     </StackPanel>
 
                     <TextBlock Classes="secondary"

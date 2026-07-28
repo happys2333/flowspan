@@ -328,6 +328,53 @@ public sealed class TrustedDevicesViewModelTests
             .WaitAsync(TimeSpan.FromSeconds(2));
     }
 
+    [Fact]
+    public async Task TrustExportUsesRedactedLocalDataService()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            peer.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.ActivityOffer)));
+        var localData = new FakeDesktopLocalDataService();
+        await using var viewModel = new TrustedDevicesViewModel(
+            new DesktopTrustAuthority(trustStore),
+            localDataService: localData);
+        await viewModel.InitializeAsync();
+
+        await viewModel.ExportTrustAsync();
+
+        Assert.Equal(1, localData.TrustExportCount);
+        Assert.Equal("/exports/trust.json", viewModel.TrustExportPath);
+        Assert.Contains("redacted", viewModel.TrustExportPreview);
+        Assert.Equal("REDACTED TRUST EXPORT WRITTEN", viewModel.MutationStatus);
+    }
+
+    [Fact]
+    public async Task TrustExportFailureUsesFixedNonEchoingText()
+    {
+        const string canary = "TRUST-EXPORT-EXCEPTION-CANARY";
+        var localData = new FakeDesktopLocalDataService
+        {
+            Failure = new IOException(canary),
+        };
+        await using var viewModel = new TrustedDevicesViewModel(
+            new DesktopTrustAuthority(new InMemoryTrustStore()),
+            localDataService: localData);
+        await viewModel.InitializeAsync();
+
+        await viewModel.ExportTrustAsync();
+
+        Assert.Equal("TRUST EXPORT FAILED", viewModel.MutationStatus);
+        Assert.DoesNotContain(
+            canary,
+            viewModel.MutationDescription,
+            StringComparison.Ordinal);
+    }
+
     private sealed class FailingTrustPayloadStore(string canary)
         : ITrustPayloadStore
     {

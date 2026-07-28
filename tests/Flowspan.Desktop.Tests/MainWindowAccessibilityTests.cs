@@ -9,6 +9,7 @@ using Avalonia.Input.Raw;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Flowspan.Application;
+using Flowspan.Diagnostics;
 using Flowspan.Domain;
 using Flowspan.Protocol;
 using Flowspan.Security;
@@ -890,6 +891,150 @@ public sealed class MainWindowAccessibilityTests
     }
 
     [Fact]
+    public async Task LocalDataControlsAreNamedAndKeepSharingOff()
+    {
+        var localData = new FakeDesktopLocalDataService();
+        localData.History.Add(CreateAccessibilityHistoryEntry(1));
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(), localDataService: localData);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            Button refresh = Assert.IsType<Button>(
+                window.FindControl<Button>("RefreshLocalDataButton"));
+            ListBox history = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("OperationHistoryList"));
+            Button export = Assert.IsType<Button>(
+                window.FindControl<Button>("ExportDiagnosticsButton"));
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
+
+            Assert.Equal("Refresh operation history and diagnostics",
+                refresh.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal("Protected operation receipt history",
+                history.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal("Export redacted diagnostic bundle",
+                export.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal("Export redacted operation history",
+                window.FindControl<Button>("ExportHistoryButton")?
+                    .GetValue(AutomationProperties.NameProperty));
+            Assert.Equal("Review selected history receipt deletion",
+                window.FindControl<Button>("BeginDeleteHistoryButton")?
+                    .GetValue(AutomationProperties.NameProperty));
+            Assert.Equal("Delete all operation history",
+                window.FindControl<Button>("ConfirmClearHistoryButton")?
+                    .GetValue(AutomationProperties.NameProperty));
+            Assert.Equal("Delete selected diagnostic bundle",
+                window.FindControl<Button>("ConfirmDeleteDiagnosticButton")?
+                    .GetValue(AutomationProperties.NameProperty));
+            Assert.True(refresh.MinHeight >= 44);
+            Assert.True(export.MinHeight >= 44);
+            Assert.Equal("NOT SHARING", sharing.Text);
+            window.Close();
+        }, CancellationToken.None);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task HistoryDeleteClearAndExportAreKeyboardOperable()
+    {
+        var localData = new FakeDesktopLocalDataService();
+        localData.History.Add(CreateAccessibilityHistoryEntry(1));
+        localData.History.Add(CreateAccessibilityHistoryEntry(2));
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(), localDataService: localData);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Show();
+            ListBox history = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("OperationHistoryList"));
+            Button export = Assert.IsType<Button>(
+                window.FindControl<Button>("ExportHistoryButton"));
+            Button beginDelete = Assert.IsType<Button>(
+                window.FindControl<Button>("BeginDeleteHistoryButton"));
+            Button confirmDelete = Assert.IsType<Button>(
+                window.FindControl<Button>("ConfirmDeleteHistoryButton"));
+            Button beginClear = Assert.IsType<Button>(
+                window.FindControl<Button>("BeginClearHistoryButton"));
+            Button confirmClear = Assert.IsType<Button>(
+                window.FindControl<Button>("ConfirmClearHistoryButton"));
+
+            history.SelectedIndex = 0;
+            Assert.True(export.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+            Assert.Contains("history-export.redacted",
+                viewModel.LocalData.HistoryExportPreview);
+            Assert.True(beginDelete.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(confirmDelete.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+            Assert.Single(viewModel.LocalData.History);
+            Assert.True(beginClear.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(confirmClear.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+            Assert.Empty(viewModel.LocalData.History);
+            Assert.Equal("NOT SHARING", window.FindControl<TextBlock>(
+                "SharingStatusText")?.Text);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DiagnosticExportDeleteIsKeyboardOperable()
+    {
+        var localData = new FakeDesktopLocalDataService();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(), localDataService: localData);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Show();
+            Button export = Assert.IsType<Button>(
+                window.FindControl<Button>("ExportDiagnosticsButton"));
+            ListBox files = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("DiagnosticExportList"));
+            Button beginDelete = Assert.IsType<Button>(
+                window.FindControl<Button>("BeginDeleteDiagnosticButton"));
+            Button confirmDelete = Assert.IsType<Button>(
+                window.FindControl<Button>("ConfirmDeleteDiagnosticButton"));
+
+            Assert.True(export.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+            Assert.Single(viewModel.LocalData.DiagnosticExports);
+            files.SelectedIndex = 0;
+            Assert.True(beginDelete.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(viewModel.LocalData.IsDeleteDiagnosticVisible);
+            Assert.True(confirmDelete.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+            Assert.Empty(viewModel.LocalData.DiagnosticExports);
+            Assert.Equal("NOT SHARING", window.FindControl<TextBlock>(
+                "SharingStatusText")?.Text);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task PairingConfirmationRequiresKeyboardCodeAcknowledgement()
     {
         using DeviceIdentity peer = DeviceIdentity.Generate(
@@ -963,9 +1108,11 @@ public sealed class MainWindowAccessibilityTests
             peer.PublicIdentity,
             DateTimeOffset.UnixEpoch,
             CapabilityGrant.None));
+        var localData = new FakeDesktopLocalDataService();
         await using var viewModel = new WorkspaceShellViewModel(
             new ReadyStartup(),
-            trustAuthority: new DesktopTrustAuthority(trustStore));
+            trustAuthority: new DesktopTrustAuthority(trustStore),
+            localDataService: localData);
         await viewModel.InitializeAsync();
         HeadlessUnitTestSession session = HeadlessSession;
         var closed = new TaskCompletionSource(
@@ -988,8 +1135,12 @@ public sealed class MainWindowAccessibilityTests
                 window.FindControl<Button>("ReviewRevokeButton"));
             Button confirmRevoke = Assert.IsType<Button>(
                 window.FindControl<Button>("ConfirmRevokeButton"));
+            Button exportTrust = Assert.IsType<Button>(
+                window.FindControl<Button>("ExportTrustButton"));
             TextBlock mutationStatus = Assert.IsType<TextBlock>(
                 window.FindControl<TextBlock>("TrustMutationStatusText"));
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
 
             Assert.Single(devices.Items);
             Assert.Equal(
@@ -1004,6 +1155,18 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "Review device revocation",
                 reviewRevoke.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Export redacted Trust inventory",
+                exportTrust.GetValue(AutomationProperties.NameProperty));
+            Assert.True(exportTrust.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+            Assert.Equal(1, localData.TrustExportCount);
+            Assert.DoesNotContain(
+                peer.DeviceId.ToString(),
+                viewModel.TrustedDevices.TrustExportPreview,
+                StringComparison.Ordinal);
+            Assert.Equal("NOT SHARING", sharing.Text);
             Assert.True(mirrorView.Focus());
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
             Assert.True(save.IsEnabled);
@@ -1172,6 +1335,31 @@ public sealed class MainWindowAccessibilityTests
             window.Close();
         }, CancellationToken.None);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    private static OperationHistoryEntry CreateAccessibilityHistoryEntry(
+        long sequence)
+    {
+        DateTimeOffset occurredAt = new(
+            2026, 7, 28, 9, checked((int)sequence), 0, TimeSpan.Zero);
+        ActivityDescriptor descriptor = ActivityDescriptor.Create(
+            ActivityId.From(Guid.NewGuid()),
+            ActivityKind.Parse("workspace.note/v1"),
+            DeviceId.From(Guid.NewGuid()),
+            "ACCESSIBILITY-TITLE-CANARY",
+            "{\"text\":\"ACCESSIBILITY-CONTENT-CANARY\"}",
+            ActivitySensitivity.Sensitive);
+        OperationReceipt receipt = OperationReceipt.Failed(
+            OperationId.From(Guid.NewGuid()),
+            CorrelationId.From(Guid.NewGuid()),
+            OperationKind.Handoff,
+            DeviceId.From(Guid.NewGuid()),
+            DeviceId.From(Guid.NewGuid()),
+            descriptor,
+            occurredAt,
+            FailureCode.PeerUnavailable);
+        return new OperationHistoryEntry(
+            Guid.NewGuid(), sequence, occurredAt, receipt);
     }
 
     private sealed class ReadyStartup : IDesktopIdentityStartup
