@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Formats.Tar;
 using System.IO.Compression;
 
@@ -72,6 +73,8 @@ public static class DeterministicArchive
             using FileStream source = File.OpenRead(file.FullPath);
             source.CopyTo(destination);
         }
+        archive.Dispose();
+        NormalizeZipCreatorPlatform(archivePath, files.Count);
     }
 
     private static void CreateTarGzip(
@@ -117,6 +120,61 @@ public static class DeterministicArchive
             };
             writer.WriteEntry(entry);
         }
+        writer.Dispose();
+        NormalizeGzipOperatingSystem(archivePath);
+    }
+
+    private static void NormalizeZipCreatorPlatform(
+        string archivePath,
+        int expectedEntryCount)
+    {
+        using FileStream stream = File.Open(
+            archivePath,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None);
+        Span<byte> end = stackalloc byte[22];
+        stream.Position = stream.Length - end.Length;
+        stream.ReadExactly(end);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(end) != 0x06054b50
+            || BinaryPrimitives.ReadUInt16LittleEndian(end[10..]) != expectedEntryCount
+            || BinaryPrimitives.ReadUInt16LittleEndian(end[20..]) != 0)
+        {
+            throw new ReleaseInputException(
+                "The generated ZIP end record is inconsistent.");
+        }
+
+        long position = BinaryPrimitives.ReadUInt32LittleEndian(end[16..]);
+        Span<byte> header = stackalloc byte[46];
+        for (int index = 0; index < expectedEntryCount; index++)
+        {
+            stream.Position = position;
+            stream.ReadExactly(header);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(header) != 0x02014b50)
+            {
+                throw new ReleaseInputException(
+                    "The generated ZIP central directory is inconsistent.");
+            }
+
+            header[5] = 3;
+            stream.Position = position;
+            stream.Write(header);
+            position += header.Length
+                + BinaryPrimitives.ReadUInt16LittleEndian(header[28..])
+                + BinaryPrimitives.ReadUInt16LittleEndian(header[30..])
+                + BinaryPrimitives.ReadUInt16LittleEndian(header[32..]);
+        }
+    }
+
+    private static void NormalizeGzipOperatingSystem(string archivePath)
+    {
+        using FileStream stream = File.Open(
+            archivePath,
+            FileMode.Open,
+            FileAccess.Write,
+            FileShare.None);
+        stream.Position = 9;
+        stream.WriteByte(3);
     }
 
     private static string GetArchivePath(
