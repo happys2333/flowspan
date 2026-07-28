@@ -599,10 +599,18 @@ means its linked evidence exists; it does not imply the entire product works.
 
 ## 9. Packaging and v1 acceptance
 
-- [ ] 9.1 Add reproducible Windows, macOS, and Linux packaging, signing hooks,
+- [x] 9.1 Add reproducible Windows, macOS, and Linux packaging, signing hooks,
   SBOM, license report, provenance, checksums, and update metadata.
   - _Requirements: R1, R12_
-- [ ] 9.2 Execute the complete CI matrix and preserve named artifacts/results.
+- [x] 9.2 Execute the complete CI matrix and preserve named artifacts/results.
+  - Final implementation commit `6ceb7e1` passes Windows, macOS, and Ubuntu
+    tests, Secret Scan, CodeQL, and the matching three-RID package matrix.
+    Downloaded packages independently verify on the macOS host; each downloaded
+    12-TRX set sums to 1225 passed and 0 failed. Exact artifacts, digests,
+    repairs, commands, and explicit unsigned/hosted limits are recorded in
+    [deterministic distribution evidence](../../docs/evidence/2026-07-28-deterministic-distribution.md).
+  - Real signing, notarization, installers, native accessibility, physical LAN,
+    and lifecycle acceptance remain open under 9.3; 9.4 and the Goal remain open.
   - _Requirements: R1.3, R12.4–R12.5_
 - [ ] 9.3 Execute real-machine install, permission, LAN, security, accessibility,
   failure, and lifecycle matrix on all three OS families.
