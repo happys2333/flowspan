@@ -67,6 +67,9 @@
 - [ ] 9. Close Task 6 evidence
   - Run property/fault/security/load tests and exact-commit Windows/macOS/Ubuntu
     CI, Secret Scan, CodeQL, and artifact verification.
+  - Portable commit `d19cfea8a06dfec13d298ba2630916dc5e3bbf33`
+    passed those hosted gates with parsed artifacts; the exact evidence is in
+    `docs/evidence/2026-08-08-portable-remote-window-control-plane.md`.
   - Record physical two-device, native permission/protection, accessibility,
     emergency-stop-under-failure, and real-machine evidence without upgrading
     simulated or hosted claims.

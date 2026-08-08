@@ -328,7 +328,9 @@ means its linked evidence exists; it does not imply the entire product works.
     supersession, bounded re-entrant churn, stale-resume Emergency Stop
     dominance, and 16 seeded transition sequences. This does not implement or
     prove any native API, encrypted media, OS permission, or physical emergency
-    action; tasks 6.3-6.6 remain open.
+    action; tasks 6.3-6.6 remain open. Exact portable local and hosted evidence
+    is recorded in
+    `docs/evidence/2026-08-08-portable-remote-window-control-plane.md`.
   - _Requirements: R9.3–R9.4_
 - [ ] 6.3 Implement Windows capture/input/protected-surface adapters and native
   evidence.

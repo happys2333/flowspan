@@ -13,11 +13,11 @@ two-device behavior.
 
 Branch: `codex/v1-foundation`
 
-The verified worktree was based on
-`82f34cdbfe602efeffe4007ac38fb58db4b028b7`. Local worktree results are not
-exact-commit hosted evidence. The implementation commit and its Windows,
-macOS, Ubuntu, Secret Scan, CodeQL, and downloaded-artifact results must be
-added only after that commit is pushed and the matching workflows finish.
+The local worktree was based on
+`82f34cdbfe602efeffe4007ac38fb58db4b028b7`. The resulting implementation
+commit is `d19cfea8a06dfec13d298ba2630916dc5e3bbf33` (`feat: add
+fail-closed Remote Window control plane`). Its exact-commit hosted evidence is
+recorded below.
 
 ## Implemented contract
 
@@ -103,16 +103,58 @@ git diff --check
 The platform-named contract assemblies compiling and passing on this macOS host
 do not prove Windows, macOS, or Linux native APIs.
 
-## Hosted evidence pending
+## Hosted exact-commit evidence
 
-- Push the implementation commit on `codex/v1-foundation`.
-- Require the exact SHA to pass all three CI OS jobs, package jobs, Secret Scan,
-  and CodeQL.
-- Download each TRX and Gitleaks artifact, record artifact IDs and SHA-256
-  digests, parse their structured result counters, and confirm the workflow SHA
-  before adding hosted evidence.
+Implementation commit `d19cfea8a06dfec13d298ba2630916dc5e3bbf33`
+passed [CI run `31249203563`](https://github.com/happys2333/flowspan/actions/runs/31249203563):
 
-Until those items are recorded, this document proves only local portable
-behavior on the named host. Tasks 4-9 in the Remote Window plan, parent tasks
-6.3-6.6, physical task 5.4, accessibility task 7.4, and release tasks 9.3-9.4
-remain open.
+- Ubuntu test job [`93082747709`](https://github.com/happys2333/flowspan/actions/runs/31249203563/job/93082747709);
+- macOS test job [`93082747710`](https://github.com/happys2333/flowspan/actions/runs/31249203563/job/93082747710);
+- Windows test job [`93082747713`](https://github.com/happys2333/flowspan/actions/runs/31249203563/job/93082747713);
+- Secret Scan job [`93082747664`](https://github.com/happys2333/flowspan/actions/runs/31249203563/job/93082747664);
+- linux-x64 package job [`93083075259`](https://github.com/happys2333/flowspan/actions/runs/31249203563/job/93083075259);
+- osx-arm64 package job [`93083075260`](https://github.com/happys2333/flowspan/actions/runs/31249203563/job/93083075260);
+- win-x64 package job [`93083075267`](https://github.com/happys2333/flowspan/actions/runs/31249203563/job/93083075267).
+
+Every test job restored locked dependencies, verified formatting, built with
+warnings as errors, ran all tests, validated Desktop composition in explicit
+TEST MODE, ran the deterministic simulator, and uploaded TRX evidence. Every
+package job verified content-locked tooling, published its self-contained
+target, validated packaged composition, sealed and verified two reproducible
+unsigned outputs, recursively compared them, audited direct/transitive
+dependencies, and uploaded the resulting test package.
+
+Downloaded test and Secret Scan artifacts were parsed using XML and JSON
+parsers. `Artifact digest` is the SHA-256 reported by the GitHub artifact API;
+`tree SHA-256` independently hashes each extracted relative path and file
+digest in sorted order.
+
+| Artifact | ID | Artifact digest | Tree SHA-256 | Parsed result |
+| --- | ---: | --- | --- | --- |
+| Windows TRX | `9019492185` | `5ede4472d2f9b489b68a3db8382c7430a85ecd1d8769a48687338f505401460c` | `d07430d7440e54409e34045bf12864d5174df45589e9ddc9b86ecb9373b3df1f` | 12 files, 1257/1257 passed |
+| macOS TRX | `9019474640` | `2732696b33c542ac950da835edcbb548e1e618fe10bbac6ca55a7fa3b3ba8aec` | `0fcf2a97a8cb7511b45458f7ac17b1536d28045a1f395f4a80b8b1879d96b089` | 12 files, 1257/1257 passed |
+| Ubuntu TRX | `9019484482` | `c57ab1341998443aa9a55ee0e50c467341fad15ce91298128b50ed48aa988784` | `ce3bd341bda139380286f0eeb7c9bb036f60962a91fd83cd53330b6bd354d207` | 12 files, 1257/1257 passed |
+| Gitleaks SARIF | `9019457952` | `1f56bf8a000159c3a05a6cef68d1240bff457bfad07fd4109df095877430ed5b` | `7e69a8c7dbdfd4285adff52c59544be5344adc0e1721b007859738e615735728` | 208 rules, 0 results |
+
+Every platform TRX aggregate also reported 0 failed, error, timeout, aborted,
+inconclusive, and not-executed tests.
+
+Package artifact metadata is bound to the same workflow SHA:
+
+| Artifact | ID | Artifact digest |
+| --- | ---: | --- |
+| win-x64 unsigned test package | `9019515040` | `319c8445656259bd201c86e430351a4253177ddabc5be7c638a35b6ac24b0bed` |
+| linux-x64 unsigned test package | `9019510356` | `f44b835879d5862e08c53ca890b257c8a3417b3716b237ffb7a0fb64baeb103e` |
+| osx-arm64 unsigned test package | `9019506915` | `c03d6cf5b7197b81e90bcead7c19a430cac70062e536fb0ce231d42dc71afe13` |
+
+[CodeQL run `31249203570`](https://github.com/happys2333/flowspan/actions/runs/31249203570),
+job [`93082747557`](https://github.com/happys2333/flowspan/actions/runs/31249203570/job/93082747557),
+also passed for the exact implementation SHA. Analysis `1589487041`
+evaluated 52 rules and reported 0 results and 0 open branch alerts.
+
+These hosted results prove portable build, control-contract behavior, and
+reproducible unsigned packaging on the named runner images. They do not prove
+native capture/input/protection, permissions, physical emergency action,
+physical two-device networking, or packaged accessibility. Tasks 4-9 in the
+Remote Window plan, parent tasks 6.3-6.6, physical task 5.4, accessibility task
+7.4, and release tasks 9.3-9.4 remain open.
