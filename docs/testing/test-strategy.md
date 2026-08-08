@@ -405,6 +405,23 @@ do not repeat Adapter work, uncertainty halts, and descriptor/payload canaries
 never enter the coordinator. These portable contracts do not prove physical
 two-device interruption, native application behavior, or native accessibility.
 
+The tasks 6.1-6.2 portable Remote Window control tests exercise one public
+`RemoteWindowSessionController` over deterministic authorization, capture,
+input, and local-session boundaries. Tracers cover fresh-safe capture admission,
+single-snapshot `mirror.view`/`mirror.drive` use, view-only admission, Driver
+transfer, drive downgrade, view removal, disconnect, lease expiry, bounded
+portable input, protection pause/resume, ordinary stop, emergency stop/reset,
+and disposal. Fault cases inject start/input/pause/resume/stop exceptions and
+cancellation while proving no exception or input payload reaches results.
+Concurrency cases block capture start or input and prove protection/emergency
+preemption, late-success rejection, normal input/transfer serialization, and
+safe semaphore disposal. Sixteen fixed seeds execute 48 authorization, role,
+transfer, expiry, protection, and disconnect transitions each; after every event
+all retired Device/epoch pairs are attempted through the public input API and
+must not reach the input boundary. These are portable local-gate contracts, not
+media, authenticated protocol, native capture/input/protection, physical Device,
+permission, or accessibility evidence.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source
@@ -436,6 +453,13 @@ Core invariants are asserted after every event:
     one exact Eligible Conflict with Preserve Source can authorize confirmed
     Replace; occupied Move-plus-Replace, Opaque, Ambiguous, or filtered inventory
     absence always fails closed.
+15. a Remote Window input reaches its local boundary only for one current
+    participant, immutable Capability snapshot, fresh Safe protection state, and
+    exact live Driver epoch; emergency/protection preemption and any retired
+    epoch cannot be reported as injected. Only the latest monotonic protection
+    observation may publish Active or confirmed Paused state; re-entrant churn
+    is bounded, partial resume failure re-closes both gates, and a stale resume
+    cannot reopen a gate after Emergency Stop.
 
 ## 4. CI matrix
 

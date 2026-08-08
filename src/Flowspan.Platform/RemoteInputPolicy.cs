@@ -60,6 +60,8 @@ public enum RemoteInputDecision
     ProtectionStateUnknown,
     SensitiveSurface,
     DriverLeaseDenied,
+    CapabilityDenied,
+    BoundaryFailed,
 }
 
 public sealed class RemoteInputPolicy

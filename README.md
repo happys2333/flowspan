@@ -60,6 +60,10 @@ for end-user installation. The repository currently includes:
   current directional Trust checks, protected target-owned undo capsules,
   target-local recovery/undo, truthful acknowledgement-loss guidance, and
   keyboard/automation coverage;
+- a portable Remote Window/Mirror control plane with bounded participant and
+  input contracts, one current Capability snapshot per use, monotonic Driver
+  Lease transfer/expiry/disconnect, protection pause/resume, and local
+  emergency-stop preemption/fault results; it has no media or native adapter yet;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
@@ -88,7 +92,7 @@ dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
 Desktop validation uses an explicitly degraded in-memory identity, prints TEST
 MODE, and exits; it never substitutes for production platform storage. The
 simulator uses fixed device, operation, and clock values. A successful run
-prints protocol `1.1`, `Source preserved: True`, `Target resumed: True`,
+prints protocol `1.4`, `Source preserved: True`, `Target resumed: True`,
 `Atomic swap committed: True`, and a redacted operation receipt containing a
 descriptor digest but no Activity text. Its Swap endpoints and catalog remain
 process-memory tracers. Separate application and platform contracts implement

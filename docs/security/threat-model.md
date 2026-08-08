@@ -229,6 +229,22 @@ Scene apply remains a best-effort orchestration of existing operations, not an
 atomic transaction or authority to expand live Groups. Task 8.3 still owns the
 Scene repository and inspect/delete/export lifecycle.
 
+### 5.12 Tasks 6.1-6.2 portable Remote Window control evidence plan
+
+| Threat | Implemented evidence boundary | Remaining evidence |
+| --- | --- | --- |
+| T05 | Each participant admission, Driver transfer, input attempt, and reconciliation reads one immutable current `CapabilityGrant`; view-only requires `mirror.view`, while Driver eligibility/use requires both `mirror.view` and `mirror.drive`. Drive removal returns authority to the host before downgrade; view removal returns authority and removes the peer before local disconnect. | Compose persistent Trust/session revocation with the controller and observe same-session revocation on physical supported-platform pairs. |
+| T06 | The controller composes the immutable `MirrorSession`, serializes normal input/transfer, publishes the higher lease epoch before new-driver input, returns expiry/disconnect to the host, rechecks the epoch before and after the input boundary, and preempts pending start/input through local emergency stop. Seeded public-interface transitions prove retired epochs never reach input. | Authenticated protocol/session binding, replay evidence, native input enforcement, sleep/wake and physical disconnect testing. |
+| T07 | Initial capture requires a fresh Safe observation. Unknown, stale, future-skewed, secure-input, protected-content, and sensitive-window states first remove input authority, then synchronously pause capture/input gates; only confirmed gates publish Paused. A partial resume failure re-pauses both gates, a monotonic protection revision rejects stale completion, re-entrant churn fails closed after a fixed bound, and a stale resume re-applies Emergency Stop rather than reopening input. | Continuous native probes and frame-by-frame blank/pause evidence for Windows secure desktop/protected capture, macOS secure input/protected windows, and Wayland portal/PipeWire. |
+| T10 | Sharing snapshots/results keep Activity ID/kind/title, participant IDs/roles, lease metadata, protection kind, and stable reason codes only. Input events/batches override display text to omit coordinates/keys, and adapter exception text reduces to `local_boundary_exception`. | Packaged crash/minidump, native logging, media pipeline, and diagnostic-export canary inspection. |
+| T13 | One controller is bound to one local active Activity; a session admits at most 16 participants and an input batch 1-64 closed HID/pointer/scroll events. Normal work is serialized; emergency/protection paths preempt it. | Measured media bandwidth/queue/backpressure ceilings, authenticated peer/session limits, rate limiting, and sustained hostile load. |
+| T14 | The portable snapshot exposes lifecycle, capture confirmation, current Driver, participant count, and revision for a future persistent indicator. Emergency stop changes that state before calling any local boundary and has no peer-acknowledgement port. | Desktop indicator/emergency UI, keyboard/screen-reader behavior, native hotkey/action, and physical failure observation. |
+
+These tests use deterministic local boundaries. They do not establish that a
+screen frame was captured or blanked, native input was injected or stopped, an
+operating-system permission was granted, a peer session was encrypted, or a
+physical Device disconnected.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

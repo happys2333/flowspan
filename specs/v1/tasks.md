@@ -309,9 +309,26 @@ means its linked evidence exists; it does not imply the entire product works.
 ## 6. Mirror, driver, and protection
 
 - [-] 6.1 Implement mirror lifecycle and monotonic expiring driver leases.
+  - The portable `RemoteWindowSessionController` now composes one active local
+    Activity through capture admission, bounded participant roles, one current
+    Capability snapshot per use boundary, Driver transfer, drive downgrade,
+    view revocation, disconnect, expiry, ordinary stop, and explicit reset.
+    It serializes normal input/transfer and exposes a payload-free sharing
+    snapshot with current Driver and lease epoch. Authenticated protocol,
+    Desktop presentation, media, native adapters, and physical evidence remain
+    open, so the parent task stays partial.
   - _Requirements: R6.1–R6.5_
 - [-] 6.2 Implement platform protection-state, capture, input, and emergency-stop
   contracts plus deterministic fakes.
+  - Narrow portable capture/input/local-session gates, closed bounded HID/
+    pointer/scroll batches, protection pause/resume, payload-free boundary
+    results, and synchronous local emergency-stop preemption are implemented.
+    Deterministic tests cover pending start/input races, boundary exceptions,
+    cancellation, safe disposal, partial-resume reclosure, monotonic protection
+    supersession, bounded re-entrant churn, stale-resume Emergency Stop
+    dominance, and 16 seeded transition sequences. This does not implement or
+    prove any native API, encrypted media, OS permission, or physical emergency
+    action; tasks 6.3-6.6 remain open.
   - _Requirements: R9.3–R9.4_
 - [ ] 6.3 Implement Windows capture/input/protected-surface adapters and native
   evidence.
