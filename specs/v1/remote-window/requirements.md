@@ -1,6 +1,7 @@
 # Remote Window and Mirror Control Requirements
 
-Status: approved v1 baseline; portable control-plane implementation in progress
+Status: approved v1 baseline; portable control plane complete; authenticated
+control and bounded media slice in progress
 
 ## Problem and scope
 
@@ -138,6 +139,32 @@ Linux adapters.
 - RW7.4: Normal state and evidence shall exclude frames, audio, raw input,
   Activity descriptor payloads, credentials, session keys, and peer-supplied
   exception text.
+- RW7.5: Remote Window wire messages shall require negotiated protocol 1.5 or
+  later. A 1.0-1.4 session shall reject their construction and decoding while
+  retaining its older negotiated feature set.
+- RW7.6: Every Remote Window command and state shall bind the authenticated
+  sender and recipient, one unpredictable live Session ID, the exact Activity
+  ID, a correlation ID, a short deadline, and the current state or Driver epoch
+  needed by that operation. A stale session, wrong participant, wrong Activity,
+  expired envelope, or unsolicited result shall fail closed before controller
+  or input work.
+- RW7.7: Admission, Driver request, input, disconnect, and participant/
+  protection state shall use strict canonical control schemas with no unknown,
+  duplicate, null, or wrong-type fields. Remote input shall retain the portable
+  1-64 event contract and shall not be placed in media frames.
+- RW7.8: Video, audio, and cursor data shall use a separately framed binary
+  channel protected with key material purpose-separated from control traffic.
+  Each frame shall bind its live Session ID, Activity ID, media kind, monotonic
+  sequence, and bounded chunk coordinates before exposing payload bytes.
+- RW7.9: A media payload shall not exceed 64 KiB. A peer outbound queue shall
+  hold at most 8 frames and 512 KiB; one live session shall reserve at most 128
+  frames and 8 MiB across at most 15 remote peers. Video shall contain at most
+  16 chunks per logical frame; audio and cursor frames shall contain one chunk.
+- RW7.10: A peer that exceeds 512 media frames or 32 MiB in one second, sends an
+  invalid encrypted length, cannot drain an accepted write within 2 seconds, or
+  exceeds a queue/resource ceiling shall be rejected or backpressured without
+  weakening control, protection, Driver, or Emergency Stop state. Every pending
+  reservation shall be released on success, failure, cancellation, and dispose.
 
 ### RW8 - Evidence
 
@@ -152,10 +179,18 @@ Linux adapters.
 - RW8.4: Task 6 is not complete until bounded encrypted media, hostile-peer
   limits, native capture/input/protection behavior, physical two-device use, and
   the real-machine acceptance matrix have separate evidence.
+- RW8.5: Protocol 1.5 shall freeze canonical Remote Window control frames and
+  hashes, test 1.4 downgrade rejection, and exercise authenticated two-node
+  loopback binding. Media tests shall cover AEAD tamper, hostile length/rate,
+  sequence/chunk validation, per-peer/session backpressure, timeout,
+  cancellation, fault cleanup, and payload-free diagnostic strings.
 
-## Non-goals for the portable control-plane slice
+## Non-goals for the authenticated control and bounded media slice
 
-- Encoding or transporting video, audio, cursor, clipboard, or files.
+- Selecting a production video/audio codec, capturing a real desktop, rendering
+  decoded frames, or claiming measured interactive quality on a physical LAN.
+- Clipboard and file transfer. They require their own content policy, protocol,
+  consent, and resource evidence.
 - Implementing Windows Graphics Capture/SendInput, ScreenCaptureKit/macOS
   Accessibility, Wayland portals/PipeWire, or X11 input.
 - Treating deterministic fakes or hosted runners as native permission,

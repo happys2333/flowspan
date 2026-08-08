@@ -30,12 +30,22 @@
     regression coverage. Native and physical evidence remains in tasks 6-9.
   - _Requirements: RW4-RW7_
 
-- [ ] 4. Freeze authenticated control and bounded media protocol
-  - Add versioned strict messages for session admission, participant state,
-    Driver Lease epochs, protection pause, and local disconnect.
-  - Add encrypted bounded frame/cursor/input channels, backpressure, per-peer and
-    per-session resource ceilings, hostile-length/rate tests, and no structured
-    logging of payloads.
+- [x] 4. Freeze authenticated control and bounded media protocol
+  - [x] Freeze protocol-1.5 strict messages for session admission, participant
+    state, Driver Lease epochs, protection pause, input, and local disconnect.
+  - [x] Freeze purpose-separated media framing, backpressure, per-peer/session
+    ceilings, rate, timeout, cleanup, and evidence boundaries in ADR 0022.
+  - [x] Implement and freeze canonical control frames plus hostile decoding and
+    old-minor rejection.
+  - [x] Compose the controller through an authenticated two-node loopback.
+  - [x] Implement purpose-separated encrypted media plus deterministic queue,
+    backpressure, hostile-length/rate, timeout, cancellation, and cleanup tests.
+  - Local macOS evidence on 2026-08-08: locked restore, format verification,
+    warning-free 26-project Release build, 45 focused Remote Window tests,
+    1315 complete solution tests with 12 fresh TRX files, Desktop TEST MODE
+    composition, protocol-1.5 simulator, and direct/transitive NuGet
+    vulnerability query all passed. Hosted OS and physical evidence remains in
+    task 9.
   - _Requirements: RW1-RW8_
 
 - [ ] 5. Implement Desktop Remote Window and Mirror workflow

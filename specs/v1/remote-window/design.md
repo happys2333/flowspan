@@ -1,6 +1,7 @@
 # Remote Window and Mirror Control Design
 
-Status: approved design for the portable Task 6 control-plane slice
+Status: approved portable control plane; protocol-1.5 control and bounded media
+design frozen for Task 4
 
 ## Design summary
 
@@ -225,3 +226,100 @@ Later slices add:
   real-machine accessibility/physical-device evidence.
 
 No portable test, hosted runner, or fake closes those native/manual gates.
+
+## Protocol 1.5 authenticated control
+
+Remote Window adds a new minor protocol feature rather than changing 1.4
+semantics. `ProtocolFeatures.RemoteWindowMinimumVersion` is 1.5 and gates five
+strict canonical message types:
+
+| Message | Direction | Purpose |
+| --- | --- | --- |
+| `remote-window.admission` | participant to host | Request ViewOnly or DriverEligible admission to one pre-issued live Session ID. |
+| `remote-window.driver` | participant to host | Request Driver authority for self from one exact last-known epoch and bounded duration. |
+| `remote-window.input` | Driver to host | Submit one closed `RemoteInputBatch` under one exact current epoch. |
+| `remote-window.disconnect` | participant to host | End that authenticated peer's participation in the exact live session. |
+| `remote-window.state` | host to participant | Return or publish payload-free participant, Driver, protection, capture, status, and revision state. |
+
+The message envelope binds negotiated version, authenticated sender, message and
+correlation IDs, and TTL. Each body additionally binds the unpredictable live
+Session ID, Activity ID, host/participant identities, and the operation-specific
+epoch/deadline. The codec requires the exact field set. A state response repeats
+the request action and correlation and names the intended participant, so a
+valid encrypted frame cannot be replayed across a peer, Activity, session, or
+pending command.
+
+The host adapter is deliberately thin: it maps admission, Driver, input, and
+disconnect requests to the existing public `RemoteWindowSessionController`.
+The controller remains the only authority owner and therefore still performs
+the current Capability, protection, lease, ordering, and local-boundary checks.
+The transport never upgrades a denied wire request into authority.
+
+Remote input remains low-volume reliable control traffic rather than media.
+This preserves the existing serialized final authorization/protection/epoch
+check through the native input boundary. Input results and state frames contain
+only a decision/status, bounded reason code, state revision, participant count,
+effective role, and current Driver metadata; they never echo events.
+
+## Purpose-separated bounded media
+
+Media uses a second ordered duplex stream attached to the already authenticated
+protocol-1.5 session. The authenticated handshake derives a second directional
+AES-256-GCM frame session with HKDF context
+`FLOWSPAN-REMOTE-WINDOW-MEDIA-V1`; it does not reuse control keys, counters, or
+rekey state. An implementation may later replace the ordered media transport,
+but must preserve the authenticated Session/Activity binding and budgets.
+
+The plaintext media format is binary and independently strict:
+
+```text
+magic(4), format(1), kind(1), flags(1), reserved(1),
+liveSessionId(16), activityId(16), sequence(8),
+chunkIndex(2), chunkCount(2), payloadLength(4), payload(0..65536)
+```
+
+All integers are big-endian. Format 1 recognizes video, audio, and cursor.
+Sequence is positive and monotonic per kind. Video admits 1-16 chunks with
+zero-based indexes; audio and cursor admit exactly one chunk. Unknown kinds,
+flags, reserved bits, trailing bytes, invalid coordinates, and wrong
+Session/Activity bindings fail before payload publication. The outer encrypted
+frame has its own bounded big-endian length and AEAD authenticates the complete
+plaintext header and payload.
+
+### Resource contract
+
+| Boundary | Limit | Failure behavior |
+| --- | ---: | --- |
+| Media payload | 64 KiB | Reject before queue/encryption. |
+| Video chunks/logical frame | 16 | Reject shape. |
+| Audio/cursor chunks | 1 | Reject shape. |
+| Per-peer outbound queue | 8 frames / 512 KiB | Return explicit backpressure; do not evict an accepted frame. |
+| Per-session outbound queues | 128 frames / 8 MiB / 15 peers | Reject reservation before ownership transfer. |
+| Per-peer receive rate | 512 frames/s / 32 MiB/s | Fault and close that media channel. |
+| Accepted media write | 2 s default, 10 s maximum | Fault channel and release every queued reservation. |
+
+The queue takes a defensive payload copy only after both peer and shared session
+budgets reserve capacity. One worker preserves order. Reservations live through
+the write and are released exactly once on success, failure, cancellation, or
+dispose. Control and Emergency Stop do not wait for queue drain: closing the
+media stream cancels the worker and causes later media admission to fail.
+
+Structured diagnostics expose only kind, byte count, sequence, queue counters,
+stable outcome, and stable reason. They exclude media bytes, raw input, keys,
+Activity title/payload, native handles, and peer exception text.
+
+## Task 4 test strategy
+
+The tracer bullet freezes one admission frame, sends it through a real
+authenticated protocol-1.5 loopback, and observes the controller's current
+Capability decision in a strict state response. Incremental tests then add
+Driver epochs, input non-echo, protection state, disconnect, wrong bindings,
+unknown fields, deadline/replay behavior, and 1.4 rejection.
+
+The media tracer bullet derives purpose-separated sessions from the same
+authenticated transcript, sends one binary frame on a second loopback stream,
+and proves exact payload recovery. Incremental tests cover tamper, hostile
+length/rate, sequence/chunk shape, queue and shared-budget backpressure, blocked
+write timeout, cancellation, disposal, and fault cleanup. This proves portable
+authenticated framing and resource behavior only; it is not native capture,
+codec, rendering, quality, or physical-device evidence.

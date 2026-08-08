@@ -111,3 +111,21 @@ public sealed record UndoCapsuleId
 
     public override string ToString() => Value.ToString("D");
 }
+
+public sealed record RemoteWindowSessionId
+{
+    private RemoteWindowSessionId(Guid value) => Value = value;
+
+    public Guid Value { get; }
+
+    public static RemoteWindowSessionId From(Guid value) =>
+        value == Guid.Empty
+            ? throw new ArgumentException(
+                "A Remote Window Session ID cannot be empty.",
+                nameof(value))
+            : new RemoteWindowSessionId(value);
+
+    public static RemoteWindowSessionId Parse(string value) => From(Guid.Parse(value));
+
+    public override string ToString() => Value.ToString("D");
+}

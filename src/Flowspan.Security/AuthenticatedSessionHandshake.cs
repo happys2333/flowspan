@@ -442,20 +442,34 @@ public sealed class AuthenticatedSession : IDisposable
     internal AuthenticatedSession(
         ProtocolVersion protocolVersion,
         PublicDeviceIdentity peerIdentity,
-        SecureFrameSession secureFrames)
+        SecureFrameSession secureFrames,
+        SecureFrameSession? remoteWindowMediaFrames)
     {
         ProtocolVersion = protocolVersion;
         PeerIdentity = peerIdentity;
         SecureFrames = secureFrames;
+        RemoteWindowMediaFrames = remoteWindowMediaFrames;
     }
 
     public ProtocolVersion ProtocolVersion { get; }
 
     public PublicDeviceIdentity PeerIdentity { get; }
 
+    public SecureFrameSession? RemoteWindowMediaFrames { get; }
+
     public SecureFrameSession SecureFrames { get; }
 
-    public void Dispose() => SecureFrames.Dispose();
+    public void Dispose()
+    {
+        try
+        {
+            SecureFrames.Dispose();
+        }
+        finally
+        {
+            RemoteWindowMediaFrames?.Dispose();
+        }
+    }
 }
 
 public static class AuthenticatedSessionHandshake
@@ -537,10 +551,31 @@ public static class AuthenticatedSessionHandshake
             using SecureSessionKeyMaterial material = SecureSessionKeyMaterial.Derive(
                 sharedSecret,
                 transcriptHash);
-            return new AuthenticatedSession(
-                transcript.ProtocolVersion,
-                trustedPeerIdentity,
-                material.CreateSession(localRole));
+            SecureFrameSession secureFrames = material.CreateSession(localRole);
+            SecureFrameSession? remoteWindowMediaFrames = null;
+            try
+            {
+                if (ProtocolFeatures.SupportsRemoteWindow(transcript.ProtocolVersion))
+                {
+                    using SecureSessionKeyMaterial mediaMaterial =
+                        SecureSessionKeyMaterial.DeriveRemoteWindowMedia(
+                            sharedSecret,
+                            transcriptHash);
+                    remoteWindowMediaFrames = mediaMaterial.CreateSession(localRole);
+                }
+
+                return new AuthenticatedSession(
+                    transcript.ProtocolVersion,
+                    trustedPeerIdentity,
+                    secureFrames,
+                    remoteWindowMediaFrames);
+            }
+            catch
+            {
+                secureFrames.Dispose();
+                remoteWindowMediaFrames?.Dispose();
+                throw;
+            }
         }
         finally
         {

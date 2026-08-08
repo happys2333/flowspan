@@ -30,6 +30,11 @@ public enum ControlMessageType
     SceneChildOperationResult,
     SceneUndoReplace,
     SceneUndoReplaceResult,
+    RemoteWindowAdmission,
+    RemoteWindowDriver,
+    RemoteWindowInput,
+    RemoteWindowDisconnect,
+    RemoteWindowState,
 }
 
 public sealed record ControlMessage
@@ -204,6 +209,19 @@ public sealed record ControlMessage
         {
             throw new ArgumentException(
                 $"The '{type}' control message requires protocol {ProtocolFeatures.SceneApplyMinimumVersion} or later.",
+                nameof(version));
+        }
+
+        bool remoteWindowMessage = type is
+            ControlMessageType.RemoteWindowAdmission
+            or ControlMessageType.RemoteWindowDriver
+            or ControlMessageType.RemoteWindowInput
+            or ControlMessageType.RemoteWindowDisconnect
+            or ControlMessageType.RemoteWindowState;
+        if (remoteWindowMessage && !ProtocolFeatures.SupportsRemoteWindow(version))
+        {
+            throw new ArgumentException(
+                $"The '{type}' control message requires protocol {ProtocolFeatures.RemoteWindowMinimumVersion} or later.",
                 nameof(version));
         }
     }
@@ -436,6 +454,11 @@ public static class ControlMessageCodec
         ControlMessageType.SceneChildOperationResult => "scene.child.operation.result",
         ControlMessageType.SceneUndoReplace => "scene.undo.replace",
         ControlMessageType.SceneUndoReplaceResult => "scene.undo.replace.result",
+        ControlMessageType.RemoteWindowAdmission => "remote-window.admission",
+        ControlMessageType.RemoteWindowDriver => "remote-window.driver",
+        ControlMessageType.RemoteWindowInput => "remote-window.input",
+        ControlMessageType.RemoteWindowDisconnect => "remote-window.disconnect",
+        ControlMessageType.RemoteWindowState => "remote-window.state",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown message type."),
     };
 
@@ -462,6 +485,11 @@ public static class ControlMessageCodec
         "scene.child.operation.result" => ControlMessageType.SceneChildOperationResult,
         "scene.undo.replace" => ControlMessageType.SceneUndoReplace,
         "scene.undo.replace.result" => ControlMessageType.SceneUndoReplaceResult,
+        "remote-window.admission" => ControlMessageType.RemoteWindowAdmission,
+        "remote-window.driver" => ControlMessageType.RemoteWindowDriver,
+        "remote-window.input" => ControlMessageType.RemoteWindowInput,
+        "remote-window.disconnect" => ControlMessageType.RemoteWindowDisconnect,
+        "remote-window.state" => ControlMessageType.RemoteWindowState,
         _ => throw new InvalidDataException($"The control message type '{type}' is unknown."),
     };
 }

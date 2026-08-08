@@ -245,6 +245,22 @@ screen frame was captured or blanked, native input was injected or stopped, an
 operating-system permission was granted, a peer session was encrypted, or a
 physical Device disconnected.
 
+### 5.13 Task 6 authenticated Remote Window control and bounded media evidence plan
+
+| Threat | Required implementation evidence | Remaining evidence |
+| --- | --- | --- |
+| T05 | Protocol-1.5 admission, Driver, input, disconnect, and state messages bind the authenticated peer, live Session, exact Activity, correlation/deadline, and applicable epoch. The host adapter delegates to the existing controller so every use still reloads current Capabilities. | Persistent Trust/session revocation composition and physical same-session observation. |
+| T06 | Driver requests name the last-known epoch; input names the exact current epoch; state replies carry the resulting higher epoch without echoing input. Wrong/stale/unsolicited bindings fault the control session before authority reaches the controller. | Native input enforcement, sleep/wake, UI recovery, and physical replay/drop evidence. |
+| T07 | State replies publish protection lifecycle, capture confirmation, protection kind, and revision. Media Session/Activity binding and channel closure prevent a stale stream from silently continuing after a new live session. | Continuous native protected-surface probes and frame-by-frame blank/pause evidence. |
+| T10 | Remote input remains strict control and is never echoed. Binary media is absent from canonical JSON and structured diagnostics; tests use canaries to inspect exception/result text. | Native pipeline/crash dump/export inspection and independent data-flow review. |
+| T11 | Media keys are HKDF purpose-separated from authenticated control keys; AEAD authenticates a strict binary Session/Activity/kind/sequence/chunk header plus payload. Tamper, unknown fields/kinds, invalid lengths, duplicate control fields, and protocol-1.4 downgrade fail closed. | Independent cryptographic review and cross-implementation reader. |
+| T13 | Fixed frame/chunk, per-peer/session queue/byte/peer, receive-rate, and write-timeout limits reject before unbounded allocation. Every success/failure/cancel/dispose path releases its reservation. | Sustained packaged load and physical bandwidth/latency measurement. |
+| T14 | Control never waits for media drain or peer acknowledgement to enact local protection or Emergency Stop; media closure is a downstream consequence of local authority loss. | Desktop indicator/action and physical peer/network/UI failure observation. |
+
+This slice can prove authenticated same-host loopback and portable bounds. It
+cannot prove capture, rendering, native input, interactive quality, physical
+network behavior, or a usable emergency action.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

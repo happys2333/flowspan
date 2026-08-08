@@ -264,6 +264,74 @@ public sealed class ControlMessageCodecTests
         Assert.Throws<InvalidDataException>(() => ControlMessageCodec.Decode(downgraded));
     }
 
+    [Theory]
+    [InlineData(ControlMessageType.RemoteWindowAdmission)]
+    [InlineData(ControlMessageType.RemoteWindowDriver)]
+    [InlineData(ControlMessageType.RemoteWindowInput)]
+    [InlineData(ControlMessageType.RemoteWindowDisconnect)]
+    [InlineData(ControlMessageType.RemoteWindowState)]
+    public void ProtocolBelowOnePointFiveRejectsRemoteWindowMessageTypes(
+        ControlMessageType type)
+    {
+        Assert.Throws<ArgumentException>(() => ControlMessage.Create(
+            ProtocolFeatures.SceneApplyMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}"));
+    }
+
+    [Theory]
+    [InlineData(ControlMessageType.RemoteWindowAdmission)]
+    [InlineData(ControlMessageType.RemoteWindowDriver)]
+    [InlineData(ControlMessageType.RemoteWindowInput)]
+    [InlineData(ControlMessageType.RemoteWindowDisconnect)]
+    [InlineData(ControlMessageType.RemoteWindowState)]
+    public void ProtocolOnePointFiveAcceptsRemoteWindowMessageTypes(
+        ControlMessageType type)
+    {
+        ControlMessage message = ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}");
+
+        ControlMessage decoded = ControlMessageCodec.Decode(
+            ControlMessageCodec.Encode(message));
+
+        Assert.Equal(type, decoded.Type);
+    }
+
+    [Fact]
+    public void DecoderRejectsRemoteWindowFrameDowngradedBelowProtocolOnePointFive()
+    {
+        ControlMessage remoteWindow = ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowMinimumVersion,
+            ControlMessageType.RemoteWindowAdmission,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}");
+        string encoded = Encoding.UTF8.GetString(
+            ControlMessageCodec.Encode(remoteWindow));
+        byte[] downgraded = Encoding.UTF8.GetBytes(encoded.Replace(
+            "\"minor\":5",
+            "\"minor\":4",
+            StringComparison.Ordinal));
+
+        Assert.Throws<InvalidDataException>(
+            () => ControlMessageCodec.Decode(downgraded));
+    }
+
     private static ControlMessage Create(string bodyJson) => ControlMessage.Create(
         new ProtocolVersion(1, 0),
         ControlMessageType.Hello,

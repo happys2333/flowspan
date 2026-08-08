@@ -90,7 +90,20 @@ public sealed class ProtocolNegotiatorTests
     }
 
     [Fact]
-    public void ProductionProfileAdvertisesAllV1MinorsAndPrefersSceneApply()
+    public void RemoteWindowRequiresNegotiatedProtocolOnePointFive()
+    {
+        Assert.False(ProtocolFeatures.SupportsRemoteWindow(
+            new ProtocolVersion(1, 4)));
+        Assert.True(ProtocolFeatures.SupportsRemoteWindow(
+            new ProtocolVersion(1, 5)));
+        Assert.True(ProtocolFeatures.SupportsRemoteWindow(
+            new ProtocolVersion(1, 6)));
+        Assert.False(ProtocolFeatures.SupportsRemoteWindow(
+            new ProtocolVersion(2, 0)));
+    }
+
+    [Fact]
+    public void ProductionProfileAdvertisesAllV1MinorsAndPrefersRemoteWindow()
     {
         Assert.Equal(
             [
@@ -99,6 +112,7 @@ public sealed class ProtocolNegotiatorTests
                 new ProtocolVersion(1, 2),
                 new ProtocolVersion(1, 3),
                 new ProtocolVersion(1, 4),
+                new ProtocolVersion(1, 5),
             ],
             ProtocolFeatures.ProductionSupportedVersions.ToArray());
 
@@ -113,14 +127,15 @@ public sealed class ProtocolNegotiatorTests
     }
 
     [Fact]
-    public void SceneApplyPeersNegotiateProtocolOnePointFour()
+    public void CurrentPeersNegotiateProtocolOnePointFive()
     {
         ProtocolNegotiationResult result = ProtocolNegotiator.Negotiate(
             ProtocolFeatures.ProductionSupportedVersions,
             ProtocolFeatures.ProductionSupportedVersions);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(new ProtocolVersion(1, 4), result.Version);
+        Assert.Equal(new ProtocolVersion(1, 5), result.Version);
         Assert.True(ProtocolFeatures.SupportsSceneApply(result.Version));
+        Assert.True(ProtocolFeatures.SupportsRemoteWindow(result.Version));
     }
 }

@@ -47,6 +47,8 @@ public static class ProtocolFeatures
 
     public static ProtocolVersion SceneApplyMinimumVersion { get; } = new(1, 4);
 
+    public static ProtocolVersion RemoteWindowMinimumVersion { get; } = new(1, 5);
+
     public static ImmutableArray<ProtocolVersion> ProductionSupportedVersions { get; } =
     [
         new ProtocolVersion(1, 0),
@@ -54,6 +56,7 @@ public static class ProtocolFeatures
         SecureSessionFinishedMinimumVersion,
         SecureSessionRekeyMinimumVersion,
         SceneApplyMinimumVersion,
+        RemoteWindowMinimumVersion,
     ];
 
     public static bool SupportsActivitySwap(ProtocolVersion version) =>
@@ -71,6 +74,10 @@ public static class ProtocolFeatures
     public static bool SupportsSceneApply(ProtocolVersion version) =>
         version.Major == SceneApplyMinimumVersion.Major
         && version.Minor >= SceneApplyMinimumVersion.Minor;
+
+    public static bool SupportsRemoteWindow(ProtocolVersion version) =>
+        version.Major == RemoteWindowMinimumVersion.Major
+        && version.Minor >= RemoteWindowMinimumVersion.Minor;
 }
 
 public readonly record struct ProtocolNegotiationResult(

@@ -124,6 +124,8 @@ public enum SecureSessionRole
 public sealed class SecureSessionKeyMaterial : IDisposable
 {
     private static readonly byte[] Info = Encoding.ASCII.GetBytes("FLOWSPAN-SESSION-V1");
+    private static readonly byte[] RemoteWindowMediaInfo =
+        Encoding.ASCII.GetBytes("FLOWSPAN-REMOTE-WINDOW-MEDIA-V1");
     private readonly byte[] initiatorToResponderKey;
     private readonly byte[] responderToInitiatorKey;
     private readonly byte[] sessionIdentifier;
@@ -141,7 +143,22 @@ public sealed class SecureSessionKeyMaterial : IDisposable
 
     public static SecureSessionKeyMaterial Derive(
         ReadOnlySpan<byte> rawSharedSecret,
-        ReadOnlySpan<byte> authenticatedTranscriptHash)
+        ReadOnlySpan<byte> authenticatedTranscriptHash) => Derive(
+            rawSharedSecret,
+            authenticatedTranscriptHash,
+            Info);
+
+    internal static SecureSessionKeyMaterial DeriveRemoteWindowMedia(
+        ReadOnlySpan<byte> rawSharedSecret,
+        ReadOnlySpan<byte> authenticatedTranscriptHash) => Derive(
+            rawSharedSecret,
+            authenticatedTranscriptHash,
+            RemoteWindowMediaInfo);
+
+    private static SecureSessionKeyMaterial Derive(
+        ReadOnlySpan<byte> rawSharedSecret,
+        ReadOnlySpan<byte> authenticatedTranscriptHash,
+        ReadOnlySpan<byte> info)
     {
         if (rawSharedSecret.IsEmpty)
         {
@@ -160,7 +177,7 @@ public sealed class SecureSessionKeyMaterial : IDisposable
         byte[] output = HkdfSha256.DeriveKey(
             rawSharedSecret,
             authenticatedTranscriptHash,
-            Info,
+            info,
             80);
         try
         {

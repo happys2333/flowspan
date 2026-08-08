@@ -75,6 +75,13 @@
       "flowspan.domain": {
         "type": "Project"
       },
+      "flowspan.platform": {
+        "type": "Project",
+        "dependencies": {
+          "Flowspan.Application": "[1.0.0, )",
+          "Flowspan.Domain": "[1.0.0, )"
+        }
+      },
       "flowspan.protocol": {
         "type": "Project",
         "dependencies": {
@@ -93,6 +100,7 @@
         "dependencies": {
           "Flowspan.Application": "[1.0.0, )",
           "Flowspan.Domain": "[1.0.0, )",
+          "Flowspan.Platform": "[1.0.0, )",
           "Flowspan.Protocol": "[1.0.0, )",
           "Flowspan.Security": "[1.0.0, )"
         }

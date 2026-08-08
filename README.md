@@ -63,13 +63,15 @@ for end-user installation. The repository currently includes:
 - a portable Remote Window/Mirror control plane with bounded participant and
   input contracts, one current Capability snapshot per use, monotonic Driver
   Lease transfer/expiry/disconnect, protection pause/resume, and local
-  emergency-stop preemption/fault results; it has no media or native adapter yet;
+  emergency-stop preemption/fault results, plus strict protocol-1.5 authenticated
+  control and purpose-separated bounded media framing, rate limits, backpressure,
+  timeout, and cleanup tests; it has no capture/codec/rendering or native adapter yet;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
-permission flows, native capture/input, Remote Window media, complete Activity
-desktop workflows, packaged native accessibility evidence, packaging, or the
-complete real-machine Windows/macOS/Linux acceptance matrix. See
+permission flows, native capture/input, Remote Window capture/codec/rendering,
+complete Activity desktop workflows, packaged native accessibility evidence,
+packaging, or the complete real-machine Windows/macOS/Linux acceptance matrix. See
 [the v1 task tracker](specs/v1/tasks.md) and
 [release criteria](docs/release/v1-release-criteria.md) for the honest status.
 
@@ -92,7 +94,7 @@ dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
 Desktop validation uses an explicitly degraded in-memory identity, prints TEST
 MODE, and exits; it never substitutes for production platform storage. The
 simulator uses fixed device, operation, and clock values. A successful run
-prints protocol `1.4`, `Source preserved: True`, `Target resumed: True`,
+prints protocol `1.5`, `Source preserved: True`, `Target resumed: True`,
 `Atomic swap committed: True`, and a redacted operation receipt containing a
 descriptor digest but no Activity text. Its Swap endpoints and catalog remain
 process-memory tracers. Separate application and platform contracts implement
@@ -135,10 +137,11 @@ one-shot descriptor operations rather than live sharing, so the global state
 remains `NOT SHARING`. Move closes the source only after a verified target
 receipt; Replace preserves the source and stores target undo state before target
 mutation. Rejection, failure, or uncertainty preserves the source. Flowspan does
-not transfer process memory, unsaved application internals, credentials, screen
-media, or remote input. The in-memory simulator and same-host loopback evidence
-do not substitute for physical-device, native-permission, or independent
-security review gates.
+not transfer process memory, unsaved application internals, or credentials. The
+portable protocol can authenticate bounded screen-media bytes and remote input,
+but the current Desktop has no native capture, codec, rendering, or input-injection
+workflow. The in-memory simulator and same-host loopback evidence do not substitute
+for physical-device, native-permission, or independent security review gates.
 
 Flowspan is a clean-room rewrite. See
 [clean-room engineering and provenance](docs/engineering/clean-room.md).

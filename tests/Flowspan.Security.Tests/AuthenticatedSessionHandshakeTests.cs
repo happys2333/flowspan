@@ -61,12 +61,81 @@ public sealed class AuthenticatedSessionHandshakeTests
 
         Assert.Equal(new ProtocolVersion(1, 1), initiator.ProtocolVersion);
         Assert.Equal(initiator.ProtocolVersion, responder.ProtocolVersion);
+        Assert.Null(initiator.RemoteWindowMediaFrames);
+        Assert.Null(responder.RemoteWindowMediaFrames);
         Assert.Equal(
             "authenticated request",
             Encoding.UTF8.GetString(responder.SecureFrames.Decrypt(request)));
         Assert.Equal(
             "authenticated response",
             Encoding.UTF8.GetString(initiator.SecureFrames.Decrypt(response)));
+    }
+
+    [Fact]
+    public void ProtocolOnePointFiveDerivesPurposeSeparatedRemoteWindowMediaSessions()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Laptop");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        using EphemeralKeyAgreement initiatorAgreement = EphemeralKeyAgreement.Generate();
+        using EphemeralKeyAgreement responderAgreement = EphemeralKeyAgreement.Generate();
+        SessionHandshakeTranscript transcript = SessionHandshakeTranscript.Create(
+            CreateHello(
+                initiatorIdentity,
+                initiatorAgreement,
+                SecureSessionRole.Initiator,
+                nonceByte: 0x11,
+                [ProtocolFeatures.RemoteWindowMinimumVersion]),
+            CreateHello(
+                responderIdentity,
+                responderAgreement,
+                SecureSessionRole.Responder,
+                nonceByte: 0x22,
+                [ProtocolFeatures.RemoteWindowMinimumVersion]));
+        SessionHandshakeAuthentication initiatorAuthentication =
+            SessionHandshakeAuthentication.Create(transcript, initiatorIdentity);
+        SessionHandshakeAuthentication responderAuthentication =
+            SessionHandshakeAuthentication.Create(transcript, responderIdentity);
+        using AuthenticatedSession initiator = AuthenticatedSessionHandshake.Complete(
+            transcript,
+            SecureSessionRole.Initiator,
+            initiatorIdentity.PublicIdentity,
+            responderIdentity.PublicIdentity,
+            initiatorAgreement,
+            responderAuthentication);
+        using AuthenticatedSession responder = AuthenticatedSessionHandshake.Complete(
+            transcript,
+            SecureSessionRole.Responder,
+            responderIdentity.PublicIdentity,
+            initiatorIdentity.PublicIdentity,
+            responderAgreement,
+            initiatorAuthentication);
+        SecureFrameSession initiatorMedia = Assert.IsType<SecureFrameSession>(
+            initiator.RemoteWindowMediaFrames);
+        SecureFrameSession responderMedia = Assert.IsType<SecureFrameSession>(
+            responder.RemoteWindowMediaFrames);
+        byte[] plaintext = Encoding.UTF8.GetBytes("purpose-separated-media");
+
+        byte[] controlCiphertext = initiator.SecureFrames.Encrypt(plaintext);
+        byte[] mediaCiphertext = initiatorMedia.Encrypt(plaintext);
+
+        Assert.NotEqual(
+            initiator.SecureFrames.SessionIdentifier,
+            initiatorMedia.SessionIdentifier);
+        Assert.False(controlCiphertext.AsSpan().SequenceEqual(mediaCiphertext));
+        Assert.ThrowsAny<CryptographicException>(() =>
+            responderMedia.Decrypt(controlCiphertext));
+        Assert.Equal(plaintext, responder.SecureFrames.Decrypt(controlCiphertext));
+        Assert.Equal(plaintext, responderMedia.Decrypt(mediaCiphertext));
+
+        byte[] intact = initiatorMedia.Encrypt(plaintext);
+        byte[] tampered = intact.ToArray();
+        tampered[^1] ^= 0xff;
+        Assert.ThrowsAny<CryptographicException>(() => responderMedia.Decrypt(tampered));
+        Assert.Equal(plaintext, responderMedia.Decrypt(intact));
     }
 
     [Fact]
