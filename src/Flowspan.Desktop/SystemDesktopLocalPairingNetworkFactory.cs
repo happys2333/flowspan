@@ -368,6 +368,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                         lifetimeCancellation.Token);
                 await pairingGate.WaitAsync(linked.Token).ConfigureAwait(false);
                 enteredPairingGate = true;
+                linked.Token.ThrowIfCancellationRequested();
                 ObjectDisposedException.ThrowIf(
                     Volatile.Read(ref disposed) != 0,
                     this);

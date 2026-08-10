@@ -1767,22 +1767,37 @@ public sealed class RemoteWindowWorkspaceViewModelTests
             }
         };
         viewModel.PropertyChanged += observer;
-        Task selecting = Task.Run(() => viewModel.SetFallbackSelection(
-            new DesktopActivitySnapshot(
-                ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                "Release plan",
-                "workspace.note/v1",
-                ActivitySensitivity.Normal,
-                ActivityLifecycle.Active),
-            new DesktopActivityTargetSnapshot(
-                DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
-                "Peer desk")));
+        Task selecting = Task.Factory.StartNew(
+            () => viewModel.SetFallbackSelection(
+                new DesktopActivitySnapshot(
+                    ActivityId.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                    "Release plan",
+                    "workspace.note/v1",
+                    ActivitySensitivity.Normal,
+                    ActivityLifecycle.Active),
+                new DesktopActivityTargetSnapshot(
+                    DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+                    "Peer desk")),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
         Assert.True(observerEntered.Wait(TimeSpan.FromSeconds(2)));
 
-        Task revoking = Task.Run(() => permissions.Publish(
-            new DesktopRemoteWindowPermissionSnapshot(
-                DesktopPermissionState.Revoked,
-                DesktopPermissionState.Granted)));
+        var revocationStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task revoking = Task.Factory.StartNew(
+            () =>
+            {
+                revocationStarted.TrySetResult();
+                permissions.Publish(
+                    new DesktopRemoteWindowPermissionSnapshot(
+                        DesktopPermissionState.Revoked,
+                        DesktopPermissionState.Granted));
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        await revocationStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         try
         {
             await service.EmergencyStopCalled.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -1833,13 +1848,28 @@ public sealed class RemoteWindowWorkspaceViewModelTests
             }
         };
         viewModel.PropertyChanged += observer;
-        Task starting = Task.Run(() => viewModel.StartRemoteWindowAsync());
+        Task starting = Task.Factory.StartNew(
+            () => viewModel.StartRemoteWindowAsync(),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default).Unwrap();
         Assert.True(observerEntered.Wait(TimeSpan.FromSeconds(2)));
 
-        Task revoking = Task.Run(() => permissions.Publish(
-            new DesktopRemoteWindowPermissionSnapshot(
-                DesktopPermissionState.Revoked,
-                DesktopPermissionState.Granted)));
+        var revocationStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task revoking = Task.Factory.StartNew(
+            () =>
+            {
+                revocationStarted.TrySetResult();
+                permissions.Publish(
+                    new DesktopRemoteWindowPermissionSnapshot(
+                        DesktopPermissionState.Revoked,
+                        DesktopPermissionState.Granted));
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        await revocationStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         try
         {
             await service.EmergencyStopCalled.Task.WaitAsync(TimeSpan.FromSeconds(1));

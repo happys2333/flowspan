@@ -684,6 +684,8 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
                 () => waiter.WaitAsync(TimeSpan.FromSeconds(5)));
             await firstDispose.WaitAsync(TimeSpan.FromSeconds(5));
             await concurrentDispose.WaitAsync(TimeSpan.FromSeconds(5));
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                () => session.PairAsync(candidate).AsTask());
         }
         finally
         {
