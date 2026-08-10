@@ -129,8 +129,35 @@ public sealed class DesktopTrustedPeerConnectionsTests
         Assert.Single(loops.Created);
     }
 
+    [Theory]
+    [InlineData(Capability.MirrorView)]
+    [InlineData(Capability.MirrorDrive)]
+    public async Task MirrorGrantStillAdmitsElectedControlChannelConnector(
+        Capability capability)
+    {
+        using DeviceIdentity local = CreateIdentity("11111111", "Local");
+        using DeviceIdentity remote = CreateIdentity("22222222", "Remote");
+        await using var trust = new TrustSessionCoordinator(
+            CreateTrustStore(remote, capability));
+        var loops = new FakeReconnectLoopFactory();
+        await using var connections = new DesktopTrustedPeerConnectionCoordinator(
+            local.DeviceId,
+            trust,
+            static () => [],
+            loops);
+
+        connections.Start();
+
+        DesktopTrustedPeerConnectionSnapshot snapshot =
+            Assert.Single(connections.GetSnapshot());
+        Assert.Equal(
+            DesktopTrustedPeerConnectionState.WaitingForPeer,
+            snapshot.State);
+        Assert.Single(loops.Created);
+    }
+
     [Fact]
-    public async Task MissingActivityControlGrantIsPolicyIdleAndNeverContacted()
+    public async Task MissingControlChannelGrantIsPolicyIdleAndNeverContacted()
     {
         using DeviceIdentity local = CreateIdentity("11111111", "Local");
         using DeviceIdentity remote = CreateIdentity("22222222", "Remote");
@@ -151,10 +178,10 @@ public sealed class DesktopTrustedPeerConnectionsTests
             DesktopTrustedPeerConnectionState.CapabilityRequired,
             snapshot.State);
         Assert.Equal(
-            "IDLE — ACTIVITY CONTROL CAPABILITY NOT GRANTED",
+            "IDLE — CONTROL CHANNEL CAPABILITY NOT GRANTED",
             snapshot.StatusLabel);
         Assert.Contains(
-            "activity.offer, activity.receive, activity.replace, or activity.swap",
+            "activity.offer, activity.receive, activity.replace, activity.swap, mirror.view, or mirror.drive",
             snapshot.StatusDescription,
             StringComparison.Ordinal);
         Assert.Empty(loops.Created);
@@ -392,6 +419,26 @@ public sealed class DesktopTrustedPeerConnectionsTests
             await trust.UpdateCapabilitiesAsync(
                 remote.DeviceId,
                 remote.PublicIdentity.Fingerprint,
+                CapabilityGrant.Of(Capability.MirrorView)));
+        await connections.RefreshTrustAsync();
+        Assert.Same(first, Assert.Single(loops.Created));
+        Assert.False(first.Disposed);
+
+        Assert.Equal(
+            TrustMutationResult.Applied,
+            await trust.UpdateCapabilitiesAsync(
+                remote.DeviceId,
+                remote.PublicIdentity.Fingerprint,
+                CapabilityGrant.Of(Capability.MirrorDrive)));
+        await connections.RefreshTrustAsync();
+        Assert.Same(first, Assert.Single(loops.Created));
+        Assert.False(first.Disposed);
+
+        Assert.Equal(
+            TrustMutationResult.Applied,
+            await trust.UpdateCapabilitiesAsync(
+                remote.DeviceId,
+                remote.PublicIdentity.Fingerprint,
                 CapabilityGrant.None));
         await connections.RefreshTrustAsync();
         Assert.True(first.Disposed);
@@ -474,7 +521,9 @@ public sealed class DesktopTrustedPeerConnectionsTests
     [Theory]
     [InlineData(Capability.ActivityReceive, Capability.ActivityOffer)]
     [InlineData(Capability.ActivityOffer, Capability.ActivityReceive)]
-    public async Task ProductionLoopAuthenticatesEitherOneWayCapabilityDirection(
+    [InlineData(Capability.MirrorView, Capability.MirrorView)]
+    [InlineData(Capability.MirrorDrive, Capability.MirrorDrive)]
+    public async Task ProductionLoopAuthenticatesAnyControlCapabilityCombination(
         Capability connectorCapability,
         Capability listenerCapability)
     {
@@ -504,7 +553,12 @@ public sealed class DesktopTrustedPeerConnectionsTests
         var inboundProfile = new AuthenticatedInboundSessionProfile(
             CapabilityGrant.Of(
                 Capability.ActivityOffer,
-                Capability.ActivityReceive),
+                Capability.ActivityReceive,
+                Capability.ActivityReplace,
+                Capability.ActivitySwap,
+                Capability.MirrorView,
+                Capability.MirrorDrive,
+                Capability.SceneApply),
             ProtocolFeatures.ProductionSupportedVersions,
             capabilityMatch: CapabilityRequirementMatch.Any);
         var inbound = new AuthenticatedTcpInboundListener(

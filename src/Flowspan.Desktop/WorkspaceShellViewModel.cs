@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Flowspan.Domain;
 using Flowspan.Security;
 
 namespace Flowspan.Desktop;
@@ -9,9 +10,17 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
 {
     private readonly TaskCompletionSource disposalCompleted = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource initializationDrainCompleted = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource remoteWindowProjectionsDrained = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource lifetimeCancellation = new();
+    private readonly AsyncLocal<LifetimeCallbackScope?> lifetimeCallbackScope = new();
+    private readonly AsyncLocal<RemoteWindowProjectionCallbackScope?>
+        remoteWindowProjectionCallbackScope = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly Lock lifecycleGate = new();
+    private readonly Lock remoteWindowProjectionGate = new();
     private readonly bool localPairingAvailable;
     private readonly IDesktopIdentityStartup startup;
     private readonly RelayCommand toggleIdentityDetailsCommand;
@@ -26,13 +35,14 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     private bool isInitializing = true;
     private bool isStartupBlocked;
     private bool isTestMode;
+    private bool remoteWindowProjectionClosed;
     private string recoveryAction = string.Empty;
     private string startupDescription =
         "Flowspan is opening without requesting capture or input access.";
     private string startupStatus = "INITIALIZING IDENTITY";
     private int activeInitializations;
+    private int activeRemoteWindowProjections;
     private Exception? disposalFailure;
-    private Exception? disposalInitiationFailure;
     private bool disposed;
     private bool resourcesDisposalStarted;
 
@@ -46,7 +56,9 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         IDesktopActivityService? activityService = null,
         IDesktopSceneApplyService? sceneApplyService = null,
         IDesktopSceneRepositoryService? sceneRepositoryService = null,
-        IDesktopLocalDataService? localDataService = null)
+        IDesktopLocalDataService? localDataService = null,
+        IDesktopRemoteWindowService? remoteWindowService = null,
+        IDesktopRemoteWindowPermissionService? remoteWindowPermissionService = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
@@ -74,9 +86,17 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             localNetworkPermissionGuide);
         IDesktopActivityService effectiveActivityService =
             activityService ?? UnavailableDesktopActivityService.Instance;
+        RemoteWindow = new RemoteWindowWorkspaceViewModel(
+            remoteWindowService ?? UnavailableDesktopRemoteWindowService.Instance,
+            effectiveDispatcher,
+            remoteWindowPermissionService);
         Activities = new ActivityWorkspaceViewModel(
             effectiveActivityService,
             effectiveDispatcher);
+        Activities.RemoteWindowTargetRole = GetRemoteWindowTargetRole();
+        Activities.PropertyChanged += OnActivityWorkspacePropertyChanged;
+        RemoteWindow.PropertyChanged += OnRemoteWindowPropertyChanged;
+        UpdateRemoteWindowFallbackSelection();
         Scenes = new SceneApplyViewModel(
             sceneApplyService
                 ?? effectiveActivityService as IDesktopSceneApplyService
@@ -103,6 +123,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     public LocalPairingViewModel LocalPairing { get; }
 
     public LocalDataViewModel LocalData { get; }
+
+    public RemoteWindowWorkspaceViewModel RemoteWindow { get; }
 
     public SceneApplyViewModel Scenes { get; }
 
@@ -140,7 +162,7 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         private set => SetProperty(ref identityProtection, value);
     }
 
-    public bool IsEmergencyStopAvailable { get; }
+    public bool IsEmergencyStopAvailable => RemoteWindow.IsEmergencyStopAvailable;
 
     public bool IsIdentityAvailable
     {
@@ -215,6 +237,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         BeginInitialization();
+        using LifetimeCallbackScopeLease callbackScope =
+            EnterLifetimeCallbackScope();
         try
         {
             using CancellationTokenSource linkedCancellation =
@@ -318,19 +342,27 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
 
     public async ValueTask DisposeAsync()
     {
+        bool isLifecycleCallback = IsLifetimeCallbackActive;
+        bool isRemoteWindowProjectionCallback =
+            IsRemoteWindowProjectionCallbackActive;
+        lock (remoteWindowProjectionGate)
+        {
+            remoteWindowProjectionClosed = true;
+            if (activeRemoteWindowProjections == 0)
+            {
+                remoteWindowProjectionsDrained.TrySetResult();
+            }
+        }
+
         bool startResourceDisposal;
         lock (lifecycleGate)
         {
             if (!disposed)
             {
                 disposed = true;
-                try
+                if (activeInitializations == 0)
                 {
-                    lifetimeCancellation.Cancel();
-                }
-                catch (Exception exception)
-                {
-                    disposalInitiationFailure = exception;
+                    initializationDrainCompleted.TrySetResult();
                 }
             }
 
@@ -340,6 +372,11 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         if (startResourceDisposal)
         {
             _ = DisposeResourcesAsync();
+        }
+
+        if (isLifecycleCallback || isRemoteWindowProjectionCallback)
+        {
+            return;
         }
 
         await disposalCompleted.Task.ConfigureAwait(false);
@@ -363,19 +400,43 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     private async Task DisposeResourcesAsync()
     {
         var failures = new List<Exception>();
-        if (disposalInitiationFailure is not null)
-        {
-            failures.Add(disposalInitiationFailure);
-        }
-
+        RemoteWindow.FailCloseForOwnerDisposal();
         try
         {
-            await LocalPairing.DisposeAsync().ConfigureAwait(false);
+            Activities.PropertyChanged -= OnActivityWorkspacePropertyChanged;
         }
         catch (Exception exception)
         {
             failures.Add(exception);
         }
+
+        try
+        {
+            RemoteWindow.PropertyChanged -= OnRemoteWindowPropertyChanged;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        Task lifetimeCancellationTask = BeginCancellation(
+            lifetimeCancellation,
+            failures);
+        Task remoteWindowDisposal = BeginDisposal(
+            RemoteWindow.DisposeAsync,
+            failures);
+        Task localPairingDisposal = BeginDisposal(
+            LocalPairing.DisposeAsync,
+            failures);
+        await CaptureFailureAsync(remoteWindowDisposal, failures)
+            .ConfigureAwait(false);
+        await CaptureFailureAsync(localPairingDisposal, failures)
+            .ConfigureAwait(false);
+        await remoteWindowProjectionsDrained.Task.ConfigureAwait(false);
+        await CaptureFailureAsync(lifetimeCancellationTask, failures)
+            .ConfigureAwait(false);
+
+        await initializationDrainCompleted.Task.ConfigureAwait(false);
 
         try
         {
@@ -461,9 +522,168 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         disposalCompleted.SetResult();
     }
 
+    private static Task BeginCancellation(
+        CancellationTokenSource source,
+        List<Exception> failures)
+    {
+        try
+        {
+            return source.CancelAsync();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+            return Task.CompletedTask;
+        }
+    }
+
+    private static Task BeginDisposal(
+        Func<ValueTask> dispose,
+        List<Exception> failures)
+    {
+        try
+        {
+            return Task.Run(async () =>
+                await dispose().ConfigureAwait(false));
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+            return Task.CompletedTask;
+        }
+    }
+
+    private static async Task CaptureFailureAsync(
+        Task operation,
+        List<Exception> failures)
+    {
+        try
+        {
+            await operation.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private void OnActivityWorkspacePropertyChanged(
+        object? sender,
+        PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName is null
+            or nameof(ActivityWorkspaceViewModel.SelectedActivity)
+            or nameof(ActivityWorkspaceViewModel.SelectedRemoteWindowTarget)
+            or nameof(ActivityWorkspaceViewModel.RemoteWindowTargetRole)
+            or nameof(ActivityWorkspaceViewModel.SelectedSemanticResumeAvailability))
+        {
+            UpdateRemoteWindowFallbackSelection();
+        }
+    }
+
+    private void OnRemoteWindowPropertyChanged(
+        object? sender,
+        PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName is not null
+            and not nameof(RemoteWindowWorkspaceViewModel.IsRemoteDrivingEnabled))
+        {
+            return;
+        }
+
+        if (!TryAcquireRemoteWindowProjection())
+        {
+            return;
+        }
+
+        try
+        {
+            using RemoteWindowProjectionCallbackScopeLease callbackScope =
+                EnterRemoteWindowProjectionCallbackScope();
+            Activities.RemoteWindowTargetRole = GetRemoteWindowTargetRole();
+        }
+        catch (ObjectDisposedException) when (IsRemoteWindowProjectionClosed())
+        {
+        }
+        finally
+        {
+            ReleaseRemoteWindowProjection();
+        }
+    }
+
+    private MirrorParticipantRole GetRemoteWindowTargetRole() =>
+        RemoteWindow.IsRemoteDrivingEnabled
+            ? MirrorParticipantRole.DriverEligible
+            : MirrorParticipantRole.ViewOnly;
+
+    private void UpdateRemoteWindowFallbackSelection()
+    {
+        DesktopActivitySnapshot? activity = Activities.SelectedActivity;
+        DesktopActivityTargetSnapshot? target =
+            Activities.SelectedRemoteWindowTarget;
+        DesktopSemanticResumeAvailability semanticResumeAvailability =
+            Activities.SelectedSemanticResumeAvailability;
+        if (!TryAcquireRemoteWindowProjection())
+        {
+            return;
+        }
+
+        try
+        {
+            using RemoteWindowProjectionCallbackScopeLease callbackScope =
+                EnterRemoteWindowProjectionCallbackScope();
+            RemoteWindow.SetFallbackSelection(
+                activity,
+                target,
+                semanticResumeAvailability);
+        }
+        catch (ObjectDisposedException) when (IsRemoteWindowProjectionClosed())
+        {
+        }
+        finally
+        {
+            ReleaseRemoteWindowProjection();
+        }
+    }
+
+    private bool TryAcquireRemoteWindowProjection()
+    {
+        lock (remoteWindowProjectionGate)
+        {
+            if (remoteWindowProjectionClosed)
+            {
+                return false;
+            }
+
+            activeRemoteWindowProjections++;
+            return true;
+        }
+    }
+
+    private bool IsRemoteWindowProjectionClosed()
+    {
+        lock (remoteWindowProjectionGate)
+        {
+            return remoteWindowProjectionClosed;
+        }
+    }
+
+    private void ReleaseRemoteWindowProjection()
+    {
+        lock (remoteWindowProjectionGate)
+        {
+            activeRemoteWindowProjections--;
+            if (remoteWindowProjectionClosed
+                && activeRemoteWindowProjections == 0)
+            {
+                remoteWindowProjectionsDrained.TrySetResult();
+            }
+        }
+    }
+
     private bool TryStartResourceDisposal()
     {
-        if (!disposed || activeInitializations != 0 || resourcesDisposalStarted)
+        if (!disposed || resourcesDisposalStarted)
         {
             return false;
         }
@@ -474,16 +694,13 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
 
     private void EndInitialization()
     {
-        bool startResourceDisposal;
         lock (lifecycleGate)
         {
             activeInitializations--;
-            startResourceDisposal = TryStartResourceDisposal();
-        }
-
-        if (startResourceDisposal)
-        {
-            _ = DisposeResourcesAsync();
+            if (disposed && activeInitializations == 0)
+            {
+                initializationDrainCompleted.TrySetResult();
+            }
         }
     }
 
@@ -541,6 +758,98 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         return true;
+    }
+
+    private bool IsLifetimeCallbackActive =>
+        lifetimeCallbackScope.Value?.IsActive == true;
+
+    private bool IsRemoteWindowProjectionCallbackActive =>
+        remoteWindowProjectionCallbackScope.Value is
+        { IsActive: true, Owner: var owner }
+        && ReferenceEquals(owner, this);
+
+    private LifetimeCallbackScopeLease EnterLifetimeCallbackScope() =>
+        new(lifetimeCallbackScope);
+
+    private RemoteWindowProjectionCallbackScopeLease
+        EnterRemoteWindowProjectionCallbackScope() =>
+        new(this, remoteWindowProjectionCallbackScope);
+
+    private sealed class LifetimeCallbackScope
+    {
+        private int active = 1;
+
+        public bool IsActive => Volatile.Read(ref active) != 0;
+
+        public void Deactivate() => Volatile.Write(ref active, 0);
+    }
+
+    private sealed class LifetimeCallbackScopeLease : IDisposable
+    {
+        private readonly LifetimeCallbackScope current = new();
+        private readonly AsyncLocal<LifetimeCallbackScope?> owner;
+        private readonly LifetimeCallbackScope? previous;
+        private int disposed;
+
+        public LifetimeCallbackScopeLease(
+            AsyncLocal<LifetimeCallbackScope?> owner)
+        {
+            this.owner = owner;
+            previous = owner.Value;
+            owner.Value = current;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            {
+                return;
+            }
+
+            current.Deactivate();
+            owner.Value = previous;
+        }
+    }
+
+    private sealed class RemoteWindowProjectionCallbackScope(
+        WorkspaceShellViewModel owner)
+    {
+        private int active = 1;
+
+        public bool IsActive => Volatile.Read(ref active) != 0;
+
+        public WorkspaceShellViewModel Owner { get; } = owner;
+
+        public void Deactivate() => Volatile.Write(ref active, 0);
+    }
+
+    private sealed class RemoteWindowProjectionCallbackScopeLease : IDisposable
+    {
+        private readonly RemoteWindowProjectionCallbackScope current;
+        private readonly AsyncLocal<RemoteWindowProjectionCallbackScope?> owner;
+        private readonly RemoteWindowProjectionCallbackScope? previous;
+        private int disposed;
+
+        public RemoteWindowProjectionCallbackScopeLease(
+            WorkspaceShellViewModel shell,
+            AsyncLocal<RemoteWindowProjectionCallbackScope?> owner)
+        {
+            this.owner = owner;
+            previous = owner.Value;
+            current = new RemoteWindowProjectionCallbackScope(shell);
+            owner.Value = current;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            {
+                return;
+            }
+
+            current.Deactivate();
+            owner.Value = previous;
+        }
     }
 
     private sealed class UnavailableLocalPairingNetworkFactory :

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -9,7 +10,10 @@ namespace Flowspan.Desktop;
 
 public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
+    private readonly TaskCompletionSource disposalCompleted = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IDesktopUiDispatcher dispatcher;
+    private readonly AsyncLocal<LifetimeCallbackScope?> lifetimeCallbackScope = new();
     private readonly RelayCommand cancelPairingCommand;
     private readonly RelayCommand cancelPermissionReviewCommand;
     private readonly AsyncRelayCommand disableCommand;
@@ -21,7 +25,11 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly SemaphoreSlim pairingGate = new(1, 1);
     private readonly Lock pairingLifetimeGate = new();
+    private readonly Lock presentationGate = new();
+    private readonly Lock runtimeReadGate = new();
     private readonly SemaphoreSlim trustRefreshGate = new(1, 1);
+    private TaskCompletionSource presentationsDrained = CreateCompletedSignal();
+    private TaskCompletionSource runtimeReadsDrained = CreateCompletedSignal();
     private CancellationTokenSource? activePairingCancellation;
     private bool hasAcknowledgedPermissionReview;
     private bool isEnabled;
@@ -36,7 +44,10 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     private string statusDescription =
         "No listener, discovery browser, or advertisement is active.";
     private LocalPairingCandidateItemViewModel? selectedCandidate;
+    private Exception? disposalFailure;
     private int disposed;
+    private int presentationsInFlight;
+    private int runtimeReadsInFlight;
 
     public LocalPairingViewModel(
         DesktopLocalPairingRuntime runtime,
@@ -70,7 +81,9 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
                 && HasAcknowledgedPermissionReview
                 && !IsEnabled
                 && !IsEnabling
-                && !IsPairing);
+                && !IsPairing
+                && runtime.Status
+                    != DesktopLocalPairingStatus.CleanupUnconfirmed);
         disableCommand = new AsyncRelayCommand(
             DisableAsync,
             () => IsEnabled && !IsPairing);
@@ -244,63 +257,93 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
             return;
         }
 
-        IsEnabling = true;
-        Status = "ENABLING LOCAL PAIRING";
-        StatusDescription =
-            "Opening one local listener and starting minimized discovery.";
-        RecoveryAction = string.Empty;
-        using CancellationTokenSource linkedCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                lifetimeCancellation.Token);
+        bool presentationAdmitted = TryBeginPresentation();
+        ObjectDisposedException.ThrowIf(!presentationAdmitted, this);
+        using LifetimeCallbackScopeLease callbackScope =
+            EnterLifetimeCallbackScope();
         try
         {
-            await runtime.EnableAsync(linkedCancellation.Token).ConfigureAwait(true);
-            IsPermissionReviewVisible = false;
-            RefreshFromRuntime();
-        }
-        catch (OperationCanceledException)
-            when (lifetimeCancellation.IsCancellationRequested)
-        {
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            IsEnabled = false;
-            Status = "LOCAL PAIRING UNAVAILABLE";
+            IsEnabling = true;
+            Status = "ENABLING LOCAL PAIRING";
             StatusDescription =
-                "Flowspan could not safely open local discovery and the listener.";
-            RecoveryAction =
-                "Check the local firewall or network permission, then retry.";
-            ListenerStatus = "Listener inactive";
-            NotifyCommandStates();
+                "Opening one local listener and starting minimized discovery.";
+            RecoveryAction = string.Empty;
+            using CancellationTokenSource linkedCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    lifetimeCancellation.Token);
+            try
+            {
+                await runtime.EnableAsync(linkedCancellation.Token).ConfigureAwait(true);
+                IsPermissionReviewVisible = false;
+                RefreshFromRuntime();
+            }
+            catch (OperationCanceledException)
+                when (lifetimeCancellation.IsCancellationRequested)
+            {
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                RuntimeProjection? failureProjection = CaptureRuntimeProjection();
+                bool cleanupUnconfirmed = failureProjection?.Status
+                    == DesktopLocalPairingStatus.CleanupUnconfirmed;
+                IsEnabled = false;
+                Status = "LOCAL PAIRING UNAVAILABLE";
+                StatusDescription = cleanupUnconfirmed
+                    ? "Flowspan could not confirm that every local network owner stopped."
+                    : "Flowspan could not safely open local discovery and the listener.";
+                RecoveryAction =
+                    "Check the local firewall or network permission, then retry.";
+                ListenerStatus = cleanupUnconfirmed
+                    ? FormatCleanupUnconfirmedListenerStatus(
+                        failureProjection?.ListeningPort)
+                    : "Listener inactive";
+                NotifyCommandStates();
+            }
+            finally
+            {
+                IsEnabling = false;
+            }
         }
         finally
         {
-            IsEnabling = false;
+            EndPresentation();
         }
     }
 
     public async Task DisableAsync()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
-        await runtime.DisableAsync().ConfigureAwait(true);
-        IsEnabled = false;
-        Status = "LOCAL PAIRING OFF";
-        StatusDescription =
-            "No listener, discovery browser, or advertisement is active.";
-        ListenerStatus = "Listener inactive";
-        RecoveryAction = string.Empty;
-        IsPermissionReviewVisible = false;
-        HasAcknowledgedPermissionReview = false;
-        Candidates.Clear();
-        SelectedCandidate = null;
-        TrustedPeerConnections.Clear();
-        OnPropertyChanged(nameof(HasTrustedPeerConnections));
-        OnPropertyChanged(nameof(HasIdentityWarnings));
+        bool presentationAdmitted = TryBeginPresentation();
+        ObjectDisposedException.ThrowIf(!presentationAdmitted, this);
+        using LifetimeCallbackScopeLease callbackScope =
+            EnterLifetimeCallbackScope();
+        try
+        {
+            await runtime.DisableAsync().ConfigureAwait(true);
+            IsEnabled = false;
+            Status = "LOCAL PAIRING OFF";
+            StatusDescription =
+                "No listener, discovery browser, or advertisement is active.";
+            ListenerStatus = "Listener inactive";
+            RecoveryAction = string.Empty;
+            IsPermissionReviewVisible = false;
+            HasAcknowledgedPermissionReview = false;
+            Candidates.Clear();
+            SelectedCandidate = null;
+            TrustedPeerConnections.Clear();
+            OnPropertyChanged(nameof(HasTrustedPeerConnections));
+            OnPropertyChanged(nameof(HasIdentityWarnings));
+        }
+        finally
+        {
+            EndPresentation();
+        }
     }
 
     public async Task PairSelectedAsync(
@@ -315,9 +358,18 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
 
         await pairingGate.WaitAsync(cancellationToken).ConfigureAwait(true);
         CancellationTokenSource? linked = null;
+        LifetimeCallbackScopeLease? callbackScope = null;
+        bool presentationAdmitted = false;
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+            presentationAdmitted = TryBeginPresentation();
+            if (!presentationAdmitted)
+            {
+                return;
+            }
+
+            callbackScope = EnterLifetimeCallbackScope();
             linked = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 lifetimeCancellation.Token);
@@ -331,6 +383,7 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
             PairingCeremonyResult result = await runtime.PairAsync(
                 selected.Candidate,
                 linked.Token).ConfigureAwait(true);
+
             if (result.Succeeded)
             {
                 await refreshTrust(linked.Token).ConfigureAwait(true);
@@ -355,25 +408,53 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         }
         finally
         {
+            bool disposeLinked = false;
             lock (pairingLifetimeGate)
             {
                 if (ReferenceEquals(activePairingCancellation, linked))
                 {
                     activePairingCancellation = null;
+                    disposeLinked = true;
                 }
             }
 
-            linked?.Dispose();
-            IsPairing = false;
-            pairingGate.Release();
+            if (disposeLinked)
+            {
+                linked?.Dispose();
+            }
+
+            try
+            {
+                IsPairing = false;
+            }
+            finally
+            {
+                callbackScope?.Dispose();
+                if (presentationAdmitted)
+                {
+                    EndPresentation();
+                }
+
+                pairingGate.Release();
+            }
         }
     }
 
     public void CancelPairing()
     {
+        CancellationTokenSource? activePairing;
         lock (pairingLifetimeGate)
         {
-            activePairingCancellation?.Cancel();
+            activePairing = activePairingCancellation;
+        }
+
+        try
+        {
+            activePairing?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The pairing operation completed after ownership was sampled.
         }
     }
 
@@ -392,39 +473,336 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        bool isLifetimeCallback = IsLifetimeCallbackActive;
+
+        if (Interlocked.Exchange(ref disposed, 1) == 0)
+        {
+            _ = DisposeResourcesAsync();
+        }
+
+        if (isLifetimeCallback)
         {
             return;
         }
 
-        lifetimeCancellation.Cancel();
-        CancelPairing();
-        runtime.Changed -= OnRuntimeChanged;
-        runtime.TrustChanged -= OnRuntimeTrustChanged;
-        await runtime.DisposeAsync().ConfigureAwait(false);
-        await pairingGate.WaitAsync().ConfigureAwait(false);
-        pairingGate.Release();
-        await trustRefreshGate.WaitAsync().ConfigureAwait(false);
-        trustRefreshGate.Release();
-        pairingGate.Dispose();
-        trustRefreshGate.Dispose();
-        lifetimeCancellation.Dispose();
+        await disposalCompleted.Task.ConfigureAwait(false);
+        if (disposalFailure is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                .Capture(disposalFailure)
+                .Throw();
+        }
     }
 
-    private void OnRuntimeChanged() => dispatcher.Post(RefreshFromRuntime);
+    private async Task DisposeResourcesAsync()
+    {
+        var failures = new List<Exception>();
+        CancellationTokenSource? activePairing;
+        lock (pairingLifetimeGate)
+        {
+            activePairing = activePairingCancellation;
+            if (activePairing is not null)
+            {
+                activePairingCancellation = null;
+            }
+        }
 
-    private void OnRuntimeTrustChanged() => dispatcher.Post(
-        () => _ = RefreshTrustAfterInboundPairingAsync());
+        Task activePairingCancellationTask = BeginCancellation(
+            activePairing,
+            failures);
+        Task lifetimeCancellationTask = BeginCancellation(
+            lifetimeCancellation,
+            failures);
+
+        try
+        {
+            runtime.Changed -= OnRuntimeChanged;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            runtime.TrustChanged -= OnRuntimeTrustChanged;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        await GetRuntimeReadsDrainedTask().ConfigureAwait(false);
+
+        try
+        {
+            await runtime.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        await GetPresentationsDrainedTask().ConfigureAwait(false);
+
+        await CaptureFailureAsync(activePairingCancellationTask, failures)
+            .ConfigureAwait(false);
+        await CaptureFailureAsync(lifetimeCancellationTask, failures)
+            .ConfigureAwait(false);
+        await DrainGateAsync(pairingGate, failures).ConfigureAwait(false);
+        await DrainGateAsync(trustRefreshGate, failures).ConfigureAwait(false);
+
+        try
+        {
+            activePairing?.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            lifetimeCancellation.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        disposalFailure = failures.Count switch
+        {
+            0 => null,
+            1 => failures[0],
+            _ => new AggregateException(
+                "One or more local pairing view resources failed to close.",
+                failures),
+        };
+        disposalCompleted.TrySetResult();
+    }
+
+    private static Task BeginCancellation(
+        CancellationTokenSource? source,
+        List<Exception> failures)
+    {
+        if (source is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            return source.CancelAsync();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+            return Task.CompletedTask;
+        }
+    }
+
+    private static async Task CaptureFailureAsync(
+        Task operation,
+        List<Exception> failures)
+    {
+        try
+        {
+            await operation.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private static async Task DrainGateAsync(
+        SemaphoreSlim gate,
+        List<Exception> failures)
+    {
+        bool entered = false;
+        try
+        {
+            await gate.WaitAsync().ConfigureAwait(false);
+            entered = true;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+        finally
+        {
+            if (entered)
+            {
+                gate.Release();
+            }
+        }
+    }
+
+    private bool TryBeginPresentation()
+    {
+        lock (presentationGate)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return false;
+            }
+
+            if (presentationsInFlight++ == 0)
+            {
+                presentationsDrained = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            return true;
+        }
+    }
+
+    private void EndPresentation()
+    {
+        TaskCompletionSource? drained = null;
+        lock (presentationGate)
+        {
+            presentationsInFlight--;
+            if (presentationsInFlight == 0)
+            {
+                drained = presentationsDrained;
+            }
+        }
+
+        drained?.TrySetResult();
+    }
+
+    private Task GetPresentationsDrainedTask()
+    {
+        lock (presentationGate)
+        {
+            return presentationsDrained.Task;
+        }
+    }
+
+    private bool TryBeginRuntimeRead()
+    {
+        lock (runtimeReadGate)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return false;
+            }
+
+            if (runtimeReadsInFlight++ == 0)
+            {
+                runtimeReadsDrained = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            return true;
+        }
+    }
+
+    private void EndRuntimeRead()
+    {
+        TaskCompletionSource? drained = null;
+        lock (runtimeReadGate)
+        {
+            runtimeReadsInFlight--;
+            if (runtimeReadsInFlight == 0)
+            {
+                drained = runtimeReadsDrained;
+            }
+        }
+
+        drained?.TrySetResult();
+    }
+
+    private Task GetRuntimeReadsDrainedTask()
+    {
+        lock (runtimeReadGate)
+        {
+            return runtimeReadsDrained.Task;
+        }
+    }
+
+    private static TaskCompletionSource CreateCompletedSignal()
+    {
+        var completed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        completed.SetResult();
+        return completed;
+    }
+
+    private void OnRuntimeChanged()
+    {
+        if (Volatile.Read(ref disposed) != 0)
+        {
+            return;
+        }
+
+        dispatcher.Post(() =>
+        {
+            if (!TryBeginPresentation())
+            {
+                return;
+            }
+
+            using LifetimeCallbackScopeLease callbackScope =
+                EnterLifetimeCallbackScope();
+            try
+            {
+                RefreshFromRuntime();
+            }
+            catch (ObjectDisposedException)
+                when (Volatile.Read(ref disposed) != 0)
+            {
+            }
+            finally
+            {
+                EndPresentation();
+            }
+        });
+    }
+
+    private void OnRuntimeTrustChanged()
+    {
+        if (Volatile.Read(ref disposed) != 0)
+        {
+            return;
+        }
+
+        dispatcher.Post(() =>
+        {
+            if (Volatile.Read(ref disposed) == 0)
+            {
+                _ = RefreshTrustAfterInboundPairingAsync();
+            }
+        });
+    }
 
     private async Task RefreshTrustAfterInboundPairingAsync()
     {
+        if (!TryBeginPresentation())
+        {
+            return;
+        }
+
+        LifetimeCallbackScopeLease callbackScope =
+            EnterLifetimeCallbackScope();
         bool entered = false;
         try
         {
             await trustRefreshGate.WaitAsync(lifetimeCancellation.Token)
                 .ConfigureAwait(true);
             entered = true;
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return;
+            }
+
             await refreshTrust(lifetimeCancellation.Token).ConfigureAwait(true);
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return;
+            }
+
             RefreshFromRuntime();
         }
         catch (OperationCanceledException)
@@ -433,13 +811,24 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         }
         catch (Exception)
         {
-            PairingStatus = "TRUST REFRESH FAILED — RETRY";
+            if (Volatile.Read(ref disposed) == 0)
+            {
+                PairingStatus = "TRUST REFRESH FAILED — RETRY";
+            }
         }
         finally
         {
-            if (entered)
+            try
             {
-                trustRefreshGate.Release();
+                if (entered)
+                {
+                    trustRefreshGate.Release();
+                }
+            }
+            finally
+            {
+                callbackScope.Dispose();
+                EndPresentation();
             }
         }
     }
@@ -456,40 +845,81 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
 
     private void RefreshFromRuntime()
     {
-        if (Volatile.Read(ref disposed) != 0)
+        RuntimeProjection? projection = CaptureRuntimeProjection();
+        if (projection is null || Volatile.Read(ref disposed) != 0)
         {
             return;
         }
 
-        IsEnabled = runtime.IsEnabled;
-        if (runtime.Status == DesktopLocalPairingStatus.Enabled)
+        ApplyRuntimeProjection(projection);
+    }
+
+    private RuntimeProjection? CaptureRuntimeProjection()
+    {
+        if (!TryBeginRuntimeRead())
+        {
+            return null;
+        }
+
+        try
+        {
+            DesktopLocalPairingStatus runtimeStatus = runtime.Status;
+            return new RuntimeProjection(
+                runtimeStatus == DesktopLocalPairingStatus.Enabled,
+                runtime.ListeningPort,
+                runtimeStatus,
+                runtime.GetCandidates(),
+                runtime.GetTrustedPeerConnections());
+        }
+        catch (ObjectDisposedException)
+            when (Volatile.Read(ref disposed) != 0)
+        {
+            return null;
+        }
+        finally
+        {
+            EndRuntimeRead();
+        }
+    }
+
+    private void ApplyRuntimeProjection(RuntimeProjection projection)
+    {
+        IsEnabled = projection.IsEnabled;
+        if (projection.Status == DesktopLocalPairingStatus.Enabled)
         {
             Status = "LOCAL PAIRING ENABLED";
             StatusDescription =
                 "This device is discoverable for pairing. NOT SHARING remains active.";
-            ListenerStatus = $"Listening on local TCP port {runtime.ListeningPort}";
+            ListenerStatus = $"Listening on local TCP port {projection.ListeningPort}";
         }
-        else if (runtime.Status == DesktopLocalPairingStatus.Faulted)
+        else if (projection.Status is DesktopLocalPairingStatus.Faulted
+                 or DesktopLocalPairingStatus.CleanupUnconfirmed)
         {
             Status = "LOCAL PAIRING UNAVAILABLE";
-            StatusDescription =
-                "Flowspan stopped local discovery because a background network service failed.";
+            StatusDescription = projection.Status
+                == DesktopLocalPairingStatus.CleanupUnconfirmed
+                ? "Flowspan could not confirm that every local network owner stopped."
+                : "Flowspan stopped local discovery because a background network service failed.";
             RecoveryAction =
                 "Check the local firewall or network permission, then retry.";
-            ListenerStatus = "Listener inactive";
+            ListenerStatus = projection.Status
+                == DesktopLocalPairingStatus.CleanupUnconfirmed
+                ? FormatCleanupUnconfirmedListenerStatus(
+                    projection.ListeningPort)
+                : "Listener inactive";
             IsPermissionReviewVisible = true;
         }
 
         Candidates.Clear();
         SelectedCandidate = null;
-        foreach (UnverifiedPairingCandidate candidate in runtime.GetCandidates())
+        foreach (UnverifiedPairingCandidate candidate in projection.Candidates)
         {
             Candidates.Add(new LocalPairingCandidateItemViewModel(candidate));
         }
 
         TrustedPeerConnections.Clear();
         foreach (DesktopTrustedPeerConnectionSnapshot connection in
-                 runtime.GetTrustedPeerConnections())
+                 projection.TrustedPeerConnections)
         {
             TrustedPeerConnections.Add(
                 new TrustedPeerConnectionItemViewModel(connection));
@@ -498,6 +928,12 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         OnPropertyChanged(nameof(HasTrustedPeerConnections));
         OnPropertyChanged(nameof(HasIdentityWarnings));
     }
+
+    private static string FormatCleanupUnconfirmedListenerStatus(
+        int? listeningPort) =>
+        listeningPort is { } port
+            ? $"Cleanup unconfirmed; local TCP port {port} may still be listening"
+            : "Cleanup unconfirmed; a local listener may still be active";
 
     private bool SetProperty<T>(
         ref T field,
@@ -528,6 +964,55 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         HasAcknowledgedPermissionReview = false;
         IsPermissionReviewVisible = false;
+    }
+
+    private sealed record RuntimeProjection(
+        bool IsEnabled,
+        int? ListeningPort,
+        DesktopLocalPairingStatus Status,
+        ImmutableArray<UnverifiedPairingCandidate> Candidates,
+        ImmutableArray<DesktopTrustedPeerConnectionSnapshot> TrustedPeerConnections);
+
+    private bool IsLifetimeCallbackActive =>
+        lifetimeCallbackScope.Value?.IsActive == true;
+
+    private LifetimeCallbackScopeLease EnterLifetimeCallbackScope() =>
+        new(lifetimeCallbackScope);
+
+    private sealed class LifetimeCallbackScope
+    {
+        private int active = 1;
+
+        public bool IsActive => Volatile.Read(ref active) != 0;
+
+        public void Deactivate() => Volatile.Write(ref active, 0);
+    }
+
+    private sealed class LifetimeCallbackScopeLease : IDisposable
+    {
+        private readonly LifetimeCallbackScope current = new();
+        private readonly AsyncLocal<LifetimeCallbackScope?> owner;
+        private readonly LifetimeCallbackScope? previous;
+        private int disposed;
+
+        public LifetimeCallbackScopeLease(
+            AsyncLocal<LifetimeCallbackScope?> owner)
+        {
+            this.owner = owner;
+            previous = owner.Value;
+            owner.Value = current;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            {
+                return;
+            }
+
+            current.Deactivate();
+            owner.Value = previous;
+        }
     }
 }
 

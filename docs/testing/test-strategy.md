@@ -412,15 +412,34 @@ single-snapshot `mirror.view`/`mirror.drive` use, view-only admission, Driver
 transfer, drive downgrade, view removal, disconnect, lease expiry, bounded
 portable input, protection pause/resume, ordinary stop, emergency stop/reset,
 and disposal. Fault cases inject start/input/pause/resume/stop exceptions and
-cancellation while proving no exception or input payload reaches results.
-Concurrency cases block capture start or input and prove protection/emergency
-preemption, late-success rejection, normal input/transfer serialization, and
-safe semaphore disposal. Sixteen fixed seeds execute 48 authorization, role,
-transfer, expiry, protection, and disconnect transitions each; after every event
-all retired Device/epoch pairs are attempted through the public input API and
-must not reach the input boundary. These are portable local-gate contracts, not
-media, authenticated protocol, native capture/input/protection, physical Device,
-permission, or accessibility evidence.
+cancellation while proving no exception or input payload reaches results. A
+cancellation-ignoring capture double returns success after cancellation; the
+controller rechecks the token, synchronously stops the capture boundary, and
+propagates cancellation rather than publishing the session. Concurrency cases
+block capture start or input and prove protection/emergency preemption, late-success
+rejection, normal input/transfer serialization, and safe semaphore disposal.
+Revocation removes the participant before local peer disconnect, retains an
+unconfirmed disconnect as bounded pending cleanup, and retries without restoring
+authority. Active participants and pending cleanup share the fixed 16-slot
+budget; a re-authorized pending peer remains rejected until cleanup confirms.
+Repeated and concurrent Emergency Stop attempts merge per-boundary confirmation
+within the current stop/session generation, while a replacement session requires
+fresh proof. Sixteen fixed seeds execute 48 authorization, role, transfer,
+expiry, protection, and disconnect transitions each; after every event all
+retired Device/epoch pairs are attempted through the public input API and must
+not reach the input boundary.
+
+Headless Desktop tests additionally block and reorder permission, service, and
+observer callbacks. A permission busy-state observer may synchronously request
+disposal without waiting on its own callback lease; external callers still join
+the complete shared cleanup. Authoritative inactivity or caller cancellation
+before a late successful Start result forces local Emergency Stop, while an old
+result cannot stop a newer same-controller replacement session before or after
+that replacement ends. A lower-revision DriverEligible snapshot is rejected
+before safety-role elevation and cannot trigger an input-permission stop against
+the accepted current view-only session. These are portable local-gate and Desktop
+contracts, not media, authenticated protocol, native capture/input/protection,
+physical Device, operating-system permission, or real accessibility evidence.
 
 Core invariants are asserted after every event:
 
@@ -459,7 +478,10 @@ Core invariants are asserted after every event:
     epoch cannot be reported as injected. Only the latest monotonic protection
     observation may publish Active or confirmed Paused state; re-entrant churn
     is bounded, partial resume failure re-closes both gates, and a stale resume
-    cannot reopen a gate after Emergency Stop.
+    cannot reopen a gate after Emergency Stop. Revocation cannot restore a peer
+    whose local disconnect remains pending, and stop/reset truth is computed from
+    cumulative local-boundary confirmation for only the current session
+    generation.
 
 ## 4. CI matrix
 

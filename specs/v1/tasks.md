@@ -314,9 +314,10 @@ means its linked evidence exists; it does not imply the entire product works.
     Capability snapshot per use boundary, Driver transfer, drive downgrade,
     view revocation, disconnect, expiry, ordinary stop, and explicit reset.
     It serializes normal input/transfer and exposes a payload-free sharing
-    snapshot with current Driver and lease epoch. Authenticated protocol,
-    Desktop presentation, media, native adapters, and physical evidence remain
-    open, so the parent task stays partial.
+    snapshot with current Driver and lease epoch. Authenticated protocol 1.5,
+    bounded encrypted media, and the portable Desktop presentation workflow are
+    implemented; native adapters and physical evidence remain open, so the
+    parent task stays partial.
   - _Requirements: R6.1–R6.5_
 - [-] 6.2 Implement platform protection-state, capture, input, and emergency-stop
   contracts plus deterministic fakes.
@@ -327,8 +328,8 @@ means its linked evidence exists; it does not imply the entire product works.
     cancellation, safe disposal, partial-resume reclosure, monotonic protection
     supersession, bounded re-entrant churn, stale-resume Emergency Stop
     dominance, and 16 seeded transition sequences. This does not implement or
-    prove any native API, encrypted media, OS permission, or physical emergency
-    action; tasks 6.3-6.6 remain open. Exact portable local and hosted evidence
+    prove any native capture/input/protection API, OS permission, or physical
+    emergency action; tasks 6.3-6.5 remain open. Exact portable local and hosted evidence
     is recorded in
     `docs/evidence/2026-08-08-portable-remote-window-control-plane.md`.
   - _Requirements: R9.3–R9.4_
@@ -341,8 +342,17 @@ means its linked evidence exists; it does not imply the entire product works.
 - [ ] 6.5 Implement Wayland portal/PipeWire and explicit X11 fallback adapters
   plus native Linux evidence.
   - _Requirements: R1, R3.3, R6, R9_
-- [ ] 6.6 Add bounded media/file channels, backpressure, and hostile-peer resource
+- [-] 6.6 Add bounded media/file channels, backpressure, and hostile-peer resource
   tests.
+  - Protocol 1.5 implements a purpose-separated encrypted video/audio/cursor
+    stream with strict Session/Activity binding, bounded binary frames,
+    per-peer and per-session queue budgets, receive-rate ceilings, accepted-write
+    timeouts, explicit backpressure, and hostile length/tamper/rate/cancellation/
+    cleanup tests. This is portable ordered-stream evidence, not a production
+    codec, renderer, physical-network quality result, or native capture proof.
+  - Clipboard and file-content transfer remain open. They require a separate
+    content policy, consent model, protocol, resource contract, and evidence;
+    the Remote Window media implementation does not satisfy that scope.
   - _Requirements: R3.3, R6, R8.4, R9_
 
 ## 7. Desktop experience
@@ -411,9 +421,12 @@ means its linked evidence exists; it does not imply the entire product works.
     hosted Windows, macOS, and Ubuntu at `c44a364`; commands, run IDs, suite
     counts, stress repetitions, and native-evidence limits are recorded in
     [desktop local-network permission evidence](../../docs/evidence/2026-07-14-desktop-local-network-permission-preflight.md).
-  - Remaining for parent 7.2: feature-use screen-capture and
-    accessibility/remote-input permission flows, aligned with platform tasks
-    6.3–6.5, plus matching real-machine permission/accessibility evidence.
+  - The portable feature-use screen-capture and accessibility/remote-input
+    review/request workflow is implemented with acknowledgement ordering,
+    denial/revocation races, fail-closed start/session handling, and explicit
+    unsupported production adapters. Remaining for parent 7.2 are native
+    platform integrations in tasks 6.3–6.5 plus matching real-machine
+    permission/accessibility evidence.
   - _Requirements: R1, R2, R8, R10_
 - [-] 7.3 Implement operation preview, named degradation, persistent sharing
   indicator, recovery, receipt, and undo surfaces.
@@ -428,8 +441,7 @@ means its linked evidence exists; it does not imply the entire product works.
     Ubuntu for implementation commit `c7cee09` and evidence commit `4d49bd9`;
     exact run/job evidence is linked above. This completion status is effective
     only after the closure commit itself passes the same final-HEAD workflows.
-    Replace/swap, live-sharing indicators, recovery history, and compensating
-    undo remain later slices.
+    Replace/swap, recovery history, and compensating undo remain later slices.
   - 7.3b complete: expose bounded
     `workspace.note/v1` Move as a separate target-first preview and keyboard
     control. Close the source only after the target returns a verified committed
@@ -560,6 +572,29 @@ means its linked evidence exists; it does not imply the entire product works.
         are linked above. This status becomes effective only after the commit
         carrying this evidence also passes the same final-HEAD workflows.
       - _Requirements: R4.4-R4.12, R9, R10, R11_
+  - 7.3d local candidate: bind the selected active Activity and an independently
+    role-filtered Remote Window target into an explicitly labelled fallback only
+    when semantic resume is unavailable. Semantic `activity.receive` targets do
+    not qualify: view-only requires `mirror.view`, driving requires
+    `mirror.view` plus `mirror.drive`, and a role/Trust/connection change clears
+    an ineligible selection. Both production any-of control-channel profiles and
+    connector election admit Mirror-only Trust, but admission grants no Mirror
+    operation: drive-without-view remains absent from every picker, successful
+    Trust changes refresh a still-connected inventory, and the connection drains
+    only after its final eligible control Capability is removed. Preserve source
+    execution and project bounded
+    sharing/Driver/lease/protection state into the persistent header.
+    Progressive capture/input permission, synchronous permission-loss stop before
+    queued presentation, keyboard Emergency Stop, exact in-flight and active
+    target context, command-result reduction before refresh uncertainty,
+    post-gate single-crossing admission, stop-confirmed failed-start cleanup and
+    retry reset, stale/new-session and last-known reduction, ordered hostile
+    observer/disposal, purpose-scoped target negatives, role-upgrade fail-closed
+    selection, focus, scaling, contrast, and redaction have deterministic Desktop
+    coverage. Exact-commit hosted evidence
+    and all native/physical capture, input, protection, permission, hotkey,
+    screen-reader, and two-device gates remain open under tasks 6.3-6.5 and 9.3.
+    - _Requirements: R3.3-R3.5, R6, R9.3-R9.4, R10_
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.

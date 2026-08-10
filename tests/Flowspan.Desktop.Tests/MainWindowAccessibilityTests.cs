@@ -1,16 +1,19 @@
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Flowspan.Application;
 using Flowspan.Diagnostics;
 using Flowspan.Domain;
+using Flowspan.Platform;
 using Flowspan.Protocol;
 using Flowspan.Security;
 using Flowspan.Transport;
@@ -54,7 +57,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -73,7 +76,13 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "Emergency stop",
                 emergencyStop.GetValue(AutomationProperties.NameProperty));
-            Assert.Equal("NOT SHARING", sharingStatus.Text);
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharingStatus.Text);
+            Assert.Equal(
+                "Sharing state: Remote Window unavailable",
+                sharingStatus.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Unavailable while no stoppable Remote Window session is active.",
+                emergencyStop.GetValue(AutomationProperties.HelpTextProperty));
             Assert.False(emergencyStop.IsEnabled);
             Assert.True(toggle.Focus());
 
@@ -82,8 +91,641 @@ public sealed class MainWindowAccessibilityTests
             Assert.True(viewModel.IsIdentityDetailsVisible);
             Assert.Equal("Hide identity details", toggle.Content);
             window!.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task SafetyPaletteMeetsAccessibleContrastFloors()
+    {
+        HeadlessUnitTestSession session = HeadlessSession;
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow();
+            Color graphite = GetResourceColor(window, "GraphiteBrush");
+            Color steel = GetResourceColor(window, "SteelBrush");
+            Color chalk = GetResourceColor(window, "ChalkBrush");
+            Color safetyAmber = GetResourceColor(window, "SafetyAmberBrush");
+            Color signalRed = GetResourceColor(window, "SignalRedBrush");
+            Color coolGray = GetResourceColor(window, "CoolGrayBrush");
+
+            Assert.True(ContrastRatio(chalk, graphite) >= 7);
+            Assert.True(ContrastRatio(chalk, steel) >= 7);
+            Assert.True(ContrastRatio(safetyAmber, graphite) >= 4.5);
+            Assert.True(ContrastRatio(safetyAmber, steel) >= 3);
+            Assert.True(ContrastRatio(signalRed, graphite) >= 4.5);
+            Assert.True(ContrastRatio(coolGray, steel) >= 4.5);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RemoteWindowPermissionLayoutFitsMinimumSizeWithLargerText()
+    {
+        var permissions = new AccessibilityPermissionService();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            remoteWindowPermissionService: permissions);
+        await viewModel.InitializeAsync();
+        viewModel.RemoteWindow.ReviewCapturePermissionCommand.Execute(null);
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch<int>(async () =>
+        {
+            var window = new MainWindow
+            {
+                DataContext = viewModel,
+                Width = 900,
+                Height = 620,
+                FontSize = 20,
+            };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            DrainPendingUiJobs();
+            ScrollViewer scroll = Assert.IsType<ScrollViewer>(
+                window.FindControl<ScrollViewer>("WorkspaceScrollViewer"));
+            Border band = Assert.IsType<Border>(
+                window.FindControl<Border>("RemoteWindowPermissionBand"));
+            Grid grid = Assert.IsType<Grid>(
+                window.FindControl<Grid>("RemoteWindowPermissionGrid"));
+            StackPanel captureColumn = Assert.IsType<StackPanel>(
+                window.FindControl<StackPanel>("CapturePermissionColumn"));
+            StackPanel inputColumn = Assert.IsType<StackPanel>(
+                window.FindControl<StackPanel>("InputPermissionColumn"));
+            StackPanel captureReview = Assert.IsType<StackPanel>(
+                window.FindControl<StackPanel>("CapturePermissionReviewBand"));
+            TextBlock captureStatus = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("CapturePermissionStatusText"));
+            TextBlock inputStatus = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("InputPermissionStatusText"));
+            Button requestCapture = Assert.IsType<Button>(
+                window.FindControl<Button>("RequestCapturePermissionButton"));
+
+            Assert.Equal(900, window.MinWidth);
+            Assert.True(scroll.Bounds.Width > 0);
+            Assert.True(band.Bounds.Width <= scroll.Bounds.Width);
+            Assert.True(grid.Bounds.Width > 0);
+            Assert.True(captureColumn.Bounds.Right <= inputColumn.Bounds.X);
+            Assert.True(captureReview.DesiredSize.Width <= captureColumn.Bounds.Width);
+            Assert.Equal(TextWrapping.Wrap, captureStatus.TextWrapping);
+            Assert.Equal(TextWrapping.Wrap, inputStatus.TextWrapping);
+            Assert.True(requestCapture.MinHeight >= 44);
+            window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RemoteWindowPermissionRationalesExplainExposureAndRevocation()
+    {
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            remoteWindowPermissionService: new AccessibilityPermissionService());
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch<int>(async () =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            TextBlock captureRationale = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("CapturePermissionRationaleText"));
+            TextBlock inputRationale = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("InputPermissionRationaleText"));
+
+            Assert.Contains(
+                "visible screen output",
+                captureRationale.Text,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(
+                "screen-capture privacy settings",
+                captureRationale.Text,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(
+                "keyboard, pointer, and scroll input",
+                inputRationale.Text,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(
+                "accessibility or input privacy settings",
+                inputRationale.Text,
+                StringComparison.OrdinalIgnoreCase);
+            window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PersistentRemoteWindowEmergencyStopIsKeyboardOperable()
+    {
+        var remoteWindow = await AccessibilityRemoteWindowService.CreateActiveAsync();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            remoteWindowService: remoteWindow,
+            remoteWindowPermissionService: new AccessibilityPermissionService(
+                DesktopPermissionState.Granted,
+                DesktopPermissionState.NotDetermined));
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch<int>(async () =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
+            Button emergencyStop = Assert.IsType<Button>(
+                window.FindControl<Button>("EmergencyStopButton"));
+            Border details = Assert.IsType<Border>(
+                window.FindControl<Border>("RemoteWindowDetailBand"));
+            TextBlock result = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("RemoteWindowEmergencyStopResultText"));
+
+            Assert.Equal("REMOTE WINDOW ACTIVE", sharing.Text);
+            Assert.Equal(
+                "Sharing state: REMOTE WINDOW ACTIVE; Activity: Release plan; "
+                    + "Current Driver: 11111111-1111-1111-1111-111111111111",
+                sharing.GetValue(AutomationProperties.NameProperty));
+            Assert.True(details.IsVisible);
+            Assert.True(emergencyStop.IsEnabled);
+            Assert.Contains(
+                "without waiting for the peer",
+                emergencyStop.GetValue(AutomationProperties.HelpTextProperty));
+            Assert.True(emergencyStop.Focus());
+
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.Equal(1, remoteWindow.EmergencyStopCalls);
+            Assert.Equal("EMERGENCY STOPPED", sharing.Text);
+            Assert.Equal("EMERGENCY STOP CONFIRMED", result.Text);
+            Assert.False(emergencyStop.IsEnabled);
+            window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ConfirmedLocalResetIsKeyboardOperableAndDoesNotRestoreSession()
+    {
+        var remoteWindow = await AccessibilityRemoteWindowService.CreateActiveAsync();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            remoteWindowService: remoteWindow,
+            remoteWindowPermissionService: new AccessibilityPermissionService(
+                DesktopPermissionState.Granted,
+                DesktopPermissionState.NotDetermined));
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        MainWindow? window = null;
+        var workflowCompleted = false;
+
+        try
+        {
+            await session.Dispatch<int>(async () =>
+            {
+                window = new MainWindow { DataContext = viewModel };
+                MainWindow shownWindow = window;
+                window.Closed += (_, _) => closed.TrySetResult();
+                window.Show();
+                TextBlock sharing = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>("SharingStatusText"));
+                TextBlock resetStatus = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>(
+                        "RemoteWindowLocalResetStatusText"));
+                TextBlock resetDescription = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>(
+                        "RemoteWindowLocalResetDescriptionText"));
+                Button emergencyStop = Assert.IsType<Button>(
+                    window.FindControl<Button>("EmergencyStopButton"));
+                Button confirmReset = Assert.IsType<Button>(
+                    window.FindControl<Button>("ConfirmLocalResetButton"));
+                RemoteWindowSharingSnapshot active =
+                    Assert.IsType<RemoteWindowSharingSnapshot>(
+                        remoteWindow.GetSnapshot());
+
+                Assert.NotEmpty(active.Participants);
+                Assert.NotNull(active.CurrentDriverDeviceId);
+                Assert.False(confirmReset.IsVisible);
+                Assert.Equal(
+                    "Remote Window local reset status",
+                    resetStatus.GetValue(AutomationProperties.NameProperty));
+                Assert.Equal(
+                    "Remote Window local reset guidance",
+                    resetDescription.GetValue(
+                        AutomationProperties.NameProperty));
+                Assert.True(emergencyStop.Focus());
+
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Space,
+                    RawInputModifiers.None);
+
+                Assert.Equal("EMERGENCY STOPPED", sharing.Text);
+                Assert.Equal("LOCAL RESET REQUIRED", resetStatus.Text);
+                Assert.Contains(
+                    "confirm",
+                    resetDescription.Text,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(
+                    "local reset",
+                    resetDescription.Text,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.True(resetStatus.IsVisible);
+                Assert.True(resetDescription.IsVisible);
+                Assert.True(confirmReset.IsVisible);
+                Assert.Equal(
+                    "Confirm local Remote Window reset",
+                    confirmReset.GetValue(AutomationProperties.NameProperty));
+                string helpText = Assert.IsType<string>(
+                    confirmReset.GetValue(AutomationProperties.HelpTextProperty));
+                Assert.Contains(
+                    "does not restore",
+                    helpText,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(
+                    "participants",
+                    helpText,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(
+                    "Driver",
+                    helpText,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(
+                    "capture",
+                    helpText,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.True(confirmReset.Focus());
+                Assert.True(confirmReset.IsFocused);
+
+                shownWindow.KeyPressQwerty(
+                    PhysicalKey.Enter,
+                    RawInputModifiers.None);
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Enter,
+                    RawInputModifiers.None);
+
+                await remoteWindow.ResetRequested.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                DrainPendingUiJobs();
+
+                Assert.Equal(1, remoteWindow.ResetCalls);
+                Assert.Equal("NOT SHARING", sharing.Text);
+                Assert.False(confirmReset.IsVisible);
+                RemoteWindowSharingSnapshot reset =
+                    Assert.IsType<RemoteWindowSharingSnapshot>(
+                        remoteWindow.GetSnapshot());
+                Assert.Equal(RemoteWindowLifecycle.Idle, reset.Lifecycle);
+                Assert.Equal(
+                    RemoteWindowCaptureState.Stopped,
+                    reset.CaptureState);
+                Assert.Empty(reset.Participants);
+                Assert.Null(reset.CurrentDriverDeviceId);
+                workflowCompleted = true;
+                shownWindow.Close();
+                await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                return 0;
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (!workflowCompleted)
+            {
+                try
+                {
+                    await session.Dispatch<int>(
+                        async () =>
+                        {
+                            window?.Close();
+                            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                            return 0;
+                        },
+                        CancellationToken.None);
+                }
+                catch when (!workflowCompleted)
+                {
+                    // Preserve the keyboard workflow failure during cleanup.
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task FailedStartLocalResetIsKeyboardOperableAndRestoresNoAuthority()
+    {
+        ActivityId activityId = ActivityId.Parse(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var activities = new AccessibilityActivityService(
+            activityId,
+            supportsSemanticResume: false);
+        var remoteWindow =
+            AccessibilityRemoteWindowService.CreateFailedStart();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            activityService: activities,
+            remoteWindowService: remoteWindow,
+            remoteWindowPermissionService: new AccessibilityPermissionService(
+                DesktopPermissionState.Granted,
+                DesktopPermissionState.NotDetermined));
+        await viewModel.InitializeAsync();
+        viewModel.Activities.DraftTitle = "Release plan";
+        viewModel.Activities.DraftText = "bounded note body";
+        viewModel.Activities.CreateWorkspaceNoteCommand.Execute(null);
+        viewModel.Activities.SelectedRemoteWindowTarget = Assert.Single(
+            viewModel.Activities.RemoteWindowTargets);
+        await viewModel.RemoteWindow.StartRemoteWindowAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        MainWindow? window = null;
+        var workflowCompleted = false;
+
+        try
+        {
+            await session.Dispatch<int>(async () =>
+            {
+                window = new MainWindow { DataContext = viewModel };
+                MainWindow shownWindow = window;
+                window.Closed += (_, _) => closed.TrySetResult();
+                window.Show();
+                TextBlock sharing = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>("SharingStatusText"));
+                TextBlock resetStatus = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>(
+                        "RemoteWindowLocalResetStatusText"));
+                TextBlock resetDescription = Assert.IsType<TextBlock>(
+                    window.FindControl<TextBlock>(
+                        "RemoteWindowLocalResetDescriptionText"));
+                Button confirmReset = Assert.IsType<Button>(
+                    window.FindControl<Button>("ConfirmLocalResetButton"));
+
+                Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
+                Assert.Equal(1, remoteWindow.StartCalls);
+                Assert.Equal("LOCAL RETRY RESET REQUIRED", resetStatus.Text);
+                Assert.Contains(
+                    "failed start",
+                    resetDescription.Text,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.True(confirmReset.IsVisible);
+                Assert.True(confirmReset.IsEnabled);
+                Assert.Equal(
+                    "Confirm local Remote Window reset",
+                    confirmReset.GetValue(AutomationProperties.NameProperty));
+                Assert.True(confirmReset.Focus());
+                Assert.True(confirmReset.IsFocused);
+
+                shownWindow.KeyPressQwerty(
+                    PhysicalKey.Enter,
+                    RawInputModifiers.None);
+                shownWindow.KeyReleaseQwerty(
+                    PhysicalKey.Enter,
+                    RawInputModifiers.None);
+
+                await remoteWindow.ResetRequested.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                DrainPendingUiJobs();
+
+                Assert.Equal(1, remoteWindow.ResetCalls);
+                Assert.Equal("NOT SHARING", sharing.Text);
+                Assert.Equal("LOCAL RETRY RESET CONFIRMED", resetStatus.Text);
+                Assert.False(confirmReset.IsVisible);
+                RemoteWindowSharingSnapshot reset =
+                    Assert.IsType<RemoteWindowSharingSnapshot>(
+                        remoteWindow.GetSnapshot());
+                Assert.Equal(RemoteWindowLifecycle.Idle, reset.Lifecycle);
+                Assert.Equal(
+                    RemoteWindowCaptureState.Stopped,
+                    reset.CaptureState);
+                Assert.Empty(reset.Participants);
+                Assert.Null(reset.CurrentDriverDeviceId);
+                workflowCompleted = true;
+                shownWindow.Close();
+                await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                return 0;
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (!workflowCompleted)
+            {
+                try
+                {
+                    await session.Dispatch<int>(
+                        async () =>
+                        {
+                            window?.Close();
+                            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                            return 0;
+                        },
+                        CancellationToken.None);
+                }
+                catch when (!workflowCompleted)
+                {
+                    // Preserve the keyboard workflow failure during cleanup.
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProtectionPauseRemainsVisibleAndEmergencyStopAvailable()
+    {
+        var remoteWindow = await AccessibilityRemoteWindowService.CreateActiveAsync();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            remoteWindowService: remoteWindow,
+            remoteWindowPermissionService: new AccessibilityPermissionService(
+                DesktopPermissionState.Granted,
+                DesktopPermissionState.NotDetermined));
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch<int>(async () =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
+            TextBlock protection = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("RemoteWindowProtectionStatusText"));
+            Button emergencyStop = Assert.IsType<Button>(
+                window.FindControl<Button>("EmergencyStopButton"));
+
+            remoteWindow.PauseForSecureInput();
+
+            Assert.Equal("REMOTE WINDOW PAUSED", sharing.Text);
+            Assert.Equal("PROTECTION: SecureInput", protection.Text);
+            Assert.True(emergencyStop.IsEnabled);
+            Assert.True(emergencyStop.Focus());
+            window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task EmergencyStopShowsUnconfirmedBoundariesSeparately()
+    {
+        var remoteWindow = await AccessibilityRemoteWindowService.CreateActiveAsync(
+            captureStop: LocalBoundaryResult.Failed("capture_stop_unconfirmed"),
+            sessionStop: LocalBoundaryResult.Failed("sessions_stop_unconfirmed"));
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            remoteWindowService: remoteWindow,
+            remoteWindowPermissionService: new AccessibilityPermissionService(
+                DesktopPermissionState.Granted,
+                DesktopPermissionState.NotDetermined));
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch<int>(async () =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            Button emergencyStop = Assert.IsType<Button>(
+                window.FindControl<Button>("EmergencyStopButton"));
+            TextBlock result = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("RemoteWindowEmergencyStopResultText"));
+            TextBlock description = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>(
+                    "RemoteWindowEmergencyStopDescriptionText"));
+            Button confirmReset = Assert.IsType<Button>(
+                window.FindControl<Button>("ConfirmLocalResetButton"));
+            Assert.True(emergencyStop.Focus());
+
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.Equal("EMERGENCY STOP PARTIALLY UNCONFIRMED", result.Text);
+            Assert.Contains(
+                "Capture: unconfirmed (capture_stop_unconfirmed)",
+                description.Text);
+            Assert.Contains("Input: confirmed", description.Text);
+            Assert.Contains(
+                "Sessions: unconfirmed (sessions_stop_unconfirmed)",
+                description.Text);
+            Assert.False(emergencyStop.IsEnabled);
+            Assert.False(confirmReset.IsVisible);
+            remoteWindow.ConfirmStopsForDisposal();
+            window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RemoteWindowPermissionFlowIsKeyboardOperableAndProgressive()
+    {
+        var permissions = new AccessibilityPermissionService();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            remoteWindowPermissionService: permissions);
+        await viewModel.InitializeAsync();
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch<int>(async () =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            Button reviewCapture = Assert.IsType<Button>(
+                window.FindControl<Button>("ReviewCapturePermissionButton"));
+            StackPanel captureReview = Assert.IsType<StackPanel>(
+                window.FindControl<StackPanel>("CapturePermissionReviewBand"));
+            CheckBox captureAcknowledgement = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("CapturePermissionAcknowledgement"));
+            Button requestCapture = Assert.IsType<Button>(
+                window.FindControl<Button>("RequestCapturePermissionButton"));
+            CheckBox remoteDriving = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("RemoteDrivingCheckBox"));
+            StackPanel inputReview = Assert.IsType<StackPanel>(
+                window.FindControl<StackPanel>("InputPermissionReviewBand"));
+            CheckBox inputAcknowledgement = Assert.IsType<CheckBox>(
+                window.FindControl<CheckBox>("InputPermissionAcknowledgement"));
+            Button requestInput = Assert.IsType<Button>(
+                window.FindControl<Button>("RequestInputPermissionButton"));
+            TextBlock captureStatus = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("CapturePermissionStatusText"));
+            TextBlock inputStatus = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("InputPermissionStatusText"));
+
+            Assert.Equal(
+                "Review screen capture permission",
+                reviewCapture.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Acknowledge screen capture permission review",
+                captureAcknowledgement.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Request screen capture permission",
+                requestCapture.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Enable Remote Window driving",
+                remoteDriving.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Acknowledge input permission review",
+                inputAcknowledgement.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(
+                "Request input permission",
+                requestInput.GetValue(AutomationProperties.NameProperty));
+            Assert.True(reviewCapture.IsEnabled);
+            Assert.False(captureReview.IsVisible);
+            Assert.False(remoteDriving.IsEnabled);
+            Assert.False(inputReview.IsVisible);
+            Assert.True(reviewCapture.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.True(captureReview.IsVisible);
+            Assert.Equal(0, permissions.CaptureRequests);
+            Assert.True(captureAcknowledgement.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(requestCapture.IsEnabled);
+            Assert.True(captureAcknowledgement.IsFocused);
+            Assert.True(requestCapture.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+
+            Assert.Equal(1, permissions.CaptureRequests);
+            Assert.Equal("CAPTURE PERMISSION GRANTED", captureStatus.Text);
+            Assert.True(remoteDriving.IsEnabled);
+            Assert.True(remoteDriving.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+
+            Assert.True(inputReview.IsVisible);
+            Assert.Equal(0, permissions.InputRequests);
+            Assert.True(remoteDriving.IsFocused);
+            Assert.True(inputAcknowledgement.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(requestInput.IsEnabled);
+            Assert.True(inputAcknowledgement.IsFocused);
+            Assert.True(requestInput.Focus());
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+
+            Assert.Equal(1, permissions.InputRequests);
+            Assert.Equal("INPUT PERMISSION GRANTED", inputStatus.Text);
+            Assert.False(inputReview.IsVisible);
+            window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
+        }, CancellationToken.None);
     }
 
     [Fact]
@@ -98,7 +740,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -153,6 +795,8 @@ public sealed class MainWindowAccessibilityTests
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
             viewModel.Activities.SelectedTarget = Assert.Single(
                 viewModel.Activities.Targets);
+            viewModel.Activities.SelectedRemoteWindowTarget = Assert.Single(
+                viewModel.Activities.RemoteWindowTargets);
 
             Assert.Single(activityList.Items);
             Assert.Single(targetList.Items);
@@ -161,7 +805,7 @@ public sealed class MainWindowAccessibilityTests
                 preview.Text);
             Assert.Contains("plain-text note", disclosure.Text);
             Assert.Equal(
-                "REMOTE WINDOW NOT AVAILABLE IN THIS BUILD",
+                "REMOTE WINDOW NOT OFFERED — SEMANTIC RESUME AVAILABLE",
                 degradation.Text);
             Assert.True(handoff.IsEnabled);
             Assert.True(handoff.Focus());
@@ -171,10 +815,127 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "Semantic Activity operation receipt status",
                 receipt.GetValue(AutomationProperties.NameProperty));
-            Assert.Equal("NOT SHARING", sharing.Text);
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task SelectedActivityRemoteWindowFallbackIsKeyboardOperable()
+    {
+        ActivityId activityId = ActivityId.Parse(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var activities = new AccessibilityActivityService(
+            activityId,
+            supportsSemanticResume: false);
+        var remoteWindow = AccessibilityRemoteWindowService.CreateInactive();
+        var permissions = new AccessibilityPermissionService(
+            DesktopPermissionState.Granted,
+            DesktopPermissionState.NotDetermined);
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            activityService: activities,
+            remoteWindowService: remoteWindow,
+            remoteWindowPermissionService: permissions);
+        await viewModel.InitializeAsync();
+        viewModel.Activities.DraftTitle = "Release plan";
+        viewModel.Activities.DraftText = "bounded note body";
+        viewModel.Activities.CreateWorkspaceNoteCommand.Execute(null);
+        HeadlessUnitTestSession session = HeadlessSession;
+        var closed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await session.Dispatch<int>(async () =>
+        {
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) => closed.TrySetResult();
+            window.Show();
+            TextBlock fallbackStatus = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("ActivityDegradationStatusText"));
+            TextBlock fallbackDescription = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("RemoteWindowFallbackDescriptionText"));
+            ListBox remoteWindowTargets = Assert.IsType<ListBox>(
+                window.FindControl<ListBox>("RemoteWindowTargetList"));
+            Button start = Assert.IsType<Button>(
+                window.FindControl<Button>("StartRemoteWindowButton"));
+            TextBlock sharing = Assert.IsType<TextBlock>(
+                window.FindControl<TextBlock>("SharingStatusText"));
+
+            Assert.Equal(
+                "Authenticated Remote Window targets for current role",
+                remoteWindowTargets.GetValue(AutomationProperties.NameProperty));
+            Assert.Equal(1, remoteWindowTargets.ItemCount);
+            remoteWindowTargets.ScrollIntoView(0);
+            DrainPendingUiJobs();
+            Control remoteWindowTarget = Assert.IsAssignableFrom<Control>(
+                remoteWindowTargets.ContainerFromIndex(0));
+            Assert.True(remoteWindowTarget.Focus());
+            window.KeyPressQwerty(
+                PhysicalKey.Space,
+                RawInputModifiers.None);
+            window.KeyReleaseQwerty(
+                PhysicalKey.Space,
+                RawInputModifiers.None);
+
+            Assert.NotNull(viewModel.Activities.SelectedRemoteWindowTarget);
+
+            Assert.Equal(
+                "REMOTE WINDOW READY — EXECUTION STAYS ON SOURCE",
+                fallbackStatus.Text);
+            Assert.Contains("Release plan", fallbackDescription.Text);
+            Assert.Contains("Mirror peer", fallbackDescription.Text);
+            Assert.Equal(
+                "Start view-only Remote Window for the selected Activity",
+                start.GetValue(AutomationProperties.NameProperty));
+            Assert.True(start.IsEnabled);
+            Assert.True(start.Focus());
+
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            DrainPendingUiJobs();
+
+            Assert.Equal(1, remoteWindow.StartCalls);
+            Assert.Equal("REMOTE WINDOW ACTIVE", fallbackStatus.Text);
+            Assert.Equal("REMOTE WINDOW ACTIVE", sharing.Text);
+            window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SemanticActivityDoesNotOfferRemoteWindowFallback()
+    {
+        ActivityId activityId = ActivityId.Parse(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var activities = new AccessibilityActivityService(activityId);
+        var remoteWindow = AccessibilityRemoteWindowService.CreateInactive();
+        await using var viewModel = new WorkspaceShellViewModel(
+            new ReadyStartup(),
+            activityService: activities,
+            remoteWindowService: remoteWindow,
+            remoteWindowPermissionService: new AccessibilityPermissionService(
+                DesktopPermissionState.Granted,
+                DesktopPermissionState.NotDetermined));
+        await viewModel.InitializeAsync();
+        viewModel.Activities.DraftTitle = "Release plan";
+        viewModel.Activities.DraftText = "bounded note body";
+        viewModel.Activities.CreateWorkspaceNoteCommand.Execute(null);
+        viewModel.Activities.SelectedRemoteWindowTarget = Assert.Single(
+            viewModel.Activities.RemoteWindowTargets);
+
+        Assert.Equal(
+            "REMOTE WINDOW NOT OFFERED — SEMANTIC RESUME AVAILABLE",
+            viewModel.RemoteWindow.FallbackStatus);
+        Assert.Contains(
+            "Handoff or Move",
+            viewModel.RemoteWindow.FallbackDescription);
+        Assert.False(viewModel.RemoteWindow.IsFallbackStartAvailable);
+
+        await viewModel.RemoteWindow.StartRemoteWindowAsync();
+
+        Assert.Equal(0, remoteWindow.StartCalls);
     }
 
     [Fact]
@@ -189,7 +950,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -239,8 +1000,9 @@ public sealed class MainWindowAccessibilityTests
                 receipt.GetValue(AutomationProperties.NameProperty));
             Assert.Empty(viewModel.Activities.Activities);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -255,7 +1017,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -338,10 +1100,11 @@ public sealed class MainWindowAccessibilityTests
                 "Destructive Replace operation status",
                 replaceResult.GetValue(AutomationProperties.NameProperty));
             Assert.False(destructiveReplace.IsEnabled);
-            Assert.Equal("NOT SHARING", sharing.Text);
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -359,7 +1122,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -412,10 +1175,11 @@ public sealed class MainWindowAccessibilityTests
 
             Assert.Equal(1, records.SelectedIndex);
             Assert.False(destructiveReplace.IsEnabled);
-            Assert.Equal("NOT SHARING", sharing.Text);
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -483,7 +1247,7 @@ public sealed class MainWindowAccessibilityTests
         }, CancellationToken.None);
 
         await activities.UndoRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             MainWindow shownWindow = window
                 ?? throw new InvalidOperationException("The undo test window was not shown.");
@@ -492,10 +1256,11 @@ public sealed class MainWindowAccessibilityTests
                 viewModel.Activities.TargetLocalUndoStatus);
             TextBlock sharing = Assert.IsType<TextBlock>(
                 shownWindow.FindControl<TextBlock>("SharingStatusText"));
-            Assert.Equal("NOT SHARING", sharing.Text);
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
             shownWindow.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -682,7 +1447,9 @@ public sealed class MainWindowAccessibilityTests
                     compensationItems.GetValue(AutomationProperties.NameProperty));
                 Assert.Equal("COMPENSATION COMPLETED", compensationStatus.Text);
                 Assert.Single(compensationItems.Items);
-                Assert.Equal("NOT SHARING", sharing.Text);
+                Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
+                shownWindow.Close();
+                await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 return 0;
             }, CancellationToken.None);
             workflowCompleted = true;
@@ -691,10 +1458,14 @@ public sealed class MainWindowAccessibilityTests
         {
             try
             {
-                await session.Dispatch(() => window?.Close(), CancellationToken.None);
-                if (window is not null)
+                if (!workflowCompleted && window is not null)
                 {
-                    await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    await session.Dispatch<int>(async () =>
+                    {
+                        window.Close();
+                        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        return 0;
+                    }, CancellationToken.None);
                 }
             }
             catch when (!workflowCompleted)
@@ -867,7 +1638,9 @@ public sealed class MainWindowAccessibilityTests
 
                 TextBlock sharing = Assert.IsType<TextBlock>(
                     shownWindow.FindControl<TextBlock>("SharingStatusText"));
-                Assert.Equal("NOT SHARING", sharing.Text);
+                Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
+                shownWindow.Close();
+                await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 return 0;
             }, CancellationToken.None);
             workflowCompleted = true;
@@ -876,10 +1649,14 @@ public sealed class MainWindowAccessibilityTests
         {
             try
             {
-                await session.Dispatch(() => window?.Close(), CancellationToken.None);
-                if (window is not null)
+                if (!workflowCompleted && window is not null)
                 {
-                    await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    await session.Dispatch<int>(async () =>
+                    {
+                        window.Close();
+                        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        return 0;
+                    }, CancellationToken.None);
                 }
             }
             catch when (!workflowCompleted)
@@ -902,7 +1679,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -936,10 +1713,11 @@ public sealed class MainWindowAccessibilityTests
                     .GetValue(AutomationProperties.NameProperty));
             Assert.True(refresh.MinHeight >= 44);
             Assert.True(export.MinHeight >= 44);
-            Assert.Equal("NOT SHARING", sharing.Text);
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -988,7 +1766,7 @@ public sealed class MainWindowAccessibilityTests
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
             DrainPendingUiJobs();
             Assert.Empty(viewModel.LocalData.History);
-            Assert.Equal("NOT SHARING", window.FindControl<TextBlock>(
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", window.FindControl<TextBlock>(
                 "SharingStatusText")?.Text);
             window.Close();
         }, CancellationToken.None);
@@ -1028,7 +1806,7 @@ public sealed class MainWindowAccessibilityTests
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
             DrainPendingUiJobs();
             Assert.Empty(viewModel.LocalData.DiagnosticExports);
-            Assert.Equal("NOT SHARING", window.FindControl<TextBlock>(
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", window.FindControl<TextBlock>(
                 "SharingStatusText")?.Text);
             window.Close();
         }, CancellationToken.None);
@@ -1056,7 +1834,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -1089,8 +1867,9 @@ public sealed class MainWindowAccessibilityTests
             Assert.True(accept.Focus());
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         PairingDecision decision = await pending.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(decision.Accepted);
@@ -1118,7 +1897,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -1166,7 +1945,7 @@ public sealed class MainWindowAccessibilityTests
                 peer.DeviceId.ToString(),
                 viewModel.TrustedDevices.TrustExportPreview,
                 StringComparison.Ordinal);
-            Assert.Equal("NOT SHARING", sharing.Text);
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
             Assert.True(mirrorView.Focus());
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
             Assert.True(save.IsEnabled);
@@ -1184,8 +1963,9 @@ public sealed class MainWindowAccessibilityTests
             Assert.True(mutationStatus.IsVisible);
             Assert.Equal("DEVICE REVOKED", mutationStatus.Text);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -1214,7 +1994,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -1235,8 +2015,9 @@ public sealed class MainWindowAccessibilityTests
             Assert.False(viewModel.TrustedDevices.GrantActivityOffer);
             Assert.True(viewModel.TrustedDevices.GrantMirrorDrive);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -1256,7 +2037,7 @@ public sealed class MainWindowAccessibilityTests
         var closed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await session.Dispatch(() =>
+        await session.Dispatch<int>(async () =>
         {
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) => closed.TrySetResult();
@@ -1331,10 +2112,11 @@ public sealed class MainWindowAccessibilityTests
             Assert.Equal(
                 "Trusted peer identity warning",
                 identityWarning.GetValue(AutomationProperties.NameProperty));
-            Assert.Equal("NOT SHARING", sharing.Text);
+            Assert.Equal("REMOTE WINDOW UNAVAILABLE", sharing.Text);
             window.Close();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            return 0;
         }, CancellationToken.None);
-        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     private static OperationHistoryEntry CreateAccessibilityHistoryEntry(
@@ -1360,6 +2142,267 @@ public sealed class MainWindowAccessibilityTests
             FailureCode.PeerUnavailable);
         return new OperationHistoryEntry(
             Guid.NewGuid(), sequence, occurredAt, receipt);
+    }
+
+    private static Color GetResourceColor(Window window, string key) =>
+        Assert.IsType<SolidColorBrush>(window.Resources[key]).Color;
+
+    private static double ContrastRatio(Color first, Color second)
+    {
+        double firstLuminance = RelativeLuminance(first);
+        double secondLuminance = RelativeLuminance(second);
+        double lighter = Math.Max(firstLuminance, secondLuminance);
+        double darker = Math.Min(firstLuminance, secondLuminance);
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    private static double RelativeLuminance(Color color) =>
+        (0.2126 * Linearize(color.R))
+        + (0.7152 * Linearize(color.G))
+        + (0.0722 * Linearize(color.B));
+
+    private static double Linearize(byte channel)
+    {
+        double value = channel / 255d;
+        return value <= 0.04045
+            ? value / 12.92
+            : Math.Pow((value + 0.055) / 1.055, 2.4);
+    }
+
+    private sealed class AccessibilityRemoteWindowService :
+        IDesktopRemoteWindowService,
+        IMirrorAuthorizationSource,
+        IRemoteWindowCaptureBoundary,
+        IRemoteInputBoundary,
+        ILocalSharingSessionBoundary
+    {
+        private static readonly DateTimeOffset Now =
+            new(2026, 8, 8, 12, 0, 0, TimeSpan.Zero);
+        private LocalBoundaryResult captureStart =
+            LocalBoundaryResult.Confirmed("capture_started");
+        private LocalBoundaryResult captureStop;
+        private readonly RemoteWindowSessionController controller;
+        private LocalBoundaryResult inputStop;
+        private LocalBoundaryResult sessionStop;
+
+        private AccessibilityRemoteWindowService(
+            LocalBoundaryResult? captureStop,
+            LocalBoundaryResult? inputStop,
+            LocalBoundaryResult? sessionStop)
+        {
+            this.captureStop = captureStop
+                ?? LocalBoundaryResult.Confirmed("capture_stopped");
+            this.inputStop = inputStop
+                ?? LocalBoundaryResult.Confirmed("input_stopped");
+            this.sessionStop = sessionStop
+                ?? LocalBoundaryResult.Confirmed("sessions_stopped");
+            DeviceId hostId = DeviceId.Parse(
+                "11111111-1111-1111-1111-111111111111");
+            ActivityId activityId = ActivityId.Parse(
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+            controller = new RemoteWindowSessionController(
+                hostId,
+                ActivityInstance.Active(
+                    ActivityDescriptor.Create(
+                        activityId,
+                        ActivityKind.Parse("workspace.note/v1"),
+                        hostId,
+                        "Release plan",
+                        JsonSerializer.Serialize(new { text = "payload-canary" })),
+                    ActivityPlacement.On(hostId),
+                    revision: 1),
+                new FixedClock(Now),
+                this,
+                this,
+                this,
+                this,
+                TimeSpan.FromMinutes(1));
+        }
+
+        public event Action? Changed;
+
+        public int EmergencyStopCalls { get; private set; }
+
+        public int ResetCalls { get; private set; }
+
+        public int StartCalls { get; private set; }
+
+        public TaskCompletionSource ResetRequested { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool IsAvailable => true;
+
+        public string UnavailableReasonCode => "none";
+
+        public static async Task<AccessibilityRemoteWindowService> CreateActiveAsync(
+            LocalBoundaryResult? captureStop = null,
+            LocalBoundaryResult? inputStop = null,
+            LocalBoundaryResult? sessionStop = null)
+        {
+            var service = new AccessibilityRemoteWindowService(
+                captureStop,
+                inputStop,
+                sessionStop);
+            _ = await service.controller.StartAsync(
+                new ProtectionSnapshot(ProtectionKind.Safe, Now, "test"));
+            return service;
+        }
+
+        public static AccessibilityRemoteWindowService CreateInactive() =>
+            new(null, null, null);
+
+        public static AccessibilityRemoteWindowService CreateFailedStart()
+        {
+            var service = new AccessibilityRemoteWindowService(null, null, null)
+            {
+                captureStart =
+                    LocalBoundaryResult.Failed("capture_start_unconfirmed"),
+            };
+            return service;
+        }
+
+        public void ConfirmStopsForDisposal()
+        {
+            captureStop = LocalBoundaryResult.Confirmed("capture_stopped");
+            inputStop = LocalBoundaryResult.Confirmed("input_stopped");
+            sessionStop = LocalBoundaryResult.Confirmed("sessions_stopped");
+        }
+
+        public RemoteWindowEmergencyStopResult EmergencyStop()
+        {
+            EmergencyStopCalls++;
+            RemoteWindowEmergencyStopResult result = controller.EmergencyStop();
+            Changed?.Invoke();
+            return result;
+        }
+
+        public RemoteWindowSharingSnapshot? GetSnapshot() => controller.Snapshot;
+
+        public async ValueTask<RemoteWindowCommandResult>
+            ResetAfterLocalConfirmationAsync(
+                CancellationToken cancellationToken = default)
+        {
+            ResetCalls++;
+            RemoteWindowCommandResult result =
+                await controller.ResetAfterLocalConfirmationAsync(
+                    cancellationToken);
+            Changed?.Invoke();
+            ResetRequested.TrySetResult();
+            return result;
+        }
+
+        public async ValueTask<RemoteWindowCommandResult> StartAsync(
+            ActivityId activityId,
+            DeviceId targetDeviceId,
+            MirrorParticipantRole role,
+            CancellationToken cancellationToken = default)
+        {
+            StartCalls++;
+            RemoteWindowCommandResult result = await controller.StartAsync(
+                new ProtectionSnapshot(ProtectionKind.Safe, Now, "test"),
+                cancellationToken);
+            Changed?.Invoke();
+            return result;
+        }
+
+        public void PauseForSecureInput()
+        {
+            _ = controller.ApplyProtectionSnapshot(
+                new ProtectionSnapshot(ProtectionKind.SecureInput, Now, "test"));
+            Changed?.Invoke();
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            controller.Dispose();
+            return ValueTask.CompletedTask;
+        }
+
+        public CapabilityGrant GetCurrentGrant(DeviceId peerDeviceId) =>
+            CapabilityGrant.None;
+
+        public ValueTask<LocalBoundaryResult> StartAsync(
+            ActivityId activityId,
+            CancellationToken cancellationToken) => ValueTask.FromResult(
+                captureStart);
+
+        public LocalBoundaryResult PauseNow(MirrorPauseReason reason) =>
+            LocalBoundaryResult.Confirmed("capture_paused");
+
+        public LocalBoundaryResult ResumeNow() =>
+            LocalBoundaryResult.Confirmed("boundary_resumed");
+
+        LocalBoundaryResult IRemoteWindowCaptureBoundary.EmergencyStopNow() =>
+            captureStop;
+
+        public LocalBoundaryResult EmergencyStopNow() => inputStop;
+
+        public LocalBoundaryResult StopNow() =>
+            LocalBoundaryResult.Confirmed("boundary_stopped");
+
+        public ValueTask<LocalBoundaryResult> InjectAsync(
+            RemoteInputBatch batch,
+            CancellationToken cancellationToken) => ValueTask.FromResult(
+                LocalBoundaryResult.Confirmed("input_injected"));
+
+        public LocalBoundaryResult DisconnectPeerNow(DeviceId peerDeviceId) =>
+            LocalBoundaryResult.Confirmed("peer_disconnected");
+
+        public LocalBoundaryResult DisconnectAllNow() => sessionStop;
+
+        private sealed class FixedClock(DateTimeOffset utcNow) : IClock
+        {
+            public DateTimeOffset UtcNow { get; } = utcNow;
+        }
+    }
+
+    private sealed class AccessibilityPermissionService :
+        IDesktopRemoteWindowPermissionService
+    {
+        private DesktopRemoteWindowPermissionSnapshot snapshot;
+
+        public AccessibilityPermissionService(
+            DesktopPermissionState capture = DesktopPermissionState.NotDetermined,
+            DesktopPermissionState input = DesktopPermissionState.NotDetermined)
+        {
+            snapshot = new DesktopRemoteWindowPermissionSnapshot(capture, input);
+        }
+
+        public event Action? Changed;
+
+        public int CaptureRequests { get; private set; }
+
+        public int InputRequests { get; private set; }
+
+        public DesktopRemoteWindowPermissionSnapshot GetSnapshot() => snapshot;
+
+        public ValueTask<DesktopRemoteWindowPermissionSnapshot>
+            RequestCapturePermissionAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CaptureRequests++;
+            snapshot = snapshot with
+            {
+                Capture = DesktopPermissionState.Granted,
+            };
+            Changed?.Invoke();
+            return ValueTask.FromResult(snapshot);
+        }
+
+        public ValueTask<DesktopRemoteWindowPermissionSnapshot>
+            RequestInputPermissionAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            InputRequests++;
+            snapshot = snapshot with
+            {
+                Input = DesktopPermissionState.Granted,
+            };
+            Changed?.Invoke();
+            return ValueTask.FromResult(snapshot);
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class ReadyStartup : IDesktopIdentityStartup
@@ -1785,11 +2828,31 @@ public sealed class MainWindowAccessibilityTests
         private static readonly DeviceId TargetId =
             DeviceId.Parse("22222222-2222-2222-2222-222222222222");
 
+        private static readonly DeviceId RemoteWindowTargetId =
+            DeviceId.Parse("33333333-3333-3333-3333-333333333333");
+
+        private readonly ActivityId? createdActivityId;
+        private readonly bool supportsSemanticResume;
         private ActivityDescriptor? descriptor;
+
+        public AccessibilityActivityService(
+            ActivityId? createdActivityId = null,
+            bool supportsSemanticResume = true)
+        {
+            this.createdActivityId = createdActivityId;
+            this.supportsSemanticResume = supportsSemanticResume;
+        }
 
         public event Action? Changed;
 
         public bool IsDestructiveReplaceAvailable => true;
+
+        public bool SupportsSemanticResume(string activityKind) =>
+            supportsSemanticResume
+            && string.Equals(
+                activityKind,
+                "workspace.note/v1",
+                StringComparison.Ordinal);
 
         public DesktopReplaceRecoveryResult ReplaceRecoveryResult { get; init; } =
             DesktopReplaceRecoveryResult.Unavailable;
@@ -1805,7 +2868,7 @@ public sealed class MainWindowAccessibilityTests
             ActivitySensitivity sensitivity)
         {
             descriptor = ActivityDescriptor.Create(
-                ActivityId.From(Guid.NewGuid()),
+                createdActivityId ?? ActivityId.From(Guid.NewGuid()),
                 ActivityKind.Parse("workspace.note/v1"),
                 LocalId,
                 title,
@@ -1820,6 +2883,20 @@ public sealed class MainWindowAccessibilityTests
 
         public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets() =>
             [new DesktopActivityTargetSnapshot(TargetId, "Peer desk")];
+
+        public ImmutableArray<DesktopActivityTargetSnapshot> GetRemoteWindowTargets(
+            MirrorParticipantRole role) => role switch
+            {
+                MirrorParticipantRole.ViewOnly =>
+                    [new DesktopActivityTargetSnapshot(
+                        RemoteWindowTargetId,
+                        "Mirror peer")],
+                MirrorParticipantRole.DriverEligible =>
+                    [new DesktopActivityTargetSnapshot(
+                        RemoteWindowTargetId,
+                        "Mirror peer")],
+                _ => throw new ArgumentOutOfRangeException(nameof(role)),
+            };
 
         public DesktopReplaceRecoveryResult GetReplaceRecoveryState() =>
             ReplaceRecoveryResult;

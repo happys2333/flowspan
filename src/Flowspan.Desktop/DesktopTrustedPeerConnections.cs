@@ -65,7 +65,7 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
             "AUTHENTICATED — IDLE / NOT SHARING",
         DesktopTrustedPeerConnectionState.Retrying => "RETRYING LOCALLY",
         DesktopTrustedPeerConnectionState.CapabilityRequired =>
-            "IDLE — ACTIVITY CONTROL CAPABILITY NOT GRANTED",
+            "IDLE — CONTROL CHANNEL CAPABILITY NOT GRANTED",
         DesktopTrustedPeerConnectionState.PermanentlyBlocked => StopReason switch
         {
             PeerReconnectStopReason.CandidateIdentityChanged =>
@@ -105,7 +105,7 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
             ? $"A transient local failure is using bounded retry ({delay.TotalSeconds:0.###} seconds)."
             : "A transient local failure is using bounded retry.",
         DesktopTrustedPeerConnectionState.CapabilityRequired =>
-            "This device will not open the idle control channel until activity.offer, activity.receive, activity.replace, or activity.swap is granted locally.",
+            "This device will not open the idle control channel until activity.offer, activity.receive, activity.replace, activity.swap, mirror.view, or mirror.drive is granted locally.",
         DesktopTrustedPeerConnectionState.PermanentlyBlocked =>
             "Automatic retry stopped. Trust was not changed.",
         DesktopTrustedPeerConnectionState.Unavailable =>
@@ -649,7 +649,9 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         peer.GrantedCapabilities.Allows(Capability.ActivityOffer)
         || peer.GrantedCapabilities.Allows(Capability.ActivityReceive)
         || peer.GrantedCapabilities.Allows(Capability.ActivityReplace)
-        || peer.GrantedCapabilities.Allows(Capability.ActivitySwap);
+        || peer.GrantedCapabilities.Allows(Capability.ActivitySwap)
+        || peer.GrantedCapabilities.Allows(Capability.MirrorView)
+        || peer.GrantedCapabilities.Allows(Capability.MirrorDrive);
 
     private bool IsLocalConnector(DeviceId peerDeviceId) =>
         StringComparer.Ordinal.Compare(
@@ -1012,7 +1014,9 @@ internal sealed class SystemDesktopPeerReconnectLoopFactory :
                     Capability.ActivityOffer,
                     Capability.ActivityReceive,
                     Capability.ActivityReplace,
-                    Capability.ActivitySwap),
+                    Capability.ActivitySwap,
+                    Capability.MirrorView,
+                    Capability.MirrorDrive),
                 ProtocolFeatures.ProductionSupportedVersions,
                 capabilityMatch: CapabilityRequirementMatch.Any);
             var attempt = new AuthenticatedTcpPeerSessionAttempt(

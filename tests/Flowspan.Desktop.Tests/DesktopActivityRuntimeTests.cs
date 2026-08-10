@@ -21,6 +21,65 @@ public sealed class DesktopActivityRuntimeTests
         DeviceId.Parse("22222222-2222-2222-2222-222222222222");
 
     [Fact]
+    public async Task ReportsSemanticResumeOnlyForPortableNoteKind()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        await using (var runtime = CreateRuntime(identity, trust))
+        {
+            Assert.True(runtime.SupportsSemanticResume("workspace.note/v1"));
+            Assert.False(runtime.SupportsSemanticResume("WORKSPACE.NOTE/V1"));
+            Assert.False(runtime.SupportsSemanticResume("browser.tab/v1"));
+            Assert.False(runtime.SupportsSemanticResume("workspace.note/v2"));
+            Assert.False(runtime.SupportsSemanticResume(string.Empty));
+            Assert.False(runtime.SupportsSemanticResume(null!));
+        }
+
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task UnsupportedRemoteWindowPermissionBoundaryFailsClosed()
+    {
+        UnavailableDesktopRemoteWindowPermissionService service =
+            UnavailableDesktopRemoteWindowPermissionService.Instance;
+        var changes = 0;
+        void OnChanged() => changes++;
+        service.Changed += OnChanged;
+        try
+        {
+            DesktopRemoteWindowPermissionSnapshot expected = new(
+                DesktopPermissionState.Unsupported,
+                DesktopPermissionState.Unsupported);
+
+            Assert.Equal(expected, service.GetSnapshot());
+            Assert.Equal(
+                expected,
+                await service.RequestCapturePermissionAsync(
+                    CancellationToken.None));
+            Assert.Equal(
+                expected,
+                await service.RequestInputPermissionAsync(
+                    CancellationToken.None));
+            Assert.Equal(0, changes);
+
+            using var cancelled = new CancellationTokenSource();
+            cancelled.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                service.RequestCapturePermissionAsync(cancelled.Token).AsTask());
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                service.RequestInputPermissionAsync(cancelled.Token).AsTask());
+            Assert.Equal(expected, service.GetSnapshot());
+            Assert.Equal(0, changes);
+        }
+        finally
+        {
+            service.Changed -= OnChanged;
+            await service.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task CreatesOnlyBoundedPortableNotesAfterProtectedIdentityInitialization()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
@@ -302,6 +361,7 @@ public sealed class DesktopActivityRuntimeTests
         Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
         Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
         DesktopActivityTargetSnapshot liveTarget = Assert.Single(source.GetTargets());
+        Assert.Empty(source.GetRemoteWindowTargets(MirrorParticipantRole.ViewOnly));
         Assert.Equal("Peer desk", liveTarget.DisplayName);
         DesktopActivitySnapshot activity = source.CreateWorkspaceNote(
             "Release plan",
@@ -319,6 +379,95 @@ public sealed class DesktopActivityRuntimeTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
         Assert.Empty(source.GetTargets());
+        await sourceTrust.DisposeAsync();
+        await targetTrust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AuthenticatedMirrorTargetInventoryIsPurposeAndRoleScoped()
+    {
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Peer desk");
+        var sourceStore = new InMemoryTrustStore();
+        sourceStore.Register(new TrustRecord(
+            targetIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.Of(Capability.MirrorView)));
+        var targetStore = new InMemoryTrustStore();
+        targetStore.Register(new TrustRecord(
+            sourceIdentity.PublicIdentity,
+            Now,
+            CapabilityGrant.None));
+        var sourceTrust = new TrustSessionCoordinator(sourceStore);
+        var targetTrust = new TrustSessionCoordinator(targetStore);
+        await using var source = CreateRuntime(sourceIdentity, sourceTrust);
+        await using var target = CreateRuntime(targetIdentity, targetTrust);
+        await source.InitializeAsync();
+        await target.InitializeAsync();
+        AuthenticatedActivitySessionHandler sourceHandler =
+            await source.GetSessionHandlerAsync();
+        AuthenticatedActivitySessionHandler targetHandler =
+            await target.GetSessionHandlerAsync();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [new ProtocolVersion(1, 0)]);
+        await using AuthenticatedTcpControlConnection targetConnection = await accepting;
+        using var stop = new CancellationTokenSource();
+        Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
+        using var workspace = new ActivityWorkspaceViewModel(
+            source,
+            InlineDesktopUiDispatcher.Instance);
+
+        Assert.Empty(source.GetTargets());
+        DesktopActivityTargetSnapshot viewTarget = Assert.Single(
+            workspace.RemoteWindowTargets);
+        Assert.Equal(TargetId, viewTarget.DeviceId);
+        Assert.Empty(source.GetRemoteWindowTargets(MirrorParticipantRole.DriverEligible));
+        workspace.SelectedRemoteWindowTarget = viewTarget;
+
+        Assert.Equal(
+            TrustMutationResult.Applied,
+            await sourceTrust.UpdateCapabilitiesAsync(
+                TargetId,
+                targetIdentity.PublicIdentity.Fingerprint,
+                CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive)));
+        workspace.RemoteWindowTargetRole = MirrorParticipantRole.DriverEligible;
+        Assert.Single(source.GetRemoteWindowTargets(MirrorParticipantRole.DriverEligible));
+        Assert.Equal(viewTarget, workspace.SelectedRemoteWindowTarget);
+
+        Assert.Equal(
+            TrustMutationResult.Applied,
+            await sourceTrust.UpdateCapabilitiesAsync(
+                TargetId,
+                targetIdentity.PublicIdentity.Fingerprint,
+                CapabilityGrant.Of(Capability.MirrorDrive)));
+        Assert.Empty(source.GetRemoteWindowTargets(MirrorParticipantRole.ViewOnly));
+        Assert.Empty(source.GetRemoteWindowTargets(MirrorParticipantRole.DriverEligible));
+        Assert.Empty(workspace.RemoteWindowTargets);
+        Assert.Null(workspace.SelectedRemoteWindowTarget);
+
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
         await sourceTrust.DisposeAsync();
         await targetTrust.DisposeAsync();
     }

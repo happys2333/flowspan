@@ -184,6 +184,13 @@ public sealed record DesktopReplaceRecoveryItem(
     DateTimeOffset? UndoExpiresAt,
     bool CanUndo);
 
+public enum DesktopSemanticResumeAvailability
+{
+    Unknown,
+    Unavailable,
+    Available,
+}
+
 public interface IDesktopActivityService : IAsyncDisposable
 {
     public event Action? Changed;
@@ -191,6 +198,8 @@ public interface IDesktopActivityService : IAsyncDisposable
     public bool IsReady => true;
 
     public bool IsDestructiveReplaceAvailable => false;
+
+    public bool SupportsSemanticResume(string activityKind);
 
     public DesktopActivitySnapshot CreateWorkspaceNote(
         string title,
@@ -200,6 +209,18 @@ public interface IDesktopActivityService : IAsyncDisposable
     public ImmutableArray<DesktopActivitySnapshot> GetActivities();
 
     public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets();
+
+    public ImmutableArray<DesktopActivityTargetSnapshot> GetRemoteWindowTargets(
+        MirrorParticipantRole role)
+    {
+        if (role is not MirrorParticipantRole.ViewOnly
+            and not MirrorParticipantRole.DriverEligible)
+        {
+            throw new ArgumentOutOfRangeException(nameof(role));
+        }
+
+        return [];
+    }
 
     public DesktopReplaceRecoveryResult GetReplaceRecoveryState() =>
         DesktopReplaceRecoveryResult.Unavailable;
@@ -297,8 +318,11 @@ public sealed class ActivityWorkspaceViewModel :
         "TARGET-LOCAL UNDO — SELECT AN AVAILABLE CAPSULE";
     private string undoDescription = string.Empty;
     private DesktopActivitySnapshot? selectedActivity;
+    private DesktopActivityTargetSnapshot? selectedRemoteWindowTarget;
     private DesktopReplaceTargetSnapshot? selectedReplaceTarget;
     private DesktopActivityTargetSnapshot? selectedTarget;
+    private MirrorParticipantRole remoteWindowTargetRole =
+        MirrorParticipantRole.ViewOnly;
     private int disposed;
     private int serviceDisposed;
 
@@ -338,6 +362,9 @@ public sealed class ActivityWorkspaceViewModel :
     public ObservableCollection<DesktopActivitySnapshot> Activities { get; } = [];
 
     public ObservableCollection<DesktopActivityTargetSnapshot> Targets { get; } = [];
+
+    public ObservableCollection<DesktopActivityTargetSnapshot> RemoteWindowTargets
+    { get; } = [];
 
     public ObservableCollection<DesktopReplaceTargetSnapshot> ReplaceTargets { get; } = [];
 
@@ -428,6 +455,15 @@ public sealed class ActivityWorkspaceViewModel :
     public bool IsNoteCreationAvailable => CanCreateWorkspaceNote();
 
     public bool IsReady => service.IsReady;
+
+    public DesktopSemanticResumeAvailability SelectedSemanticResumeAvailability =>
+        SelectedActivity is { } activity
+            ? GetSemanticResumeAvailability(activity)
+            : DesktopSemanticResumeAvailability.Unavailable;
+
+    public bool IsSelectedSemanticResumeAvailable =>
+        SelectedSemanticResumeAvailability
+        == DesktopSemanticResumeAvailability.Available;
 
     public bool IsPreviewVisible =>
         SelectedActivity is not null && SelectedTarget is not null;
@@ -755,6 +791,42 @@ public sealed class ActivityWorkspaceViewModel :
         }
     }
 
+    public DesktopActivityTargetSnapshot? SelectedRemoteWindowTarget
+    {
+        get => selectedRemoteWindowTarget;
+        set
+        {
+            DesktopActivityTargetSnapshot? accepted = value is null
+                ? null
+                : RemoteWindowTargets.FirstOrDefault(
+                    target => target.DeviceId == value.DeviceId);
+            SetProperty(ref selectedRemoteWindowTarget, accepted);
+        }
+    }
+
+    public MirrorParticipantRole RemoteWindowTargetRole
+    {
+        get => remoteWindowTargetRole;
+        set
+        {
+            if (value is not MirrorParticipantRole.ViewOnly
+                and not MirrorParticipantRole.DriverEligible)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+
+            if (remoteWindowTargetRole == value)
+            {
+                return;
+            }
+
+            DeviceId? selectedTargetId = SelectedRemoteWindowTarget?.DeviceId;
+            remoteWindowTargetRole = value;
+            RefreshRemoteWindowTargets(selectedTargetId);
+            OnPropertyChanged();
+        }
+    }
+
     public DesktopReplaceTargetSnapshot? SelectedReplaceTarget
     {
         get => selectedReplaceTarget;
@@ -820,6 +892,8 @@ public sealed class ActivityWorkspaceViewModel :
         Refresh();
         RefreshReplaceRecovery();
         OnPropertyChanged(nameof(IsNoteCreationAvailable));
+        OnPropertyChanged(nameof(SelectedSemanticResumeAvailability));
+        OnPropertyChanged(nameof(IsSelectedSemanticResumeAvailable));
         OnPropertyChanged(nameof(IsHandoffAvailable));
         OnPropertyChanged(nameof(IsMoveAvailable));
         createWorkspaceNoteCommand.NotifyCanExecuteChanged();
@@ -1476,7 +1550,9 @@ public sealed class ActivityWorkspaceViewModel :
         && SelectedActivity is not null
         && SelectedTarget is not null
         && Activities.Contains(SelectedActivity)
-        && Targets.Contains(SelectedTarget);
+        && Targets.Contains(SelectedTarget)
+        && SelectedSemanticResumeAvailability
+            == DesktopSemanticResumeAvailability.Available;
 
     private bool CanMove() => CanHandoff();
 
@@ -1511,6 +1587,8 @@ public sealed class ActivityWorkspaceViewModel :
         OnPropertyChanged(nameof(IsMovePreviewVisible));
         OnPropertyChanged(nameof(MovePreviewStatus));
         OnPropertyChanged(nameof(MovePreviewDescription));
+        OnPropertyChanged(nameof(SelectedSemanticResumeAvailability));
+        OnPropertyChanged(nameof(IsSelectedSemanticResumeAvailable));
         OnPropertyChanged(nameof(IsHandoffAvailable));
         OnPropertyChanged(nameof(IsMoveAvailable));
         OnPropertyChanged(nameof(IsReplaceConfirmationAvailable));
@@ -1640,11 +1718,30 @@ public sealed class ActivityWorkspaceViewModel :
                 OnPropertyChanged(nameof(IsReady));
                 OnPropertyChanged(nameof(IsDestructiveReplaceAvailable));
                 OnPropertyChanged(nameof(IsNoteCreationAvailable));
+                OnPropertyChanged(nameof(SelectedSemanticResumeAvailability));
+                OnPropertyChanged(nameof(IsSelectedSemanticResumeAvailable));
                 OnPropertyChanged(nameof(IsHandoffAvailable));
                 OnPropertyChanged(nameof(IsMoveAvailable));
+                handoffCommand.NotifyCanExecuteChanged();
                 moveCommand.NotifyCanExecuteChanged();
+                refreshReplaceTargetsCommand.NotifyCanExecuteChanged();
             }
         });
+    }
+
+    private DesktopSemanticResumeAvailability GetSemanticResumeAvailability(
+        DesktopActivitySnapshot activity)
+    {
+        try
+        {
+            return service.SupportsSemanticResume(activity.Kind)
+                ? DesktopSemanticResumeAvailability.Available
+                : DesktopSemanticResumeAvailability.Unavailable;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return DesktopSemanticResumeAvailability.Unknown;
+        }
     }
 
     private void Refresh(
@@ -1653,14 +1750,35 @@ public sealed class ActivityWorkspaceViewModel :
     {
         ActivityId? activityId = preferredActivityId ?? SelectedActivity?.ActivityId;
         DeviceId? targetId = preferredTargetId ?? SelectedTarget?.DeviceId;
+        DeviceId? remoteWindowTargetId = SelectedRemoteWindowTarget?.DeviceId;
         Replace(Activities, service.GetActivities());
         Replace(Targets, service.GetTargets());
+        RefreshRemoteWindowTargets(remoteWindowTargetId);
         SelectedActivity = activityId is null
             ? null
             : Activities.FirstOrDefault(item => item.ActivityId == activityId);
         SelectedTarget = targetId is null
             ? null
             : Targets.FirstOrDefault(item => item.DeviceId == targetId);
+    }
+
+    private void RefreshRemoteWindowTargets(DeviceId? preferredTargetId)
+    {
+        ImmutableArray<DesktopActivityTargetSnapshot> targets;
+        try
+        {
+            targets = service.GetRemoteWindowTargets(RemoteWindowTargetRole);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            targets = [];
+        }
+
+        Replace(RemoteWindowTargets, targets);
+        SelectedRemoteWindowTarget = preferredTargetId is null
+            ? null
+            : RemoteWindowTargets.FirstOrDefault(
+                target => target.DeviceId == preferredTargetId);
     }
 
     private static void Replace<T>(
@@ -1747,6 +1865,8 @@ internal sealed class UnavailableDesktopActivityService : IDesktopActivityServic
 
     public bool IsReady => false;
 
+    public bool SupportsSemanticResume(string activityKind) => false;
+
     public DesktopActivitySnapshot CreateWorkspaceNote(
         string title,
         string text,
@@ -1757,6 +1877,9 @@ internal sealed class UnavailableDesktopActivityService : IDesktopActivityServic
     public ImmutableArray<DesktopActivitySnapshot> GetActivities() => [];
 
     public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets() => [];
+
+    public ImmutableArray<DesktopActivityTargetSnapshot> GetRemoteWindowTargets(
+        MirrorParticipantRole role) => [];
 
     public ValueTask<OperationReceipt> HandoffAsync(
         ActivityId activityId,

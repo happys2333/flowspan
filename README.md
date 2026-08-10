@@ -11,8 +11,9 @@ Remote Window that keeps execution on the source device.
 
 ## Project status
 
-Flowspan is at the **foundation plus early desktop shell** stage and is not ready
-for end-user installation. The repository currently includes:
+Flowspan is an **advanced portable and Desktop v1 candidate**, but it is not
+release-ready or suitable for end-user installation. The repository currently
+includes:
 
 - approved v1 requirements, architecture, ADRs, domain glossary, threat model,
   test strategy, task tracker, and release checklist;
@@ -45,8 +46,10 @@ for end-user installation. The repository currently includes:
 - an explicitly enabled desktop local-network lifetime that composes one
   listener, minimized DNS-SD browse/advertise, transcript-bound outgoing
   pairing, persistent Trust editing, and truthful per-peer trusted-reconnect
-  status while remaining `NOT SHARING`; starting that lifetime requires an
-  acknowledged Windows/macOS/Linux-specific privacy preflight;
+  status while remaining `NOT SHARING`; Activity and Mirror control grants are
+  any-of connection admission only and every operation rechecks its exact
+  purpose; starting that lifetime requires an acknowledged
+  Windows/macOS/Linux-specific privacy preflight;
 - one bounded `workspace.note/v1` desktop Semantic Handoff over the encrypted
   authenticated control channel, with directional Capability checks, an
   explicit source-preserving preview, a named unavailable Remote Window limit,
@@ -65,13 +68,22 @@ for end-user installation. The repository currently includes:
   Lease transfer/expiry/disconnect, protection pause/resume, and local
   emergency-stop preemption/fault results, plus strict protocol-1.5 authenticated
   control and purpose-separated bounded media framing, rate limits, backpressure,
-  timeout, and cleanup tests; it has no capture/codec/rendering or native adapter yet;
+  timeout, and cleanup tests;
+- a local Desktop Remote Window candidate with an explicitly labelled
+  source-hosted fallback, purpose-scoped mirror target selection independent of
+  semantic receive targets, production Mirror-only control-channel admission,
+  post-Trust-change refiltering, progressive permission review, persistent
+  sharing and Driver/protection state, accessible Emergency Stop,
+  generation-bound stale result rejection, and fail-closed teardown; production
+  composition still uses an unsupported adapter until native
+  capture/input/protection work is delivered;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
-permission flows, native capture/input, Remote Window capture/codec/rendering,
-complete Activity desktop workflows, packaged native accessibility evidence,
-packaging, or the complete real-machine Windows/macOS/Linux acceptance matrix. See
+permission integrations, native capture/input, a production Remote Window codec
+or renderer, complete Activity desktop workflows, packaged native accessibility
+evidence, signed/notarized real-machine install/upgrade/uninstall evidence, or the
+complete Windows/macOS/Linux acceptance matrix. See
 [the v1 task tracker](specs/v1/tasks.md) and
 [release criteria](docs/release/v1-release-criteria.md) for the honest status.
 
@@ -139,8 +151,13 @@ receipt; Replace preserves the source and stores target undo state before target
 mutation. Rejection, failure, or uncertainty preserves the source. Flowspan does
 not transfer process memory, unsaved application internals, or credentials. The
 portable protocol can authenticate bounded screen-media bytes and remote input,
-but the current Desktop has no native capture, codec, rendering, or input-injection
-workflow. The in-memory simulator and same-host loopback evidence do not substitute
+and the Desktop has a headless presentation and progressive-permission candidate.
+The production local-network control profiles admit `mirror.view` and
+`mirror.drive` only to establish an authenticated idle channel; viewing still
+requires `mirror.view`, and driving still requires both grants at each use
+boundary. Production composition intentionally reports unsupported because it has no native
+capture, production codec/rendering, protected-surface probe, or input-injection
+adapter. The in-memory simulator and same-host loopback evidence do not substitute
 for physical-device, native-permission, or independent security review gates.
 
 Flowspan is a clean-room rewrite. See

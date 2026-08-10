@@ -10,6 +10,68 @@ public sealed class TrustSessionCoordinatorTests
         DeviceId.Parse("22222222-2222-2222-2222-222222222222");
 
     [Fact]
+    public async Task SuccessfulTrustMutationsNotifyAfterCommitAndIsolateObservers()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        await using var coordinator = new TrustSessionCoordinator(
+            new InMemoryTrustStore());
+        var observedStates = new List<string>();
+        coordinator.Changed += static () =>
+            throw new InvalidOperationException("Injected observer failure.");
+        coordinator.Changed += ObserveCommittedState;
+        var initial = new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.MirrorView));
+
+        Assert.Equal(
+            TrustRegistrationResult.Added,
+            await coordinator.RegisterAsync(initial));
+        Assert.Equal(
+            TrustRegistrationResult.AlreadyTrusted,
+            await coordinator.RegisterAsync(initial));
+        Assert.Equal(
+            TrustMutationResult.IdentityChanged,
+            await coordinator.UpdateCapabilitiesAsync(
+                PeerId,
+                "stale-fingerprint",
+                CapabilityGrant.Of(Capability.MirrorDrive)));
+        Assert.Equal(
+            TrustMutationResult.Applied,
+            await coordinator.UpdateCapabilitiesAsync(
+                PeerId,
+                identity.PublicIdentity.Fingerprint,
+                CapabilityGrant.Of(Capability.MirrorDrive)));
+        Assert.Equal(
+            TrustMutationResult.IdentityChanged,
+            await coordinator.RevokePeerAsync(PeerId, "stale-fingerprint"));
+        Assert.Equal(
+            TrustMutationResult.Applied,
+            await coordinator.RevokePeerAsync(
+                PeerId,
+                identity.PublicIdentity.Fingerprint));
+        Assert.False(await coordinator.RevokePeerAsync(PeerId));
+
+        Assert.Equal(["view", "drive", "revoked"], observedStates);
+
+        void ObserveCommittedState()
+        {
+            if (!coordinator.TryGetCurrentTrust(PeerId, out TrustRecord? current))
+            {
+                observedStates.Add("revoked");
+            }
+            else if (current.GrantedCapabilities.Allows(Capability.MirrorDrive))
+            {
+                observedStates.Add("drive");
+            }
+            else
+            {
+                observedStates.Add("view");
+            }
+        }
+    }
+
+    [Fact]
     public async Task RevokingPeerStopsActiveSessionBeforeReturning()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
@@ -154,7 +216,7 @@ public sealed class TrustSessionCoordinatorTests
             DateTimeOffset.UnixEpoch,
             CapabilityGrant.Of(
                 Capability.ActivityOffer,
-                Capability.ActivityReceive)));
+                Capability.MirrorView)));
         await using var coordinator = new TrustSessionCoordinator(trustStore);
         var session = new RecordingRevocableSession();
         await using TrustSessionRegistration registration =
@@ -162,20 +224,30 @@ public sealed class TrustSessionCoordinatorTests
                 PeerId,
                 CapabilityGrant.Of(
                     Capability.ActivityOffer,
-                    Capability.ActivityReceive),
+                    Capability.ActivityReceive,
+                    Capability.ActivityReplace,
+                    Capability.ActivitySwap,
+                    Capability.MirrorView,
+                    Capability.MirrorDrive),
                 session)
             ?? throw new InvalidOperationException("Expected an authorized session.");
 
         Assert.True(await coordinator.TryUpdateCapabilitiesAsync(
             PeerId,
             identity.PublicIdentity.Fingerprint,
-            CapabilityGrant.Of(Capability.ActivityReceive)));
+            CapabilityGrant.Of(Capability.MirrorView)));
         Assert.Equal(0, session.StopCount);
 
         Assert.True(await coordinator.TryUpdateCapabilitiesAsync(
             PeerId,
             identity.PublicIdentity.Fingerprint,
-            CapabilityGrant.Of(Capability.MirrorView)));
+            CapabilityGrant.Of(Capability.MirrorDrive)));
+        Assert.Equal(0, session.StopCount);
+
+        Assert.True(await coordinator.TryUpdateCapabilitiesAsync(
+            PeerId,
+            identity.PublicIdentity.Fingerprint,
+            CapabilityGrant.Of(Capability.FileReceive)));
 
         Assert.Equal(1, session.StopCount);
         Assert.Equal(

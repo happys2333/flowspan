@@ -303,6 +303,50 @@ public sealed class LocalPairingViewModelTests
     }
 
     [Fact]
+    public async Task CleanupUnconfirmedFailureBlocksEnableRetry()
+    {
+        var factory = new CleanupUnconfirmedNetworkFactory();
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+
+        await ReviewAndEnableAsync(viewModel);
+
+        Assert.Equal("LOCAL PAIRING UNAVAILABLE", viewModel.Status);
+        Assert.Equal(DesktopLocalPairingStatus.CleanupUnconfirmed, runtime.Status);
+        Assert.Equal(4747, runtime.ListeningPort);
+        Assert.Contains(
+            "cleanup unconfirmed",
+            viewModel.ListenerStatus,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "may still be listening",
+            viewModel.ListenerStatus,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("4747", viewModel.ListenerStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "inactive",
+            viewModel.ListenerStatus,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.True(viewModel.HasAcknowledgedPermissionReview);
+        Assert.False(viewModel.EnableCommand.CanExecute(null));
+        Assert.Equal(1, factory.StartCount);
+        await viewModel.EnableAsync();
+        Assert.Equal(1, factory.StartCount);
+        Assert.Equal(
+            DesktopLocalPairingStatus.CleanupUnconfirmed,
+            runtime.Status);
+        Assert.DoesNotContain(
+            "inactive",
+            viewModel.ListenerStatus,
+            StringComparison.OrdinalIgnoreCase);
+        await viewModel.DisposeAsync();
+        Assert.Equal(2, factory.Session.DisposeCount);
+    }
+
+    [Fact]
     public async Task BackgroundFailureIsSanitizedAndRemainsRetryable()
     {
         var factory = new RecordingNetworkFactory();
@@ -314,13 +358,20 @@ public sealed class LocalPairingViewModelTests
         await ReviewAndEnableAsync(viewModel);
         StubNetworkSession first = Assert.IsType<StubNetworkSession>(
             factory.LastSession);
+        var failurePublished = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        runtime.Changed += OnRuntimeChanged;
 
-        first.RaiseFault();
+        try
+        {
+            first.RaiseFault();
+            await failurePublished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            runtime.Changed -= OnRuntimeChanged;
+        }
 
-        await WaitUntilAsync(
-            () => viewModel.Status == "LOCAL PAIRING UNAVAILABLE"
-                && first.Disposed,
-            TimeSpan.FromSeconds(2));
         Assert.False(viewModel.IsEnabled);
         Assert.Equal("Listener inactive", viewModel.ListenerStatus);
         Assert.DoesNotContain(
@@ -338,6 +389,71 @@ public sealed class LocalPairingViewModelTests
 
         Assert.Equal(2, factory.StartCount);
         Assert.True(viewModel.IsEnabled);
+
+        void OnRuntimeChanged()
+        {
+            if (runtime.Status == DesktopLocalPairingStatus.Faulted
+                && first.Disposed
+                && viewModel.Status == "LOCAL PAIRING UNAVAILABLE")
+            {
+                failurePublished.TrySetResult();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task BackgroundCleanupUnconfirmedWarnsListenerMayRemainActive()
+    {
+        var factory = new BackgroundCleanupUnconfirmedNetworkFactory();
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        var failurePublished = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        runtime.Changed += OnRuntimeChanged;
+
+        try
+        {
+            factory.Session.RaiseFault();
+            await failurePublished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            runtime.Changed -= OnRuntimeChanged;
+        }
+
+        Assert.Equal(4747, runtime.ListeningPort);
+        Assert.Contains(
+            "cleanup unconfirmed",
+            viewModel.ListenerStatus,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "may still be listening",
+            viewModel.ListenerStatus,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("4747", viewModel.ListenerStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "inactive",
+            viewModel.ListenerStatus,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(viewModel.EnableCommand.CanExecute(null));
+        Assert.Equal(1, factory.StartCount);
+
+        await viewModel.DisposeAsync();
+        Assert.Equal(2, factory.Session.DisposeCount);
+
+        void OnRuntimeChanged()
+        {
+            if (runtime.Status == DesktopLocalPairingStatus.CleanupUnconfirmed
+                && factory.Session.DisposeCount == 1
+                && viewModel.Status == "LOCAL PAIRING UNAVAILABLE")
+            {
+                failurePublished.TrySetResult();
+            }
+        }
     }
 
     [Fact]
@@ -358,6 +474,487 @@ public sealed class LocalPairingViewModelTests
 
         await enabling.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(factory.CancellationObserved);
+    }
+
+    [Fact]
+    public async Task DisposeStopsRuntimeBeforeDrainingAdmittedEnablePresentation()
+    {
+        var factory = new ReleasableEnableNetworkFactory();
+        var dispatcher = new QueuedDispatcher();
+        var viewModel = new LocalPairingViewModel(runtime: new(factory), dispatcher);
+        viewModel.SetPrerequisitesAvailable(true);
+        viewModel.ReviewPermissionCommand.Execute(null);
+        viewModel.HasAcknowledgedPermissionReview = true;
+        var presentationEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var presentationRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int disposalCompleted = 0;
+        int propertyChangesAfterDisposal = 0;
+        viewModel.PropertyChanged += (_, eventArgs) =>
+        {
+            if (Volatile.Read(ref disposalCompleted) != 0)
+            {
+                Interlocked.Increment(ref propertyChangesAfterDisposal);
+            }
+
+            if (eventArgs.PropertyName
+                    == nameof(LocalPairingViewModel.IsPermissionReviewVisible)
+                && !viewModel.IsPermissionReviewVisible)
+            {
+                presentationEntered.TrySetResult();
+                presentationRelease.Task.GetAwaiter().GetResult();
+            }
+        };
+
+        Task enabling = viewModel.EnableAsync();
+        await factory.StartEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        factory.ReleaseStart();
+        await presentationEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = viewModel.DisposeAsync().AsTask();
+        int returnedBeforePresentationReleased = 0;
+        Task disposalObserved = disposing.ContinueWith(
+            _ =>
+            {
+                if (!presentationRelease.Task.IsCompleted)
+                {
+                    Interlocked.Exchange(
+                        ref returnedBeforePresentationReleased,
+                        1);
+                }
+
+                Volatile.Write(ref disposalCompleted, 1);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        await factory.Session.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        presentationRelease.TrySetResult();
+        await enabling.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(disposing, disposalObserved)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        dispatcher.RunAll();
+
+        Assert.Equal(0, Volatile.Read(ref returnedBeforePresentationReleased));
+        Assert.Equal(0, Volatile.Read(ref propertyChangesAfterDisposal));
+    }
+
+    [Fact]
+    public async Task EnablePresentationObserverCanInitiateDisposeWithoutWaiting()
+    {
+        var factory = new ReleasableEnableNetworkFactory();
+        var dispatcher = new QueuedDispatcher();
+        var viewModel = new LocalPairingViewModel(runtime: new(factory), dispatcher);
+        viewModel.SetPrerequisitesAvailable(true);
+        viewModel.ReviewPermissionCommand.Execute(null);
+        viewModel.HasAcknowledgedPermissionReview = true;
+        var observerReturned = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        bool disposeCompletedSynchronously = false;
+        viewModel.PropertyChanged += (_, eventArgs) =>
+        {
+            if (eventArgs.PropertyName
+                    != nameof(LocalPairingViewModel.IsPermissionReviewVisible)
+                || viewModel.IsPermissionReviewVisible)
+            {
+                return;
+            }
+
+            ValueTask reentrantDispose = viewModel.DisposeAsync();
+            disposeCompletedSynchronously =
+                reentrantDispose.IsCompletedSuccessfully;
+            observerReturned.TrySetResult();
+        };
+
+        Task enabling = viewModel.EnableAsync();
+        await factory.StartEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        factory.ReleaseStart();
+        await observerReturned.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await enabling.WaitAsync(TimeSpan.FromSeconds(2));
+        await viewModel.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        dispatcher.RunAll();
+
+        Assert.True(disposeCompletedSynchronously);
+        Assert.True(factory.Session.DisposeEntered.Task.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task DisposeDrainsDisablePresentationAfterRuntimeStopCompletes()
+    {
+        var factory = new BlockingDisableNetworkFactory();
+        var dispatcher = new QueuedDispatcher();
+        var viewModel = new LocalPairingViewModel(runtime: new(factory), dispatcher);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        dispatcher.RunAll();
+        var presentationEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var presentationRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int disposalCompleted = 0;
+        int propertyChangesAfterDisposal = 0;
+        viewModel.PropertyChanged += (_, eventArgs) =>
+        {
+            if (Volatile.Read(ref disposalCompleted) != 0)
+            {
+                Interlocked.Increment(ref propertyChangesAfterDisposal);
+            }
+
+            if (eventArgs.PropertyName == nameof(LocalPairingViewModel.IsEnabled)
+                && !viewModel.IsEnabled)
+            {
+                presentationEntered.TrySetResult();
+                presentationRelease.Task.GetAwaiter().GetResult();
+            }
+        };
+
+        Task disabling = viewModel.DisableAsync();
+        await factory.Session.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Task disposing = viewModel.DisposeAsync().AsTask();
+        int returnedBeforePresentationReleased = 0;
+        Task disposalObserved = disposing.ContinueWith(
+            _ =>
+            {
+                if (!presentationRelease.Task.IsCompleted)
+                {
+                    Interlocked.Exchange(
+                        ref returnedBeforePresentationReleased,
+                        1);
+                }
+
+                Volatile.Write(ref disposalCompleted, 1);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        factory.Session.ReleaseDispose();
+        await presentationEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        presentationRelease.TrySetResult();
+        await disabling.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(disposing, disposalObserved)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        dispatcher.RunAll();
+
+        Assert.Equal(0, Volatile.Read(ref returnedBeforePresentationReleased));
+        Assert.Equal(0, Volatile.Read(ref propertyChangesAfterDisposal));
+    }
+
+    [Fact]
+    public async Task DisposeStopsRuntimeBeforeBlockingThrowingPairCancellationReturns()
+    {
+        const string canary = "HOSTILE_PAIR_CANCELLATION_CALLBACK";
+        const string disposeCanary = "HOSTILE_PAIR_SESSION_DISPOSE";
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        UnverifiedPairingCandidate candidate = CreateCandidate(
+            peer,
+            PairingCandidateTrustState.UnverifiedPairingRequired,
+            4748);
+        var factory = new HostilePairCancellationNetworkFactory(
+            candidate,
+            canary,
+            disposeCanary);
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
+        Task pairing = viewModel.PairSelectedAsync();
+        await factory.Session.PairingStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = Task.Run(async () => await viewModel.DisposeAsync());
+        await factory.Session.CancellationCallbackEntered.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Exception? disposalFailure = null;
+        try
+        {
+            await factory.Session.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            factory.Session.ReleaseCancellationCallback();
+            try
+            {
+                await disposing.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (Exception exception)
+            {
+                disposalFailure = exception;
+            }
+
+            await pairing.WaitAsync(TimeSpan.FromSeconds(2));
+            if (!factory.Session.IsDisposed)
+            {
+                try
+                {
+                    await runtime.DisposeAsync();
+                }
+                catch
+                {
+                    // The RED cleanup path still releases the owned session.
+                }
+            }
+        }
+
+        Assert.True(factory.Session.IsDisposed);
+        Assert.NotNull(disposalFailure);
+        Assert.Contains(canary, disposalFailure.ToString(), StringComparison.Ordinal);
+        Assert.Contains(
+            disposeCanary,
+            disposalFailure.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ConcurrentDisposeCallersJoinTheSameViewModelCleanupFailure()
+    {
+        const string canary = "VIEW_MODEL_SHARED_DISPOSAL_FAILURE";
+        var factory = new BlockingFailingDisposeNetworkFactory(canary);
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+
+        Task first = viewModel.DisposeAsync().AsTask();
+        await factory.Session.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Task second = viewModel.DisposeAsync().AsTask();
+
+        Assert.False(first.IsCompleted);
+        Assert.False(second.IsCompleted);
+        factory.Session.ReleaseDispose();
+        InvalidOperationException firstFailure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                first.WaitAsync(TimeSpan.FromSeconds(2)));
+        InvalidOperationException secondFailure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                second.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.Same(firstFailure, secondFailure);
+        Assert.Equal(1, factory.Session.DisposeCount);
+    }
+
+    [Fact]
+    public async Task DisposalKeepsPairingGateReleasableForAdmittedWaiters()
+    {
+        var viewModel = new LocalPairingViewModel(
+            new DesktopLocalPairingRuntime(new RecordingNetworkFactory()),
+            InlineDesktopUiDispatcher.Instance);
+        await viewModel.DisposeAsync();
+        SemaphoreSlim gate = Assert.IsType<SemaphoreSlim>(
+            typeof(LocalPairingViewModel)
+                .GetField(
+                    "pairingGate",
+                    System.Reflection.BindingFlags.Instance
+                        | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(viewModel));
+
+        await gate.WaitAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        Exception? releaseFailure = Record.Exception(() => gate.Release());
+
+        Assert.Null(releaseFailure);
+    }
+
+    [Fact]
+    public async Task PairCancellationCallbackDisposeDoesNotWaitOnItsOwnCleanup()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        UnverifiedPairingCandidate candidate = CreateCandidate(
+            peer,
+            PairingCandidateTrustState.UnverifiedPairingRequired,
+            4748);
+        var factory = new ReentrantPairCancellationNetworkFactory(candidate);
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        factory.DisposeViewModel = viewModel.DisposeAsync;
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
+        Task pairing = viewModel.PairSelectedAsync();
+        await factory.Session.PairingStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = viewModel.DisposeAsync().AsTask();
+        await factory.Session.CancellationCallbackCompleted.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        await pairing.WaitAsync(TimeSpan.FromSeconds(2));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(factory.Session.ReentrantDisposeCompletedSynchronously);
+    }
+
+    [Fact]
+    public async Task CancelCallbackCanInitiateViewModelDisposeWithoutWaiting()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        UnverifiedPairingCandidate candidate = CreateCandidate(
+            peer,
+            PairingCandidateTrustState.UnverifiedPairingRequired,
+            4748);
+        var factory = new ReentrantPairCancellationNetworkFactory(candidate);
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        factory.DisposeViewModel = viewModel.DisposeAsync;
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
+        Task pairing = viewModel.PairSelectedAsync();
+        await factory.Session.PairingStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        viewModel.CancelPairing();
+        await factory.Session.CancellationCallbackCompleted.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        await pairing.WaitAsync(TimeSpan.FromSeconds(2));
+        await viewModel.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(factory.Session.ReentrantDisposeCompletedSynchronously);
+    }
+
+    [Fact]
+    public async Task CapturedPairContextExpiresAfterPairBoundaryReturns()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        UnverifiedPairingCandidate candidate = CreateCandidate(
+            peer,
+            PairingCandidateTrustState.UnverifiedPairingRequired,
+            4748);
+        var factory = new CapturedPairContextNetworkFactory(candidate);
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        factory.Session.DisposeViewModel = viewModel.DisposeAsync;
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
+        await viewModel.PairSelectedAsync();
+
+        factory.Session.RunCapturedDispose();
+        await factory.Session.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        int returnedBeforeSessionDisposeReleased = 0;
+        Task disposalObserved =
+            factory.Session.CapturedDisposeCompleted.Task.ContinueWith(
+                _ =>
+                {
+                    if (!factory.Session.DisposeReleased)
+                    {
+                        Interlocked.Exchange(
+                            ref returnedBeforeSessionDisposeReleased,
+                            1);
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+
+        try
+        {
+            Assert.Equal(
+                0,
+                Volatile.Read(ref returnedBeforeSessionDisposeReleased));
+        }
+        finally
+        {
+            factory.Session.ReleaseDispose();
+            await Task.WhenAll(
+                    factory.Session.CapturedDisposeCompleted.Task,
+                    disposalObserved)
+                .WaitAsync(TimeSpan.FromSeconds(2));
+        }
+
+        Assert.Equal(0, Volatile.Read(ref returnedBeforeSessionDisposeReleased));
+    }
+
+    [Fact]
+    public async Task PairingCancellationSourceIsDisposedAfterCallbackAndOperationDrain()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        UnverifiedPairingCandidate candidate = CreateCandidate(
+            peer,
+            PairingCandidateTrustState.UnverifiedPairingRequired,
+            4748);
+        var factory = new PairCancellationSourceLifetimeNetworkFactory(candidate);
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
+        Task pairing = viewModel.PairSelectedAsync();
+        await factory.Session.PairingStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = viewModel.DisposeAsync().AsTask();
+        await factory.Session.CancellationCallbackEntered.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        await pairing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(disposing.IsCompleted);
+
+        factory.Session.ReleaseCancellationCallback();
+        await factory.Session.CancellationCallbackCompleted.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(factory.Session.CallbackObservedDisposedSource);
+    }
+
+    [Fact]
+    public async Task PairPresentationObserverCanInitiateDisposeWithoutWaiting()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        UnverifiedPairingCandidate candidate = CreateCandidate(
+            peer,
+            PairingCandidateTrustState.UnverifiedPairingRequired,
+            4748);
+        var factory = new RecordingNetworkFactory([candidate]);
+        var viewModel = new LocalPairingViewModel(
+            new DesktopLocalPairingRuntime(factory),
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
+        var observerReturned = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        bool disposeCompletedSynchronously = false;
+        viewModel.PropertyChanged += (_, eventArgs) =>
+        {
+            if (eventArgs.PropertyName != nameof(LocalPairingViewModel.IsPairing)
+                || !viewModel.IsPairing)
+            {
+                return;
+            }
+
+            ValueTask reentrantDispose = viewModel.DisposeAsync();
+            disposeCompletedSynchronously =
+                reentrantDispose.IsCompletedSuccessfully;
+            observerReturned.TrySetResult();
+        };
+
+        Task pairing = viewModel.PairSelectedAsync();
+        await observerReturned.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await pairing.WaitAsync(TimeSpan.FromSeconds(2));
+        await viewModel.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(disposeCompletedSynchronously);
     }
 
     [Fact]
@@ -414,6 +1011,137 @@ public sealed class LocalPairingViewModelTests
         await refreshed.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
+    [Fact]
+    public async Task TrustPresentationObserverCanInitiateDisposeWithoutWaiting()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Peer desk");
+        UnverifiedPairingCandidate candidate = CreateCandidate(
+            peer,
+            PairingCandidateTrustState.UnverifiedPairingRequired,
+            4748);
+        var factory = new RecordingNetworkFactory([candidate]);
+        var viewModel = new LocalPairingViewModel(
+            new DesktopLocalPairingRuntime(factory),
+            InlineDesktopUiDispatcher.Instance);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        viewModel.SelectedCandidate = Assert.Single(viewModel.Candidates);
+        var observerReturned = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        bool disposeCompletedSynchronously = false;
+        viewModel.PropertyChanged += (_, eventArgs) =>
+        {
+            if (eventArgs.PropertyName
+                    != nameof(LocalPairingViewModel.SelectedCandidate)
+                || viewModel.SelectedCandidate is not null)
+            {
+                return;
+            }
+
+            ValueTask reentrantDispose = viewModel.DisposeAsync();
+            disposeCompletedSynchronously =
+                reentrantDispose.IsCompletedSuccessfully;
+            observerReturned.TrySetResult();
+        };
+
+        factory.LastSession!.RaiseTrustChanged();
+        await observerReturned.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await viewModel.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(disposeCompletedSynchronously);
+    }
+
+    [Fact]
+    public async Task QueuedTrustChangedReturnsQuietlyAfterDisposal()
+    {
+        var factory = new RecordingNetworkFactory();
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var dispatcher = new QueuedDispatcher();
+        int trustRefreshes = 0;
+        var viewModel = new LocalPairingViewModel(
+            runtime,
+            dispatcher,
+            _ =>
+            {
+                trustRefreshes++;
+                return Task.CompletedTask;
+            });
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        dispatcher.RunAll();
+        int propertyChanges = 0;
+        viewModel.PropertyChanged += (_, _) => propertyChanges++;
+
+        factory.LastSession!.RaiseTrustChanged();
+        Assert.Equal(1, dispatcher.Count);
+        await viewModel.DisposeAsync();
+        int changesBeforeDispatch = propertyChanges;
+        string pairingStatusBeforeDispatch = viewModel.PairingStatus;
+
+        Exception? dispatchFailure = Record.Exception(dispatcher.RunAll);
+        await Task.Yield();
+
+        Assert.Null(dispatchFailure);
+        Assert.Equal(0, trustRefreshes);
+        Assert.Equal(changesBeforeDispatch, propertyChanges);
+        Assert.Equal(pairingStatusBeforeDispatch, viewModel.PairingStatus);
+    }
+
+    [Fact]
+    public async Task DisposeDoesNotRaceAnAdmittedQueuedRuntimeRead()
+    {
+        var factory = new BlockingCandidateReadNetworkFactory();
+        var dispatcher = new QueuedDispatcher();
+        var viewModel = new LocalPairingViewModel(runtime: new(factory), dispatcher);
+        viewModel.SetPrerequisitesAvailable(true);
+        await ReviewAndEnableAsync(viewModel);
+        dispatcher.RunAll();
+        factory.Session.BlockNextCandidateRead();
+        factory.Session.RaiseChanged();
+        Assert.Equal(1, dispatcher.Count);
+
+        Task dispatching = Task.Run(dispatcher.RunAll);
+        await factory.Session.CandidateReadEntered.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        Task disposing = viewModel.DisposeAsync().AsTask();
+        int disposedBeforeCandidateReadReleased = 0;
+        Task disposalObserved = factory.Session.DisposeEntered.Task.ContinueWith(
+            _ =>
+            {
+                if (!factory.Session.CandidateReadReleased)
+                {
+                    Interlocked.Exchange(
+                        ref disposedBeforeCandidateReadReleased,
+                        1);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        try
+        {
+            Assert.Equal(
+                0,
+                Volatile.Read(ref disposedBeforeCandidateReadReleased));
+        }
+        finally
+        {
+            factory.Session.ReleaseCandidateRead();
+        }
+
+        Exception? dispatchFailure = await Record.ExceptionAsync(() =>
+            dispatching.WaitAsync(TimeSpan.FromSeconds(2)));
+        await Task.WhenAll(factory.Session.DisposeEntered.Task, disposalObserved)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(0, Volatile.Read(ref disposedBeforeCandidateReadReleased));
+        Assert.Null(dispatchFailure);
+        Assert.False(factory.Session.DisposedWhileCandidateRead);
+    }
+
     private static UnverifiedPairingCandidate CreateCandidate(
         DeviceIdentity identity,
         PairingCandidateTrustState state,
@@ -440,19 +1168,24 @@ public sealed class LocalPairingViewModelTests
         await viewModel.EnableAsync();
     }
 
-    private static async Task WaitUntilAsync(
-        Func<bool> condition,
-        TimeSpan timeout)
+    private sealed class QueuedDispatcher : IDesktopUiDispatcher
     {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
-        while (!condition())
-        {
-            if (DateTimeOffset.UtcNow >= deadline)
-            {
-                throw new TimeoutException("The expected condition was not reached.");
-            }
+        private readonly Queue<Action> callbacks = [];
 
-            await Task.Delay(10);
+        public int Count => callbacks.Count;
+
+        public void Post(Action callback)
+        {
+            ArgumentNullException.ThrowIfNull(callback);
+            callbacks.Enqueue(callback);
+        }
+
+        public void RunAll()
+        {
+            while (callbacks.TryDequeue(out Action? callback))
+            {
+                callback();
+            }
         }
     }
 
@@ -490,6 +1223,105 @@ public sealed class LocalPairingViewModelTests
         }
     }
 
+    private sealed class CleanupUnconfirmedNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public int StartCount { get; private set; }
+
+        public CleanupUnconfirmedNetworkSession Session { get; } = new();
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            StartCount++;
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+        }
+    }
+
+    private sealed class CleanupUnconfirmedNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int DisposeCount { get; private set; }
+
+        public bool IsFaulted => true;
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return DisposeCount == 1
+                ? ValueTask.FromException(
+                    new IOException("VIEW_CLEANUP_UNCONFIRMED"))
+                : ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class BackgroundCleanupUnconfirmedNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public int StartCount { get; private set; }
+
+        public BackgroundCleanupUnconfirmedNetworkSession Session { get; } = new();
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            StartCount++;
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+        }
+    }
+
+    private sealed class BackgroundCleanupUnconfirmedNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public event Action<IDesktopLocalPairingNetworkSession>? Faulted;
+
+        public int DisposeCount { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return DisposeCount == 1
+                ? ValueTask.FromException(
+                    new IOException("BACKGROUND_CLEANUP_UNCONFIRMED"))
+                : ValueTask.CompletedTask;
+        }
+
+        public void RaiseFault() => Faulted?.Invoke(this);
+    }
+
     private sealed class BlockingEnableNetworkFactory :
         IDesktopLocalPairingNetworkFactory
     {
@@ -516,6 +1348,194 @@ public sealed class LocalPairingViewModelTests
         }
     }
 
+    private sealed class ReleasableEnableNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        private readonly TaskCompletionSource startRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ReleasableEnableNetworkSession Session { get; } = new();
+
+        public TaskCompletionSource StartEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            StartEntered.TrySetResult();
+            await startRelease.Task.WaitAsync(cancellationToken);
+            return Session;
+        }
+
+        public void ReleaseStart() => startRelease.TrySetResult();
+    }
+
+    private sealed class ReleasableEnableNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public TaskCompletionSource DisposeEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeEntered.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingDisableNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public BlockingDisableNetworkSession Session { get; } = new();
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+        }
+    }
+
+    private sealed class BlockingDisableNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        private readonly TaskCompletionSource disposeRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public TaskCompletionSource DisposeEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public async ValueTask DisposeAsync()
+        {
+            DisposeEntered.TrySetResult();
+            await disposeRelease.Task.ConfigureAwait(false);
+        }
+
+        public void ReleaseDispose() => disposeRelease.TrySetResult();
+    }
+
+    private sealed class BlockingCandidateReadNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public BlockingCandidateReadNetworkSession Session { get; } = new();
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+        }
+    }
+
+    private sealed class BlockingCandidateReadNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        private TaskCompletionSource candidateReadEntered = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource candidateReadRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int blockCandidateRead;
+        private int candidateReadInFlight;
+        private int disposed;
+
+        public event Action? Changed;
+
+        public TaskCompletionSource CandidateReadEntered => candidateReadEntered;
+
+        public TaskCompletionSource DisposeEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool CandidateReadReleased =>
+            candidateReadRelease.Task.IsCompletedSuccessfully;
+
+        public bool DisposedWhileCandidateRead { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates()
+        {
+            if (Interlocked.Exchange(ref blockCandidateRead, 0) == 0)
+            {
+                return [];
+            }
+
+            Volatile.Write(ref candidateReadInFlight, 1);
+            CandidateReadEntered.TrySetResult();
+            try
+            {
+                candidateReadRelease.Task.GetAwaiter().GetResult();
+                ObjectDisposedException.ThrowIf(
+                    Volatile.Read(ref disposed) != 0,
+                    this);
+                return [];
+            }
+            finally
+            {
+                Volatile.Write(ref candidateReadInFlight, 0);
+            }
+        }
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            DisposedWhileCandidateRead =
+                Volatile.Read(ref candidateReadInFlight) != 0;
+            Volatile.Write(ref disposed, 1);
+            DisposeEntered.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        public void BlockNextCandidateRead()
+        {
+            candidateReadEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            candidateReadRelease = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref blockCandidateRead, 1);
+        }
+
+        public void RaiseChanged() => Changed?.Invoke();
+
+        public void ReleaseCandidateRead() => candidateReadRelease.TrySetResult();
+    }
+
     private sealed class BlockingPairNetworkFactory(
         UnverifiedPairingCandidate candidate) : IDesktopLocalPairingNetworkFactory
     {
@@ -524,6 +1544,333 @@ public sealed class LocalPairingViewModelTests
         public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+    }
+
+    private sealed class ReentrantPairCancellationNetworkFactory(
+        UnverifiedPairingCandidate candidate) : IDesktopLocalPairingNetworkFactory
+    {
+        public Func<ValueTask>? DisposeViewModel { get; set; }
+
+        public ReentrantPairCancellationNetworkSession Session { get; } =
+            new(candidate);
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            Session.DisposeViewModel = DisposeViewModel;
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+        }
+    }
+
+    private sealed class CapturedPairContextNetworkFactory(
+        UnverifiedPairingCandidate candidate) : IDesktopLocalPairingNetworkFactory
+    {
+        public CapturedPairContextNetworkSession Session { get; } = new(candidate);
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+    }
+
+    private sealed class CapturedPairContextNetworkSession(
+        UnverifiedPairingCandidate candidate) : IDesktopLocalPairingNetworkSession
+    {
+        private readonly TaskCompletionSource disposeRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource runCapturedDispose = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public TaskCompletionSource CapturedDisposeCompleted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Func<ValueTask>? DisposeViewModel { get; set; }
+
+        public TaskCompletionSource DisposeEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool DisposeReleased => disposeRelease.Task.IsCompletedSuccessfully;
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() =>
+            [candidate];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate selected,
+            CancellationToken cancellationToken = default)
+        {
+            _ = Task.Run(
+                async () =>
+                {
+                    await runCapturedDispose.Task.ConfigureAwait(false);
+                    await DisposeViewModel!().ConfigureAwait(false);
+                    CapturedDisposeCompleted.TrySetResult();
+                },
+                CancellationToken.None);
+            return ValueTask.FromResult(new PairingCeremonyResult(
+                false,
+                PairingFailure.Rejected,
+                null,
+                null,
+                null));
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            DisposeEntered.TrySetResult();
+            await disposeRelease.Task.ConfigureAwait(false);
+        }
+
+        public void ReleaseDispose() => disposeRelease.TrySetResult();
+
+        public void RunCapturedDispose() => runCapturedDispose.TrySetResult();
+    }
+
+    private sealed class ReentrantPairCancellationNetworkSession(
+        UnverifiedPairingCandidate candidate) : IDesktopLocalPairingNetworkSession
+    {
+        private readonly TaskCompletionSource<PairingCeremonyResult> pairingCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CancellationCallbackCompleted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Func<ValueTask>? DisposeViewModel { get; set; }
+
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int ListeningPort => 4747;
+
+        public TaskCompletionSource PairingStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool ReentrantDisposeCompletedSynchronously { get; private set; }
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() =>
+            [candidate];
+
+        public async ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate selected,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.Same(candidate, selected);
+            using CancellationTokenRegistration registration =
+                cancellationToken.Register(() =>
+                {
+                    ValueTask reentrantDispose = DisposeViewModel!();
+                    ReentrantDisposeCompletedSynchronously =
+                        reentrantDispose.IsCompletedSuccessfully;
+                    pairingCompletion.TrySetCanceled(cancellationToken);
+                    CancellationCallbackCompleted.TrySetResult();
+                });
+            PairingStarted.TrySetResult();
+            return await pairingCompletion.Task.ConfigureAwait(false);
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class PairCancellationSourceLifetimeNetworkFactory(
+        UnverifiedPairingCandidate candidate) : IDesktopLocalPairingNetworkFactory
+    {
+        public PairCancellationSourceLifetimeNetworkSession Session { get; } =
+            new(candidate);
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+    }
+
+    private sealed class PairCancellationSourceLifetimeNetworkSession(
+        UnverifiedPairingCandidate candidate) : IDesktopLocalPairingNetworkSession
+    {
+        private readonly TaskCompletionSource cancellationCallbackRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<PairingCeremonyResult> pairingCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool CallbackObservedDisposedSource { get; private set; }
+
+        public TaskCompletionSource CancellationCallbackCompleted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CancellationCallbackEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int ListeningPort => 4747;
+
+        public TaskCompletionSource PairingStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() =>
+            [candidate];
+
+        public async ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate selected,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.Same(candidate, selected);
+            _ = cancellationToken.Register(() =>
+            {
+                CancellationCallbackEntered.TrySetResult();
+                pairingCompletion.TrySetCanceled(cancellationToken);
+                cancellationCallbackRelease.Task.GetAwaiter().GetResult();
+                try
+                {
+                    _ = cancellationToken.WaitHandle;
+                }
+                catch (ObjectDisposedException)
+                {
+                    CallbackObservedDisposedSource = true;
+                }
+
+                CancellationCallbackCompleted.TrySetResult();
+            });
+            PairingStarted.TrySetResult();
+            return await pairingCompletion.Task.ConfigureAwait(false);
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public void ReleaseCancellationCallback() =>
+            cancellationCallbackRelease.TrySetResult();
+    }
+
+    private sealed class BlockingFailingDisposeNetworkFactory(string canary) :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public BlockingFailingDisposeNetworkSession Session { get; } = new(canary);
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+    }
+
+    private sealed class BlockingFailingDisposeNetworkSession(string canary) :
+        IDesktopLocalPairingNetworkSession
+    {
+        private readonly TaskCompletionSource disposeRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public TaskCompletionSource DisposeEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int DisposeCount { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public async ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            DisposeEntered.TrySetResult();
+            await disposeRelease.Task.ConfigureAwait(false);
+            throw new InvalidOperationException(canary);
+        }
+
+        public void ReleaseDispose() => disposeRelease.TrySetResult();
+    }
+
+    private sealed class HostilePairCancellationNetworkFactory(
+        UnverifiedPairingCandidate candidate,
+        string canary,
+        string disposeCanary) : IDesktopLocalPairingNetworkFactory
+    {
+        public HostilePairCancellationNetworkSession Session { get; } =
+            new(candidate, canary, disposeCanary);
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+    }
+
+    private sealed class HostilePairCancellationNetworkSession(
+        UnverifiedPairingCandidate candidate,
+        string canary,
+        string disposeCanary) : IDesktopLocalPairingNetworkSession
+    {
+        private readonly TaskCompletionSource cancellationCallbackRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<PairingCeremonyResult> pairingCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CancellationCallbackEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Disposed { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int ListeningPort => 4747;
+
+        public bool IsDisposed { get; private set; }
+
+        public TaskCompletionSource PairingStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() =>
+            [candidate];
+
+        public async ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate selected,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.Same(candidate, selected);
+            _ = cancellationToken.Register(() =>
+            {
+                CancellationCallbackEntered.TrySetResult();
+                cancellationCallbackRelease.Task.GetAwaiter().GetResult();
+                pairingCompletion.TrySetCanceled(cancellationToken);
+                throw new InvalidOperationException(canary);
+            });
+            PairingStarted.TrySetResult();
+            return await pairingCompletion.Task.ConfigureAwait(false);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            IsDisposed = true;
+            Disposed.TrySetResult();
+            return ValueTask.FromException(
+                new InvalidOperationException(disposeCanary));
+        }
+
+        public void ReleaseCancellationCallback() =>
+            cancellationCallbackRelease.TrySetResult();
     }
 
     private sealed class BlockingPairNetworkSession(

@@ -32,6 +32,90 @@ public sealed class DesktopLocalPairingRuntimeTests
     }
 
     [Fact]
+    public async Task EnabledObserverCanReenterLifecycleWithoutWaitingForPublication()
+    {
+        var factory = new RecordingNetworkFactory();
+        await using var runtime = new DesktopLocalPairingRuntime(factory);
+        Task? reentrantDisable = null;
+        bool completedInsideObserver = false;
+        runtime.Changed += () =>
+        {
+            if (runtime.Status != DesktopLocalPairingStatus.Enabled
+                || reentrantDisable is not null)
+            {
+                return;
+            }
+
+            reentrantDisable = runtime.DisableAsync().AsTask();
+            completedInsideObserver = reentrantDisable.IsCompleted;
+        };
+
+        await runtime.EnableAsync();
+        await reentrantDisable!.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(completedInsideObserver);
+        Assert.True(Assert.IsType<StubNetworkSession>(factory.LastSession).Disposed);
+        Assert.Equal(DesktopLocalPairingStatus.Disabled, runtime.Status);
+    }
+
+    [Fact]
+    public async Task SessionEventsRaisedDuringAttachPublishAfterLifecycleOperation()
+    {
+        var session = new EventsDuringAttachNetworkSession();
+        await using var runtime = new DesktopLocalPairingRuntime(
+            new FixedNetworkFactory(session));
+        Task? changedDisable = null;
+        Task? trustDisable = null;
+        bool changedCompletedInsideObserver = false;
+        bool trustCompletedInsideObserver = false;
+        runtime.Changed += () =>
+        {
+            if (changedDisable is not null)
+            {
+                return;
+            }
+
+            changedDisable = runtime.DisableAsync().AsTask();
+            changedCompletedInsideObserver = changedDisable.IsCompleted;
+        };
+        runtime.TrustChanged += () =>
+        {
+            if (trustDisable is not null)
+            {
+                return;
+            }
+
+            trustDisable = runtime.DisableAsync().AsTask();
+            trustCompletedInsideObserver = trustDisable.IsCompleted;
+        };
+
+        await runtime.EnableAsync();
+        await Task.WhenAll(changedDisable!, trustDisable!)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(changedCompletedInsideObserver);
+        Assert.True(trustCompletedInsideObserver);
+        Assert.True(session.Disposed);
+        Assert.Equal(DesktopLocalPairingStatus.Disabled, runtime.Status);
+    }
+
+    [Fact]
+    public async Task SessionAccessorReentryDoesNotWaitOnLifecycleBoundary()
+    {
+        var session = new ReentrantAttachNetworkSession();
+        await using var runtime = new DesktopLocalPairingRuntime(
+            new FixedNetworkFactory(session));
+        session.DisableRuntime = runtime.DisableAsync;
+
+        await runtime.EnableAsync();
+
+        Assert.True(session.ReentrantDisableCompletedSynchronously);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            session.ReentrantDisable!);
+        Assert.True(runtime.IsEnabled);
+    }
+
+    [Fact]
     public async Task DisableDrainsCurrentSessionAndAllowsExplicitReenable()
     {
         var factory = new RecordingNetworkFactory();
@@ -53,6 +137,56 @@ public sealed class DesktopLocalPairingRuntimeTests
     }
 
     [Fact]
+    public async Task SessionDisposeCanInitiateRuntimeDisposeWithoutWaiting()
+    {
+        var session = new ReentrantDisposeNetworkSession();
+        var runtime = new DesktopLocalPairingRuntime(
+            new FixedNetworkFactory(session));
+        session.DisposeRuntime = runtime.DisposeAsync;
+        await runtime.EnableAsync();
+
+        await runtime.DisableAsync();
+        await runtime.DisposeAsync();
+
+        Assert.True(session.ReentrantDisposeCompletedSynchronously);
+    }
+
+    [Fact]
+    public async Task DisabledObserverRunsAfterSessionStopAndCanReenterLifecycle()
+    {
+        var factory = new RecordingNetworkFactory();
+        await using var runtime = new DesktopLocalPairingRuntime(factory);
+        await runtime.EnableAsync();
+        StubNetworkSession first = Assert.IsType<StubNetworkSession>(
+            factory.LastSession);
+        Task? reentrantEnable = null;
+        bool reentryStarted = false;
+        bool stoppedBeforePublication = false;
+        bool completedInsideObserver = false;
+        runtime.Changed += () =>
+        {
+            if (runtime.Status != DesktopLocalPairingStatus.Disabled
+                || reentryStarted)
+            {
+                return;
+            }
+
+            reentryStarted = true;
+            stoppedBeforePublication = first.Disposed;
+            reentrantEnable = runtime.EnableAsync().AsTask();
+            completedInsideObserver = reentrantEnable.IsCompleted;
+        };
+
+        await runtime.DisableAsync();
+        await reentrantEnable!.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(stoppedBeforePublication);
+        Assert.True(completedInsideObserver);
+        Assert.Equal(DesktopLocalPairingStatus.Enabled, runtime.Status);
+        Assert.NotSame(first, factory.LastSession);
+    }
+
+    [Fact]
     public async Task DisposeCancelsAndWaitsForInFlightEnable()
     {
         var factory = new BlockingNetworkFactory();
@@ -66,6 +200,232 @@ public sealed class DesktopLocalPairingRuntimeTests
             enabling.WaitAsync(TimeSpan.FromSeconds(2)));
         await disposing.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(factory.CancellationObserved);
+    }
+
+    [Fact]
+    public async Task DisposeRejectsAndStopsCancellationIgnoringLateEnableSession()
+    {
+        var factory = new CancellationIgnoringLateNetworkFactory();
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var publications = new List<DesktopLocalPairingStatus>();
+        runtime.Changed += () => publications.Add(runtime.Status);
+        Task enabling = runtime.EnableAsync().AsTask();
+        await factory.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = runtime.DisposeAsync().AsTask();
+        factory.ReleaseStart();
+
+        await factory.Session.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            enabling.WaitAsync(TimeSpan.FromSeconds(2)));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(0, factory.Session.AttachCount);
+        Assert.DoesNotContain(DesktopLocalPairingStatus.Enabled, publications);
+    }
+
+    [Fact]
+    public async Task DisposeRejectsEnableWhenCloseRacesSessionAttach()
+    {
+        var session = new BlockingAttachNetworkSession();
+        var runtime = new DesktopLocalPairingRuntime(
+            new FixedNetworkFactory(session));
+        Task enabling = Task.Run(async () => await runtime.EnableAsync());
+        await session.AttachEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = runtime.DisposeAsync().AsTask();
+        session.ReleaseAttach();
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            enabling.WaitAsync(TimeSpan.FromSeconds(2)));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(session.Disposed);
+        Assert.NotEqual(DesktopLocalPairingStatus.Enabled, runtime.Status);
+    }
+
+    [Fact]
+    public async Task DisposeStopsSessionBeforeBlockingThrowingCancellationCallbackReturns()
+    {
+        const string canary = "HOSTILE_RUNTIME_CANCELLATION_CALLBACK";
+        const string disposeCanary = "HOSTILE_RUNTIME_SESSION_DISPOSE";
+        var factory = new HostileCancellationNetworkFactory(canary, disposeCanary);
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        var enabledPublicationRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var enabledPublicationEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        runtime.Changed += OnChanged;
+        Task enabling = Task.Run(async () => await runtime.EnableAsync());
+        await enabledPublicationEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = Task.Run(async () => await runtime.DisposeAsync());
+        await factory.CancellationCallbackEntered.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        enabledPublicationRelease.TrySetResult();
+
+        Exception? disposalFailure = null;
+        try
+        {
+            await factory.Session.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            factory.ReleaseCancellationCallback();
+            try
+            {
+                await disposing.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (Exception exception)
+            {
+                disposalFailure = exception;
+            }
+
+            await enabling.WaitAsync(TimeSpan.FromSeconds(2));
+            runtime.Changed -= OnChanged;
+            if (!factory.Session.IsDisposed)
+            {
+                await factory.Session.DisposeAsync();
+            }
+        }
+
+        Assert.True(factory.Session.IsDisposed);
+        Assert.NotNull(disposalFailure);
+        Assert.Contains(canary, disposalFailure.ToString(), StringComparison.Ordinal);
+        Assert.Contains(
+            disposeCanary,
+            disposalFailure.ToString(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            DesktopLocalPairingStatus.CleanupUnconfirmed,
+            runtime.Status);
+
+        void OnChanged()
+        {
+            if (runtime.Status == DesktopLocalPairingStatus.Enabled)
+            {
+                enabledPublicationEntered.TrySetResult();
+                enabledPublicationRelease.Task.GetAwaiter().GetResult();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentDisposeCallersJoinTheSameRuntimeCleanupFailure()
+    {
+        const string canary = "RUNTIME_SHARED_DISPOSAL_FAILURE";
+        var session = new BlockingFailingDisposeNetworkSession(canary);
+        var runtime = new DesktopLocalPairingRuntime(
+            new FixedNetworkFactory(session));
+        await runtime.EnableAsync();
+
+        Task first = runtime.DisposeAsync().AsTask();
+        await session.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Task second = runtime.DisposeAsync().AsTask();
+
+        Assert.False(first.IsCompleted);
+        Assert.False(second.IsCompleted);
+        session.ReleaseDispose();
+        InvalidOperationException firstFailure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                first.WaitAsync(TimeSpan.FromSeconds(2)));
+        InvalidOperationException secondFailure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                second.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.Same(firstFailure, secondFailure);
+        Assert.Equal(1, session.DisposeCount);
+    }
+
+    [Fact]
+    public async Task DisposalKeepsLifecycleGateReleasableForAdmittedWaiters()
+    {
+        var runtime = new DesktopLocalPairingRuntime(
+            new RecordingNetworkFactory());
+        await runtime.DisposeAsync();
+        SemaphoreSlim gate = Assert.IsType<SemaphoreSlim>(
+            typeof(DesktopLocalPairingRuntime)
+                .GetField(
+                    "lifecycleGate",
+                    System.Reflection.BindingFlags.Instance
+                        | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(runtime));
+
+        await gate.WaitAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        Exception? releaseFailure = Record.Exception(() => gate.Release());
+
+        Assert.Null(releaseFailure);
+    }
+
+    [Fact]
+    public async Task DisposeDiscardsSessionEventsQueuedDuringDetach()
+    {
+        var session = new EventDuringDetachNetworkSession();
+        var runtime = new DesktopLocalPairingRuntime(
+            new FixedNetworkFactory(session));
+        int publications = 0;
+        runtime.Changed += () => publications++;
+        await runtime.EnableAsync();
+        publications = 0;
+
+        await runtime.DisposeAsync();
+
+        Assert.Equal(0, publications);
+    }
+
+    [Fact]
+    public async Task EnableCancellationCallbackDisposeDoesNotWaitOnItsOwnCleanup()
+    {
+        var factory = new ReentrantDisposeCancellationNetworkFactory();
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        factory.DisposeRuntime = runtime.DisposeAsync;
+        Task enabling = runtime.EnableAsync().AsTask();
+        await factory.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task disposing = runtime.DisposeAsync().AsTask();
+        await factory.CancellationCallbackCompleted.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        factory.ReleaseStart();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            enabling.WaitAsync(TimeSpan.FromSeconds(2)));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(factory.ReentrantDisposeCompletedSynchronously);
+        Assert.True(factory.Session.Disposed.Task.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task CallerCancellationCallbackCanInitiateDisposeWithoutWaiting()
+    {
+        var factory = new ReentrantDisposeCancellationNetworkFactory();
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        factory.DisposeRuntime = runtime.DisposeAsync;
+        using var cancellation = new CancellationTokenSource();
+        Task enabling = runtime.EnableAsync(cancellation.Token).AsTask();
+        await factory.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        cancellation.Cancel();
+        await factory.CancellationCallbackCompleted.Task
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(factory.ReentrantDisposeCompletedSynchronously);
+        factory.ReleaseStart();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            enabling.WaitAsync(TimeSpan.FromSeconds(2)));
+        await runtime.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(factory.Session.Disposed.Task.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task CapturedFactoryContextExpiresAfterStartBoundaryReturns()
+    {
+        var factory = new CapturedContextNetworkFactory();
+        await using var runtime = new DesktopLocalPairingRuntime(factory);
+        factory.DisableRuntime = runtime.DisableAsync;
+
+        await runtime.EnableAsync();
+        factory.RunCapturedOperation();
+        await factory.OperationCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Null(factory.OperationFailure);
+        Assert.Equal(DesktopLocalPairingStatus.Disabled, runtime.Status);
     }
 
     [Fact]
@@ -248,6 +608,69 @@ public sealed class DesktopLocalPairingRuntimeTests
     }
 
     [Fact]
+    public async Task FaultObserverRunsAfterSessionStopAndCanReenterLifecycle()
+    {
+        var factory = new RecordingNetworkFactory();
+        await using var runtime = new DesktopLocalPairingRuntime(factory);
+        await runtime.EnableAsync();
+        StubNetworkSession first = Assert.IsType<StubNetworkSession>(
+            factory.LastSession);
+        var faultPublished = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? reentrantEnable = null;
+        bool reentryStarted = false;
+        bool stoppedBeforePublication = false;
+        bool completedInsideObserver = false;
+        runtime.Changed += () =>
+        {
+            if (runtime.Status != DesktopLocalPairingStatus.Faulted
+                || reentryStarted)
+            {
+                return;
+            }
+
+            reentryStarted = true;
+            stoppedBeforePublication = first.Disposed;
+            reentrantEnable = runtime.EnableAsync().AsTask();
+            completedInsideObserver = reentrantEnable.IsCompleted;
+            faultPublished.TrySetResult();
+        };
+
+        first.RaiseFault();
+
+        await faultPublished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await reentrantEnable!.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(stoppedBeforePublication);
+        Assert.True(completedInsideObserver);
+        Assert.Equal(DesktopLocalPairingStatus.Enabled, runtime.Status);
+        Assert.Equal(2, factory.StartCount);
+    }
+
+    [Fact]
+    public async Task BackgroundFaultCleanupFailureRetainsOwnerAndBlocksRetry()
+    {
+        var factory = new BackgroundCleanupFailureNetworkFactory();
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        await runtime.EnableAsync();
+
+        factory.Session.RaiseFault();
+
+        await WaitUntilAsync(
+            () => runtime.Status == DesktopLocalPairingStatus.CleanupUnconfirmed,
+            TimeSpan.FromSeconds(2));
+        Assert.False(runtime.IsEnabled);
+        Assert.Equal(4747, runtime.ListeningPort);
+        Assert.Equal(1, factory.Session.DisposeCount);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runtime.EnableAsync().AsTask());
+        Assert.Equal(1, factory.StartCount);
+
+        await runtime.DisposeAsync();
+        Assert.Equal(2, factory.Session.DisposeCount);
+        Assert.Equal(DesktopLocalPairingStatus.Disabled, runtime.Status);
+    }
+
+    [Fact]
     public async Task BackgroundListenerFailureCancelsAdvertisementAndReleasesBrowser()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(
@@ -298,6 +721,69 @@ public sealed class DesktopLocalPairingRuntimeTests
         Assert.Null(runtime.ListeningPort);
         Assert.True(session.Disposed);
         await runtime.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StartupCleanupFailureRetainsOwnerAndBlocksRetry()
+    {
+        var factory = new StartupCleanupFailureNetworkFactory();
+        var runtime = new DesktopLocalPairingRuntime(factory);
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            runtime.EnableAsync().AsTask());
+
+        Assert.Equal(DesktopLocalPairingStatus.CleanupUnconfirmed, runtime.Status);
+        Assert.False(runtime.IsEnabled);
+        Assert.Equal(4747, runtime.ListeningPort);
+        Assert.Equal(1, factory.StartCount);
+        Assert.Equal(1, factory.Session.DisposeCount);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runtime.EnableAsync().AsTask());
+        Assert.Equal(1, factory.StartCount);
+
+        await runtime.DisposeAsync();
+        Assert.Equal(2, factory.Session.DisposeCount);
+        Assert.Equal(DesktopLocalPairingStatus.Disabled, runtime.Status);
+        Assert.Null(runtime.ListeningPort);
+    }
+
+    [Fact]
+    public async Task DetachFailureRetainsOwnerAndBlocksEnableUntilStopRetry()
+    {
+        var first = new DetachFailureNetworkSession();
+        var second = new StubNetworkSession();
+        var factory = new QueuedNetworkFactory(first, second);
+        var runtime = new DesktopLocalPairingRuntime(factory);
+        try
+        {
+            await runtime.EnableAsync();
+
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await runtime.DisableAsync());
+
+            Assert.Equal(
+                DesktopLocalPairingStatus.CleanupUnconfirmed,
+                runtime.Status);
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await runtime.EnableAsync());
+            Assert.Equal(1, factory.StartCount);
+
+            await runtime.DisableAsync();
+            await runtime.EnableAsync();
+
+            Assert.Equal(2, factory.StartCount);
+            Assert.True(runtime.IsEnabled);
+        }
+        finally
+        {
+            try
+            {
+                await runtime.DisposeAsync();
+            }
+            catch
+            {
+            }
+        }
     }
 
     [Fact]
@@ -483,6 +969,156 @@ public sealed class DesktopLocalPairingRuntimeTests
         }
     }
 
+    private sealed class QueuedNetworkFactory(
+        params IDesktopLocalPairingNetworkSession[] sessions) :
+        IDesktopLocalPairingNetworkFactory
+    {
+        private readonly Queue<IDesktopLocalPairingNetworkSession> remaining =
+            new(sessions);
+
+        public int StartCount { get; private set; }
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            StartCount++;
+            return ValueTask.FromResult(remaining.Dequeue());
+        }
+    }
+
+    private sealed class DetachFailureNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        private Action? changed;
+        private int changedRemoveCalls;
+
+        public event Action? Changed
+        {
+            add => changed += value;
+            remove
+            {
+                changedRemoveCalls++;
+                if (changedRemoveCalls == 1)
+                {
+                    throw new InvalidOperationException("detach failed");
+                }
+
+                changed -= value;
+            }
+        }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class StartupCleanupFailureNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public int StartCount { get; private set; }
+
+        public StartupCleanupFailureNetworkSession Session { get; } = new();
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            StartCount++;
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+        }
+    }
+
+    private sealed class StartupCleanupFailureNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int DisposeCount { get; private set; }
+
+        public bool IsFaulted => true;
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return DisposeCount == 1
+                ? ValueTask.FromException(
+                    new IOException("STARTUP_CLEANUP_UNCONFIRMED"))
+                : ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class BackgroundCleanupFailureNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        public int StartCount { get; private set; }
+
+        public BackgroundCleanupFailureNetworkSession Session { get; } = new();
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            StartCount++;
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+        }
+    }
+
+    private sealed class BackgroundCleanupFailureNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public event Action<IDesktopLocalPairingNetworkSession>? Faulted;
+
+        public int DisposeCount { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return DisposeCount == 1
+                ? ValueTask.FromException(
+                    new IOException("BACKGROUND_CLEANUP_UNCONFIRMED"))
+                : ValueTask.CompletedTask;
+        }
+
+        public void RaiseFault() => Faulted?.Invoke(this);
+    }
+
     private sealed class BlockingNetworkFactory : IDesktopLocalPairingNetworkFactory
     {
         public bool CancellationObserved { get; private set; }
@@ -508,6 +1144,206 @@ public sealed class DesktopLocalPairingRuntimeTests
         }
     }
 
+    private sealed class CancellationIgnoringLateNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        private readonly TaskCompletionSource release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Entered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public LateNetworkSession Session { get; } = new();
+
+        public async ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            Entered.TrySetResult();
+            await release.Task.ConfigureAwait(false);
+            return Session;
+        }
+
+        public void ReleaseStart() => release.TrySetResult();
+    }
+
+    private sealed class ReentrantDisposeCancellationNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        private readonly TaskCompletionSource release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CancellationCallbackCompleted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Func<ValueTask>? DisposeRuntime { get; set; }
+
+        public TaskCompletionSource Entered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool ReentrantDisposeCompletedSynchronously { get; private set; }
+
+        public LateNetworkSession Session { get; } = new();
+
+        public async ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            using CancellationTokenRegistration registration =
+                cancellationToken.Register(() =>
+                {
+                    ValueTask reentrantDispose = DisposeRuntime!();
+                    ReentrantDisposeCompletedSynchronously =
+                        reentrantDispose.IsCompletedSuccessfully;
+                    CancellationCallbackCompleted.TrySetResult();
+                });
+            Entered.TrySetResult();
+            await release.Task.ConfigureAwait(false);
+            return Session;
+        }
+
+        public void ReleaseStart() => release.TrySetResult();
+    }
+
+    private sealed class CapturedContextNetworkFactory :
+        IDesktopLocalPairingNetworkFactory
+    {
+        private readonly TaskCompletionSource runCapturedOperation = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Func<ValueTask>? DisableRuntime { get; set; }
+
+        public TaskCompletionSource OperationCompleted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Exception? OperationFailure { get; private set; }
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            _ = Task.Run(
+                async () =>
+                {
+                    await runCapturedOperation.Task.ConfigureAwait(false);
+                    try
+                    {
+                        await DisableRuntime!().ConfigureAwait(false);
+                    }
+                    catch (Exception exception)
+                    {
+                        OperationFailure = exception;
+                    }
+                    finally
+                    {
+                        OperationCompleted.TrySetResult();
+                    }
+                },
+                CancellationToken.None);
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(
+                new StubNetworkSession());
+        }
+
+        public void RunCapturedOperation() => runCapturedOperation.TrySetResult();
+    }
+
+    private sealed class LateNetworkSession : IDesktopLocalPairingNetworkSession
+    {
+        private Action? changed;
+        private Action<IDesktopLocalPairingNetworkSession>? faulted;
+        private Action? trustChanged;
+
+        public int AttachCount { get; private set; }
+
+        public event Action? Changed
+        {
+            add
+            {
+                AttachCount++;
+                changed += value;
+            }
+            remove => changed -= value;
+        }
+
+        public event Action<IDesktopLocalPairingNetworkSession>? Faulted
+        {
+            add
+            {
+                AttachCount++;
+                faulted += value;
+            }
+            remove => faulted -= value;
+        }
+
+        public event Action? TrustChanged
+        {
+            add
+            {
+                AttachCount++;
+                trustChanged += value;
+            }
+            remove => trustChanged -= value;
+        }
+
+        public TaskCompletionSource Disposed { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingAttachNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        private readonly TaskCompletionSource attachRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private Action? changed;
+
+        public event Action? Changed
+        {
+            add
+            {
+                AttachEntered.TrySetResult();
+                attachRelease.Task.GetAwaiter().GetResult();
+                changed += value;
+            }
+            remove => changed -= value;
+        }
+
+        public TaskCompletionSource AttachEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool Disposed { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
+
+        public void ReleaseAttach() => attachRelease.TrySetResult();
+    }
+
     private sealed class FixedNetworkFactory(
         IDesktopLocalPairingNetworkSession session) :
         IDesktopLocalPairingNetworkFactory
@@ -518,6 +1354,245 @@ public sealed class DesktopLocalPairingRuntimeTests
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(session);
         }
+    }
+
+    private sealed class EventsDuringAttachNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        private Action? changed;
+        private Action? trustChanged;
+
+        public event Action? Changed
+        {
+            add
+            {
+                changed += value;
+                value?.Invoke();
+            }
+            remove => changed -= value;
+        }
+
+        public event Action? TrustChanged
+        {
+            add
+            {
+                trustChanged += value;
+                value?.Invoke();
+            }
+            remove => trustChanged -= value;
+        }
+
+        public bool Disposed { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ReentrantAttachNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add
+            {
+                ReentrantDisable = DisableRuntime!().AsTask();
+                ReentrantDisableCompletedSynchronously =
+                    ReentrantDisable.IsCompleted;
+            }
+            remove { }
+        }
+
+        public Func<ValueTask>? DisableRuntime { get; set; }
+
+        public Task? ReentrantDisable { get; private set; }
+
+        public bool ReentrantDisableCompletedSynchronously { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ReentrantDisposeNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public Func<ValueTask>? DisposeRuntime { get; set; }
+
+        public bool ReentrantDisposeCompletedSynchronously { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            ValueTask reentrantDispose = DisposeRuntime!();
+            ReentrantDisposeCompletedSynchronously =
+                reentrantDispose.IsCompletedSuccessfully;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class EventDuringDetachNetworkSession :
+        IDesktopLocalPairingNetworkSession
+    {
+        private Action? changed;
+
+        public event Action? Changed
+        {
+            add => changed += value;
+            remove
+            {
+                value?.Invoke();
+                changed -= value;
+            }
+        }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class HostileCancellationNetworkFactory(
+        string canary,
+        string disposeCanary) :
+        IDesktopLocalPairingNetworkFactory
+    {
+        private readonly TaskCompletionSource cancellationCallbackRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CancellationCallbackEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public HostileCancellationNetworkSession Session { get; } =
+            new(disposeCanary);
+
+        public ValueTask<IDesktopLocalPairingNetworkSession> StartAsync(
+            CancellationToken cancellationToken = default)
+        {
+            _ = cancellationToken.Register(() =>
+            {
+                CancellationCallbackEntered.TrySetResult();
+                cancellationCallbackRelease.Task.GetAwaiter().GetResult();
+                throw new InvalidOperationException(canary);
+            });
+            return ValueTask.FromResult<IDesktopLocalPairingNetworkSession>(Session);
+        }
+
+        public void ReleaseCancellationCallback() =>
+            cancellationCallbackRelease.TrySetResult();
+    }
+
+    private sealed class HostileCancellationNetworkSession(string disposeCanary) :
+        IDesktopLocalPairingNetworkSession
+    {
+        public TaskCompletionSource Disposed { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public int ListeningPort => 4747;
+
+        public bool IsDisposed { get; private set; }
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public ValueTask DisposeAsync()
+        {
+            IsDisposed = true;
+            Disposed.TrySetResult();
+            return ValueTask.FromException(
+                new InvalidOperationException(disposeCanary));
+        }
+    }
+
+    private sealed class BlockingFailingDisposeNetworkSession(string canary) :
+        IDesktopLocalPairingNetworkSession
+    {
+        private readonly TaskCompletionSource disposeRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
+
+        public TaskCompletionSource DisposeEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int DisposeCount { get; private set; }
+
+        public int ListeningPort => 4747;
+
+        public ImmutableArray<UnverifiedPairingCandidate> GetCandidates() => [];
+
+        public ValueTask<PairingCeremonyResult> PairAsync(
+            UnverifiedPairingCandidate candidate,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PairingCeremonyResult>(
+                new NotSupportedException());
+
+        public async ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            DisposeEntered.TrySetResult();
+            await disposeRelease.Task.ConfigureAwait(false);
+            throw new InvalidOperationException(canary);
+        }
+
+        public void ReleaseDispose() => disposeRelease.TrySetResult();
     }
 
     private sealed class StubNetworkSession : IDesktopLocalPairingNetworkSession

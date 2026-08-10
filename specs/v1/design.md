@@ -555,9 +555,13 @@ multicast behavior.
 
 The desktop 7.2d composition owns trusted reconnect only while the owner has
 explicitly enabled the same local-network lifetime used for pairing. For each
-trusted peer with either local `activity.offer` or `activity.receive`, the
+trusted peer with at least one local `activity.offer`, `activity.receive`,
+`activity.replace`, `activity.swap`, `mirror.view`, or `mirror.drive` grant, the
 lexicographically smaller Device ID is the sole active connector and the other
-endpoint waits on the shared authenticated listener.
+endpoint waits on the shared authenticated listener. The any-of profile grants
+only an authenticated idle channel; each Activity or Remote Window boundary
+still rechecks its exact current purpose and direction, and `mirror.drive`
+without `mirror.view` never qualifies a Mirror target or participant.
 This deterministic ownership prevents two healthy peers from maintaining
 duplicate symmetric idle connections. Discovery changes wake a waiting retry
 loop but do not tear down an already authenticated session merely because an

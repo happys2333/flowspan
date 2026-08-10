@@ -117,6 +117,8 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     Capability.ActivityReceive,
                     Capability.ActivityReplace,
                     Capability.ActivitySwap,
+                    Capability.MirrorView,
+                    Capability.MirrorDrive,
                     Capability.SceneApply),
                 versions,
                 capabilityMatch: CapabilityRequirementMatch.Any);
@@ -128,11 +130,13 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 trust,
                 new FlowspanTcpInboundProfile(sessionProfile),
                 trustedConnections.SessionHandler);
+            var advertisementPublisher = new CleanupTrackingDnsSdPublisher(
+                dns.Publisher);
             var advertisement = new DnsSdPeerAdvertisementService(
                 identity,
                 boundEndPoint.Port,
                 versions,
-                dns.Publisher,
+                advertisementPublisher,
                 createAdvertisementDelay()
                     ?? throw new InvalidOperationException(
                         "The DNS-SD advertisement delay factory returned null."));
@@ -146,6 +150,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 trustedConnections,
                 pairingDecisions,
                 new PairingCeremonyProfile(versions),
+                advertisementPublisher,
                 boundEndPoint.Port);
             session.Start();
             listener = null;
@@ -203,22 +208,87 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         return new DesktopDnsSdTransport(adapter, adapter);
     }
 
+    private sealed class CleanupTrackingDnsSdPublisher(
+        IDnsSdServicePublisher inner) : IDnsSdServicePublisher
+    {
+        private readonly Lock gate = new();
+        private bool stopped;
+        private Exception? withdrawalFailure;
+
+        public Exception? WithdrawalFailure =>
+            Volatile.Read(ref withdrawalFailure);
+
+        public void Publish(SignedDiscoveryOffer offer)
+        {
+            lock (gate)
+            {
+                if (!stopped)
+                {
+                    inner.Publish(offer);
+                }
+            }
+        }
+
+        public void Withdraw() => StopPublishing();
+
+        public void StopPublishing()
+        {
+            lock (gate)
+            {
+                if (stopped)
+                {
+                    return;
+                }
+
+                stopped = true;
+                try
+                {
+                    inner.Withdraw();
+                }
+                catch (Exception exception)
+                {
+                    Interlocked.CompareExchange(
+                        ref withdrawalFailure,
+                        exception,
+                        null);
+                    throw;
+                }
+            }
+        }
+    }
+
     private sealed class SystemDesktopLocalPairingNetworkSession :
         IDesktopLocalPairingNetworkSession
     {
+        private static readonly AsyncLocal<PublicationLease?> CurrentPublication =
+            new();
+
         private readonly DnsSdPeerAdvertisementService advertisement;
+        private readonly CleanupTrackingDnsSdPublisher advertisementPublisher;
         private readonly DnsSdUnverifiedPairingCandidateSource candidates;
         private readonly CancellationTokenSource lifetimeCancellation = new();
         private readonly FlowspanTcpInboundListener inbound;
         private readonly DeviceIdentity localIdentity;
+        private readonly Lock pairingOperationGate = new();
+        private readonly HashSet<PublicationKind> pendingPublicationKinds = [];
+        private readonly Queue<PublicationKind> pendingPublications = new();
         private readonly PairingCeremonyProfile pairingProfile;
         private readonly DesktopPairingDecisionSource pairingDecisions;
+        private readonly Lock publicationGate = new();
         private readonly SemaphoreSlim pairingGate = new(1, 1);
         private readonly TcpListener socket;
         private readonly TrustSessionCoordinator trust;
         private readonly DesktopTrustedPeerConnectionCoordinator trustedConnections;
+        private readonly TaskCompletionSource disposalCompletion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         private Task? advertisementTask;
+        private int activePairingOperations;
         private Task? inboundTask;
+        private TaskCompletionSource? pairingOperationsDrained;
+        private PublicationLease? activePublication;
+        private bool publicationClosed;
+        private TaskCompletionSource? publicationDrainCompletion;
+        private bool publicationWorkerRunning;
         private Task? supervisionTask;
         private int disposed;
         private int faulted;
@@ -233,6 +303,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             DesktopTrustedPeerConnectionCoordinator trustedConnections,
             DesktopPairingDecisionSource pairingDecisions,
             PairingCeremonyProfile pairingProfile,
+            CleanupTrackingDnsSdPublisher advertisementPublisher,
             int listeningPort)
         {
             this.socket = socket;
@@ -244,6 +315,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             this.trustedConnections = trustedConnections;
             this.pairingDecisions = pairingDecisions;
             this.pairingProfile = pairingProfile;
+            this.advertisementPublisher = advertisementPublisher;
             ListeningPort = listeningPort;
             candidates.SnapshotChanged += OnChanged;
             inbound.PairingCompleted += OnPairingCompleted;
@@ -286,13 +358,16 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             ArgumentNullException.ThrowIfNull(candidate);
-            using CancellationTokenSource linked =
-                CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken,
-                    lifetimeCancellation.Token);
-            await pairingGate.WaitAsync(linked.Token).ConfigureAwait(false);
+            RegisterPairingOperation();
+            bool enteredPairingGate = false;
             try
             {
+                using CancellationTokenSource linked =
+                    CancellationTokenSource.CreateLinkedTokenSource(
+                        cancellationToken,
+                        lifetimeCancellation.Token);
+                await pairingGate.WaitAsync(linked.Token).ConfigureAwait(false);
+                enteredPairingGate = true;
                 ObjectDisposedException.ThrowIf(
                     Volatile.Read(ref disposed) != 0,
                     this);
@@ -315,15 +390,20 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 {
                     await trustedConnections.RefreshTrustAsync(linked.Token)
                         .ConfigureAwait(false);
-                    PublishTrustChanged();
-                    PublishChanged();
+                    QueueTrustChanged();
+                    QueueChanged();
                 }
 
                 return result;
             }
             finally
             {
-                pairingGate.Release();
+                if (enteredPairingGate)
+                {
+                    pairingGate.Release();
+                }
+
+                CompletePairingOperation();
             }
         }
 
@@ -339,22 +419,93 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             supervisionTask = SuperviseLoopsAsync(inboundTask, advertisementTask);
         }
 
-        public async ValueTask DisposeAsync()
+        public ValueTask DisposeAsync()
         {
-            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            PublicationLease? callerLease = CurrentPublication.Value;
+            Task publicationDrainTask;
+            TaskCompletionSource? drainToComplete = null;
+            bool startDisposal = false;
+            lock (publicationGate)
             {
-                return;
+                if (!publicationClosed)
+                {
+                    publicationClosed = true;
+                    pendingPublications.Clear();
+                    pendingPublicationKinds.Clear();
+                    Volatile.Write(ref disposed, 1);
+                    startDisposal = true;
+                }
+
+                if (callerLease is not null
+                    && callerLease.Active
+                    && ReferenceEquals(callerLease.Owner, this)
+                    && ReferenceEquals(activePublication, callerLease))
+                {
+                    callerLease.ExcludedFromDisposalDrain = true;
+                    drainToComplete = publicationDrainCompletion;
+                }
+
+                publicationDrainTask = GetPublicationDrainTask();
             }
 
-            var failures = new List<Exception>();
+            drainToComplete?.TrySetResult();
+            if (startDisposal)
+            {
+                _ = DisposeAndCompleteAsync(publicationDrainTask);
+            }
+
+            return new ValueTask(disposalCompletion.Task);
+        }
+
+        private Task GetPublicationDrainTask()
+        {
+            if (activePublication is null
+                || activePublication.ExcludedFromDisposalDrain)
+            {
+                return Task.CompletedTask;
+            }
+
+            publicationDrainCompletion ??= new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            return publicationDrainCompletion.Task;
+        }
+
+        private async Task DisposeAndCompleteAsync(Task publicationDrainTask)
+        {
             try
             {
-                lifetimeCancellation.Cancel();
+                await DisposeResourcesAsync(publicationDrainTask).ConfigureAwait(false);
+                disposalCompletion.TrySetResult();
             }
             catch (Exception exception)
             {
-                failures.Add(exception);
+                disposalCompletion.TrySetException(exception);
             }
+        }
+
+        private async Task DisposeResourcesAsync(Task publicationDrainTask)
+        {
+            var failures = new List<Exception>();
+            pairingDecisions.RunWithCancellationPublicationsDeferred(() =>
+            {
+                try
+                {
+                    socket.Stop();
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+
+                try
+                {
+                    advertisementPublisher.StopPublishing();
+                }
+                catch
+                {
+                    // The recorded withdrawal failure is added after the loop drains.
+                }
+            });
 
             try
             {
@@ -367,27 +518,34 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
 
             try
             {
-                socket.Stop();
+                CancelLifetime();
             }
             catch (Exception exception)
             {
                 failures.Add(exception);
             }
 
-            bool pairingDrained = false;
+            Task pairingDrainTask = WaitForPairingOperationsAsync();
+            Task loopDrainTask = Task.WhenAll(
+                DrainLoopAsync(inboundTask),
+                DrainLoopAsync(advertisementTask),
+                DrainLoopAsync(supervisionTask));
+
+            await publicationDrainTask.ConfigureAwait(false);
             try
             {
-                await pairingGate.WaitAsync().ConfigureAwait(false);
-                pairingDrained = true;
+                await pairingDrainTask.ConfigureAwait(false);
             }
             catch (Exception exception)
             {
                 failures.Add(exception);
             }
 
-            await CaptureLoopFailureAsync(inboundTask, failures).ConfigureAwait(false);
-            await CaptureLoopFailureAsync(advertisementTask, failures).ConfigureAwait(false);
-            await CaptureLoopFailureAsync(supervisionTask, failures).ConfigureAwait(false);
+            await loopDrainTask.ConfigureAwait(false);
+            if (advertisementPublisher.WithdrawalFailure is { } withdrawalFailure)
+            {
+                failures.Add(withdrawalFailure);
+            }
             candidates.SnapshotChanged -= OnChanged;
             inbound.PairingCompleted -= OnPairingCompleted;
             trustedConnections.Changed -= OnTrustedConnectionsChanged;
@@ -410,11 +568,6 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             }
 
             lifetimeCancellation.Dispose();
-            if (pairingDrained)
-            {
-                pairingGate.Release();
-            }
-
             pairingGate.Dispose();
             if (failures.Count == 1)
             {
@@ -429,9 +582,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             }
         }
 
-        private async Task CaptureLoopFailureAsync(
-            Task? loop,
-            List<Exception> failures)
+        private static async Task DrainLoopAsync(Task? loop)
         {
             if (loop is null)
             {
@@ -442,23 +593,62 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             {
                 await loop.ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
-                when (lifetimeCancellation.IsCancellationRequested)
+            catch
             {
+                // Loop faults are published by supervision. Cleanup failures are
+                // captured at the resource boundary that owns the close attempt.
             }
-            catch (Exception exception)
+        }
+
+        private void RegisterPairingOperation()
+        {
+            lock (pairingOperationGate)
             {
-                failures.Add(exception);
+                ObjectDisposedException.ThrowIf(
+                    Volatile.Read(ref disposed) != 0,
+                    this);
+                activePairingOperations++;
+            }
+        }
+
+        private void CompletePairingOperation()
+        {
+            TaskCompletionSource? drained = null;
+            lock (pairingOperationGate)
+            {
+                activePairingOperations--;
+                if (activePairingOperations == 0)
+                {
+                    drained = pairingOperationsDrained;
+                    pairingOperationsDrained = null;
+                }
+            }
+
+            drained?.TrySetResult();
+        }
+
+        private Task WaitForPairingOperationsAsync()
+        {
+            lock (pairingOperationGate)
+            {
+                if (activePairingOperations == 0)
+                {
+                    return Task.CompletedTask;
+                }
+
+                pairingOperationsDrained ??= new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                return pairingOperationsDrained.Task;
             }
         }
 
         private void OnChanged()
         {
             trustedConnections.NotifyCandidatesChanged();
-            PublishChanged();
+            QueueChanged();
         }
 
-        private void OnTrustedConnectionsChanged() => PublishChanged();
+        private void OnTrustedConnectionsChanged() => QueueChanged();
 
         private async Task SuperviseLoopsAsync(Task inboundLoop, Task advertisementLoop)
         {
@@ -470,14 +660,26 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 return;
             }
 
-            try
+            pairingDecisions.RunWithCancellationPublicationsDeferred(() =>
             {
-                lifetimeCancellation.Cancel();
-            }
-            catch
-            {
-                // Fault notification and disposal still need to proceed.
-            }
+                try
+                {
+                    socket.Stop();
+                }
+                catch
+                {
+                    // Fault notification and disposal still need to proceed.
+                }
+
+                try
+                {
+                    advertisementPublisher.StopPublishing();
+                }
+                catch
+                {
+                    // Disposal reports the recorded withdrawal failure.
+                }
+            });
 
             try
             {
@@ -490,15 +692,21 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
 
             try
             {
-                socket.Stop();
+                CancelLifetime();
             }
             catch
             {
                 // Disposal captures any independently observable close failure.
             }
 
-            PublishFaulted();
+            QueueFaulted();
         }
+
+        private void QueueFaulted()
+            => QueuePublication(PublicationKind.Faulted);
+
+        private void CancelLifetime()
+            => lifetimeCancellation.Cancel();
 
         private void OnPairingCompleted(InboundPairingCompleted completed)
         {
@@ -521,9 +729,113 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     // Trust is already durable; the next explicit refresh can reconcile status.
                 }
 
-                PublishTrustChanged();
-                PublishChanged();
+                QueueTrustChanged();
+                QueueChanged();
             }
+        }
+
+        private void QueueChanged()
+            => QueuePublication(PublicationKind.Changed);
+
+        private void QueueTrustChanged()
+            => QueuePublication(PublicationKind.TrustChanged);
+
+        private void QueuePublication(PublicationKind kind)
+        {
+            bool startWorker = false;
+            lock (publicationGate)
+            {
+                if (publicationClosed
+                    || !pendingPublicationKinds.Add(kind))
+                {
+                    return;
+                }
+
+                pendingPublications.Enqueue(kind);
+                if (!publicationWorkerRunning)
+                {
+                    publicationWorkerRunning = true;
+                    startWorker = true;
+                }
+            }
+
+            if (startWorker)
+            {
+                _ = Task.Run(ProcessPublications);
+            }
+        }
+
+        private void ProcessPublications()
+        {
+            while (true)
+            {
+                PublicationKind publication;
+                PublicationLease lease;
+                lock (publicationGate)
+                {
+                    if (publicationClosed)
+                    {
+                        pendingPublications.Clear();
+                        pendingPublicationKinds.Clear();
+                    }
+
+                    if (pendingPublications.Count == 0)
+                    {
+                        publicationWorkerRunning = false;
+                        return;
+                    }
+
+                    publication = pendingPublications.Dequeue();
+                    pendingPublicationKinds.Remove(publication);
+                    lease = new PublicationLease(this);
+                    activePublication = lease;
+                }
+
+                PublicationLease? previous = CurrentPublication.Value;
+                CurrentPublication.Value = lease;
+                try
+                {
+                    switch (publication)
+                    {
+                        case PublicationKind.Changed:
+                            PublishChanged();
+                            break;
+                        case PublicationKind.TrustChanged:
+                            PublishTrustChanged();
+                            break;
+                        case PublicationKind.Faulted:
+                            PublishFaulted();
+                            break;
+                        default:
+                            throw new InvalidOperationException(
+                                $"Unknown local pairing publication kind: {publication}.");
+                    }
+                }
+                finally
+                {
+                    lease.Deactivate();
+                    CurrentPublication.Value = previous;
+                    CompletePublication(lease);
+                }
+            }
+        }
+
+        private void CompletePublication(PublicationLease lease)
+        {
+            TaskCompletionSource? drainToComplete = null;
+            lock (publicationGate)
+            {
+                if (ReferenceEquals(activePublication, lease))
+                {
+                    activePublication = null;
+                    if (publicationClosed)
+                    {
+                        drainToComplete = publicationDrainCompletion;
+                    }
+                }
+            }
+
+            drainToComplete?.TrySetResult();
         }
 
         private void PublishTrustChanged()
@@ -538,6 +850,11 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 catch
                 {
                     // Presentation callbacks cannot own network lifetime.
+                }
+
+                if (IsPublicationClosed())
+                {
+                    break;
                 }
             }
         }
@@ -556,6 +873,11 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 {
                     // Lifecycle observers cannot own network cleanup.
                 }
+
+                if (IsPublicationClosed())
+                {
+                    break;
+                }
             }
         }
 
@@ -571,6 +893,19 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 {
                     // Presentation callbacks cannot own network lifetime.
                 }
+
+                if (IsPublicationClosed())
+                {
+                    break;
+                }
+            }
+        }
+
+        private bool IsPublicationClosed()
+        {
+            lock (publicationGate)
+            {
+                return publicationClosed;
             }
         }
 
@@ -583,5 +918,27 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     "A local pairing network loop ended during startup.");
             }
         }
+
+        private enum PublicationKind
+        {
+            Changed,
+            TrustChanged,
+            Faulted,
+        }
+
+        private sealed class PublicationLease(
+            SystemDesktopLocalPairingNetworkSession owner)
+        {
+            private int active = 1;
+
+            public bool Active => Volatile.Read(ref active) != 0;
+
+            public bool ExcludedFromDisposalDrain { get; set; }
+
+            public SystemDesktopLocalPairingNetworkSession Owner { get; } = owner;
+
+            public void Deactivate() => Volatile.Write(ref active, 0);
+        }
+
     }
 }

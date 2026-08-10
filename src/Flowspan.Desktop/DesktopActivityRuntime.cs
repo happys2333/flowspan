@@ -62,6 +62,12 @@ internal sealed class DesktopActivityRuntime :
 
     public bool IsReady => Volatile.Read(ref node) is not null;
 
+    public bool SupportsSemanticResume(string activityKind) =>
+        string.Equals(
+            activityKind,
+            WorkspaceNoteKind.Value,
+            StringComparison.Ordinal);
+
     public bool IsDestructiveReplaceAvailable
     {
         get
@@ -235,6 +241,42 @@ internal sealed class DesktopActivityRuntime :
                     peerDeviceId,
                     out TrustRecord? record)
                 && record.GrantedCapabilities.Allows(Capability.ActivityReceive))
+            {
+                targets.Add(new DesktopActivityTargetSnapshot(
+                    peerDeviceId,
+                    record.PeerIdentity.DisplayName));
+            }
+        }
+
+        return targets.ToImmutable();
+    }
+
+    public ImmutableArray<DesktopActivityTargetSnapshot> GetRemoteWindowTargets(
+        MirrorParticipantRole role)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (role is not MirrorParticipantRole.ViewOnly
+            and not MirrorParticipantRole.DriverEligible)
+        {
+            throw new ArgumentOutOfRangeException(nameof(role));
+        }
+
+        AuthenticatedActivitySessionHandler? currentHandler = handler;
+        TrustSessionCoordinator? currentTrust = trust;
+        if (currentHandler is null || currentTrust is null)
+        {
+            return [];
+        }
+
+        var targets = ImmutableArray.CreateBuilder<DesktopActivityTargetSnapshot>();
+        foreach (DeviceId peerDeviceId in currentHandler.GetConnectedPeers())
+        {
+            if (currentTrust.TryGetCurrentTrust(
+                    peerDeviceId,
+                    out TrustRecord? record)
+                && record.GrantedCapabilities.Allows(Capability.MirrorView)
+                && (role == MirrorParticipantRole.ViewOnly
+                    || record.GrantedCapabilities.Allows(Capability.MirrorDrive)))
             {
                 targets.Add(new DesktopActivityTargetSnapshot(
                     peerDeviceId,
@@ -923,6 +965,7 @@ internal sealed class DesktopActivityRuntime :
                 throw;
             }
             newHandler.Changed += OnHandlerChanged;
+            coordinator.Changed += OnTrustChanged;
             catalog = newCatalog;
             trust = coordinator;
             handler = newHandler;
@@ -965,6 +1008,13 @@ internal sealed class DesktopActivityRuntime :
         {
             AuthenticatedActivitySessionHandler? current = handler;
             handler = null;
+            TrustSessionCoordinator? currentTrust = trust;
+            trust = null;
+            if (currentTrust is not null)
+            {
+                currentTrust.Changed -= OnTrustChanged;
+            }
+
             if (current is not null)
             {
                 current.Changed -= OnHandlerChanged;
@@ -990,7 +1040,6 @@ internal sealed class DesktopActivityRuntime :
             sceneApplyJournal = null;
             currentSceneApplyJournal?.Dispose();
             catalog = null;
-            trust = null;
         }
         finally
         {
@@ -1104,6 +1153,8 @@ internal sealed class DesktopActivityRuntime :
         && StringComparer.Ordinal.Equals(current.Title, selected.Title);
 
     private void OnHandlerChanged() => PublishChanged();
+
+    private void OnTrustChanged() => PublishChanged();
 
     private void PublishChanged()
     {

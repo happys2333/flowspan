@@ -1,7 +1,7 @@
 # Remote Window and Mirror Control Design
 
-Status: approved portable control plane; protocol-1.5 control and bounded media
-design frozen for Task 4
+Status: approved portable control plane and protocol 1.5; Desktop workflow local
+candidate under concurrency hardening; hosted evidence pending
 
 ## Design summary
 
@@ -93,12 +93,17 @@ stateDiagram-v2
 state represents capture admission and protection pause, which are not Driver
 Lease states. The sharing snapshot always derives from one locked copy of both.
 
-Start is two-phase. It publishes `Starting`, awaits only local capture admission,
-then publishes `Active` if no emergency stop won the race. If emergency stop
-occurs while start is pending, the latch and state change synchronously; a late
-successful start is immediately halted and cannot publish `Active`. A late start
-also reconciles the latest monotonic protection observation rather than
-publishing from the observation that originally admitted the attempt.
+Start is two-phase and session-generation bound. It publishes `Starting`, awaits
+local capture admission, records admission confirmation for that generation,
+then publishes `Active` only if no Emergency Stop or protection block won the
+race. A Safe protection observation received before admission confirmation stays
+blocked and does not call either Resume gate. If Emergency Stop occurs while
+Start is pending, the latch and state change synchronously; a late successful
+Start invalidates any earlier capture-stop proof, is immediately halted, and
+cannot publish `Active`. Only successful late cleanup for the current stop and
+session generations can confirm capture stopped again. A late Start also
+reconciles the latest monotonic protection observation rather than publishing
+from the observation that originally admitted the attempt.
 
 ## Serialization and preemption
 
@@ -106,6 +111,13 @@ Normal operations use one `SemaphoreSlim` to serialize capture start, join,
 role change, Driver transfer, input injection, disconnect, expiry refresh, and
 ordinary stop. State reads and the emergency/protection fast paths use a short
 private lock.
+
+Every normal caller registers a lifetime lease before waiting for the semaphore,
+rechecks disposal after acquisition, and releases that lease after releasing the
+gate. Dispose first publishes its fail-closed state, rejects post-close work, and
+waits for every registered waiter/owner before disposing synchronization. A
+caller admitted before close therefore cannot cross the boundary after Dispose's
+final check or release an already disposed semaphore.
 
 Input holds the normal-operation gate from its final authorization/protection/
 epoch check through the local injection call. Therefore a normal transfer cannot
@@ -137,7 +149,23 @@ behavior:
   and locally disconnect that peer;
 - host: never read from peer Trust and never remove/downgrade.
 
-Participant bounds are checked before mutation. Rejection does not call capture,
+Participant removal and authority revocation commit before the local peer
+disconnect. If that boundary fails or throws, a peer-scoped pending-disconnect
+fact survives after the participant is absent. Both explicit disconnect and
+Capability reconciliation recognize that fact and retry the boundary without
+re-adding the participant; only confirmation clears it. Restoring Capability
+does not bypass cleanup: admission of that same peer returns
+status `BoundaryFailed` with reason `peer_disconnect_pending` until an explicit
+disconnect or reconciliation confirms the pending boundary. A terminal or
+otherwise inactive lifecycle prevents further peer-specific retry, and the next
+Start clears obsolete pending facts before creating new live-session state.
+
+Active participants and pending-disconnect facts consume one shared 16-slot
+session budget: the host, every active peer, and every pending cleanup each
+consume one slot. A re-authorized pending peer is rejected until its cleanup
+confirms; a different new peer is rejected before mutation only when the shared
+budget is full. A pending slot is released only by confirmed cleanup or
+establishment of the next session generation. Rejection does not call capture,
 input, or session boundaries.
 
 ## Portable input contract
@@ -172,6 +200,12 @@ capture and input `PauseNow`. The result records each local confirmation. A
 boundary failure leaves the session blocked and explicitly unconfirmed; it does
 not claim capture is blank.
 
+If a stale protection operation crosses into a terminal lifecycle, cleanup calls
+capture Stop, input Stop, and local session disconnect. The protection result
+retains all three boundary results, including `SessionBoundary`, so a failed
+disconnect cannot be reported as ordinary invalid state or silently discard the
+only provenance for a possibly live session.
+
 A fresh Safe observation calls both `ResumeNow` gates. `Active` is published
 only if both confirm. If either resume fails, both gates receive a fail-closed
 Unknown pause so a partially resumed capture or input path cannot remain open;
@@ -186,8 +220,10 @@ still current. A superseded operation re-applies the latest target; same-thread
 boundary re-entry records the new observation for the outer reconciler instead
 of recursively opening another boundary chain. Reconciliation is limited to
 eight attempts, after which both gates receive an Unknown pause and the session
-remains blocked. Emergency Stop is checked after each re-entrant boundary and
-is re-applied if a stale protection operation ran after it.
+remains blocked with capture explicitly `Unconfirmed`, even when that final pause
+call itself succeeds. Emergency Stop is checked after each re-entrant boundary
+and is re-applied if a stale protection operation ran after it; the reassertion
+result retains capture, input, and session confirmation independently.
 
 ## Emergency stop and ordinary stop
 
@@ -202,7 +238,15 @@ Emergency stop is synchronous and non-cancellable. It performs:
 All boundary calls run even when an earlier call fails or throws. Throws become
 `local_boundary_exception` for only that boundary. The result separately names
 capture, input, and session confirmation. Repetition preserves the first stop
-epoch and retries unconfirmed local boundaries without restoring authority.
+epoch and invokes all three local boundaries without restoring authority. Every
+attempt is counted against its stop generation before the boundaries run. Each
+attempt merges successful capture, input, and session confirmations into the
+current stop/session generation. Its returned result projects those accumulated
+confirmations, so an already confirmed boundary remains successful when a later
+invocation of that boundary fails. Reset returns
+`emergency_stop_in_progress` while any attempt in that generation remains, then
+accepts a later retry only after all attempts finish and the merged confirmations
+for that same session generation are complete; a later session cannot reuse them.
 
 Ordinary stop is also local and closes all three boundaries, but it serializes
 with normal work and ends the session. Explicit reset after emergency stop only
@@ -214,18 +258,225 @@ is confirmed stopped. It does not restart capture or restore participants.
 Portable unit/integration tests use public controller methods and deterministic
 ports. They prove ordering and behavior but not operating-system behavior.
 
-Later slices add:
+Delivered portable layers include protocol-1.5 authenticated control and a
+purpose-separated bounded encrypted media stream with deterministic
+backpressure/resource ceilings. Remaining slices add:
 
-- authenticated control messages and bounded encrypted media with
-  backpressure/resource ceilings;
 - Windows Graphics Capture, SendInput, secure desktop, protected capture, and a
   local emergency hotkey;
 - ScreenCaptureKit, Accessibility/TCC, secure input, and protected-window probes;
 - Wayland portal/PipeWire/RemoteDesktop and explicit X11 degradation;
-- Desktop permission preflights, persistent accessible sharing indicator, and
-  real-machine accessibility/physical-device evidence.
+- production codecs/rendering and real-machine accessibility/physical-device
+  evidence.
 
 No portable test, hosted runner, or fake closes those native/manual gates.
+
+## Desktop Remote Window workflow
+
+The Desktop adds a dedicated `RemoteWindowWorkspaceViewModel` rather than
+folding live sharing state into semantic Activity operation receipts. A narrow
+`IDesktopRemoteWindowService` supplies the latest bounded
+`RemoteWindowSharingSnapshot`, a stable unavailable reason when no native
+composition exists, a change notification, synchronous local Emergency Stop,
+and one asynchronous start method bound to an exact Activity ID, target Device
+ID, and `ViewOnly` or `DriverEligible` role. The view model owns presentation
+text, command enablement, UI dispatch, exception reduction, and service
+lifetime; it never owns Driver authority or infers native success.
+
+`ActivityWorkspaceViewModel` keeps semantic `Targets`/`SelectedTarget` separate
+from `RemoteWindowTargets`/`SelectedRemoteWindowTarget`. The semantic inventory
+continues to require `activity.receive`; it never supplies Mirror authority.
+The Remote Window inventory is filtered for the current
+`RemoteWindowTargetRole`: `ViewOnly` requires `mirror.view`, while
+`DriverEligible` requires one current grant containing both `mirror.view` and
+`mirror.drive`. Both inventories also require the current authenticated peer
+projection. `WorkspaceShellViewModel` synchronizes that preview role from
+`RemoteWindow.IsRemoteDrivingEnabled` and projects `SelectedActivity`,
+`SelectedRemoteWindowTarget`, and the Activity service's explicit
+`SupportsSemanticResume` result into the Remote Window view model.
+
+The elected reconnect profile and shared inbound listener admit
+`mirror.view` and `mirror.drive` as independent any-of alternatives alongside
+the existing Activity control alternatives. This is connectivity admission,
+not operation authority. A `mirror.drive`-only Trust Record can establish or
+retain the encrypted idle channel but appears in neither Remote Window target
+role because both require `mirror.view`. Removing one profile alternative keeps
+the registered channel while another remains; removing the final alternative
+drains it. `DesktopActivityRuntime` subscribes to the shared
+`TrustSessionCoordinator.Changed` signal so a successful register, capability
+update, or revoke immediately recomputes the inventory even when the connection
+itself remains alive. The coordinator publishes only after the mutation gate is
+released and isolates observer failures from the committed Trust mutation and
+session drain.
+
+When semantic resume is available, the band names Handoff or Move and does not
+offer or execute Remote Window. Otherwise, the fallback band previews the exact
+source title and purpose-qualified target, states that execution remains on the
+source, and keeps its start command disabled until the source is active, capture
+permission is granted, no other live session exists, and any selected remote
+driving path also has input permission. Role, Trust, or connection changes
+refresh the purpose-specific inventory and clear an ineligible selection before
+another start can be admitted. Selection changes invalidate a prior
+failure/result context. The service boundary must still re-read Activity, Trust,
+Capability, protection, and authenticated-session state at use time; the
+Desktop preview is not authority.
+
+Public start callers may race, but the start gate winner revalidates the exact
+selection, role, lifecycle, and admission permission before publishing its
+in-flight context or crossing the service boundary. A queued loser neither calls
+the service nor clears or relabels the winner's context. One admitted start
+freezes its Activity, target, and participant role while the boundary runs. The
+admitted target remains the displayed session target until an authoritative
+inactive/Idle reset. A later selection or preview-role change affects only the
+next request and cannot relabel the in-flight or active request or receive its
+late result. The role change first refilters the next-request target inventory
+and clears a selection that lacks the new role's capabilities. The admitted
+DriverEligible role is tracked independently of the mutable preview checkbox; a
+bounded snapshot's non-host DriverEligible participant supplies the same fact
+for a session started outside the preview.
+Start, Emergency Stop, and local reset command-result snapshots are reduced
+before a follow-up service refresh, so a read failure cannot erase the newly
+accepted safety state or remove Emergency Stop from a stoppable session.
+
+The existing top sharing header is the persistent safety surface. Its status,
+description, automation name/help, and Emergency Stop command derive from one
+snapshot refresh. Starting, Active, ProtectionPaused, EmergencyStopped,
+Unavailable, and inactive states use distinct text. The fixed header's visible
+description and accessibility name include the accepted Activity title and
+current Driver. The detail band exposes only Activity title/ID, capture state,
+participant count, current Driver, lease epoch and expiry, protection kind, and
+revision. It always states that execution remains on the source Device while
+Remote Window is active.
+
+Emergency Stop stays in the fixed header and is enabled only for Starting,
+Active, or ProtectionPaused. The command calls the local service synchronously;
+it never sends or awaits a peer acknowledgement. The result reports capture,
+input, and session boundary confirmation separately. Adapter exceptions reduce
+to a stable unconfirmed result and never expose exception text. Repeated
+activation is disabled by the emergency-stopped snapshot.
+
+Permission review uses a separate `IDesktopRemoteWindowPermissionService` so an
+operating-system prompt cannot be confused with live sharing state. Its bounded
+snapshot reports capture and input independently as `NotDetermined`, `Granted`,
+`Denied`, `Revoked`, `Unsupported`, or `Unavailable`. The view model first opens
+capture rationale, requires a local acknowledgement, then serializes one capture
+request. Remote driving remains disabled until capture is granted. Enabling the
+driving checkbox opens input/accessibility rationale but does not request input
+permission; a second acknowledgement and explicit request are required.
+Snapshot reads are prompt-free and bounded; a permission-change safety decision
+uses the event's atomically cached state and never waits for a native prompt or
+unbounded IPC before crossing a required local Emergency Stop.
+
+The rationale shown before each request names the data exposed and the matching
+operating-system privacy-settings revocation path. Denied and revoked states
+disable the dependent capability and name a recovery action. Undefined enum
+values, state-read failures, and request exceptions reduce to `Unavailable`
+without exposing exception text. A request result is not authoritative: the
+view model re-reads the adapter snapshot so an intervening revocation wins. On a
+permission `Changed` callback, the snapshot is read and any required local
+Emergency Stop boundary is crossed synchronously on the callback path before
+permission or stop presentation is queued to the UI dispatcher. Capture
+permission loss stops a stoppable or concurrently starting session. Input
+permission loss does the same when a DriverEligible start/session may exist;
+view-only work remains eligible after the stopped session is explicitly reset.
+
+The UI presentation fields are not cross-thread authority. One immutable safety
+reducer holds normalized permission, controller/safety generation, admitted role,
+session-may-exist, Activity/revision watermark, authoritative inactive
+provenance, and accepted snapshot. It is compared and replaced atomically under
+`serviceBoundaryGate`; UI projection is generation checked and occurs only after
+that gate is released. No PropertyChanged, command observer, dispatcher, or
+service-generated inline callback may run while the safety gate is held. After
+acquiring the Start gate, Start revalidates and publishes its admission fact
+before crossing the service boundary. If revocation publishes first, Start is
+rejected without crossing; if Start publishes first, the callback observes the
+admitted role and crosses Emergency Stop before returning. Synchronous `Changed`
+raised by the service is deferred until the outer service crossing releases the
+gate, and the gate is never held while awaiting the asynchronous Start result.
+
+Permission requests and Remote Window starts use separate gates, listen to both
+caller and view-model lifetime cancellation while queued and executing, and
+drain before their owning adapter is disposed. Disposal first performs a
+synchronous local Emergency Stop whenever the reducer says a session may exist;
+this happens before cancellation callbacks, event removal, or a Start drain can
+block. It then starts asynchronous lifetime cancellation, removes subscriptions,
+drains registered operations, and disposes both services while collecting every
+failure. Concurrent callers join the same completion and failure. Operation
+gates release in nested cleanup even when a presentation observer throws while
+busy state is cleared. An external-boundary callback lease is registered before
+publishing permission-busy and associated command notifications and remains
+visible while synchronous observers run outside the safety gate. Disposal
+requested by one of those observers excludes that current callback lease from
+its drain, so it can complete without waiting on itself while unrelated callers
+still join full cleanup.
+
+A Start exception or caller cancellation uses its bound generation and locally
+Emergency Stops any still-current unconfirmed stoppable session. Cancellation is
+checked again after the asynchronous boundary returns, so a successful result
+from a cancellation-ignoring service is not applied and its still-current
+session is stopped. An authoritative inactive/Idle observation received before
+a successful Start result also makes that returned session require fail-closed
+cleanup. If the same controller has already started a replacement session, the
+older result and cleanup proof are discarded instead and cannot stop or mutate
+the replacement, including after that replacement reaches its own inactive
+boundary. Returned-start cleanup is eligible only while its admitted safety
+generation is still current or at the directly following authoritative inactive
+boundary; any intervening replacement consumes another generation.
+
+At the Shell boundary, disposal closes Activity-to-Remote-Window projection and
+waits only for already admitted projection leases; the foreign selection call is
+always outside the projection lock. Lifetime cancellation, Remote Window safety
+teardown, and local-pairing safety teardown are initiated before awaiting any of
+them, so one blocked child cannot delay another child's stop. Trust, identity,
+Activity, and remaining dependencies are released only after those safety paths
+finish. Local pairing publishes no observer callback while holding its lifecycle
+gate, rejects a cancellation-ignoring session returned after close, and shares
+one disposal completion across callers. If session cleanup fails, the runtime
+retains the retiring owner, presents cleanup unconfirmed, and blocks re-enable;
+queued post-disposal Trust projections exit without touching disposed state.
+
+The snapshot reducer keeps one Activity/revision watermark across transient
+service unavailability. Its compare-and-commit is atomic, so a concurrently
+arriving lower revision cannot overwrite a committed higher revision. It rejects
+stale recovery snapshots while preserving Emergency Stop for a last-known
+Starting, Active, or ProtectionPaused session. Activity/revision acceptance runs
+before the snapshot can elevate the safety role, reset Emergency Stop state, or
+derive a permission-loss stop. A rejected older DriverEligible snapshot therefore
+cannot contaminate an accepted current view-only session.
+Every retained Activity, capture, participant, Driver/lease, protection, and
+revision field is visibly marked `LAST KNOWN`; if no snapshot was ever accepted,
+those fields are `Unknown` rather than synthetic stopped/zero/none values.
+An authoritative null/Idle observation establishes a new controller generation
+and permits a later same-Activity controller to begin at a lower revision; a
+different Activity also establishes a new context. Command results and queued
+Emergency Stop outcomes carry the generation and are discarded completely when
+they belong to an older controller or replacement-session generation. The one
+fail-closed exception is a successful Start result that returns after an
+authoritative inactive/Idle observation but before any replacement starts; it is
+synchronously stopped because capture may have crossed after the observation.
+A controller snapshot in `Unavailable` after a failed start permits an
+explicit retry-only local reset to Idle only after the controller has invoked
+the local capture-stop boundary and that boundary confirmed; the accepted
+snapshot must also report capture `Stopped`, no remote participant, and no
+current Driver. Failed, throwing, or cancelled capture admission attempts run
+that cleanup before returning or propagating cancellation. This includes an
+adapter that ignores cancellation and returns successful admission after the
+token is cancelled. A failed cleanup publishes `Unconfirmed`. Transient service
+unavailability, a presentation-only snapshot claim, and any unconfirmed stop do
+not satisfy the reset predicate. Unavailability alone never clears the stop
+latch or watermark.
+
+Production composition injects the explicit unsupported permission service
+until platform tasks 6-8 provide matching native adapters. Hosted fakes prove
+only Desktop ordering, cancellation, presentation, and accessibility; they are
+not native permission evidence.
+
+The visual design preserves the existing industrial/utilitarian Avalonia shell:
+Graphite, Steel, Chalk, Safety Amber, and Signal Red tokens; condensed headings;
+monospace state labels; the asymmetric local-device rail; and a full-width live
+sharing band below the fixed header. Existing label tracking is intentionally
+normalized to zero for predictable larger-text rendering. No nested cards,
+color-only status, emoji, or new font/icon dependency is introduced.
 
 ## Protocol 1.5 authenticated control
 

@@ -75,3 +75,11 @@ ambiguous. Rejected.
 - This decision does not close native capture/input/protection, Desktop UX,
   accessibility, permission, physical-device, or independent security-review
   gates.
+
+## Implementation note
+
+The later headless Desktop candidate now consumes the bounded controller state,
+permission contract, and local Emergency Stop surface. This does not revise the
+protocol decision or close native permission, capture/input/protection,
+production codec/rendering, packaged accessibility, physical-device, or
+independent security-review gates.

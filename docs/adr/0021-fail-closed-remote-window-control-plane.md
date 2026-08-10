@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-08
+- Clarified: 2026-08-10
 - Decision owners: Flowspan maintainers
 
 ## Context
@@ -29,7 +30,10 @@ and emergency stop synchronous local preemption paths. Emergency stop first
 latches and revokes the lease under the state lock, then calls capture halt,
 input halt, and local disconnect gates. Those gates have no peer-acknowledgement
 operation. Each boundary reports confirmation independently and exceptions are
-reduced to a stable payload-free reason code.
+reduced to a stable payload-free reason code. Repeated or concurrent stop
+attempts accumulate confirmations only within the current stop/session
+generation, and every completed result projects that accumulated proof without
+letting a later failed retry regress an earlier confirmation.
 
 Version every accepted protection observation independently from the public
 snapshot revision. Only a boundary result for the current protection revision
@@ -43,6 +47,49 @@ and Activity descriptor payloads outside the control state and diagnostics.
 
 Do not persist a live session or Driver Lease. Restart is a fail-closed sharing
 termination and requires new authorization and capture admission.
+
+## Concurrency clarification
+
+Capture admission, Emergency Stop confirmation, and protection work are bound to
+an explicit session generation. Safe protection cannot resume gates before
+capture admission confirms for that generation. A late successful admission
+invalidates older capture-stop proof and must be stopped again; only successful
+cleanup for the current stop/session generation can authorize reset. Every
+normal-operation waiter registers before it can queue, rechecks disposal after
+acquiring the gate, and drains before synchronization is disposed.
+
+Reset fails closed with `emergency_stop_in_progress` while any attempt in the
+current stop generation remains. After all attempts finish, a later reset retry
+requires all three accumulated confirmations for that same session generation;
+no proof is reusable by a later session.
+
+Capability removal commits participant and Driver-authority revocation before
+calling the local peer-disconnect boundary. A failed peer disconnect remains a
+peer-scoped pending cleanup that explicit disconnect or Capability
+reconciliation retries without restoring authority; confirmation clears it.
+
+Desktop Start cancellation is rechecked after the service boundary returns. A
+successful result from a cancellation-ignoring service, or one returned after an
+authoritative inactive/Idle observation, is stopped while it is still the
+current session. If a replacement session has already begun on the same
+controller, generation plus inactive-boundary provenance rejects the older
+result without stopping or mutating the replacement.
+
+Protection reconciliation remains bounded to eight attempts. Exhaustion leaves
+capture blocked and `Unconfirmed` even if the final fail-closed pause call
+succeeds. If stale protection work crosses into a terminal lifecycle, it closes
+capture, input, and local sharing-session boundaries and retains all three
+results, including session-disconnect provenance. Emergency reassertion follows
+the same rule.
+
+Presentation and service observers never own a safety lock. Desktop state uses
+generation-bound atomic reducer facts under a short gate, invokes observers only
+after releasing it, and performs immediate local Emergency Stop before any
+potentially blocking cancellation, event removal, operation drain, or dependency
+teardown. Permission-busy and associated command callbacks register an
+external-boundary lease before notification; disposal requested synchronously
+from that callback excludes its own lease from the drain so it cannot wait on
+itself, while external callers still join complete cleanup.
 
 ## Consequences
 

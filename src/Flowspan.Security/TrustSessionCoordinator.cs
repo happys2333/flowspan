@@ -71,6 +71,8 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         this.trustStore = trustStore;
     }
 
+    public event Action? Changed;
+
     public bool TryGetCurrentTrust(
         DeviceId peerDeviceId,
         [NotNullWhen(true)] out TrustRecord? trustRecord)
@@ -97,17 +99,25 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
     {
         ThrowIfShuttingDown();
         ArgumentNullException.ThrowIfNull(trustRecord);
+        TrustRegistrationResult result;
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ThrowIfShuttingDown();
-            return await trustStore.RegisterAsync(trustRecord, cancellationToken)
+            result = await trustStore.RegisterAsync(trustRecord, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
         {
             gate.Release();
         }
+
+        if (result == TrustRegistrationResult.Added)
+        {
+            PublishChanged();
+        }
+
+        return result;
     }
 
     public ValueTask<TrustSessionRegistration?> TryRegisterAsync(
@@ -209,6 +219,7 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
             gate.Release();
         }
 
+        PublishChanged();
         await StopAllAsync(
             revokedSessions,
             TrustSessionStopReason.PeerRevoked).ConfigureAwait(false);
@@ -245,6 +256,7 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
             gate.Release();
         }
 
+        PublishChanged();
         await StopAllAsync(
             revokedSessions,
             TrustSessionStopReason.PeerRevoked).ConfigureAwait(false);
@@ -301,6 +313,7 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
             gate.Release();
         }
 
+        PublishChanged();
         await StopAllAsync(
             unauthorizedSessions,
             TrustSessionStopReason.CapabilityRevoked).ConfigureAwait(false);
@@ -436,6 +449,21 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref disposalState) != 0,
             this);
+
+    private void PublishChanged()
+    {
+        foreach (Action subscriber in Changed?.GetInvocationList().Cast<Action>() ?? [])
+        {
+            try
+            {
+                subscriber();
+            }
+            catch
+            {
+                // Observers cannot own persisted Trust mutation or session draining.
+            }
+        }
+    }
 
     private static bool IsCapabilityRequirementSatisfied(
         CapabilityGrant requiredCapabilities,

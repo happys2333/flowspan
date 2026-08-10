@@ -249,6 +249,72 @@ public sealed class RemoteWindowSessionControllerTests
     }
 
     [Fact]
+    public async Task ReentrantEmergencyStopDoesNotRecurseThroughLocalBoundaries()
+    {
+        var capture = new ReenteringEmergencyStopCaptureBoundary();
+        var input = new RecordingInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        int inputStops = 0;
+        input.OnEmergencyStop = () => inputStops++;
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        capture.Reenter = controller.EmergencyStop;
+
+        RemoteWindowEmergencyStopResult outer = controller.EmergencyStop();
+
+        RemoteWindowEmergencyStopResult nested = Assert.IsType<
+            RemoteWindowEmergencyStopResult>(capture.ReentrantResult);
+        Assert.False(nested.FullyStopped);
+        Assert.Equal(RemoteWindowLifecycle.EmergencyStopped, nested.Snapshot.Lifecycle);
+        Assert.True(outer.FullyStopped);
+        Assert.Equal(1, capture.EmergencyStopCallCount);
+        Assert.Equal(1, capture.MaximumCallDepth);
+        Assert.Equal(1, inputStops);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task CapturedEmergencyStopContextExpiresAfterOuterAttemptCompletes()
+    {
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        var releaseDelayedStop = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<RemoteWindowEmergencyStopResult>? delayedStop = null;
+        int inputStops = 0;
+        input.OnEmergencyStop = () => inputStops++;
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        capture.OnEmergencyStop = () =>
+        {
+            capture.OnEmergencyStop = null;
+            delayedStop = Task.Run(async () =>
+            {
+                await releaseDelayedStop.Task;
+                return controller.EmergencyStop();
+            });
+        };
+
+        RemoteWindowEmergencyStopResult first = controller.EmergencyStop();
+        releaseDelayedStop.TrySetResult();
+        Assert.NotNull(delayedStop);
+        RemoteWindowEmergencyStopResult retry = await delayedStop;
+
+        Assert.True(first.FullyStopped);
+        Assert.True(retry.FullyStopped);
+        Assert.Equal(2, capture.EmergencyStopCallCount);
+        Assert.Equal(2, inputStops);
+        Assert.Equal(2, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
     public async Task EmergencyStopWinsAgainstLateCaptureStartCompletion()
     {
         var capture = new RecordingCaptureBoundary();
@@ -269,6 +335,37 @@ public sealed class RemoteWindowSessionControllerTests
         Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
         Assert.Null(controller.Snapshot.CurrentDriverDeviceId);
         Assert.Equal(2, controller.Snapshot.DriverLeaseEpoch);
+    }
+
+    [Fact]
+    public async Task LateCaptureAdmissionInvalidatesEarlierEmergencyStopProof()
+    {
+        var capture = new RecordingCaptureBoundary();
+        capture.BlockStart();
+        using RemoteWindowSessionController controller = CreateController(capture);
+        Task<RemoteWindowCommandResult> starting = controller
+            .StartAsync(SafeAt(Now))
+            .AsTask();
+        await capture.StartEntered.Task;
+
+        RemoteWindowEmergencyStopResult initialStop = controller.EmergencyStop();
+        capture.EmergencyFailure = new IOException("private late stop failure");
+        capture.ReleaseStart();
+        RemoteWindowCommandResult lateStart = await starting;
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.True(initialStop.FullyStopped);
+        Assert.Equal(RemoteWindowCommandStatus.EmergencyStopped, lateStart.Status);
+        Assert.False(lateStart.CleanupBoundary?.Succeeded);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            lateStart.Snapshot.CaptureState);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, reset.Status);
+        Assert.Equal("emergency_boundaries_unconfirmed", reset.ReasonCode);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            reset.Snapshot.Lifecycle);
     }
 
     [Fact]
@@ -304,6 +401,39 @@ public sealed class RemoteWindowSessionControllerTests
         Assert.DoesNotContain(
             Peer,
             sessions.SnapshotObservedAtPeerDisconnect.Participants.Keys);
+    }
+
+    [Fact]
+    public async Task ParticipantDisconnectRetriesUnconfirmedLocalBoundary()
+    {
+        var authorization = new MutableMirrorAuthorizationSource();
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectPeerResult =
+                LocalBoundaryResult.Failed("peer_disconnect_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(
+            new RecordingCaptureBoundary(),
+            authorization: authorization,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        authorization.SetGrant(Peer, CapabilityGrant.Of(Capability.MirrorView));
+        _ = await controller.AddParticipantAsync(Peer, MirrorParticipantRole.ViewOnly);
+
+        RemoteWindowCommandResult failed =
+            await controller.DisconnectParticipantAsync(Peer);
+        sessions.DisconnectPeerResult =
+            LocalBoundaryResult.Confirmed("peer_disconnected");
+        RemoteWindowCommandResult retried =
+            await controller.DisconnectParticipantAsync(Peer);
+        RemoteWindowCommandResult completed =
+            await controller.DisconnectParticipantAsync(Peer);
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failed.Status);
+        Assert.DoesNotContain(Peer, failed.Snapshot.Participants.Keys);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, retried.Status);
+        Assert.Equal(RemoteWindowCommandStatus.AlreadyApplied, completed.Status);
+        Assert.Equal([Peer, Peer], sessions.DisconnectedPeers);
     }
 
     [Fact]
@@ -488,6 +618,127 @@ public sealed class RemoteWindowSessionControllerTests
     }
 
     [Fact]
+    public async Task EmergencyStopReturnsConfirmationsAccumulatedAcrossCurrentGeneration()
+    {
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary
+        {
+            EmergencyStopResult = LocalBoundaryResult.Failed("input_stop_failed"),
+        };
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectAllResult = LocalBoundaryResult.Failed(
+                "sessions_disconnect_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+
+        RemoteWindowEmergencyStopResult captureConfirmed =
+            controller.EmergencyStop();
+        capture.EmergencyFailure = new IOException("private capture failure");
+        input.EmergencyStopResult =
+            LocalBoundaryResult.Confirmed("input_emergency_stopped");
+        RemoteWindowEmergencyStopResult inputConfirmed =
+            controller.EmergencyStop();
+        input.EmergencyStopResult = LocalBoundaryResult.Failed("input_stop_failed");
+        sessions.DisconnectAllResult =
+            LocalBoundaryResult.Confirmed("sessions_disconnected");
+
+        RemoteWindowEmergencyStopResult allConfirmed = controller.EmergencyStop();
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.False(captureConfirmed.FullyStopped);
+        Assert.False(inputConfirmed.FullyStopped);
+        Assert.True(allConfirmed.FullyStopped);
+        Assert.True(allConfirmed.CaptureBoundary.Succeeded);
+        Assert.True(allConfirmed.InputBoundary.Succeeded);
+        Assert.True(allConfirmed.SessionBoundary.Succeeded);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            allConfirmed.Snapshot.CaptureState);
+        Assert.True(reset.Succeeded);
+        Assert.Equal(RemoteWindowLifecycle.Idle, reset.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task ConcurrentEmergencyAttemptsMergeCurrentGenerationConfirmations()
+    {
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary
+        {
+            EmergencyStopResult = LocalBoundaryResult.Failed("input_stop_failed"),
+        };
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectAllResult = LocalBoundaryResult.Failed(
+                "sessions_disconnect_failed"),
+        };
+        var firstDisconnectEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstDisconnect = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        sessions.OnDisconnectAll = () =>
+        {
+            if (sessions.DisconnectAllCallCount != 1)
+            {
+                return;
+            }
+
+            firstDisconnectEntered.TrySetResult();
+            releaseFirstDisconnect.Task.GetAwaiter().GetResult();
+        };
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+
+        Task<RemoteWindowEmergencyStopResult> olderAttempt = Task.Run(
+            controller.EmergencyStop);
+        await firstDisconnectEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        capture.EmergencyFailure = new IOException("private capture failure");
+        input.EmergencyStopResult =
+            LocalBoundaryResult.Confirmed("input_emergency_stopped");
+        sessions.DisconnectAllResult =
+            LocalBoundaryResult.Confirmed("sessions_disconnected");
+
+        RemoteWindowEmergencyStopResult retry;
+        RemoteWindowCommandResult prematureReset;
+        try
+        {
+            retry = controller.EmergencyStop();
+            prematureReset = await controller.ResetAfterLocalConfirmationAsync();
+        }
+        finally
+        {
+            releaseFirstDisconnect.TrySetResult();
+        }
+
+        RemoteWindowEmergencyStopResult completedOlderAttempt =
+            await olderAttempt.WaitAsync(TimeSpan.FromSeconds(2));
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.False(retry.FullyStopped);
+        Assert.Equal(
+            RemoteWindowCommandStatus.BoundaryFailed,
+            prematureReset.Status);
+        Assert.Equal("emergency_stop_in_progress", prematureReset.ReasonCode);
+        Assert.True(completedOlderAttempt.FullyStopped);
+        Assert.True(completedOlderAttempt.CaptureBoundary.Succeeded);
+        Assert.True(completedOlderAttempt.InputBoundary.Succeeded);
+        Assert.True(completedOlderAttempt.SessionBoundary.Succeeded);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            completedOlderAttempt.Snapshot.CaptureState);
+        Assert.True(reset.Succeeded);
+    }
+
+    [Fact]
     public async Task ProtectionBlockWinsAgainstLateCaptureStartCompletion()
     {
         var capture = new RecordingCaptureBoundary();
@@ -516,6 +767,46 @@ public sealed class RemoteWindowSessionControllerTests
         Assert.Equal(RemoteWindowCommandStatus.ProtectionBlocked, lateStart.Status);
         Assert.Equal(RemoteWindowLifecycle.ProtectionPaused, controller.Snapshot.Lifecycle);
         Assert.NotEqual(RemoteWindowCaptureState.Capturing, controller.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task SafeProtectionCannotResumeBeforeCaptureAdmissionConfirms()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartResult = LocalBoundaryResult.Failed("capture_start_failed"),
+        };
+        var input = new RecordingInputBoundary();
+        capture.BlockStart();
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input);
+        Task<RemoteWindowCommandResult> starting = controller
+            .StartAsync(SafeAt(Now))
+            .AsTask();
+        await capture.StartEntered.Task;
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+
+        RemoteWindowProtectionResult safeWhilePending =
+            controller.ApplyProtectionSnapshot(SafeAt(Now));
+        RemoteWindowSharingSnapshot pending = controller.Snapshot;
+        capture.ReleaseStart();
+        RemoteWindowCommandResult failedStart = await starting;
+
+        Assert.True(safeWhilePending.Blocked);
+        Assert.Equal(
+            RemoteWindowLifecycle.ProtectionPaused,
+            safeWhilePending.Snapshot.Lifecycle);
+        Assert.NotEqual(
+            RemoteWindowCaptureState.Capturing,
+            safeWhilePending.Snapshot.CaptureState);
+        Assert.DoesNotContain("capture.resume", capture.Events);
+        Assert.False(input.IsAcceptingInput);
+        Assert.Equal(RemoteWindowLifecycle.ProtectionPaused, pending.Lifecycle);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, failedStart.Snapshot.Lifecycle);
     }
 
     [Fact]
@@ -548,6 +839,381 @@ public sealed class RemoteWindowSessionControllerTests
         Assert.Equal(RemoteWindowLifecycle.Active, controller.Snapshot.Lifecycle);
         Assert.Equal(RemoteWindowCaptureState.Capturing, controller.Snapshot.CaptureState);
         Assert.Equal(ProtectionKind.Safe, controller.Snapshot.ProtectionKind);
+    }
+
+    [Fact]
+    public async Task FailedStartCleansUpAfterPreAdmissionResumeIsBlocked()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartResult = LocalBoundaryResult.Failed("capture_start_failed"),
+        };
+        var input = new RecordingInputBoundary();
+        capture.BlockStart();
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input);
+        Task<RemoteWindowCommandResult> starting = controller
+            .StartAsync(SafeAt(Now))
+            .AsTask();
+        await capture.StartEntered.Task;
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        RemoteWindowProtectionResult safeWhilePending =
+            controller.ApplyProtectionSnapshot(SafeAt(Now));
+
+        capture.ReleaseStart();
+        RemoteWindowCommandResult failedStart = await starting;
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.True(safeWhilePending.Blocked);
+        Assert.DoesNotContain("capture.resume", capture.Events);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, failedStart.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            failedStart.Snapshot.CaptureState);
+        Assert.False(capture.IsCapturing);
+        Assert.False(input.IsAcceptingInput);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, reset.Status);
+        Assert.Equal(RemoteWindowLifecycle.Idle, reset.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task StaleProtectionCleanupRetainsPeersWhenSessionDisconnectFails()
+    {
+        var authorization = new MutableMirrorAuthorizationSource();
+        authorization.SetGrant(Peer, CapabilityGrant.Of(Capability.MirrorView));
+        var capture = new RecordingCaptureBoundary();
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectAllResult = LocalBoundaryResult.Failed(
+                "session_disconnect_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            authorization: authorization,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        _ = await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.ViewOnly);
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        capture.BlockResume();
+        Task<RemoteWindowProtectionResult> staleResume = Task.Run(() =>
+            controller.ApplyProtectionSnapshot(SafeAt(Now)));
+        await capture.ResumeEntered.Task;
+
+        RemoteWindowStopResult stopped = await controller.StopAsync();
+        capture.ReleaseResume();
+        RemoteWindowProtectionResult staleCleanup = await staleResume;
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, stopped.Status);
+        Assert.Contains(Peer, stopped.Snapshot.Participants.Keys);
+        Assert.Equal(
+            RemoteWindowCommandStatus.BoundaryFailed,
+            staleCleanup.Status);
+        Assert.Equal(
+            LocalBoundaryStatus.Failed,
+            staleCleanup.SessionBoundary?.Status);
+        Assert.Equal(
+            "session_disconnect_failed",
+            staleCleanup.SessionBoundary?.ReasonCode);
+        Assert.Contains(Peer, staleCleanup.Snapshot.Participants.Keys);
+        Assert.Contains(Peer, controller.Snapshot.Participants.Keys);
+        Assert.Equal(2, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task EmergencyStopDefersResetUntilStaleProtectionResumeIsReclosed()
+    {
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary();
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input);
+        _ = await controller.StartAsync(SafeAt(Now));
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        capture.BlockResume();
+        Task<RemoteWindowProtectionResult> staleResume = Task.Run(() =>
+            controller.ApplyProtectionSnapshot(SafeAt(Now)));
+        await capture.ResumeEntered.Task;
+
+        RemoteWindowEmergencyStopResult stopped = controller.EmergencyStop();
+        RemoteWindowCommandResult prematureReset =
+            await controller.ResetAfterLocalConfirmationAsync();
+        RemoteWindowCommandResult prematureRetry =
+            await controller.StartAsync(SafeAt(Now));
+        capture.ReleaseResume();
+        RemoteWindowProtectionResult staleResult = await staleResume;
+        bool captureReclosed = !capture.IsCapturing;
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+        RemoteWindowCommandResult restarted =
+            await controller.StartAsync(SafeAt(Now));
+
+        Assert.True(stopped.FullyStopped);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, prematureReset.Status);
+        Assert.Equal(
+            "protection_reconciliation_in_progress",
+            prematureReset.ReasonCode);
+        Assert.Equal(RemoteWindowCommandStatus.InvalidState, prematureRetry.Status);
+        Assert.True(staleResult.Blocked);
+        Assert.True(captureReclosed);
+        Assert.False(input.IsAcceptingInput);
+        Assert.Equal(2, capture.EmergencyStopCallCount);
+        Assert.True(
+            capture.BoundaryTimeline.LastIndexOf("capture.emergency_stop")
+            > capture.BoundaryTimeline.LastIndexOf("capture.resume.return"));
+        Assert.Equal(RemoteWindowCommandStatus.Applied, reset.Status);
+        Assert.Equal(RemoteWindowLifecycle.Idle, reset.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, restarted.Status);
+        Assert.Equal(RemoteWindowLifecycle.Active, restarted.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task EmergencyReassertionPreservesFailedSessionBoundaryAfterStaleResume()
+    {
+        var capture = new RecordingCaptureBoundary();
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectAllResult = LocalBoundaryResult.Failed(
+                "session_disconnect_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        capture.BlockResume();
+        Task<RemoteWindowProtectionResult> staleResume = Task.Run(() =>
+            controller.ApplyProtectionSnapshot(SafeAt(Now)));
+        await capture.ResumeEntered.Task;
+
+        RemoteWindowEmergencyStopResult stopped = controller.EmergencyStop();
+        capture.ReleaseResume();
+        RemoteWindowProtectionResult reasserted = await staleResume;
+
+        Assert.False(stopped.FullyStopped);
+        Assert.Equal(
+            (
+                RemoteWindowCommandStatus.BoundaryFailed,
+                (LocalBoundaryStatus?)LocalBoundaryStatus.Failed,
+                "session_disconnect_failed"),
+            (
+                reasserted.Status,
+                reasserted.SessionBoundary?.Status,
+                reasserted.SessionBoundary?.ReasonCode));
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            reasserted.Snapshot.Lifecycle);
+        Assert.Equal(2, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task ProtectionObservationRegistersBeforeResetCanStartNewSession()
+    {
+        var clock = new MutableClock(Now);
+        using RemoteWindowSessionController controller = CreateController(
+            new RecordingCaptureBoundary(),
+            clock: clock);
+        _ = await controller.StartAsync(SafeAt(Now));
+        RemoteWindowCommandResult? resetDuringObservation = null;
+        RemoteWindowCommandResult? restarted = null;
+        clock.OnRead = () =>
+        {
+            _ = controller.EmergencyStop();
+            resetDuringObservation = controller
+                .ResetAfterLocalConfirmationAsync()
+                .AsTask()
+                .GetAwaiter()
+                .GetResult();
+            if (resetDuringObservation.Succeeded)
+            {
+                restarted = controller
+                    .StartAsync(SafeAt(Now))
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult();
+            }
+        };
+
+        RemoteWindowProtectionResult staleObservation =
+            controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+                ProtectionKind.SecureInput,
+                Now,
+                "test-probe"));
+
+        Assert.NotNull(resetDuringObservation);
+        Assert.Equal(
+            RemoteWindowCommandStatus.BoundaryFailed,
+            resetDuringObservation.Status);
+        Assert.Equal(
+            "protection_reconciliation_in_progress",
+            resetDuringObservation.ReasonCode);
+        Assert.Null(restarted);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            staleObservation.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task ProtectionClockReadDoesNotHoldStateLockAcrossReentrantStop()
+    {
+        var clock = new MutableClock(Now);
+        var capture = new RecordingCaptureBoundary();
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            clock: clock);
+        _ = await controller.StartAsync(SafeAt(Now));
+        Task<RemoteWindowEmergencyStopResult>? stopping = null;
+        clock.OnRead = () =>
+        {
+            stopping = Task.Run(controller.EmergencyStop);
+            capture.EmergencyStopEntered.Task.GetAwaiter().GetResult();
+        };
+
+        RemoteWindowProtectionResult observation = await Task.Run(() =>
+                controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now,
+                    "test-probe")))
+            .WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.NotNull(stopping);
+        RemoteWindowEmergencyStopResult stopped = await stopping;
+
+        Assert.True(stopped.FullyStopped);
+        Assert.True(observation.Blocked);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task EmergencyResetWaitsForEveryAttemptFromCurrentStopGeneration()
+    {
+        var capture = new RecordingCaptureBoundary();
+        capture.BlockEmergencyStopCall(1);
+        using RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+
+        Task<RemoteWindowEmergencyStopResult> olderStop = Task.Run(
+            controller.EmergencyStop);
+        await capture.EmergencyStopEntered.Task;
+        RemoteWindowEmergencyStopResult retry = controller.EmergencyStop();
+        RemoteWindowCommandResult prematureReset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        capture.ReleaseEmergencyStop();
+        RemoteWindowEmergencyStopResult completedOlderStop = await olderStop;
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+        RemoteWindowCommandResult restarted =
+            await controller.StartAsync(SafeAt(Now));
+
+        Assert.True(retry.FullyStopped);
+        Assert.Equal(
+            RemoteWindowCommandStatus.BoundaryFailed,
+            prematureReset.Status);
+        Assert.Equal("emergency_stop_in_progress", prematureReset.ReasonCode);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            prematureReset.Snapshot.Lifecycle);
+        Assert.True(completedOlderStop.FullyStopped);
+        Assert.True(reset.Succeeded);
+        Assert.Equal(RemoteWindowLifecycle.Active, restarted.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Capturing,
+            restarted.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task EmergencyResetRequiresFreshConfirmationAfterStaleResume()
+    {
+        var capture = new RecordingCaptureBoundary();
+        using RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        capture.BlockResume();
+        Task<RemoteWindowProtectionResult> staleResume = Task.Run(() =>
+            controller.ApplyProtectionSnapshot(SafeAt(Now)));
+        await capture.ResumeEntered.Task;
+
+        RemoteWindowEmergencyStopResult stopped = controller.EmergencyStop();
+        capture.EmergencyFailure = new IOException("private reclose failure");
+        capture.ReleaseResume();
+        RemoteWindowProtectionResult staleResult = await staleResume;
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.True(stopped.FullyStopped);
+        Assert.True(staleResult.Blocked);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, reset.Status);
+        Assert.Equal("emergency_boundaries_unconfirmed", reset.ReasonCode);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            reset.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            reset.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task ConcurrentSafeObservationsCannotResumeBeforeFailedAdmission()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartResult = LocalBoundaryResult.Failed("capture_start_failed"),
+        };
+        capture.BlockStart();
+        using RemoteWindowSessionController controller = CreateController(capture);
+        Task<RemoteWindowCommandResult> starting = controller
+            .StartAsync(SafeAt(Now))
+            .AsTask();
+        await capture.StartEntered.Task;
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        Task<RemoteWindowProtectionResult> firstSafe = Task.Run(() =>
+            controller.ApplyProtectionSnapshot(SafeAt(Now)));
+        Task<RemoteWindowProtectionResult> secondSafe = Task.Run(() =>
+            controller.ApplyProtectionSnapshot(SafeAt(Now)));
+        RemoteWindowProtectionResult[] safeResults = await Task.WhenAll(
+            firstSafe,
+            secondSafe);
+
+        capture.ReleaseStart();
+        RemoteWindowCommandResult failedStart = await starting;
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.All(safeResults, static result => Assert.True(result.Blocked));
+        Assert.DoesNotContain("capture.resume", capture.Events);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            failedStart.Snapshot.CaptureState);
+        Assert.False(capture.IsCapturing);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, reset.Status);
     }
 
     [Fact]
@@ -590,6 +1256,390 @@ public sealed class RemoteWindowSessionControllerTests
 
         Assert.Equal(RemoteWindowCommandStatus.EmergencyStopped, startResult.Status);
         Assert.Equal(RemoteWindowLifecycle.EmergencyStopped, controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task DisposeRejectsQueuedStartAdmissionBeforeAnyBoundary()
+    {
+        var authorization = new MutableMirrorAuthorizationSource();
+        authorization.BlockReads();
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        RemoteWindowSessionController controller = CreateController(
+            capture,
+            authorization: authorization,
+            input: input,
+            sessions: sessions);
+        Task<RemoteWindowCommandResult> gateHolder = Task.Run(async () =>
+            await controller.AddParticipantAsync(
+                Peer,
+                MirrorParticipantRole.ViewOnly));
+        await authorization.ReadEntered.Task;
+        Task<RemoteWindowCommandResult> queuedStart = controller
+            .StartAsync(SafeAt(Now))
+            .AsTask();
+        Task disposing = Task.Run(controller.Dispose);
+        Assert.True(SpinWait.SpinUntil(
+            () => IsDisposed(controller),
+            TimeSpan.FromSeconds(5)));
+
+        authorization.ReleaseReads();
+        _ = await gateHolder;
+        Exception? startFailure = await Record.ExceptionAsync(async () =>
+            await queuedStart);
+        await disposing;
+
+        Assert.IsType<ObjectDisposedException>(startFailure);
+        Assert.Equal(
+            RemoteWindowLifecycle.Idle,
+            controller.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            controller.Snapshot.CaptureState);
+        Assert.Empty(capture.Events);
+        Assert.False(capture.IsCapturing);
+        Assert.True(input.IsAcceptingInput);
+        Assert.Equal(0, sessions.DisconnectAllCallCount);
+
+        static bool IsDisposed(RemoteWindowSessionController candidate)
+        {
+            try
+            {
+                _ = candidate.ApplyProtectionSnapshot(SafeAt(Now));
+                return false;
+            }
+            catch (ObjectDisposedException)
+            {
+                return true;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DisposeFromStartBoundaryReturnsAndDefersFinalCleanup()
+    {
+        var capture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController controller = CreateController(capture);
+        bool disposeReturned = false;
+        capture.OnStartReturning = () =>
+        {
+            controller.Dispose();
+            disposeReturned = true;
+        };
+
+        RemoteWindowCommandResult result = await Task.Run(async () =>
+                await controller.StartAsync(SafeAt(Now)))
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(disposeReturned);
+        Assert.Equal(RemoteWindowCommandStatus.EmergencyStopped, result.Status);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            controller.Snapshot.Lifecycle);
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () =>
+            await controller.StartAsync(SafeAt(Now)));
+    }
+
+    [Fact]
+    public async Task DisposeDrainsAdmittedProtectionReconciliation()
+    {
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary();
+        RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input);
+        _ = await controller.StartAsync(SafeAt(Now));
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        capture.BlockResume();
+        Task<RemoteWindowProtectionResult> applying = Task.Run(() =>
+            controller.ApplyProtectionSnapshot(SafeAt(Now)));
+        await capture.ResumeEntered.Task;
+        Task disposing = Task.Run(controller.Dispose);
+        await capture.EmergencyStopEntered.Task;
+        int returnedBeforeReconciliationReleased = 0;
+        Task observeDisposal = disposing.ContinueWith(
+            _ =>
+            {
+                if (!capture.ResumeReleased)
+                {
+                    Interlocked.Exchange(
+                        ref returnedBeforeReconciliationReleased,
+                        1);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        capture.ReleaseResume();
+        RemoteWindowProtectionResult result = await applying;
+        await Task.WhenAll(disposing, observeDisposal);
+
+        Assert.Equal(0, Volatile.Read(ref returnedBeforeReconciliationReleased));
+        Assert.True(result.Blocked);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task DisposeDrainsAdmittedEmergencyStopAttempt()
+    {
+        var capture = new RecordingCaptureBoundary();
+        capture.BlockEmergencyStopCall(1);
+        RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        Task<RemoteWindowEmergencyStopResult> stopping = Task.Run(
+            controller.EmergencyStop);
+        await capture.EmergencyStopEntered.Task;
+        Task disposing = Task.Run(controller.Dispose);
+        int returnedBeforeStopReleased = 0;
+        Task observeDisposal = disposing.ContinueWith(
+            _ =>
+            {
+                if (!capture.EmergencyStopReleased)
+                {
+                    Interlocked.Exchange(ref returnedBeforeStopReleased, 1);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        capture.ReleaseEmergencyStop();
+        RemoteWindowEmergencyStopResult result = await stopping;
+        await Task.WhenAll(disposing, observeDisposal);
+
+        Assert.Equal(0, Volatile.Read(ref returnedBeforeStopReleased));
+        Assert.True(result.FullyStopped);
+        Assert.Equal(1, capture.EmergencyStopCallCount);
+    }
+
+    [Fact]
+    public async Task DisposeRetriesAllBoundariesForUnavailableUnconfirmedCapture()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartResult = LocalBoundaryResult.Failed("capture_start_failed"),
+            StopResult = LocalBoundaryResult.Failed("capture_stop_failed"),
+        };
+        var input = new RecordingInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        int inputStops = 0;
+        input.OnStop = () => inputStops++;
+        RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input,
+            sessions: sessions);
+        RemoteWindowCommandResult failedStart =
+            await controller.StartAsync(SafeAt(Now));
+        capture.StopResult = LocalBoundaryResult.Confirmed("capture_stopped");
+
+        controller.Dispose();
+
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, failedStart.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            failedStart.Snapshot.CaptureState);
+        Assert.Equal(2, capture.StopCallCount);
+        Assert.Equal(1, inputStops);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            controller.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task DisposeRetriesAllBoundariesForEndedUnconfirmedCapture()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StopResult = LocalBoundaryResult.Failed("capture_stop_failed"),
+        };
+        var input = new RecordingInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        int inputStops = 0;
+        input.OnStop = () => inputStops++;
+        RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        RemoteWindowStopResult failedStop = await controller.StopAsync();
+        capture.StopResult = LocalBoundaryResult.Confirmed("capture_stopped");
+
+        controller.Dispose();
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failedStop.Status);
+        Assert.Equal(RemoteWindowLifecycle.Ended, failedStop.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            failedStop.Snapshot.CaptureState);
+        Assert.Equal(2, capture.StopCallCount);
+        Assert.Equal(2, inputStops);
+        Assert.Equal(2, sessions.DisconnectAllCallCount);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            controller.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task DisposeRetriesEndedInputAndSessionBoundaryFailures()
+    {
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary
+        {
+            StopResult = LocalBoundaryResult.Failed("input_stop_failed"),
+        };
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectAllResult = LocalBoundaryResult.Failed(
+                "session_disconnect_failed"),
+        };
+        RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        RemoteWindowStopResult failedStop = await controller.StopAsync();
+        input.StopResult = LocalBoundaryResult.Confirmed("input_stopped");
+        sessions.DisconnectAllResult =
+            LocalBoundaryResult.Confirmed("sessions_disconnected");
+
+        controller.Dispose();
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failedStop.Status);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, failedStop.Snapshot.CaptureState);
+        Assert.Equal(2, capture.StopCallCount);
+        Assert.Equal(2, input.StopCallCount);
+        Assert.Equal(2, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task DisposeRetriesAllUnconfirmedEmergencyBoundaries()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            EmergencyFailure = new IOException("capture stop failed"),
+        };
+        var input = new RecordingInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        int inputStops = 0;
+        input.OnEmergencyStop = () => inputStops++;
+        RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        RemoteWindowEmergencyStopResult failedStop = controller.EmergencyStop();
+        capture.EmergencyFailure = null;
+
+        controller.Dispose();
+
+        Assert.False(failedStop.FullyStopped);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            failedStop.Snapshot.CaptureState);
+        Assert.Equal(2, capture.EmergencyStopCallCount);
+        Assert.Equal(2, inputStops);
+        Assert.Equal(2, sessions.DisconnectAllCallCount);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            controller.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task DisposeFromEmergencyBoundaryReturnsWithoutSelfWaiting()
+    {
+        var capture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        bool disposeReturned = false;
+        capture.OnEmergencyStop = () =>
+        {
+            controller.Dispose();
+            disposeReturned = true;
+        };
+
+        RemoteWindowEmergencyStopResult result = await Task.Run(
+                controller.EmergencyStop)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(disposeReturned);
+        Assert.True(result.FullyStopped);
+        Assert.Equal(1, capture.EmergencyStopCallCount);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task DisposalEmergencyStopRejectsBoundaryReentry()
+    {
+        var authorization = new MutableMirrorAuthorizationSource();
+        authorization.SetGrant(Peer, CapabilityGrant.Of(Capability.MirrorView));
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        int inputStops = 0;
+        input.OnEmergencyStop = () => inputStops++;
+        RemoteWindowSessionController controller = CreateController(
+            capture,
+            authorization: authorization,
+            input: input,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        RemoteWindowEmergencyStopResult? nestedStop = null;
+        capture.OnEmergencyStop = () =>
+        {
+            capture.OnEmergencyStop = null;
+            nestedStop = controller.EmergencyStop();
+        };
+        authorization.OnRead = controller.Dispose;
+
+        RemoteWindowCommandResult result = await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.ViewOnly);
+
+        Assert.Equal(RemoteWindowCommandStatus.InvalidState, result.Status);
+        Assert.NotNull(nestedStop);
+        Assert.False(nestedStop.FullyStopped);
+        Assert.Equal(1, capture.EmergencyStopCallCount);
+        Assert.Equal(1, inputStops);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task DisposeFromProtectionBoundaryReturnsWithoutSelfWaiting()
+    {
+        var capture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        bool disposeReturned = false;
+        capture.OnResume = () =>
+        {
+            controller.Dispose();
+            disposeReturned = true;
+        };
+
+        RemoteWindowProtectionResult result = await Task.Run(() =>
+                controller.ApplyProtectionSnapshot(SafeAt(Now)))
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(disposeReturned);
+        Assert.True(result.Blocked);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            controller.Snapshot.Lifecycle);
+        Assert.False(capture.IsCapturing);
     }
 
     [Fact]
@@ -694,6 +1744,65 @@ public sealed class RemoteWindowSessionControllerTests
     }
 
     [Fact]
+    public async Task UnconfirmedPeerDisconnectsConsumeTheBoundedParticipantBudget()
+    {
+        var authorization = new MutableMirrorAuthorizationSource();
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectPeerResult =
+                LocalBoundaryResult.Failed("peer_disconnect_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(
+            new RecordingCaptureBoundary(),
+            authorization: authorization,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        DeviceId[] peers = Enumerable.Range(2, 16)
+            .Select(index => DeviceId.Parse(
+                $"00000000-0000-0000-0000-{index.ToString("x12", System.Globalization.CultureInfo.InvariantCulture)}"))
+            .ToArray();
+
+        foreach (DeviceId peer in peers[..15])
+        {
+            authorization.SetGrant(peer, CapabilityGrant.Of(Capability.MirrorView));
+            RemoteWindowCommandResult admitted = await controller.AddParticipantAsync(
+                peer,
+                MirrorParticipantRole.ViewOnly);
+            authorization.SetGrant(peer, CapabilityGrant.None);
+            RemoteWindowCommandResult revoked =
+                await controller.ReconcilePeerCapabilitiesAsync(peer);
+
+            Assert.True(admitted.Succeeded);
+            Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, revoked.Status);
+            Assert.DoesNotContain(peer, revoked.Snapshot.Participants.Keys);
+        }
+
+        authorization.SetGrant(peers[^1], CapabilityGrant.Of(Capability.MirrorView));
+        RemoteWindowCommandResult exhausted = await controller.AddParticipantAsync(
+            peers[^1],
+            MirrorParticipantRole.ViewOnly);
+
+        Assert.Equal(
+            RemoteWindowCommandStatus.ParticipantLimitReached,
+            exhausted.Status);
+        Assert.Single(exhausted.Snapshot.Participants);
+        Assert.DoesNotContain(peers[^1], exhausted.Snapshot.Participants.Keys);
+
+        sessions.DisconnectPeerResult =
+            LocalBoundaryResult.Confirmed("peer_disconnected");
+        RemoteWindowCommandResult cleaned =
+            await controller.DisconnectParticipantAsync(peers[0]);
+        RemoteWindowCommandResult admittedAfterCleanup =
+            await controller.AddParticipantAsync(
+                peers[^1],
+                MirrorParticipantRole.ViewOnly);
+
+        Assert.True(cleaned.Succeeded);
+        Assert.True(admittedAfterCleanup.Succeeded);
+        Assert.Contains(peers[^1], admittedAfterCleanup.Snapshot.Participants.Keys);
+    }
+
+    [Fact]
     public async Task ViewRevocationRemovesPeerBeforeLocalDisconnect()
     {
         var authorization = new MutableMirrorAuthorizationSource();
@@ -717,6 +1826,85 @@ public sealed class RemoteWindowSessionControllerTests
         Assert.DoesNotContain(
             Peer,
             sessions.SnapshotObservedAtPeerDisconnect.Participants.Keys);
+    }
+
+    [Fact]
+    public async Task ViewRevocationRetriesUnconfirmedLocalDisconnect()
+    {
+        var authorization = new MutableMirrorAuthorizationSource();
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectPeerResult =
+                LocalBoundaryResult.Failed("peer_disconnect_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(
+            new RecordingCaptureBoundary(),
+            authorization: authorization,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        authorization.SetGrant(Peer, CapabilityGrant.Of(Capability.MirrorView));
+        _ = await controller.AddParticipantAsync(Peer, MirrorParticipantRole.ViewOnly);
+        authorization.SetGrant(Peer, CapabilityGrant.None);
+
+        RemoteWindowCommandResult failed =
+            await controller.ReconcilePeerCapabilitiesAsync(Peer);
+        sessions.DisconnectPeerResult =
+            LocalBoundaryResult.Confirmed("peer_disconnected");
+        RemoteWindowCommandResult retried =
+            await controller.ReconcilePeerCapabilitiesAsync(Peer);
+        RemoteWindowCommandResult completed =
+            await controller.ReconcilePeerCapabilitiesAsync(Peer);
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failed.Status);
+        Assert.DoesNotContain(Peer, failed.Snapshot.Participants.Keys);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, retried.Status);
+        Assert.Equal(RemoteWindowCommandStatus.AlreadyApplied, completed.Status);
+        Assert.Equal([Peer, Peer], sessions.DisconnectedPeers);
+    }
+
+    [Fact]
+    public async Task PendingDisconnectBlocksRegrantUntilCleanupConfirms()
+    {
+        var authorization = new MutableMirrorAuthorizationSource();
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectPeerResult =
+                LocalBoundaryResult.Failed("peer_disconnect_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(
+            new RecordingCaptureBoundary(),
+            authorization: authorization,
+            sessions: sessions);
+        _ = await controller.StartAsync(SafeAt(Now));
+        authorization.SetGrant(Peer, CapabilityGrant.Of(Capability.MirrorView));
+        _ = await controller.AddParticipantAsync(Peer, MirrorParticipantRole.ViewOnly);
+        authorization.SetGrant(Peer, CapabilityGrant.None);
+        RemoteWindowCommandResult failedCleanup =
+            await controller.ReconcilePeerCapabilitiesAsync(Peer);
+        authorization.SetGrant(Peer, CapabilityGrant.Of(Capability.MirrorView));
+
+        RemoteWindowCommandResult blocked = await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.ViewOnly);
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failedCleanup.Status);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, blocked.Status);
+        Assert.Equal("peer_disconnect_pending", blocked.ReasonCode);
+        Assert.DoesNotContain(Peer, blocked.Snapshot.Participants.Keys);
+        Assert.Equal([Peer], sessions.DisconnectedPeers);
+
+        sessions.DisconnectPeerResult =
+            LocalBoundaryResult.Confirmed("peer_disconnected");
+        RemoteWindowCommandResult cleaned =
+            await controller.ReconcilePeerCapabilitiesAsync(Peer);
+        RemoteWindowCommandResult admitted = await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.ViewOnly);
+
+        Assert.True(cleaned.Succeeded);
+        Assert.True(admitted.Succeeded);
+        Assert.Contains(Peer, admitted.Snapshot.Participants.Keys);
+        Assert.Equal([Peer, Peer], sessions.DisconnectedPeers);
     }
 
     [Fact]
@@ -975,6 +2163,99 @@ public sealed class RemoteWindowSessionControllerTests
     }
 
     [Fact]
+    public async Task FailedStartWithConfirmedCleanupCanBeLocallyResetBeforeRetry()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartFailure = new IOException("private initial failure"),
+        };
+        using RemoteWindowSessionController controller = CreateController(capture);
+        RemoteWindowCommandResult failedStart =
+            await controller.StartAsync(SafeAt(Now));
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+        capture.StartFailure = null;
+        RemoteWindowCommandResult retried =
+            await controller.StartAsync(SafeAt(Now));
+
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, failedStart.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            failedStart.Snapshot.CaptureState);
+        Assert.Empty(failedStart.Snapshot.Participants);
+        Assert.Null(failedStart.Snapshot.CurrentDriverDeviceId);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, reset.Status);
+        Assert.Equal(RemoteWindowLifecycle.Idle, reset.Snapshot.Lifecycle);
+        Assert.Empty(reset.Snapshot.Participants);
+        Assert.Null(reset.Snapshot.CurrentDriverDeviceId);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, retried.Status);
+        Assert.Equal(RemoteWindowLifecycle.Active, retried.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task FailedStartWithUnconfirmedCleanupCannotBeLocallyReset()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartResult = LocalBoundaryResult.Failed("capture_start_failed"),
+            StopResult = LocalBoundaryResult.Failed("capture_stop_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(capture);
+
+        RemoteWindowCommandResult failedStart =
+            await controller.StartAsync(SafeAt(Now));
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failedStart.Status);
+        Assert.Equal("capture_start_failed", failedStart.ReasonCode);
+        Assert.Equal("capture_start_failed", failedStart.Boundary?.ReasonCode);
+        Assert.Equal(
+            "capture_stop_failed",
+            failedStart.CleanupBoundary?.ReasonCode);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, failedStart.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            failedStart.Snapshot.CaptureState);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, reset.Status);
+        Assert.Equal("unavailable_stop_unconfirmed", reset.ReasonCode);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, reset.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task ThrownStartAndCleanupFailuresHaveSeparatePayloadFreeResults()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartFailure = new IOException("FLOWSPAN_PRIVATE_START_FAILURE"),
+            StopFailure = new IOException("FLOWSPAN_PRIVATE_CLEANUP_FAILURE"),
+        };
+        using RemoteWindowSessionController controller = CreateController(capture);
+
+        RemoteWindowCommandResult failedStart =
+            await controller.StartAsync(SafeAt(Now));
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failedStart.Status);
+        Assert.Equal("local_boundary_exception", failedStart.Boundary?.ReasonCode);
+        Assert.Equal(
+            "local_boundary_exception",
+            failedStart.CleanupBoundary?.ReasonCode);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            failedStart.Snapshot.CaptureState);
+        Assert.DoesNotContain(
+            "FLOWSPAN_PRIVATE_START_FAILURE",
+            failedStart.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FLOWSPAN_PRIVATE_CLEANUP_FAILURE",
+            failedStart.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NormalDriverTransferWaitsForAdmittedInputToFinish()
     {
         var authorization = new MutableMirrorAuthorizationSource();
@@ -1012,7 +2293,135 @@ public sealed class RemoteWindowSessionControllerTests
     }
 
     [Fact]
-    public async Task CancellingPendingCaptureStartEndsWithoutClaimingStoppedCapture()
+    public async Task CancellingPendingCaptureStartAttemptsFailClosedCleanup()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StopResult = LocalBoundaryResult.Failed("capture_stop_failed"),
+        };
+        capture.BlockStart();
+        using var cancellation = new CancellationTokenSource();
+        using RemoteWindowSessionController controller = CreateController(capture);
+        Task<RemoteWindowCommandResult> starting = controller
+            .StartAsync(SafeAt(Now), cancellation.Token)
+            .AsTask();
+        await capture.StartEntered.Task;
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await starting);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowLifecycle.Ended, controller.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowCaptureState.Unconfirmed, controller.Snapshot.CaptureState);
+        Assert.False(controller.Snapshot.IsSharing);
+    }
+
+    [Fact]
+    public async Task CancelledCaptureAdmissionCannotApplyIgnoredSuccessfulCancellation()
+    {
+        var capture = new RecordingCaptureBoundary();
+        using var cancellation = new CancellationTokenSource();
+        capture.OnStartReturning = cancellation.Cancel;
+        using RemoteWindowSessionController controller = CreateController(capture);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await controller.StartAsync(SafeAt(Now), cancellation.Token));
+
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.False(capture.IsCapturing);
+        Assert.Equal(RemoteWindowLifecycle.Ended, controller.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            controller.Snapshot.CaptureState);
+        Assert.False(controller.Snapshot.IsSharing);
+    }
+
+    [Fact]
+    public async Task CancelledCaptureAdmissionCannotReturnIgnoredBoundaryFailure()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartResult = LocalBoundaryResult.Failed("capture_start_failed"),
+        };
+        using var cancellation = new CancellationTokenSource();
+        capture.OnStartReturning = cancellation.Cancel;
+        using RemoteWindowSessionController controller = CreateController(capture);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await controller.StartAsync(SafeAt(Now), cancellation.Token));
+
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.False(capture.IsCapturing);
+        Assert.Equal(RemoteWindowLifecycle.Ended, controller.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            controller.Snapshot.CaptureState);
+        Assert.False(controller.Snapshot.IsSharing);
+    }
+
+    [Fact]
+    public async Task CancelledCaptureAdmissionInvalidatesEarlierEmergencyStopProof()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StopResult = LocalBoundaryResult.Failed("capture_stop_failed"),
+        };
+        capture.BlockStart();
+        using var cancellation = new CancellationTokenSource();
+        using RemoteWindowSessionController controller = CreateController(capture);
+        Task<RemoteWindowCommandResult> starting = controller
+            .StartAsync(SafeAt(Now), cancellation.Token)
+            .AsTask();
+        await capture.StartEntered.Task;
+        RemoteWindowEmergencyStopResult initialStop = controller.EmergencyStop();
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await starting);
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.True(initialStop.FullyStopped);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            controller.Snapshot.CaptureState);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, reset.Status);
+        Assert.Equal("emergency_boundaries_unconfirmed", reset.ReasonCode);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            reset.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task SuccessfulCancellationCleanupReconfirmsCurrentStopGeneration()
+    {
+        var capture = new RecordingCaptureBoundary();
+        capture.BlockStart();
+        using var cancellation = new CancellationTokenSource();
+        using RemoteWindowSessionController controller = CreateController(capture);
+        Task<RemoteWindowCommandResult> starting = controller
+            .StartAsync(SafeAt(Now), cancellation.Token)
+            .AsTask();
+        await capture.StartEntered.Task;
+        RemoteWindowEmergencyStopResult initialStop = controller.EmergencyStop();
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await starting);
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.True(initialStop.FullyStopped);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, reset.Status);
+        Assert.Equal(RemoteWindowLifecycle.Idle, reset.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            reset.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task CancellingPendingCaptureStartPublishesConfirmedCleanup()
     {
         var capture = new RecordingCaptureBoundary();
         capture.BlockStart();
@@ -1027,9 +2436,117 @@ public sealed class RemoteWindowSessionControllerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
             await starting);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.False(capture.IsCapturing);
         Assert.Equal(RemoteWindowLifecycle.Ended, controller.Snapshot.Lifecycle);
-        Assert.Equal(RemoteWindowCaptureState.Unconfirmed, controller.Snapshot.CaptureState);
-        Assert.False(controller.Snapshot.IsSharing);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+        Assert.Empty(controller.Snapshot.Participants);
+        Assert.Null(controller.Snapshot.CurrentDriverDeviceId);
+    }
+
+    [Fact]
+    public async Task CancellationCleansUpAfterPreAdmissionResumeIsBlocked()
+    {
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary();
+        capture.BlockStart();
+        using var cancellation = new CancellationTokenSource();
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input);
+        Task<RemoteWindowCommandResult> starting = controller
+            .StartAsync(SafeAt(Now), cancellation.Token)
+            .AsTask();
+        await capture.StartEntered.Task;
+        _ = controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now,
+            "test-probe"));
+        RemoteWindowProtectionResult safeWhilePending =
+            controller.ApplyProtectionSnapshot(SafeAt(Now));
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await starting);
+        RemoteWindowSharingSnapshot pending = controller.Snapshot;
+        RemoteWindowCommandResult prematureRetry =
+            await controller.StartAsync(SafeAt(Now));
+
+        Assert.True(safeWhilePending.Blocked);
+        Assert.DoesNotContain("capture.resume", capture.Events);
+        Assert.Equal(RemoteWindowLifecycle.Ended, pending.Lifecycle);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, pending.CaptureState);
+        Assert.Equal(RemoteWindowCommandStatus.InvalidState, prematureRetry.Status);
+        Assert.Empty(pending.Participants);
+        Assert.Null(pending.CurrentDriverDeviceId);
+        Assert.False(capture.IsCapturing);
+        Assert.False(input.IsAcceptingInput);
+        Assert.Equal(1, capture.StopCallCount);
+    }
+
+    [Fact]
+    public async Task EmergencyStopDuringFailedStartCleanupRemainsTerminal()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartResult = LocalBoundaryResult.Failed("capture_start_failed"),
+        };
+        var input = new RecordingInputBoundary();
+        using RemoteWindowSessionController controller = CreateController(
+            capture,
+            input: input);
+        capture.OnStop = () =>
+        {
+            capture.OnStop = null;
+            _ = controller.EmergencyStop();
+        };
+
+        RemoteWindowCommandResult failedStart =
+            await controller.StartAsync(SafeAt(Now));
+
+        Assert.Equal(RemoteWindowCommandStatus.EmergencyStopped, failedStart.Status);
+        Assert.Equal("capture_start_failed", failedStart.Boundary?.ReasonCode);
+        Assert.True(failedStart.CleanupBoundary?.Succeeded);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            failedStart.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            failedStart.Snapshot.CaptureState);
+        Assert.Null(failedStart.Snapshot.CurrentDriverDeviceId);
+        Assert.False(capture.IsCapturing);
+        Assert.False(input.IsAcceptingInput);
+    }
+
+    [Fact]
+    public async Task EmergencyBeforeFailedStartPreservesAdmissionAndCleanupBoundaries()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            StartResult = LocalBoundaryResult.Failed("capture_start_failed"),
+        };
+        using RemoteWindowSessionController controller = CreateController(capture);
+        capture.OnStartReturning = () =>
+        {
+            capture.OnStartReturning = null;
+            _ = controller.EmergencyStop();
+        };
+
+        RemoteWindowCommandResult failedStart =
+            await controller.StartAsync(SafeAt(Now));
+
+        Assert.Equal(RemoteWindowCommandStatus.EmergencyStopped, failedStart.Status);
+        Assert.Equal("capture_start_failed", failedStart.Boundary?.ReasonCode);
+        Assert.Equal(
+            "capture_emergency_stopped",
+            failedStart.CleanupBoundary?.ReasonCode);
+        Assert.True(failedStart.CleanupBoundary?.Succeeded);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            failedStart.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowCaptureState.Stopped,
+            failedStart.Snapshot.CaptureState);
     }
 
     [Fact]
@@ -1142,7 +2659,9 @@ public sealed class RemoteWindowSessionControllerTests
         Assert.True(remainingTransitions > 0);
         Assert.InRange(capture.Events.Count - callsBeforeChurn, 1, 12);
         Assert.Equal(RemoteWindowLifecycle.ProtectionPaused, controller.Snapshot.Lifecycle);
-        Assert.NotEqual(RemoteWindowCaptureState.Capturing, controller.Snapshot.CaptureState);
+        Assert.Equal(
+            RemoteWindowCaptureState.Unconfirmed,
+            controller.Snapshot.CaptureState);
     }
 
     private static RemoteWindowSessionController CreateController(
@@ -1194,22 +2713,53 @@ public sealed class RemoteWindowSessionControllerTests
 
     private sealed class MutableClock(DateTimeOffset utcNow) : IClock
     {
-        public DateTimeOffset UtcNow { get; set; } = utcNow;
+        private DateTimeOffset utcNow = utcNow;
+
+        public Action? OnRead { get; set; }
+
+        public DateTimeOffset UtcNow
+        {
+            get
+            {
+                Action? callback = OnRead;
+                OnRead = null;
+                callback?.Invoke();
+                return utcNow;
+            }
+
+            set => utcNow = value;
+        }
     }
 
     private sealed class MutableMirrorAuthorizationSource : IMirrorAuthorizationSource
     {
         private readonly Dictionary<DeviceId, CapabilityGrant> grants = [];
+        private TaskCompletionSource? releaseReads;
 
         public int ReadCount { get; private set; }
+
+        public Action? OnRead { get; set; }
+
+        public TaskCompletionSource ReadEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public CapabilityGrant GetCurrentGrant(DeviceId peerDeviceId)
         {
             ReadCount++;
+            Action? callback = OnRead;
+            OnRead = null;
+            callback?.Invoke();
+            ReadEntered.TrySetResult();
+            releaseReads?.Task.GetAwaiter().GetResult();
             return grants.TryGetValue(peerDeviceId, out CapabilityGrant? grant)
                 ? grant
                 : CapabilityGrant.None;
         }
+
+        public void BlockReads() => releaseReads = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void ReleaseReads() => releaseReads?.TrySetResult();
 
         public void SetGrant(DeviceId peerDeviceId, CapabilityGrant grant) =>
             grants[peerDeviceId] = grant;
@@ -1217,10 +2767,15 @@ public sealed class RemoteWindowSessionControllerTests
 
     private sealed class RecordingCaptureBoundary : IRemoteWindowCaptureBoundary
     {
+        private int? blockedEmergencyStopCall;
+        private TaskCompletionSource? releaseEmergencyStop;
         private TaskCompletionSource? releaseResume;
         private TaskCompletionSource? releaseStart;
+        private int resumeCallCount;
 
         public List<string> Events { get; } = [];
+
+        public List<string> BoundaryTimeline { get; } = [];
 
         public TaskCompletionSource StartEntered { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1231,21 +2786,41 @@ public sealed class RemoteWindowSessionControllerTests
         public TaskCompletionSource ResumeEntered { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource SecondResumeEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool EmergencyStopReleased =>
+            releaseEmergencyStop?.Task.IsCompleted ?? true;
+
+        public bool ResumeReleased => releaseResume?.Task.IsCompleted ?? true;
+
         public Func<RemoteWindowSharingSnapshot>? Snapshot { get; set; }
 
         public Action? OnEmergencyStop { get; set; }
 
         public Action? OnPause { get; set; }
 
+        public Action? OnStartReturning { get; set; }
+
         public Exception? EmergencyFailure { get; set; }
 
+        public int EmergencyStopCallCount { get; private set; }
+
         public Exception? StartFailure { get; set; }
+
+        public LocalBoundaryResult StartResult { get; set; } =
+            LocalBoundaryResult.Confirmed("capture_started");
 
         public Action? OnStop { get; set; }
 
         public Action? OnResume { get; set; }
 
         public Exception? StopFailure { get; set; }
+
+        public LocalBoundaryResult StopResult { get; set; } =
+            LocalBoundaryResult.Confirmed("capture_stopped");
+
+        public int StopCallCount { get; private set; }
 
         public bool IsCapturing { get; private set; }
 
@@ -1270,8 +2845,9 @@ public sealed class RemoteWindowSessionControllerTests
                 throw StartFailure;
             }
 
-            IsCapturing = true;
-            return LocalBoundaryResult.Confirmed("capture_started");
+            OnStartReturning?.Invoke();
+            IsCapturing = StartResult.Succeeded;
+            return StartResult;
         }
 
         public void BlockStart() => releaseStart = new TaskCompletionSource(
@@ -1283,6 +2859,15 @@ public sealed class RemoteWindowSessionControllerTests
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void ReleaseResume() => releaseResume?.TrySetResult();
+
+        public void BlockEmergencyStopCall(int call)
+        {
+            blockedEmergencyStopCall = call;
+            releaseEmergencyStop = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        public void ReleaseEmergencyStop() => releaseEmergencyStop?.TrySetResult();
 
         public LocalBoundaryResult PauseNow(MirrorPauseReason reason)
         {
@@ -1296,16 +2881,31 @@ public sealed class RemoteWindowSessionControllerTests
         public LocalBoundaryResult ResumeNow()
         {
             Events.Add("capture.resume");
+            BoundaryTimeline.Add("capture.resume.enter");
+            int currentResumeCall = Interlocked.Increment(ref resumeCallCount);
             ResumeEntered.TrySetResult();
+            if (currentResumeCall >= 2)
+            {
+                SecondResumeEntered.TrySetResult();
+            }
+
             releaseResume?.Task.GetAwaiter().GetResult();
             IsCapturing = true;
+            BoundaryTimeline.Add("capture.resume.return");
             OnResume?.Invoke();
             return LocalBoundaryResult.Confirmed("capture_resumed");
         }
 
         public LocalBoundaryResult EmergencyStopNow()
         {
+            EmergencyStopCallCount++;
+            BoundaryTimeline.Add("capture.emergency_stop");
             EmergencyStopEntered.TrySetResult();
+            if (EmergencyStopCallCount == blockedEmergencyStopCall)
+            {
+                releaseEmergencyStop?.Task.GetAwaiter().GetResult();
+            }
+
             IsCapturing = false;
             OnEmergencyStop?.Invoke();
             if (EmergencyFailure is not null)
@@ -1318,6 +2918,8 @@ public sealed class RemoteWindowSessionControllerTests
 
         public LocalBoundaryResult StopNow()
         {
+            StopCallCount++;
+            BoundaryTimeline.Add("capture.stop");
             IsCapturing = false;
             OnStop?.Invoke();
             if (StopFailure is not null)
@@ -1325,8 +2927,56 @@ public sealed class RemoteWindowSessionControllerTests
                 throw StopFailure;
             }
 
-            return LocalBoundaryResult.Confirmed("capture_stopped");
+            return StopResult;
         }
+    }
+
+    private sealed class ReenteringEmergencyStopCaptureBoundary :
+        IRemoteWindowCaptureBoundary
+    {
+        private int callDepth;
+
+        public Func<RemoteWindowEmergencyStopResult>? Reenter { get; set; }
+
+        public RemoteWindowEmergencyStopResult? ReentrantResult { get; private set; }
+
+        public int EmergencyStopCallCount { get; private set; }
+
+        public int MaximumCallDepth { get; private set; }
+
+        public ValueTask<LocalBoundaryResult> StartAsync(
+            ActivityId activityId,
+            CancellationToken cancellationToken) => ValueTask.FromResult(
+            LocalBoundaryResult.Confirmed("capture_started"));
+
+        public LocalBoundaryResult PauseNow(MirrorPauseReason reason) =>
+            LocalBoundaryResult.Confirmed("capture_paused");
+
+        public LocalBoundaryResult ResumeNow() =>
+            LocalBoundaryResult.Confirmed("capture_resumed");
+
+        public LocalBoundaryResult EmergencyStopNow()
+        {
+            EmergencyStopCallCount++;
+            callDepth++;
+            MaximumCallDepth = Math.Max(MaximumCallDepth, callDepth);
+            try
+            {
+                if (callDepth == 1)
+                {
+                    ReentrantResult = Reenter!();
+                }
+
+                return LocalBoundaryResult.Confirmed("capture_emergency_stopped");
+            }
+            finally
+            {
+                callDepth--;
+            }
+        }
+
+        public LocalBoundaryResult StopNow() =>
+            LocalBoundaryResult.Confirmed("capture_stopped");
     }
 
     private sealed class RecordingInputBoundary : IRemoteInputBoundary
@@ -1349,6 +2999,14 @@ public sealed class RemoteWindowSessionControllerTests
         public Exception? InjectionFailure { get; set; }
 
         public Exception? ResumeFailure { get; set; }
+
+        public LocalBoundaryResult EmergencyStopResult { get; set; } =
+            LocalBoundaryResult.Confirmed("input_emergency_stopped");
+
+        public int StopCallCount { get; private set; }
+
+        public LocalBoundaryResult StopResult { get; set; } =
+            LocalBoundaryResult.Confirmed("input_stopped");
 
         public bool IsAcceptingInput { get; private set; } = true;
 
@@ -1400,14 +3058,15 @@ public sealed class RemoteWindowSessionControllerTests
         {
             OnEmergencyStop?.Invoke();
             IsAcceptingInput = false;
-            return LocalBoundaryResult.Confirmed("input_emergency_stopped");
+            return EmergencyStopResult;
         }
 
         public LocalBoundaryResult StopNow()
         {
+            StopCallCount++;
             OnStop?.Invoke();
             IsAcceptingInput = false;
-            return LocalBoundaryResult.Confirmed("input_stopped");
+            return StopResult;
         }
     }
 
@@ -1421,17 +3080,27 @@ public sealed class RemoteWindowSessionControllerTests
 
         public Action? OnDisconnectAll { get; set; }
 
+        public int DisconnectAllCallCount { get; private set; }
+
+        public LocalBoundaryResult DisconnectAllResult { get; set; } =
+            LocalBoundaryResult.Confirmed("sessions_disconnected");
+
+        public LocalBoundaryResult DisconnectPeerResult { get; set; } =
+            LocalBoundaryResult.Confirmed("peer_disconnected");
+
         public LocalBoundaryResult DisconnectPeerNow(DeviceId peerDeviceId)
         {
             DisconnectedPeers.Add(peerDeviceId);
             SnapshotObservedAtPeerDisconnect = Snapshot?.Invoke();
-            return LocalBoundaryResult.Confirmed("peer_disconnected");
+            return DisconnectPeerResult;
         }
 
         public LocalBoundaryResult DisconnectAllNow()
         {
+            DisconnectAllCallCount++;
+            LocalBoundaryResult result = DisconnectAllResult;
             OnDisconnectAll?.Invoke();
-            return LocalBoundaryResult.Confirmed("sessions_disconnected");
+            return result;
         }
     }
 }

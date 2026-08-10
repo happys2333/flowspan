@@ -31,7 +31,7 @@
               Value="Cascadia Mono, Menlo, DejaVu Sans Mono" />
       <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="LetterSpacing" Value="1.2" />
+      <Setter Property="LetterSpacing" Value="0" />
     </Style>
     <Style Selector="TextBlock.secondary">
       <Setter Property="Foreground" Value="{StaticResource CoolGrayBrush}" />
@@ -175,10 +175,11 @@
             <TextBlock x:Name="SharingStatusText"
                        Classes="heading"
                        FontSize="22"
-                       Text="NOT SHARING"
-                       AutomationProperties.Name="Sharing state: Not sharing" />
+                       Text="{Binding RemoteWindow.SharingStatus}"
+                       AutomationProperties.Name="{Binding RemoteWindow.SharingAutomationName}" />
             <TextBlock Classes="secondary"
-                       Text="No peer can view or drive this device." />
+                       Text="{Binding RemoteWindow.SharingDescription}"
+                       TextWrapping="Wrap" />
           </StackPanel>
           <Button x:Name="EmergencyStopButton"
                   Grid.Column="1"
@@ -188,13 +189,15 @@
                   Foreground="{StaticResource GraphiteBrush}"
                   FontWeight="Bold"
                   Content="EMERGENCY STOP"
-                  IsEnabled="{Binding IsEmergencyStopAvailable}"
+                  Command="{Binding RemoteWindow.EmergencyStopCommand}"
+                  IsEnabled="{Binding RemoteWindow.IsEmergencyStopAvailable}"
                   AutomationProperties.Name="Emergency stop"
-                  AutomationProperties.HelpText="Unavailable while no sharing service is active in this build." />
+                  AutomationProperties.HelpText="{Binding RemoteWindow.EmergencyStopHelpText}" />
         </Grid>
       </Border>
 
-      <ScrollViewer Grid.Row="1"
+      <ScrollViewer x:Name="WorkspaceScrollViewer"
+                    Grid.Row="1"
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="34,30,34,40" Spacing="28">
@@ -222,6 +225,186 @@
               </StackPanel>
             </Border>
           </Grid>
+
+          <Border x:Name="RemoteWindowDetailBand"
+                  BorderBrush="{StaticResource SafetyAmberBrush}"
+                  BorderThickness="2,1"
+                  Padding="18"
+                  IsVisible="{Binding RemoteWindow.IsDetailVisible}"
+                  AutomationProperties.Name="Remote Window live sharing details">
+            <Grid ColumnDefinitions="7*,5*" ColumnSpacing="24">
+              <StackPanel Grid.Column="0" Spacing="7">
+                <TextBlock Classes="label"
+                           Foreground="{StaticResource SafetyAmberBrush}"
+                           Text="REMOTE WINDOW — EXECUTION STAYS ON SOURCE" />
+                <TextBlock Classes="heading"
+                           FontSize="25"
+                           Text="{Binding RemoteWindow.ActivityTitle}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Remote Window Activity title" />
+                <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                     FontSize="11"
+                                     Text="{Binding RemoteWindow.ActivityId}"
+                                     TextWrapping="Wrap"
+                                     AutomationProperties.Name="Remote Window Activity ID" />
+                <TextBlock Text="{Binding RemoteWindow.SharingDescription}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Remote Window source execution and sharing state" />
+                <TextBlock x:Name="RemoteWindowEmergencyStopResultText"
+                           Classes="label"
+                           Foreground="{StaticResource SignalRedBrush}"
+                           Text="{Binding RemoteWindow.EmergencyStopStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Remote Window Emergency Stop result" />
+                <TextBlock x:Name="RemoteWindowEmergencyStopDescriptionText"
+                           Classes="secondary"
+                           Text="{Binding RemoteWindow.EmergencyStopDescription}"
+                           TextWrapping="Wrap" />
+                <TextBlock x:Name="RemoteWindowLocalResetStatusText"
+                           Classes="label"
+                           Foreground="{StaticResource SafetyAmberBrush}"
+                           Text="{Binding RemoteWindow.LocalResetStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Remote Window local reset status" />
+                <TextBlock x:Name="RemoteWindowLocalResetDescriptionText"
+                           Classes="secondary"
+                           Text="{Binding RemoteWindow.LocalResetDescription}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Remote Window local reset guidance" />
+                <Button x:Name="ConfirmLocalResetButton"
+                        HorizontalAlignment="Left"
+                        MinHeight="44"
+                        Content="CONFIRM LOCAL RESET"
+                        Command="{Binding RemoteWindow.ResetRemoteWindowCommand}"
+                        IsVisible="{Binding RemoteWindow.IsLocalResetAvailable}"
+                        AutomationProperties.Name="Confirm local Remote Window reset"
+                        AutomationProperties.HelpText="Confirms a local reset to NOT SHARING. This does not restore previous participants, Driver authority, or capture." />
+              </StackPanel>
+              <Grid Grid.Column="1"
+                    RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                    RowSpacing="7">
+                <TextBlock Grid.Row="0" Classes="label" Text="{Binding RemoteWindow.CaptureStatus}" TextWrapping="Wrap" AutomationProperties.Name="Remote Window capture state" />
+                <TextBlock Grid.Row="1" Classes="label" Text="{Binding RemoteWindow.ParticipantStatus}" TextWrapping="Wrap" AutomationProperties.Name="Remote Window participant count" />
+                <TextBlock Grid.Row="2" Classes="label" Text="{Binding RemoteWindow.DriverStatus}" TextWrapping="Wrap" AutomationProperties.Name="Remote Window Driver state" />
+                <TextBlock x:Name="RemoteWindowProtectionStatusText"
+                           Grid.Row="3"
+                           Classes="label"
+                           Text="{Binding RemoteWindow.ProtectionStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Remote Window protection state" />
+                <TextBlock Grid.Row="4" Classes="label" Text="{Binding RemoteWindow.RevisionStatus}" TextWrapping="Wrap" AutomationProperties.Name="Remote Window state revision" />
+              </Grid>
+            </Grid>
+          </Border>
+
+          <Border x:Name="RemoteWindowPermissionBand"
+                  Background="#1D2226"
+                  BorderBrush="{StaticResource CoolGrayBrush}"
+                  BorderThickness="0,1"
+                  Padding="18"
+                  AutomationProperties.Name="Remote Window progressive permissions">
+            <Grid x:Name="RemoteWindowPermissionGrid"
+                  ColumnDefinitions="*,*"
+                  ColumnSpacing="28">
+              <StackPanel x:Name="CapturePermissionColumn"
+                          Grid.Column="0"
+                          Spacing="7">
+                <TextBlock Classes="label"
+                           Foreground="{StaticResource SafetyAmberBrush}"
+                           Text="SCREEN CAPTURE PERMISSION" />
+                <TextBlock x:Name="CapturePermissionStatusText"
+                           FontWeight="SemiBold"
+                           Text="{Binding RemoteWindow.CapturePermissionStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Screen capture permission status" />
+                <TextBlock Classes="secondary"
+                           Text="{Binding RemoteWindow.CapturePermissionDescription}"
+                           TextWrapping="Wrap" />
+                <TextBlock Classes="secondary"
+                           Text="{Binding RemoteWindow.CapturePermissionRecoveryAction}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Screen capture permission recovery action" />
+                <Button x:Name="ReviewCapturePermissionButton"
+                        IsVisible="{Binding RemoteWindow.IsCapturePermissionReviewActionVisible}"
+                        Content="REVIEW CAPTURE ACCESS"
+                        Command="{Binding RemoteWindow.ReviewCapturePermissionCommand}"
+                        AutomationProperties.Name="Review screen capture permission"
+                        AutomationProperties.HelpText="Opens the permission rationale without requesting operating-system access." />
+                <StackPanel x:Name="CapturePermissionReviewBand"
+                            IsVisible="{Binding RemoteWindow.IsCapturePermissionReviewVisible}"
+                            Spacing="8"
+                            AutomationProperties.Name="Screen capture permission review">
+                  <TextBlock Classes="label" Text="REVIEW BEFORE REQUEST" />
+                  <TextBlock x:Name="CapturePermissionRationaleText"
+                             Classes="secondary"
+                             Text="Remote Window can expose the selected Activity's visible screen output to an authenticated peer. Execution and application state remain on this Device. Revoke access later in the operating system's screen-capture privacy settings; active sharing will stop."
+                             TextWrapping="Wrap" />
+                  <CheckBox x:Name="CapturePermissionAcknowledgement"
+                            IsChecked="{Binding RemoteWindow.HasAcknowledgedCapturePermissionReview, Mode=TwoWay}"
+                            Content="I reviewed what screen capture exposes."
+                            AutomationProperties.Name="Acknowledge screen capture permission review" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="RequestCapturePermissionButton"
+                            Content="REQUEST CAPTURE ACCESS"
+                            Command="{Binding RemoteWindow.RequestCapturePermissionCommand}"
+                            AutomationProperties.Name="Request screen capture permission" />
+                    <Button Content="Cancel"
+                            Command="{Binding RemoteWindow.CancelCapturePermissionReviewCommand}"
+                            AutomationProperties.Name="Cancel screen capture permission review" />
+                  </StackPanel>
+                </StackPanel>
+              </StackPanel>
+
+              <StackPanel x:Name="InputPermissionColumn"
+                          Grid.Column="1"
+                          Spacing="7">
+                <TextBlock Classes="label"
+                           Foreground="{StaticResource SafetyAmberBrush}"
+                           Text="REMOTE DRIVING" />
+                <CheckBox x:Name="RemoteDrivingCheckBox"
+                          IsChecked="{Binding RemoteWindow.IsRemoteDrivingEnabled, Mode=TwoWay}"
+                          IsEnabled="{Binding RemoteWindow.CanEnableRemoteDriving}"
+                          Content="Enable remote driving"
+                          AutomationProperties.Name="Enable Remote Window driving"
+                          AutomationProperties.HelpText="Enabling driving opens input permission review. It does not grant Driver authority or request permission by itself." />
+                <TextBlock x:Name="InputPermissionStatusText"
+                           FontWeight="SemiBold"
+                           Text="{Binding RemoteWindow.InputPermissionStatus}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Input permission status" />
+                <TextBlock Classes="secondary"
+                           Text="{Binding RemoteWindow.InputPermissionDescription}"
+                           TextWrapping="Wrap" />
+                <TextBlock Classes="secondary"
+                           Text="{Binding RemoteWindow.InputPermissionRecoveryAction}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Input permission recovery action" />
+                <StackPanel x:Name="InputPermissionReviewBand"
+                            IsVisible="{Binding RemoteWindow.IsInputPermissionReviewVisible}"
+                            Spacing="8"
+                            AutomationProperties.Name="Input permission review">
+                  <TextBlock Classes="label" Text="REVIEW BEFORE REQUEST" />
+                  <TextBlock x:Name="InputPermissionRationaleText"
+                             Classes="secondary"
+                             Text="Remote driving can expose keyboard, pointer, and scroll input to the source Device. Input is accepted only for a currently authorized Driver and remains blocked by protection state and Emergency Stop. Revoke access later in the operating system's accessibility or input privacy settings; remote driving will stop."
+                             TextWrapping="Wrap" />
+                  <CheckBox x:Name="InputPermissionAcknowledgement"
+                            IsChecked="{Binding RemoteWindow.HasAcknowledgedInputPermissionReview, Mode=TwoWay}"
+                            Content="I reviewed remote input access."
+                            AutomationProperties.Name="Acknowledge input permission review" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="RequestInputPermissionButton"
+                            Content="REQUEST INPUT ACCESS"
+                            Command="{Binding RemoteWindow.RequestInputPermissionCommand}"
+                            AutomationProperties.Name="Request input permission" />
+                    <Button Content="Cancel"
+                            Command="{Binding RemoteWindow.CancelInputPermissionReviewCommand}"
+                            AutomationProperties.Name="Cancel input permission review" />
+                  </StackPanel>
+                </StackPanel>
+              </StackPanel>
+            </Grid>
+          </Border>
 
           <Grid ColumnDefinitions="7*,5*">
             <Border Grid.Column="0"
@@ -759,6 +942,55 @@
                       </StackPanel>
                     </Grid>
 
+                    <Border BorderBrush="{StaticResource CoolGrayBrush}"
+                            BorderThickness="1"
+                            Padding="14"
+                            AutomationProperties.Name="Remote Window fallback availability">
+                      <StackPanel Spacing="8">
+                        <TextBlock Classes="label"
+                                   Foreground="{StaticResource SafetyAmberBrush}"
+                                   Text="REMOTE WINDOW — EXECUTION STAYS ON SOURCE" />
+                        <TextBlock Classes="label" Text="REMOTE WINDOW TARGET" />
+                        <ListBox x:Name="RemoteWindowTargetList"
+                                 ItemsSource="{Binding Activities.RemoteWindowTargets}"
+                                 SelectedItem="{Binding Activities.SelectedRemoteWindowTarget, Mode=TwoWay}"
+                                 MaxHeight="132"
+                                 AutomationProperties.Name="Authenticated Remote Window targets for current role"
+                                 AutomationProperties.HelpText="View-only requires mirror viewing authorization. Driving requires both viewing and driving authorization.">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DesktopActivityTargetSnapshot">
+                              <StackPanel Margin="8" Spacing="3">
+                                <TextBlock FontWeight="SemiBold"
+                                           Text="{Binding DisplayName}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Classes="secondary"
+                                           FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
+                                           FontSize="11"
+                                           Text="{Binding DeviceId}"
+                                           TextWrapping="Wrap" />
+                              </StackPanel>
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock x:Name="ActivityDegradationStatusText"
+                                   Classes="label"
+                                   Foreground="{StaticResource SignalRedBrush}"
+                                   Text="{Binding RemoteWindow.FallbackStatus}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Remote Window fallback availability" />
+                        <TextBlock x:Name="RemoteWindowFallbackDescriptionText"
+                                   Classes="secondary"
+                                   Text="{Binding RemoteWindow.FallbackDescription}"
+                                   TextWrapping="Wrap" />
+                        <Button x:Name="StartRemoteWindowButton"
+                                Content="START REMOTE WINDOW"
+                                Command="{Binding RemoteWindow.StartRemoteWindowCommand}"
+                                IsEnabled="{Binding RemoteWindow.IsFallbackStartAvailable}"
+                                AutomationProperties.Name="{Binding RemoteWindow.FallbackStartAutomationName}"
+                                AutomationProperties.HelpText="{Binding RemoteWindow.FallbackDescription}" />
+                      </StackPanel>
+                    </Border>
+
                     <Border BorderBrush="{StaticResource SafetyAmberBrush}"
                             BorderThickness="2"
                             Padding="14"
@@ -776,14 +1008,6 @@
                                    Classes="secondary"
                                    Text="{Binding Activities.DataDisclosure}"
                                    AutomationProperties.Name="Semantic handoff data disclosure" />
-                        <TextBlock x:Name="ActivityDegradationStatusText"
-                                   Classes="label"
-                                   Foreground="{StaticResource SignalRedBrush}"
-                                   Text="{Binding Activities.DegradationStatus}"
-                                   TextWrapping="Wrap"
-                                   AutomationProperties.Name="Semantic handoff degradation status" />
-                        <TextBlock Classes="secondary"
-                                   Text="{Binding Activities.DegradationDescription}" />
                         <Button x:Name="ActivityHandoffButton"
                                 Content="HAND OFF COPY"
                                 Command="{Binding Activities.HandoffCommand}"

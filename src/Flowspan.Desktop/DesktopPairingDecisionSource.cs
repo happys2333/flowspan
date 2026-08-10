@@ -32,10 +32,37 @@ public sealed class DesktopPairingPromptChangedEventArgs(
 
 public sealed class DesktopPairingDecisionSource : IPairingDecisionSource, IDisposable
 {
+    private static readonly AsyncLocal<CancellationPublicationLease?>
+        CurrentCancellationPublication = new();
+
+    private readonly Action<DesktopPairingPromptChangedEventArgs>?
+        beforeCancellationChangeQueued;
+    private readonly Lock cancellationPublicationGate = new();
     private readonly Lock gate = new();
+    private readonly Action<Action> scheduleCancellationPublication;
+    private CancellationPublicationLease? activeCancellationPublication;
     private ActivePrompt? activePrompt;
+    private bool cancellationPublicationClosed;
+    private TaskCompletionSource? cancellationPublicationDrainCompletion;
+    private bool cancellationPublicationWorkerRunning;
     private bool disposed;
+    private DesktopPairingPromptChangedEventArgs? pendingCancellationChange;
     private long sequence;
+
+    public DesktopPairingDecisionSource()
+        : this(static publish => _ = Task.Run(publish))
+    {
+    }
+
+    internal DesktopPairingDecisionSource(
+        Action<Action> scheduleCancellationPublication,
+        Action<DesktopPairingPromptChangedEventArgs>?
+            beforeCancellationChangeQueued = null)
+    {
+        ArgumentNullException.ThrowIfNull(scheduleCancellationPublication);
+        this.scheduleCancellationPublication = scheduleCancellationPublication;
+        this.beforeCancellationChangeQueued = beforeCancellationChangeQueued;
+    }
 
     public event EventHandler<DesktopPairingPromptChangedEventArgs>? PromptChanged;
 
@@ -130,26 +157,41 @@ public sealed class DesktopPairingDecisionSource : IPairingDecisionSource, IDisp
         PairingDecision.Reject,
         DesktopPairingPromptChangeKind.Rejected);
 
+    internal void RunWithCancellationPublicationsDeferred(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        lock (cancellationPublicationGate)
+        {
+            action();
+        }
+    }
+
     public void Dispose()
     {
         ActivePrompt? pending;
         DesktopPairingPromptChangedEventArgs? change;
+        bool firstDisposal = false;
         lock (gate)
         {
-            if (disposed)
+            if (!disposed)
             {
-                return;
+                disposed = true;
+                firstDisposal = true;
+                pending = activePrompt;
+                activePrompt = null;
+                change = pending is null
+                    ? null
+                    : NextChange(DesktopPairingPromptChangeKind.Disposed);
             }
-
-            disposed = true;
-            pending = activePrompt;
-            activePrompt = null;
-            change = pending is null
-                ? null
-                : NextChange(DesktopPairingPromptChangeKind.Disposed);
+            else
+            {
+                pending = null;
+                change = null;
+            }
         }
 
-        if (pending is not null)
+        CloseCancellationPublications();
+        if (firstDisposal && pending is not null)
         {
             pending.Completion.TrySetResult(PairingDecision.Reject);
             Publish(change!);
@@ -181,7 +223,125 @@ public sealed class DesktopPairingDecisionSource : IPairingDecisionSource, IDisp
         }
 
         pending.Completion.TrySetCanceled(cancellationToken);
-        Publish(change);
+        beforeCancellationChangeQueued?.Invoke(change);
+        QueueCancellationChange(change);
+    }
+
+    private void QueueCancellationChange(
+        DesktopPairingPromptChangedEventArgs eventArgs)
+    {
+        bool startWorker = false;
+        lock (cancellationPublicationGate)
+        {
+            if (cancellationPublicationClosed)
+            {
+                return;
+            }
+
+            if (pendingCancellationChange is null
+                || eventArgs.Sequence > pendingCancellationChange.Sequence)
+            {
+                pendingCancellationChange = eventArgs;
+            }
+
+            if (!cancellationPublicationWorkerRunning)
+            {
+                cancellationPublicationWorkerRunning = true;
+                startWorker = true;
+            }
+        }
+
+        if (startWorker)
+        {
+            scheduleCancellationPublication(PublishCancellationChanges);
+        }
+    }
+
+    private void PublishCancellationChanges()
+    {
+        while (true)
+        {
+            DesktopPairingPromptChangedEventArgs? change;
+            CancellationPublicationLease lease;
+            TaskCompletionSource? drainToComplete = null;
+            lock (cancellationPublicationGate)
+            {
+                if (cancellationPublicationClosed)
+                {
+                    pendingCancellationChange = null;
+                }
+
+                change = pendingCancellationChange;
+                pendingCancellationChange = null;
+                if (change is null)
+                {
+                    cancellationPublicationWorkerRunning = false;
+                    drainToComplete = cancellationPublicationDrainCompletion;
+                    lease = null!;
+                }
+                else
+                {
+                    lease = new CancellationPublicationLease(this);
+                    activeCancellationPublication = lease;
+                }
+            }
+
+            if (change is null)
+            {
+                drainToComplete?.TrySetResult();
+                return;
+            }
+
+            CancellationPublicationLease? previous =
+                CurrentCancellationPublication.Value;
+            CurrentCancellationPublication.Value = lease;
+            try
+            {
+                Publish(change);
+            }
+            finally
+            {
+                lease.Deactivate();
+                CurrentCancellationPublication.Value = previous;
+                lock (cancellationPublicationGate)
+                {
+                    if (ReferenceEquals(activeCancellationPublication, lease))
+                    {
+                        activeCancellationPublication = null;
+                    }
+                }
+            }
+        }
+    }
+
+    private void CloseCancellationPublications()
+    {
+        CancellationPublicationLease? callerLease =
+            CurrentCancellationPublication.Value;
+        Task drainTask;
+        lock (cancellationPublicationGate)
+        {
+            cancellationPublicationClosed = true;
+            pendingCancellationChange = null;
+            if (callerLease is not null
+                && callerLease.Active
+                && ReferenceEquals(callerLease.Owner, this)
+                && ReferenceEquals(activeCancellationPublication, callerLease))
+            {
+                return;
+            }
+
+            if (!cancellationPublicationWorkerRunning)
+            {
+                return;
+            }
+
+            cancellationPublicationDrainCompletion ??= new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            drainTask = cancellationPublicationDrainCompletion.Task;
+        }
+
+        drainTask.GetAwaiter().GetResult();
     }
 
     private DesktopPairingPromptChangedEventArgs NextChange(
@@ -201,6 +361,20 @@ public sealed class DesktopPairingDecisionSource : IPairingDecisionSource, IDisp
             {
                 // A presentation subscriber cannot weaken or complete a pairing decision.
             }
+
+            if (eventArgs.Kind == DesktopPairingPromptChangeKind.Canceled
+                && IsCancellationPublicationClosed())
+            {
+                break;
+            }
+        }
+    }
+
+    private bool IsCancellationPublicationClosed()
+    {
+        lock (cancellationPublicationGate)
+        {
+            return cancellationPublicationClosed;
         }
     }
 
@@ -242,4 +416,16 @@ public sealed class DesktopPairingDecisionSource : IPairingDecisionSource, IDisp
         DesktopPairingDecisionSource Owner,
         ActivePrompt Prompt,
         CancellationToken Token);
+
+    private sealed class CancellationPublicationLease(
+        DesktopPairingDecisionSource owner)
+    {
+        private int active = 1;
+
+        public bool Active => Volatile.Read(ref active) != 0;
+
+        public DesktopPairingDecisionSource Owner { get; } = owner;
+
+        public void Deactivate() => Volatile.Write(ref active, 0);
+    }
 }

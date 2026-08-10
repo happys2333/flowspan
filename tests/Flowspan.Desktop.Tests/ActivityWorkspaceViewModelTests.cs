@@ -13,6 +13,12 @@ public sealed class ActivityWorkspaceViewModelTests
     private static readonly DeviceId TargetId =
         DeviceId.Parse("22222222-2222-2222-2222-222222222222");
 
+    private static readonly DeviceId MirrorOnlyTargetId =
+        DeviceId.Parse("33333333-3333-3333-3333-333333333333");
+
+    private static readonly DeviceId DriverEligibleTargetId =
+        DeviceId.Parse("44444444-4444-4444-4444-444444444444");
+
     [Fact]
     public void NoteAndAuthenticatedTargetProduceExplicitSourcePreservingPreview()
     {
@@ -38,6 +44,120 @@ public sealed class ActivityWorkspaceViewModelTests
             viewModel.DegradationStatus);
         Assert.Contains("process memory", viewModel.DegradationDescription);
         Assert.True(viewModel.HandoffCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void RemoteWindowTargetSelectionIsIndependentAndFailsClosedAcrossRoles()
+    {
+        var mirrorOnlyTarget = new DesktopActivityTargetSnapshot(
+            MirrorOnlyTargetId,
+            "View-only peer");
+        var driverEligibleTarget = new DesktopActivityTargetSnapshot(
+            DriverEligibleTargetId,
+            "Driver peer");
+        var service = new FakeActivityService
+        {
+            RemoteWindowViewTargets = [mirrorOnlyTarget, driverEligibleTarget],
+            RemoteWindowDriverTargets = [driverEligibleTarget],
+        };
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance);
+
+        Assert.Equal(TargetId, Assert.Single(viewModel.Targets).DeviceId);
+        Assert.Equal(
+            [MirrorOnlyTargetId, DriverEligibleTargetId],
+            viewModel.RemoteWindowTargets.Select(target => target.DeviceId));
+        viewModel.SelectedRemoteWindowTarget = mirrorOnlyTarget;
+
+        viewModel.RemoteWindowTargetRole = MirrorParticipantRole.DriverEligible;
+
+        Assert.Equal(
+            DriverEligibleTargetId,
+            Assert.Single(viewModel.RemoteWindowTargets).DeviceId);
+        Assert.Null(viewModel.SelectedRemoteWindowTarget);
+        viewModel.SelectedRemoteWindowTarget = mirrorOnlyTarget;
+        Assert.Null(viewModel.SelectedRemoteWindowTarget);
+        viewModel.SelectedRemoteWindowTarget = driverEligibleTarget;
+        Assert.Equal(driverEligibleTarget, viewModel.SelectedRemoteWindowTarget);
+
+        viewModel.RemoteWindowTargetRole = MirrorParticipantRole.ViewOnly;
+
+        Assert.Equal(driverEligibleTarget, viewModel.SelectedRemoteWindowTarget);
+    }
+
+    [Fact]
+    public void SelectedActivityExposesSemanticResumeSupport()
+    {
+        var service = new FakeActivityService();
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Release plan",
+            DraftText = "portable note body",
+        };
+        viewModel.CreateWorkspaceNote();
+
+        Assert.Equal(
+            DesktopSemanticResumeAvailability.Available,
+            viewModel.SelectedSemanticResumeAvailability);
+        Assert.True(viewModel.IsSelectedSemanticResumeAvailable);
+    }
+
+    [Fact]
+    public void UnsupportedActivityDisablesHandoffAndMove()
+    {
+        var service = new FakeActivityService
+        {
+            SemanticResumeSupported = false,
+        };
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Release plan",
+            DraftText = "portable note body",
+        };
+        viewModel.CreateWorkspaceNote();
+        viewModel.SelectedTarget = Assert.Single(viewModel.Targets);
+
+        Assert.Equal(
+            DesktopSemanticResumeAvailability.Unavailable,
+            viewModel.SelectedSemanticResumeAvailability);
+        Assert.False(viewModel.IsSelectedSemanticResumeAvailable);
+        Assert.False(viewModel.IsHandoffAvailable);
+        Assert.False(viewModel.HandoffCommand.CanExecute(null));
+        Assert.False(viewModel.IsMoveAvailable);
+        Assert.False(viewModel.MoveCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void SemanticResumeProbeFailureIsUnknownAndDisablesHandoffAndMove()
+    {
+        var service = new FakeActivityService
+        {
+            SemanticResumeException = new InvalidOperationException(
+                "Injected semantic resume probe failure."),
+        };
+        using var viewModel = new ActivityWorkspaceViewModel(
+            service,
+            InlineDesktopUiDispatcher.Instance)
+        {
+            DraftTitle = "Release plan",
+            DraftText = "portable note body",
+        };
+        viewModel.CreateWorkspaceNote();
+        viewModel.SelectedTarget = Assert.Single(viewModel.Targets);
+
+        Assert.Equal(
+            DesktopSemanticResumeAvailability.Unknown,
+            viewModel.SelectedSemanticResumeAvailability);
+        Assert.False(viewModel.IsSelectedSemanticResumeAvailable);
+        Assert.False(viewModel.IsHandoffAvailable);
+        Assert.False(viewModel.HandoffCommand.CanExecute(null));
+        Assert.False(viewModel.IsMoveAvailable);
+        Assert.False(viewModel.MoveCommand.CanExecute(null));
     }
 
     [Fact]
@@ -1568,6 +1688,24 @@ public sealed class ActivityWorkspaceViewModelTests
 
         public bool IsDestructiveReplaceAvailable { get; set; }
 
+        public bool SemanticResumeSupported { get; set; } = true;
+
+        public Exception? SemanticResumeException { get; set; }
+
+        public bool SupportsSemanticResume(string activityKind)
+        {
+            if (SemanticResumeException is not null)
+            {
+                throw SemanticResumeException;
+            }
+
+            return SemanticResumeSupported
+                && string.Equals(
+                activityKind,
+                "workspace.note/v1",
+                StringComparison.Ordinal);
+        }
+
         public OperationStatus Outcome { get; set; } = OperationStatus.Committed;
 
         public FailureCode Failure { get; set; } = FailureCode.None;
@@ -1582,6 +1720,12 @@ public sealed class ActivityWorkspaceViewModelTests
 
         public DesktopReplaceRecoveryResult? ReplaceRecoveryResultAfterUndo
         { get; set; }
+
+        public ImmutableArray<DesktopActivityTargetSnapshot> RemoteWindowViewTargets
+        { get; set; } = [];
+
+        public ImmutableArray<DesktopActivityTargetSnapshot> RemoteWindowDriverTargets
+        { get; set; } = [];
 
         public UndoReplaceResult? UndoResult { get; set; }
 
@@ -1650,6 +1794,14 @@ public sealed class ActivityWorkspaceViewModelTests
         public ImmutableArray<DesktopActivityTargetSnapshot> GetTargets() => connected
             ? [new DesktopActivityTargetSnapshot(TargetId, "Peer desk")]
             : [];
+
+        public ImmutableArray<DesktopActivityTargetSnapshot> GetRemoteWindowTargets(
+            MirrorParticipantRole role) => role switch
+            {
+                MirrorParticipantRole.ViewOnly => RemoteWindowViewTargets,
+                MirrorParticipantRole.DriverEligible => RemoteWindowDriverTargets,
+                _ => throw new ArgumentOutOfRangeException(nameof(role)),
+            };
 
         public DesktopReplaceRecoveryResult GetReplaceRecoveryState() =>
             ReplaceRecoveryResult;

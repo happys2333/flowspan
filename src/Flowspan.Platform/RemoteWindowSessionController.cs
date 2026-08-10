@@ -203,12 +203,14 @@ public sealed record RemoteWindowCommandResult
         RemoteWindowCommandStatus status,
         string reasonCode,
         RemoteWindowSharingSnapshot snapshot,
-        LocalBoundaryResult? boundary = null)
+        LocalBoundaryResult? boundary = null,
+        LocalBoundaryResult? cleanupBoundary = null)
     {
         Status = status;
         ReasonCode = reasonCode;
         Snapshot = snapshot;
         Boundary = boundary;
+        CleanupBoundary = cleanupBoundary;
     }
 
     public RemoteWindowCommandStatus Status { get; }
@@ -218,6 +220,8 @@ public sealed record RemoteWindowCommandResult
     public RemoteWindowSharingSnapshot Snapshot { get; }
 
     public LocalBoundaryResult? Boundary { get; }
+
+    public LocalBoundaryResult? CleanupBoundary { get; }
 
     public bool Succeeded => Status is RemoteWindowCommandStatus.Applied
         or RemoteWindowCommandStatus.AlreadyApplied;
@@ -461,7 +465,8 @@ public sealed record RemoteWindowProtectionResult
         MirrorPauseReason? pauseReason,
         RemoteWindowSharingSnapshot snapshot,
         LocalBoundaryResult? captureBoundary = null,
-        LocalBoundaryResult? inputBoundary = null)
+        LocalBoundaryResult? inputBoundary = null,
+        LocalBoundaryResult? sessionBoundary = null)
     {
         Status = status;
         Blocked = blocked;
@@ -469,6 +474,7 @@ public sealed record RemoteWindowProtectionResult
         Snapshot = snapshot;
         CaptureBoundary = captureBoundary;
         InputBoundary = inputBoundary;
+        SessionBoundary = sessionBoundary;
     }
 
     public RemoteWindowCommandStatus Status { get; }
@@ -482,6 +488,8 @@ public sealed record RemoteWindowProtectionResult
     public LocalBoundaryResult? CaptureBoundary { get; }
 
     public LocalBoundaryResult? InputBoundary { get; }
+
+    public LocalBoundaryResult? SessionBoundary { get; }
 
     public bool LocalGatesConfirmed =>
         (CaptureBoundary is null || CaptureBoundary.Succeeded)
@@ -556,9 +564,14 @@ public sealed class RemoteWindowSessionController : IDisposable
     private readonly IMirrorAuthorizationSource authorization;
     private readonly IRemoteWindowCaptureBoundary capture;
     private readonly IClock clock;
+    private readonly AsyncLocal<EmergencyStopCallScope?> emergencyStopCallScope = new();
     private readonly EmergencyStopLatch emergencyStop = new();
     private readonly DeviceId hostDeviceId;
+    private readonly AsyncLocal<LifetimeOperationScope?> lifetimeOperationScope = new();
     private readonly SemaphoreSlim normalOperationGate = new(1, 1);
+    private readonly object operationLifetimeLock = new();
+    private readonly Dictionary<long, int> emergencyStopAttemptsByGeneration = [];
+    private readonly HashSet<DeviceId> pendingPeerDisconnects = [];
     private readonly HashSet<int> protectionBoundaryThreads = [];
     private readonly object stateLock = new();
     private readonly TimeSpan ownerLeaseDuration;
@@ -567,15 +580,25 @@ public sealed class RemoteWindowSessionController : IDisposable
     private readonly ILocalSharingSessionBoundary sessions;
 
     private RemoteWindowCaptureState captureState = RemoteWindowCaptureState.Stopped;
+    private bool captureAdmissionConfirmed;
+    private bool captureAdmissionInFlight;
+    private long captureAdmissionSessionGeneration;
     private bool captureEmergencyConfirmed;
     private int disposed;
+    private long emergencyConfirmationGeneration;
+    private long emergencyStopGeneration;
+    private long emergencyStopSessionGeneration;
     private bool inputEmergencyConfirmed;
     private RemoteWindowLifecycle lifecycle = RemoteWindowLifecycle.Idle;
     private MirrorSession? mirrorSession;
     private ProtectionSnapshot protection;
     private long protectionRevision;
     private long revision;
+    private int lifetimeFinalized;
+    private int registeredOperations;
+    private long sessionGeneration;
     private bool sessionEmergencyConfirmed;
+    private bool terminalStopConfirmed = true;
 
     public RemoteWindowSessionController(
         DeviceId hostDeviceId,
@@ -639,7 +662,8 @@ public sealed class RemoteWindowSessionController : IDisposable
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(initialProtection);
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             DateTimeOffset now = clock.UtcNow;
@@ -655,6 +679,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                 }
             }
 
+            long admittedSessionGeneration;
             lock (stateLock)
             {
                 if (lifecycle != RemoteWindowLifecycle.Idle)
@@ -666,6 +691,13 @@ public sealed class RemoteWindowSessionController : IDisposable
 
                 protection = initialProtection;
                 protectionRevision = checked(protectionRevision + 1);
+                sessionGeneration = checked(sessionGeneration + 1);
+                terminalStopConfirmed = false;
+                admittedSessionGeneration = sessionGeneration;
+                captureAdmissionConfirmed = false;
+                captureAdmissionInFlight = true;
+                captureAdmissionSessionGeneration = admittedSessionGeneration;
+                pendingPeerDisconnects.Clear();
                 mirrorSession = MirrorSession.Start(
                     activity.Descriptor.Id,
                     hostDeviceId,
@@ -677,22 +709,29 @@ public sealed class RemoteWindowSessionController : IDisposable
             }
 
             LocalBoundaryResult boundary;
+            bool admissionConfirmed = false;
             try
             {
-                boundary = await capture
-                    .StartAsync(activity.Descriptor.Id, cancellationToken)
-                    .ConfigureAwait(false);
+                try
+                {
+                    boundary = await capture
+                        .StartAsync(activity.Descriptor.Id, cancellationToken)
+                        .ConfigureAwait(false);
+                    admissionConfirmed = boundary.Succeeded;
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+                finally
+                {
+                    CompleteCaptureAdmission(
+                        admittedSessionGeneration,
+                        admissionConfirmed);
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                lock (stateLock)
-                {
-                    mirrorSession = mirrorSession!.End(clock.UtcNow);
-                    lifecycle = RemoteWindowLifecycle.Ended;
-                    captureState = RemoteWindowCaptureState.Unconfirmed;
-                    revision = checked(revision + 1);
-                }
-
+                _ = CleanupFailedStart(
+                    RemoteWindowLifecycle.Ended,
+                    admittedSessionGeneration);
                 throw;
             }
             catch (Exception)
@@ -713,29 +752,45 @@ public sealed class RemoteWindowSessionController : IDisposable
                     CallBoundary(capture.EmergencyStopNow);
                 lock (stateLock)
                 {
-                    captureState = lateStop.Succeeded
+                    if (IsCurrentEmergencyStop(admittedSessionGeneration))
+                    {
+                        captureEmergencyConfirmed |= lateStop.Succeeded;
+                    }
+
+                    captureState = captureEmergencyConfirmed
                         ? RemoteWindowCaptureState.Stopped
                         : RemoteWindowCaptureState.Unconfirmed;
                     revision = checked(revision + 1);
                     return Result(
                         RemoteWindowCommandStatus.EmergencyStopped,
                         "emergency_stop_won_start_race",
+                        boundary,
                         lateStop);
                 }
             }
 
-            lock (stateLock)
+            if (!boundary.Succeeded)
             {
-                if (!boundary.Succeeded)
+                LocalBoundaryResult cleanupBoundary =
+                    CleanupFailedStart(
+                        RemoteWindowLifecycle.Unavailable,
+                        admittedSessionGeneration);
+                lock (stateLock)
                 {
-                    mirrorSession = mirrorSession!.End(clock.UtcNow);
-                    lifecycle = RemoteWindowLifecycle.Unavailable;
-                    captureState = RemoteWindowCaptureState.Stopped;
-                    revision = checked(revision + 1);
+                    if (lifecycle == RemoteWindowLifecycle.EmergencyStopped)
+                    {
+                        return Result(
+                            RemoteWindowCommandStatus.EmergencyStopped,
+                            "emergency_stop_won_start_race",
+                            boundary,
+                            cleanupBoundary);
+                    }
+
                     return Result(
                         RemoteWindowCommandStatus.BoundaryFailed,
                         boundary.ReasonCode,
-                        boundary);
+                        boundary,
+                        cleanupBoundary);
                 }
             }
 
@@ -779,7 +834,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
@@ -795,7 +850,8 @@ public sealed class RemoteWindowSessionController : IDisposable
             throw new ArgumentOutOfRangeException(nameof(role));
         }
 
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             bool canView;
@@ -844,18 +900,27 @@ public sealed class RemoteWindowSessionController : IDisposable
                             : "mirror_drive_denied");
                 }
 
+                if (pendingPeerDisconnects.Contains(peerDeviceId))
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        "peer_disconnect_pending");
+                }
+
                 if (mirrorSession.Participants.TryGetValue(
                         peerDeviceId,
                         out MirrorParticipantRole currentRole)
                     && currentRole == role)
                 {
+                    _ = pendingPeerDisconnects.Remove(peerDeviceId);
                     return Result(
                         RemoteWindowCommandStatus.AlreadyApplied,
                         "participant_role_current");
                 }
 
                 if (!mirrorSession.Participants.ContainsKey(peerDeviceId)
-                    && mirrorSession.Participants.Count >= MaximumParticipants)
+                    && mirrorSession.Participants.Count
+                        + pendingPeerDisconnects.Count >= MaximumParticipants)
                 {
                     return Result(
                         RemoteWindowCommandStatus.ParticipantLimitReached,
@@ -871,6 +936,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                 }
 
                 mirrorSession = mirrorSession.AddParticipant(peerDeviceId, role);
+                _ = pendingPeerDisconnects.Remove(peerDeviceId);
                 revision = checked(revision + 1);
                 return Result(
                     RemoteWindowCommandStatus.Applied,
@@ -879,7 +945,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
@@ -890,7 +956,8 @@ public sealed class RemoteWindowSessionController : IDisposable
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             bool authorized;
@@ -905,6 +972,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                 authorized = false;
             }
 
+            DateTimeOffset now = clock.UtcNow;
             lock (stateLock)
             {
                 if (lifecycle is not RemoteWindowLifecycle.Active
@@ -933,7 +1001,6 @@ public sealed class RemoteWindowSessionController : IDisposable
                         "participant_not_driver_eligible");
                 }
 
-                DateTimeOffset now = clock.UtcNow;
                 if (mirrorSession.DriverLease.Authorizes(
                         peerDeviceId,
                         mirrorSession.DriverLease.Epoch,
@@ -956,7 +1023,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
@@ -969,7 +1036,8 @@ public sealed class RemoteWindowSessionController : IDisposable
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         ArgumentNullException.ThrowIfNull(batch);
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             bool authorized;
@@ -984,6 +1052,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                 authorized = false;
             }
 
+            DateTimeOffset authorizationNow = clock.UtcNow;
             lock (stateLock)
             {
                 if (!authorized)
@@ -1007,7 +1076,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                     peerDeviceId,
                     driverLeaseEpoch,
                     protection,
-                    clock.UtcNow);
+                    authorizationNow);
                 if (decision != RemoteInputDecision.Allowed)
                 {
                     return new RemoteInputAttemptResult(decision, CreateSnapshot());
@@ -1030,6 +1099,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                 boundary = LocalBoundaryResult.Failed("local_boundary_exception");
             }
 
+            DateTimeOffset postBoundaryNow = clock.UtcNow;
             lock (stateLock)
             {
                 if (mirrorSession is not null)
@@ -1040,7 +1110,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                             peerDeviceId,
                             driverLeaseEpoch,
                             protection,
-                            clock.UtcNow);
+                            postBoundaryNow);
                     if (postBoundaryDecision != RemoteInputDecision.Allowed)
                     {
                         return new RemoteInputAttemptResult(
@@ -1060,7 +1130,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
@@ -1070,7 +1140,8 @@ public sealed class RemoteWindowSessionController : IDisposable
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (peerDeviceId == hostDeviceId)
@@ -1097,6 +1168,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                 canDrive = false;
             }
 
+            DateTimeOffset now = clock.UtcNow;
             lock (stateLock)
             {
                 if (lifecycle is not RemoteWindowLifecycle.Active
@@ -1112,17 +1184,20 @@ public sealed class RemoteWindowSessionController : IDisposable
                         peerDeviceId,
                         out MirrorParticipantRole currentRole))
                 {
-                    return Result(
-                        RemoteWindowCommandStatus.AlreadyApplied,
-                        "peer_not_participant");
+                    if (!pendingPeerDisconnects.Contains(peerDeviceId))
+                    {
+                        return Result(
+                            RemoteWindowCommandStatus.AlreadyApplied,
+                            "peer_not_participant");
+                    }
                 }
-
-                if (!canView)
+                else if (!canView)
                 {
                     mirrorSession = mirrorSession.RemoveParticipant(
                         peerDeviceId,
-                        clock.UtcNow,
+                        now,
                         ownerLeaseDuration);
+                    _ = pendingPeerDisconnects.Add(peerDeviceId);
                     revision = checked(revision + 1);
                 }
                 else if (!canDrive
@@ -1132,7 +1207,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                     {
                         mirrorSession = mirrorSession.TransferDriver(
                             hostDeviceId,
-                            clock.UtcNow,
+                            now,
                             ownerLeaseDuration);
                     }
 
@@ -1164,6 +1239,11 @@ public sealed class RemoteWindowSessionController : IDisposable
 
             lock (stateLock)
             {
+                if (disconnect.Succeeded)
+                {
+                    _ = pendingPeerDisconnects.Remove(peerDeviceId);
+                }
+
                 return Result(
                     disconnect.Succeeded
                         ? RemoteWindowCommandStatus.Applied
@@ -1176,7 +1256,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
@@ -1186,9 +1266,11 @@ public sealed class RemoteWindowSessionController : IDisposable
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(peerDeviceId);
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            DateTimeOffset now = clock.UtcNow;
             lock (stateLock)
             {
                 if (lifecycle is not RemoteWindowLifecycle.Active
@@ -1209,22 +1291,33 @@ public sealed class RemoteWindowSessionController : IDisposable
 
                 if (!mirrorSession.Participants.ContainsKey(peerDeviceId))
                 {
-                    return Result(
-                        RemoteWindowCommandStatus.AlreadyApplied,
-                        "peer_not_participant");
+                    if (!pendingPeerDisconnects.Contains(peerDeviceId))
+                    {
+                        return Result(
+                            RemoteWindowCommandStatus.AlreadyApplied,
+                            "peer_not_participant");
+                    }
                 }
-
-                mirrorSession = mirrorSession.RemoveParticipant(
-                    peerDeviceId,
-                    clock.UtcNow,
-                    ownerLeaseDuration);
-                revision = checked(revision + 1);
+                else
+                {
+                    mirrorSession = mirrorSession.RemoveParticipant(
+                        peerDeviceId,
+                        now,
+                        ownerLeaseDuration);
+                    _ = pendingPeerDisconnects.Add(peerDeviceId);
+                    revision = checked(revision + 1);
+                }
             }
 
             LocalBoundaryResult disconnect =
                 CallBoundary(() => sessions.DisconnectPeerNow(peerDeviceId));
             lock (stateLock)
             {
+                if (disconnect.Succeeded)
+                {
+                    _ = pendingPeerDisconnects.Remove(peerDeviceId);
+                }
+
                 return Result(
                     disconnect.Succeeded
                         ? RemoteWindowCommandStatus.Applied
@@ -1235,7 +1328,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
@@ -1243,9 +1336,11 @@ public sealed class RemoteWindowSessionController : IDisposable
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            DateTimeOffset now = clock.UtcNow;
             lock (stateLock)
             {
                 if (lifecycle is not RemoteWindowLifecycle.Active
@@ -1258,7 +1353,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                 }
 
                 MirrorSession refreshed = mirrorSession.RefreshExpiredLease(
-                    clock.UtcNow,
+                    now,
                     ownerLeaseDuration);
                 if (refreshed.DriverLease == mirrorSession.DriverLease)
                 {
@@ -1276,7 +1371,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
@@ -1285,11 +1380,13 @@ public sealed class RemoteWindowSessionController : IDisposable
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(observation);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        int currentThreadId = Environment.CurrentManagedThreadId;
+        long expectedSessionGeneration;
+        bool ownsReconciliation;
         lock (stateLock)
         {
-            if (lifecycle is not RemoteWindowLifecycle.Starting
-                and not RemoteWindowLifecycle.Active
-                and not RemoteWindowLifecycle.ProtectionPaused
+            if (!AllowsProtectionReconciliation(lifecycle)
                 || mirrorSession is null)
             {
                 return new RemoteWindowProtectionResult(
@@ -1299,39 +1396,138 @@ public sealed class RemoteWindowSessionController : IDisposable
                     CreateSnapshot());
             }
 
+            expectedSessionGeneration = sessionGeneration;
+            ownsReconciliation = protectionBoundaryThreads.Add(currentThreadId);
             protection = observation;
             protectionRevision = checked(protectionRevision + 1);
-            MirrorPauseReason? pauseReason =
-                ClassifyProtection(observation, clock.UtcNow);
-            bool resuming = pauseReason is null
-                && lifecycle == RemoteWindowLifecycle.ProtectionPaused;
-            if (pauseReason is null && !resuming)
-            {
-                revision = checked(revision + 1);
-                return new RemoteWindowProtectionResult(
-                    RemoteWindowCommandStatus.AlreadyApplied,
-                    blocked: false,
-                    pauseReason: null,
-                    CreateSnapshot());
-            }
-
-            if (pauseReason is not null)
-            {
-                lifecycle = RemoteWindowLifecycle.ProtectionPaused;
-                captureState = RemoteWindowCaptureState.Unconfirmed;
-                revision = checked(revision + 1);
-            }
         }
 
-        return ConvergeProtectionGates();
+        try
+        {
+            DateTimeOffset now = clock.UtcNow;
+            RemoteWindowProtectionResult? immediateResult = null;
+            lock (stateLock)
+            {
+                if (!ownsReconciliation)
+                {
+                    return ApplyReentrantProtectionObservation(
+                        observation,
+                        now,
+                        expectedSessionGeneration);
+                }
+
+                MirrorPauseReason? pauseReason =
+                    ClassifyProtection(observation, now);
+                if (!IsCurrentProtectionSession(expectedSessionGeneration))
+                {
+                    immediateResult = new RemoteWindowProtectionResult(
+                        RemoteWindowCommandStatus.InvalidState,
+                        blocked: true,
+                        pauseReason,
+                        CreateSnapshot());
+                }
+                else
+                {
+                    bool resuming = pauseReason is null
+                        && lifecycle == RemoteWindowLifecycle.ProtectionPaused;
+                    if (pauseReason is null && !resuming)
+                    {
+                        revision = checked(revision + 1);
+                        immediateResult = new RemoteWindowProtectionResult(
+                            RemoteWindowCommandStatus.AlreadyApplied,
+                            blocked: false,
+                            pauseReason: null,
+                            CreateSnapshot());
+                    }
+                    else if (pauseReason is not null)
+                    {
+                        lifecycle = RemoteWindowLifecycle.ProtectionPaused;
+                        captureState = RemoteWindowCaptureState.Unconfirmed;
+                        revision = checked(revision + 1);
+                    }
+                }
+            }
+
+            return immediateResult
+                ?? ConvergeProtectionGatesCore(
+                    activateStartingWithoutResume: false,
+                    expectedSessionGeneration: expectedSessionGeneration);
+        }
+        finally
+        {
+            if (ownsReconciliation)
+            {
+                lock (stateLock)
+                {
+                    _ = protectionBoundaryThreads.Remove(currentThreadId);
+                }
+            }
+        }
+    }
+
+    private RemoteWindowProtectionResult ApplyReentrantProtectionObservation(
+        ProtectionSnapshot observation,
+        DateTimeOffset now,
+        long expectedSessionGeneration)
+    {
+        MirrorPauseReason? pauseReason =
+            ClassifyProtection(observation, now);
+        if (!IsCurrentProtectionSession(expectedSessionGeneration))
+        {
+            return new RemoteWindowProtectionResult(
+                RemoteWindowCommandStatus.InvalidState,
+                blocked: true,
+                pauseReason,
+                CreateSnapshot());
+        }
+
+        bool resuming = pauseReason is null
+            && lifecycle == RemoteWindowLifecycle.ProtectionPaused;
+        if (pauseReason is null && !resuming)
+        {
+            revision = checked(revision + 1);
+            return new RemoteWindowProtectionResult(
+                RemoteWindowCommandStatus.AlreadyApplied,
+                blocked: false,
+                pauseReason: null,
+                CreateSnapshot());
+        }
+
+        if (pauseReason is not null)
+        {
+            lifecycle = RemoteWindowLifecycle.ProtectionPaused;
+            captureState = RemoteWindowCaptureState.Unconfirmed;
+            revision = checked(revision + 1);
+        }
+
+        LocalBoundaryResult deferred = LocalBoundaryResult.Failed(
+            "protection_reconciliation_in_progress");
+        return new RemoteWindowProtectionResult(
+            RemoteWindowCommandStatus.BoundaryFailed,
+            blocked: true,
+            pauseReason,
+            CreateSnapshot(),
+            deferred,
+            deferred);
     }
 
     private RemoteWindowProtectionResult ConvergeProtectionGates(
         bool activateStartingWithoutResume = false)
     {
+        DateTimeOffset now = clock.UtcNow;
         int currentThreadId = Environment.CurrentManagedThreadId;
+        long expectedSessionGeneration;
         lock (stateLock)
         {
+            if (!AllowsProtectionReconciliation(lifecycle))
+            {
+                return new RemoteWindowProtectionResult(
+                    RemoteWindowCommandStatus.InvalidState,
+                    blocked: true,
+                    pauseReason: null,
+                    CreateSnapshot());
+            }
+
             if (!protectionBoundaryThreads.Add(currentThreadId))
             {
                 lifecycle = RemoteWindowLifecycle.ProtectionPaused;
@@ -1342,16 +1538,20 @@ public sealed class RemoteWindowSessionController : IDisposable
                 return new RemoteWindowProtectionResult(
                     RemoteWindowCommandStatus.BoundaryFailed,
                     blocked: true,
-                    ClassifyProtection(protection, clock.UtcNow),
+                    ClassifyProtection(protection, now),
                     CreateSnapshot(),
                     deferred,
                     deferred);
             }
+
+            expectedSessionGeneration = sessionGeneration;
         }
 
         try
         {
-            return ConvergeProtectionGatesCore(activateStartingWithoutResume);
+            return ConvergeProtectionGatesCore(
+                activateStartingWithoutResume,
+                expectedSessionGeneration);
         }
         finally
         {
@@ -1363,7 +1563,8 @@ public sealed class RemoteWindowSessionController : IDisposable
     }
 
     private RemoteWindowProtectionResult ConvergeProtectionGatesCore(
-        bool activateStartingWithoutResume)
+        bool activateStartingWithoutResume,
+        long expectedSessionGeneration)
     {
         LocalBoundaryResult? captureBoundary = null;
         LocalBoundaryResult? inputBoundary = null;
@@ -1371,66 +1572,104 @@ public sealed class RemoteWindowSessionController : IDisposable
              attempt < MaximumProtectionConvergenceAttempts;
              attempt++)
         {
+            DateTimeOffset now = clock.UtcNow;
             long expectedProtectionRevision;
             MirrorPauseReason? pauseReason;
+            bool terminalAtAttempt;
             lock (stateLock)
             {
-                if (lifecycle == RemoteWindowLifecycle.EmergencyStopped)
+                terminalAtAttempt =
+                    !IsCurrentProtectionSession(expectedSessionGeneration);
+                if (!terminalAtAttempt)
                 {
-                    return new RemoteWindowProtectionResult(
-                        RemoteWindowCommandStatus.InvalidState,
-                        blocked: true,
-                        pauseReason: null,
-                        CreateSnapshot(),
-                        captureBoundary,
-                        inputBoundary);
-                }
+                    expectedProtectionRevision = protectionRevision;
+                    pauseReason = ClassifyProtection(protection, now);
+                    terminalAtAttempt =
+                        !IsCurrentProtectionSession(expectedSessionGeneration);
+                    if (!terminalAtAttempt
+                        && pauseReason is null
+                        && lifecycle == RemoteWindowLifecycle.ProtectionPaused
+                        && !IsCaptureAdmissionConfirmed(expectedSessionGeneration))
+                    {
+                        return new RemoteWindowProtectionResult(
+                            RemoteWindowCommandStatus.ProtectionBlocked,
+                            blocked: true,
+                            pauseReason: null,
+                            CreateSnapshot());
+                    }
 
-                expectedProtectionRevision = protectionRevision;
-                pauseReason = ClassifyProtection(protection, clock.UtcNow);
-                if (pauseReason is null
-                    && activateStartingWithoutResume
-                    && lifecycle == RemoteWindowLifecycle.Starting)
-                {
-                    lifecycle = RemoteWindowLifecycle.Active;
-                    captureState = RemoteWindowCaptureState.Capturing;
-                    revision = checked(revision + 1);
-                    return new RemoteWindowProtectionResult(
-                        RemoteWindowCommandStatus.Applied,
-                        blocked: false,
-                        pauseReason: null,
-                        CreateSnapshot());
-                }
+                    if (!terminalAtAttempt
+                        && pauseReason is null
+                        && activateStartingWithoutResume
+                        && lifecycle == RemoteWindowLifecycle.Starting)
+                    {
+                        lifecycle = RemoteWindowLifecycle.Active;
+                        captureState = RemoteWindowCaptureState.Capturing;
+                        revision = checked(revision + 1);
+                        return new RemoteWindowProtectionResult(
+                            RemoteWindowCommandStatus.Applied,
+                            blocked: false,
+                            pauseReason: null,
+                            CreateSnapshot());
+                    }
 
-                if (pauseReason is not null)
-                {
-                    lifecycle = RemoteWindowLifecycle.ProtectionPaused;
-                    captureState = RemoteWindowCaptureState.Unconfirmed;
-                    revision = checked(revision + 1);
+                    if (!terminalAtAttempt && pauseReason is not null)
+                    {
+                        lifecycle = RemoteWindowLifecycle.ProtectionPaused;
+                        captureState = RemoteWindowCaptureState.Unconfirmed;
+                        revision = checked(revision + 1);
+                    }
                 }
+                else
+                {
+                    expectedProtectionRevision = 0;
+                    pauseReason = null;
+                }
+            }
+            if (terminalAtAttempt)
+            {
+                return ReassertTerminalAfterProtectionBoundary(
+                    pauseReason,
+                    captureBoundary,
+                    inputBoundary,
+                    expectedSessionGeneration);
             }
 
             bool resuming = pauseReason is null;
             captureBoundary = resuming
                 ? CallBoundary(capture.ResumeNow)
                 : CallBoundary(() => capture.PauseNow(pauseReason!.Value));
-            if (HasEmergencyStopped())
+            if (HasEmergencyStopped(expectedSessionGeneration))
             {
                 return ReassertEmergencyAfterProtectionBoundary(
                     pauseReason,
+                    expectedSessionGeneration);
+            }
+            if (HasTerminalProtectionLifecycle(expectedSessionGeneration))
+            {
+                return ReassertTerminalAfterProtectionBoundary(
+                    pauseReason,
                     captureBoundary,
-                    inputBoundary);
+                    inputBoundary,
+                    expectedSessionGeneration);
             }
 
             inputBoundary = resuming
                 ? CallBoundary(input.ResumeNow)
                 : CallBoundary(() => input.PauseNow(pauseReason!.Value));
-            if (HasEmergencyStopped())
+            if (HasEmergencyStopped(expectedSessionGeneration))
             {
                 return ReassertEmergencyAfterProtectionBoundary(
                     pauseReason,
+                    expectedSessionGeneration);
+            }
+            if (HasTerminalProtectionLifecycle(expectedSessionGeneration))
+            {
+                return ReassertTerminalAfterProtectionBoundary(
+                    pauseReason,
                     captureBoundary,
-                    inputBoundary);
+                    inputBoundary,
+                    expectedSessionGeneration);
             }
 
             if (resuming
@@ -1439,79 +1678,108 @@ public sealed class RemoteWindowSessionController : IDisposable
                 const MirrorPauseReason failedResume =
                     MirrorPauseReason.ProtectionStateUnknown;
                 _ = CallBoundary(() => capture.PauseNow(failedResume));
-                if (HasEmergencyStopped())
+                if (HasEmergencyStopped(expectedSessionGeneration))
                 {
                     return ReassertEmergencyAfterProtectionBoundary(
                         pauseReason,
+                        expectedSessionGeneration);
+                }
+                if (HasTerminalProtectionLifecycle(expectedSessionGeneration))
+                {
+                    return ReassertTerminalAfterProtectionBoundary(
+                        pauseReason,
                         captureBoundary,
-                        inputBoundary);
+                        inputBoundary,
+                        expectedSessionGeneration);
                 }
 
                 _ = CallBoundary(() => input.PauseNow(failedResume));
-                if (HasEmergencyStopped())
+                if (HasEmergencyStopped(expectedSessionGeneration))
                 {
                     return ReassertEmergencyAfterProtectionBoundary(
                         pauseReason,
+                        expectedSessionGeneration);
+                }
+                if (HasTerminalProtectionLifecycle(expectedSessionGeneration))
+                {
+                    return ReassertTerminalAfterProtectionBoundary(
+                        pauseReason,
                         captureBoundary,
-                        inputBoundary);
+                        inputBoundary,
+                        expectedSessionGeneration);
                 }
             }
 
             lock (stateLock)
             {
-                if (lifecycle == RemoteWindowLifecycle.EmergencyStopped)
+                if (!IsCurrentProtectionSession(expectedSessionGeneration))
                 {
+                    // Re-close outside the state lock after a terminal transition.
+                }
+                else if (expectedProtectionRevision != protectionRevision)
+                {
+                    continue;
+                }
+                else
+                {
+                    if (captureBoundary.Succeeded && inputBoundary.Succeeded)
+                    {
+                        lifecycle = resuming
+                            ? RemoteWindowLifecycle.Active
+                            : RemoteWindowLifecycle.ProtectionPaused;
+                        captureState = resuming
+                            ? RemoteWindowCaptureState.Capturing
+                            : RemoteWindowCaptureState.Paused;
+                    }
+                    else
+                    {
+                        lifecycle = RemoteWindowLifecycle.ProtectionPaused;
+                        captureState = RemoteWindowCaptureState.Unconfirmed;
+                    }
+
+                    revision = checked(revision + 1);
                     return new RemoteWindowProtectionResult(
-                        RemoteWindowCommandStatus.InvalidState,
-                        blocked: true,
+                        captureBoundary.Succeeded && inputBoundary.Succeeded
+                            ? RemoteWindowCommandStatus.Applied
+                            : RemoteWindowCommandStatus.BoundaryFailed,
+                        blocked: !resuming
+                            || !captureBoundary.Succeeded
+                            || !inputBoundary.Succeeded,
                         pauseReason,
                         CreateSnapshot(),
                         captureBoundary,
                         inputBoundary);
                 }
-
-                if (expectedProtectionRevision != protectionRevision)
-                {
-                    continue;
-                }
-
-                if (captureBoundary.Succeeded && inputBoundary.Succeeded)
-                {
-                    lifecycle = resuming
-                        ? RemoteWindowLifecycle.Active
-                        : RemoteWindowLifecycle.ProtectionPaused;
-                    captureState = resuming
-                        ? RemoteWindowCaptureState.Capturing
-                        : RemoteWindowCaptureState.Paused;
-                }
-                else
-                {
-                    lifecycle = RemoteWindowLifecycle.ProtectionPaused;
-                    captureState = RemoteWindowCaptureState.Unconfirmed;
-                }
-
-                revision = checked(revision + 1);
-                return new RemoteWindowProtectionResult(
-                    captureBoundary.Succeeded && inputBoundary.Succeeded
-                        ? RemoteWindowCommandStatus.Applied
-                        : RemoteWindowCommandStatus.BoundaryFailed,
-                    blocked: !resuming
-                        || !captureBoundary.Succeeded
-                        || !inputBoundary.Succeeded,
-                    pauseReason,
-                    CreateSnapshot(),
-                    captureBoundary,
-                    inputBoundary);
             }
+
+            return ReassertTerminalAfterProtectionBoundary(
+                pauseReason,
+                captureBoundary,
+                inputBoundary,
+                expectedSessionGeneration);
         }
 
         const MirrorPauseReason convergenceFailure =
             MirrorPauseReason.ProtectionStateUnknown;
+        bool terminalAtExhaustion;
         lock (stateLock)
         {
-            lifecycle = RemoteWindowLifecycle.ProtectionPaused;
-            captureState = RemoteWindowCaptureState.Unconfirmed;
-            revision = checked(revision + 1);
+            terminalAtExhaustion =
+                !IsCurrentProtectionSession(expectedSessionGeneration);
+            if (!terminalAtExhaustion)
+            {
+                lifecycle = RemoteWindowLifecycle.ProtectionPaused;
+                captureState = RemoteWindowCaptureState.Unconfirmed;
+                revision = checked(revision + 1);
+            }
+        }
+        if (terminalAtExhaustion)
+        {
+            return ReassertTerminalAfterProtectionBoundary(
+                convergenceFailure,
+                captureBoundary,
+                inputBoundary,
+                expectedSessionGeneration);
         }
 
         captureBoundary =
@@ -1520,69 +1788,272 @@ public sealed class RemoteWindowSessionController : IDisposable
             CallBoundary(() => input.PauseNow(convergenceFailure));
         lock (stateLock)
         {
-            if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
+            if (IsCurrentProtectionSession(expectedSessionGeneration))
             {
-                captureState = captureBoundary.Succeeded && inputBoundary.Succeeded
-                    ? RemoteWindowCaptureState.Paused
+                captureState = RemoteWindowCaptureState.Unconfirmed;
+                revision = checked(revision + 1);
+                return new RemoteWindowProtectionResult(
+                    RemoteWindowCommandStatus.BoundaryFailed,
+                    blocked: true,
+                    convergenceFailure,
+                    CreateSnapshot(),
+                    captureBoundary,
+                    inputBoundary);
+            }
+        }
+
+        return ReassertTerminalAfterProtectionBoundary(
+            convergenceFailure,
+            captureBoundary,
+            inputBoundary,
+            expectedSessionGeneration);
+    }
+
+    private bool HasEmergencyStopped(long expectedSessionGeneration)
+    {
+        lock (stateLock)
+        {
+            return sessionGeneration == expectedSessionGeneration
+                && lifecycle == RemoteWindowLifecycle.EmergencyStopped;
+        }
+    }
+
+    private bool HasTerminalProtectionLifecycle(long expectedSessionGeneration)
+    {
+        lock (stateLock)
+        {
+            return !IsCurrentProtectionSession(expectedSessionGeneration);
+        }
+    }
+
+    private RemoteWindowProtectionResult ReassertTerminalAfterProtectionBoundary(
+        MirrorPauseReason? pauseReason,
+        LocalBoundaryResult? captureBoundary,
+        LocalBoundaryResult? inputBoundary,
+        long expectedSessionGeneration)
+    {
+        RemoteWindowLifecycle terminalLifecycle;
+        long terminalProtectionRevision;
+        lock (stateLock)
+        {
+            if (sessionGeneration != expectedSessionGeneration)
+            {
+                return new RemoteWindowProtectionResult(
+                    RemoteWindowCommandStatus.InvalidState,
+                    blocked: true,
+                    pauseReason,
+                    CreateSnapshot(),
+                    captureBoundary,
+                    inputBoundary);
+            }
+
+            if (AllowsProtectionReconciliation(lifecycle))
+            {
+                return new RemoteWindowProtectionResult(
+                    RemoteWindowCommandStatus.InvalidState,
+                    blocked: true,
+                    pauseReason,
+                    CreateSnapshot(),
+                    captureBoundary,
+                    inputBoundary);
+            }
+
+            terminalLifecycle = lifecycle;
+            terminalProtectionRevision = protectionRevision;
+        }
+        if (terminalLifecycle == RemoteWindowLifecycle.EmergencyStopped)
+        {
+            return ReassertEmergencyAfterProtectionBoundary(
+                pauseReason,
+                expectedSessionGeneration);
+        }
+
+        LocalBoundaryResult captureStop = CallBoundary(capture.StopNow);
+        LocalBoundaryResult inputStop = CallBoundary(input.StopNow);
+        LocalBoundaryResult sessionStop = CallBoundary(sessions.DisconnectAllNow);
+        lock (stateLock)
+        {
+            _ = protectionBoundaryThreads.Remove(
+                Environment.CurrentManagedThreadId);
+            bool sameTerminalGeneration = lifecycle == terminalLifecycle
+                && sessionGeneration == expectedSessionGeneration
+                && protectionRevision == terminalProtectionRevision
+                && !AllowsProtectionReconciliation(lifecycle);
+            bool isLastReconciliation = protectionBoundaryThreads.Count == 0;
+            if (sameTerminalGeneration)
+            {
+                bool fullyStopped = captureStop.Succeeded
+                    && inputStop.Succeeded
+                    && sessionStop.Succeeded
+                    && isLastReconciliation;
+                captureState = captureStop.Succeeded && isLastReconciliation
+                    ? RemoteWindowCaptureState.Stopped
                     : RemoteWindowCaptureState.Unconfirmed;
+                terminalStopConfirmed = fullyStopped;
+                if (fullyStopped)
+                {
+                    mirrorSession = null;
+                }
+
                 revision = checked(revision + 1);
             }
 
             return new RemoteWindowProtectionResult(
-                RemoteWindowCommandStatus.BoundaryFailed,
+                captureStop.Succeeded
+                    && inputStop.Succeeded
+                    && sessionStop.Succeeded
+                    ? RemoteWindowCommandStatus.InvalidState
+                    : RemoteWindowCommandStatus.BoundaryFailed,
                 blocked: true,
-                convergenceFailure,
+                pauseReason,
                 CreateSnapshot(),
-                captureBoundary,
-                inputBoundary);
-        }
-    }
-
-    private bool HasEmergencyStopped()
-    {
-        lock (stateLock)
-        {
-            return lifecycle == RemoteWindowLifecycle.EmergencyStopped;
+                captureStop,
+                inputStop,
+                sessionStop);
         }
     }
 
     private RemoteWindowProtectionResult ReassertEmergencyAfterProtectionBoundary(
         MirrorPauseReason? pauseReason,
-        LocalBoundaryResult? captureBoundary,
-        LocalBoundaryResult? inputBoundary)
+        long expectedSessionGeneration)
     {
-        _ = EmergencyStop();
         lock (stateLock)
         {
+            if (sessionGeneration != expectedSessionGeneration
+                || lifecycle != RemoteWindowLifecycle.EmergencyStopped)
+            {
+                return new RemoteWindowProtectionResult(
+                    RemoteWindowCommandStatus.InvalidState,
+                    blocked: true,
+                    pauseReason,
+                    CreateSnapshot());
+            }
+
+            captureEmergencyConfirmed = false;
+            inputEmergencyConfirmed = false;
+            captureState = RemoteWindowCaptureState.Unconfirmed;
+            revision = checked(revision + 1);
+        }
+
+        RemoteWindowEmergencyStopResult reasserted = EmergencyStop();
+        lock (stateLock)
+        {
+            _ = protectionBoundaryThreads.Remove(
+                Environment.CurrentManagedThreadId);
+            bool isLastReconciliation = protectionBoundaryThreads.Count == 0;
+            if (isLastReconciliation)
+            {
+                captureEmergencyConfirmed =
+                    reasserted.CaptureBoundary.Succeeded;
+                inputEmergencyConfirmed =
+                    reasserted.InputBoundary.Succeeded;
+                captureState = reasserted.CaptureBoundary.Succeeded
+                    ? RemoteWindowCaptureState.Stopped
+                    : RemoteWindowCaptureState.Unconfirmed;
+            }
+            else
+            {
+                captureEmergencyConfirmed = false;
+                inputEmergencyConfirmed = false;
+                captureState = RemoteWindowCaptureState.Unconfirmed;
+            }
+
+            revision = checked(revision + 1);
             return new RemoteWindowProtectionResult(
-                RemoteWindowCommandStatus.InvalidState,
+                reasserted.CaptureBoundary.Succeeded
+                    && reasserted.InputBoundary.Succeeded
+                    && reasserted.SessionBoundary.Succeeded
+                    ? RemoteWindowCommandStatus.InvalidState
+                    : RemoteWindowCommandStatus.BoundaryFailed,
                 blocked: true,
                 pauseReason,
                 CreateSnapshot(),
-                captureBoundary,
-                inputBoundary);
+                reasserted.CaptureBoundary,
+                reasserted.InputBoundary,
+                reasserted.SessionBoundary);
         }
     }
 
     public RemoteWindowEmergencyStopResult EmergencyStop()
     {
+        EmergencyStopCallScope? inheritedScope = emergencyStopCallScope.Value;
+        if (inheritedScope?.IsActive == true)
+        {
+            return CreateReentrantEmergencyStopResult();
+        }
+
+        using LifetimeOperationLease lifetimeOperation =
+            EnterLifetimeOperation(allowNestedAfterDisposal: true);
+        return InvokeEmergencyStopWithCallScope();
+    }
+
+    private RemoteWindowEmergencyStopResult InvokeEmergencyStopWithCallScope()
+    {
+        EmergencyStopCallScope? inheritedScope = emergencyStopCallScope.Value;
+        if (inheritedScope?.IsActive == true)
+        {
+            return CreateReentrantEmergencyStopResult();
+        }
+
+        var currentScope = new EmergencyStopCallScope();
+        emergencyStopCallScope.Value = currentScope;
+        try
+        {
+            return EmergencyStopCore();
+        }
+        finally
+        {
+            currentScope.Deactivate();
+            emergencyStopCallScope.Value = inheritedScope;
+        }
+    }
+
+    private RemoteWindowEmergencyStopResult CreateReentrantEmergencyStopResult()
+    {
+        LocalBoundaryResult unconfirmed =
+            LocalBoundaryResult.Failed("emergency_stop_reentrant");
+        lock (stateLock)
+        {
+            return new RemoteWindowEmergencyStopResult(
+                CreateSnapshot(),
+                unconfirmed,
+                unconfirmed,
+                unconfirmed);
+        }
+    }
+
+    private RemoteWindowEmergencyStopResult EmergencyStopCore()
+    {
+        DateTimeOffset now = clock.UtcNow;
+        long attemptSessionGeneration;
+        long attemptStopGeneration;
         lock (stateLock)
         {
             emergencyStop.Activate();
             if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
             {
+                emergencyStopGeneration = checked(emergencyStopGeneration + 1);
+                emergencyStopSessionGeneration = sessionGeneration;
+                emergencyConfirmationGeneration = emergencyStopGeneration;
+                protectionRevision = checked(protectionRevision + 1);
                 captureEmergencyConfirmed = false;
                 inputEmergencyConfirmed = false;
                 sessionEmergencyConfirmed = false;
                 if (mirrorSession?.Status == MirrorSessionStatus.Active)
                 {
-                    mirrorSession = mirrorSession.EmergencyStop(clock.UtcNow);
+                    mirrorSession = mirrorSession.EmergencyStop(now);
                 }
 
                 lifecycle = RemoteWindowLifecycle.EmergencyStopped;
                 captureState = RemoteWindowCaptureState.Unconfirmed;
                 revision = checked(revision + 1);
             }
+
+            attemptSessionGeneration = emergencyStopSessionGeneration;
+            attemptStopGeneration = emergencyStopGeneration;
+            emergencyStopAttemptsByGeneration[attemptStopGeneration] =
+                emergencyStopAttemptsByGeneration.GetValueOrDefault(
+                    attemptStopGeneration) + 1;
         }
 
         LocalBoundaryResult captureBoundary =
@@ -1594,18 +2065,56 @@ public sealed class RemoteWindowSessionController : IDisposable
 
         lock (stateLock)
         {
-            captureEmergencyConfirmed |= captureBoundary.Succeeded;
-            inputEmergencyConfirmed |= inputBoundary.Succeeded;
-            sessionEmergencyConfirmed |= sessionBoundary.Succeeded;
-            captureState = captureBoundary.Succeeded
-                ? RemoteWindowCaptureState.Stopped
-                : RemoteWindowCaptureState.Unconfirmed;
-            revision = checked(revision + 1);
+            LocalBoundaryResult resultCaptureBoundary = captureBoundary;
+            LocalBoundaryResult resultInputBoundary = inputBoundary;
+            LocalBoundaryResult resultSessionBoundary = sessionBoundary;
+            int remainingAttempts = emergencyStopAttemptsByGeneration[
+                attemptStopGeneration] - 1;
+            if (remainingAttempts == 0)
+            {
+                _ = emergencyStopAttemptsByGeneration.Remove(
+                    attemptStopGeneration);
+            }
+            else
+            {
+                emergencyStopAttemptsByGeneration[attemptStopGeneration] =
+                    remainingAttempts;
+            }
+
+            bool belongsToCurrentStop =
+                lifecycle == RemoteWindowLifecycle.EmergencyStopped
+                && sessionGeneration == attemptSessionGeneration
+                && emergencyStopSessionGeneration == attemptSessionGeneration
+                && emergencyStopGeneration == attemptStopGeneration
+                && emergencyConfirmationGeneration == attemptStopGeneration;
+            if (belongsToCurrentStop)
+            {
+                captureEmergencyConfirmed |= captureBoundary.Succeeded;
+                inputEmergencyConfirmed |= inputBoundary.Succeeded;
+                sessionEmergencyConfirmed |= sessionBoundary.Succeeded;
+                resultCaptureBoundary = ProjectEmergencyConfirmation(
+                    captureBoundary,
+                    captureEmergencyConfirmed,
+                    "capture_emergency_already_confirmed");
+                resultInputBoundary = ProjectEmergencyConfirmation(
+                    inputBoundary,
+                    inputEmergencyConfirmed,
+                    "input_emergency_already_confirmed");
+                resultSessionBoundary = ProjectEmergencyConfirmation(
+                    sessionBoundary,
+                    sessionEmergencyConfirmed,
+                    "sessions_emergency_already_confirmed");
+                captureState = captureEmergencyConfirmed
+                    ? RemoteWindowCaptureState.Stopped
+                    : RemoteWindowCaptureState.Unconfirmed;
+                revision = checked(revision + 1);
+            }
+
             return new RemoteWindowEmergencyStopResult(
                 CreateSnapshot(),
-                captureBoundary,
-                inputBoundary,
-                sessionBoundary);
+                resultCaptureBoundary,
+                resultInputBoundary,
+                resultSessionBoundary);
         }
     }
 
@@ -1613,11 +2122,51 @@ public sealed class RemoteWindowSessionController : IDisposable
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            DateTimeOffset now = clock.UtcNow;
             lock (stateLock)
             {
+                if ((lifecycle is RemoteWindowLifecycle.Unavailable
+                    or RemoteWindowLifecycle.EmergencyStopped)
+                    && protectionBoundaryThreads.Count > 0)
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        "protection_reconciliation_in_progress");
+                }
+
+                if (lifecycle == RemoteWindowLifecycle.Unavailable)
+                {
+                    if (captureState != RemoteWindowCaptureState.Stopped
+                        || mirrorSession?.Participants.Count > 0
+                        || mirrorSession?.DriverLease.HolderDeviceId is not null)
+                    {
+                        return Result(
+                            RemoteWindowCommandStatus.BoundaryFailed,
+                            "unavailable_stop_unconfirmed");
+                    }
+
+                    mirrorSession = null;
+                    lifecycle = RemoteWindowLifecycle.Idle;
+                    captureState = RemoteWindowCaptureState.Stopped;
+                    protection = new ProtectionSnapshot(
+                        ProtectionKind.Unknown,
+                        now,
+                        "not_observed");
+                    captureEmergencyConfirmed = false;
+                    inputEmergencyConfirmed = false;
+                    sessionEmergencyConfirmed = false;
+                    terminalStopConfirmed = true;
+                    protectionRevision = checked(protectionRevision + 1);
+                    revision = checked(revision + 1);
+                    return Result(
+                        RemoteWindowCommandStatus.Applied,
+                        "unavailable_reset_locally");
+                }
+
                 if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
                 {
                     return Result(
@@ -1625,7 +2174,17 @@ public sealed class RemoteWindowSessionController : IDisposable
                         "session_not_emergency_stopped");
                 }
 
-                if (!captureEmergencyConfirmed
+                if (emergencyStopAttemptsByGeneration.GetValueOrDefault(
+                        emergencyStopGeneration) > 0)
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        "emergency_stop_in_progress");
+                }
+
+                if (emergencyConfirmationGeneration != emergencyStopGeneration
+                    || emergencyStopSessionGeneration != sessionGeneration
+                    || !captureEmergencyConfirmed
                     || !inputEmergencyConfirmed
                     || !sessionEmergencyConfirmed)
                 {
@@ -1640,11 +2199,13 @@ public sealed class RemoteWindowSessionController : IDisposable
                 captureState = RemoteWindowCaptureState.Stopped;
                 protection = new ProtectionSnapshot(
                     ProtectionKind.Unknown,
-                    clock.UtcNow,
+                    now,
                     "not_observed");
                 captureEmergencyConfirmed = false;
                 inputEmergencyConfirmed = false;
                 sessionEmergencyConfirmed = false;
+                terminalStopConfirmed = true;
+                protectionRevision = checked(protectionRevision + 1);
                 revision = checked(revision + 1);
                 return Result(
                     RemoteWindowCommandStatus.Applied,
@@ -1653,7 +2214,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
@@ -1661,9 +2222,11 @@ public sealed class RemoteWindowSessionController : IDisposable
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        await normalOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
+        await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            DateTimeOffset now = clock.UtcNow;
             bool wasAlreadyStopped;
             lock (stateLock)
             {
@@ -1674,11 +2237,12 @@ public sealed class RemoteWindowSessionController : IDisposable
                 {
                     if (mirrorSession?.Status == MirrorSessionStatus.Active)
                     {
-                        mirrorSession = mirrorSession.End(clock.UtcNow);
+                        mirrorSession = mirrorSession.End(now);
                     }
 
                     lifecycle = RemoteWindowLifecycle.Ended;
                     captureState = RemoteWindowCaptureState.Unconfirmed;
+                    terminalStopConfirmed = false;
                     revision = checked(revision + 1);
                 }
             }
@@ -1704,6 +2268,9 @@ public sealed class RemoteWindowSessionController : IDisposable
                             ? RemoteWindowCommandStatus.AlreadyApplied
                             : RemoteWindowCommandStatus.Applied
                         : RemoteWindowCommandStatus.BoundaryFailed;
+                terminalStopConfirmed = captureBoundary.Succeeded
+                    && inputBoundary.Succeeded
+                    && sessionBoundary.Succeeded;
                 return new RemoteWindowStopResult(
                     status,
                     CreateSnapshot(),
@@ -1714,34 +2281,124 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
         finally
         {
-            normalOperationGate.Release();
+            ReleaseNormalOperation();
         }
     }
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        GC.SuppressFinalize(this);
+        bool startedDisposal = Interlocked.Exchange(ref disposed, 1) == 0;
+        if (startedDisposal)
+        {
+            FailCloseForDisposal();
+        }
+
+        if (lifetimeOperationScope.Value is
+            { IsActive: true, Owner: var owner }
+            && ReferenceEquals(owner, this))
         {
             return;
         }
 
-        bool failClosed;
+        lock (operationLifetimeLock)
+        {
+            while (registeredOperations > 0)
+            {
+                Monitor.Wait(operationLifetimeLock);
+            }
+        }
+
+        FinalizeLifetime();
+    }
+
+    private void FailCloseForDisposal()
+    {
+        DisposalBoundaryAction action;
         lock (stateLock)
         {
-            failClosed = lifecycle is RemoteWindowLifecycle.Starting
+            bool emergencyUnconfirmed =
+                lifecycle == RemoteWindowLifecycle.EmergencyStopped
+                && (!captureEmergencyConfirmed
+                    || !inputEmergencyConfirmed
+                    || !sessionEmergencyConfirmed)
+                && emergencyStopAttemptsByGeneration.GetValueOrDefault(
+                    emergencyStopGeneration) == 0;
+            action = lifecycle is RemoteWindowLifecycle.Starting
                 or RemoteWindowLifecycle.Active
-                or RemoteWindowLifecycle.ProtectionPaused;
+                or RemoteWindowLifecycle.ProtectionPaused
+                || emergencyUnconfirmed
+                    ? DisposalBoundaryAction.EmergencyStop
+                    : lifecycle is RemoteWindowLifecycle.Unavailable
+                        or RemoteWindowLifecycle.Ended
+                        && !terminalStopConfirmed
+                            ? DisposalBoundaryAction.Stop
+                            : DisposalBoundaryAction.None;
         }
 
-        if (failClosed)
+        if (action == DisposalBoundaryAction.EmergencyStop)
         {
-            _ = EmergencyStop();
+            _ = InvokeEmergencyStopWithCallScope();
+        }
+        else if (action == DisposalBoundaryAction.Stop)
+        {
+            RetryTerminalStopBoundariesForDisposal();
+        }
+    }
+
+    private void RetryTerminalStopBoundariesForDisposal()
+    {
+        RemoteWindowLifecycle expectedLifecycle;
+        long expectedSessionGeneration;
+        lock (stateLock)
+        {
+            expectedLifecycle = lifecycle;
+            expectedSessionGeneration = sessionGeneration;
+            if (expectedLifecycle is not RemoteWindowLifecycle.Unavailable
+                and not RemoteWindowLifecycle.Ended
+                || terminalStopConfirmed)
+            {
+                return;
+            }
         }
 
-        normalOperationGate.Wait();
-        normalOperationGate.Release();
+        LocalBoundaryResult captureBoundary = CallBoundary(capture.StopNow);
+        LocalBoundaryResult inputBoundary = CallBoundary(input.StopNow);
+        LocalBoundaryResult sessionBoundary =
+            CallBoundary(sessions.DisconnectAllNow);
+        lock (stateLock)
+        {
+            if (lifecycle != expectedLifecycle
+                || sessionGeneration != expectedSessionGeneration)
+            {
+                return;
+            }
+
+            bool fullyStopped = captureBoundary.Succeeded
+                && inputBoundary.Succeeded
+                && sessionBoundary.Succeeded;
+            terminalStopConfirmed = fullyStopped;
+            captureState = fullyStopped
+                ? RemoteWindowCaptureState.Stopped
+                : RemoteWindowCaptureState.Unconfirmed;
+            if (fullyStopped)
+            {
+                mirrorSession = null;
+            }
+
+            revision = checked(revision + 1);
+        }
+    }
+
+    private void FinalizeLifetime()
+    {
+        if (Interlocked.CompareExchange(ref lifetimeFinalized, 1, 0) != 0)
+        {
+            return;
+        }
+
+        FailCloseForDisposal();
         normalOperationGate.Dispose();
-        GC.SuppressFinalize(this);
     }
 
     private static bool IsFreshSafe(
@@ -1756,9 +2413,93 @@ public sealed class RemoteWindowSessionController : IDisposable
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
     }
 
+    private async ValueTask AcquireNormalOperationAsync(
+        CancellationToken cancellationToken)
+    {
+        bool gateAcquired = false;
+        try
+        {
+            await normalOperationGate
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+            gateAcquired = true;
+            ThrowIfDisposed();
+        }
+        catch
+        {
+            if (gateAcquired)
+            {
+                normalOperationGate.Release();
+            }
+            throw;
+        }
+    }
+
+    private void ReleaseNormalOperation() => normalOperationGate.Release();
+
+    private LifetimeOperationLease EnterLifetimeOperation(
+        bool allowNestedAfterDisposal = false)
+    {
+        LifetimeOperationScope? inheritedScope = lifetimeOperationScope.Value;
+        lock (operationLifetimeLock)
+        {
+            bool nestedAdmittedOperation = inheritedScope is
+            { IsActive: true, Owner: var owner }
+            && ReferenceEquals(owner, this);
+            ObjectDisposedException.ThrowIf(
+                Volatile.Read(ref disposed) != 0
+                && !(allowNestedAfterDisposal && nestedAdmittedOperation),
+                this);
+            registeredOperations = checked(registeredOperations + 1);
+        }
+
+        var currentScope = new LifetimeOperationScope(this);
+        lifetimeOperationScope.Value = currentScope;
+        return new LifetimeOperationLease(
+            this,
+            currentScope,
+            inheritedScope);
+    }
+
+    private void ExitLifetimeOperation(
+        LifetimeOperationScope currentScope,
+        LifetimeOperationScope? inheritedScope)
+    {
+        currentScope.Deactivate();
+        lifetimeOperationScope.Value = inheritedScope;
+
+        bool finalize;
+        lock (operationLifetimeLock)
+        {
+            registeredOperations--;
+            finalize = registeredOperations == 0
+                && Volatile.Read(ref disposed) != 0;
+            if (registeredOperations == 0)
+            {
+                Monitor.PulseAll(operationLifetimeLock);
+            }
+        }
+
+        if (finalize)
+        {
+            FinalizeLifetime();
+        }
+    }
+
     private static bool AllowsViewAndDrive(CapabilityGrant grant) =>
         grant.Allows(Capability.MirrorView)
         && grant.Allows(Capability.MirrorDrive);
+
+    private static bool AllowsProtectionReconciliation(
+        RemoteWindowLifecycle currentLifecycle) =>
+        currentLifecycle is RemoteWindowLifecycle.Starting
+            or RemoteWindowLifecycle.Active
+            or RemoteWindowLifecycle.ProtectionPaused;
+
+    private bool IsCurrentProtectionSession(long expectedSessionGeneration) =>
+        sessionGeneration == expectedSessionGeneration
+        && mirrorSession is not null
+        && AllowsProtectionReconciliation(lifecycle);
 
     private static MirrorPauseReason? ClassifyProtection(
         ProtectionSnapshot snapshot,
@@ -1793,11 +2534,114 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
     }
 
+    private static LocalBoundaryResult ProjectEmergencyConfirmation(
+        LocalBoundaryResult attemptBoundary,
+        bool generationConfirmed,
+        string alreadyConfirmedReason) =>
+        generationConfirmed && !attemptBoundary.Succeeded
+            ? LocalBoundaryResult.AlreadyApplied(alreadyConfirmedReason)
+            : attemptBoundary;
+
+    private void CompleteCaptureAdmission(
+        long admittedSessionGeneration,
+        bool admissionConfirmed)
+    {
+        lock (stateLock)
+        {
+            if (!captureAdmissionInFlight
+                || captureAdmissionSessionGeneration != admittedSessionGeneration)
+            {
+                return;
+            }
+
+            captureAdmissionInFlight = false;
+            captureAdmissionConfirmed = admissionConfirmed;
+            if (IsCurrentEmergencyStop(admittedSessionGeneration))
+            {
+                captureEmergencyConfirmed = false;
+                captureState = RemoteWindowCaptureState.Unconfirmed;
+                revision = checked(revision + 1);
+            }
+        }
+    }
+
+    private bool IsCurrentEmergencyStop(long expectedSessionGeneration) =>
+        lifecycle == RemoteWindowLifecycle.EmergencyStopped
+        && sessionGeneration == expectedSessionGeneration
+        && emergencyStopSessionGeneration == expectedSessionGeneration
+        && emergencyConfirmationGeneration == emergencyStopGeneration;
+
+    private bool IsCaptureAdmissionConfirmed(long expectedSessionGeneration) =>
+        sessionGeneration == expectedSessionGeneration
+        && captureAdmissionSessionGeneration == expectedSessionGeneration
+        && !captureAdmissionInFlight
+        && captureAdmissionConfirmed;
+
+    private LocalBoundaryResult CleanupFailedStart(
+        RemoteWindowLifecycle terminalLifecycle,
+        long admittedSessionGeneration)
+    {
+        DateTimeOffset now = clock.UtcNow;
+        lock (stateLock)
+        {
+            protectionRevision = checked(protectionRevision + 1);
+            if (!emergencyStop.IsActive
+                && lifecycle != RemoteWindowLifecycle.EmergencyStopped)
+            {
+                if (mirrorSession?.Status == MirrorSessionStatus.Active)
+                {
+                    mirrorSession = mirrorSession.End(now);
+                }
+
+                lifecycle = terminalLifecycle;
+                captureState = RemoteWindowCaptureState.Unconfirmed;
+                terminalStopConfirmed = false;
+                revision = checked(revision + 1);
+            }
+        }
+
+        LocalBoundaryResult cleanup = CallBoundary(capture.StopNow);
+        lock (stateLock)
+        {
+            if (lifecycle == terminalLifecycle)
+            {
+                bool hasProtectionReconciliation =
+                    protectionBoundaryThreads.Count > 0;
+                captureState = cleanup.Succeeded
+                    && !hasProtectionReconciliation
+                    ? RemoteWindowCaptureState.Stopped
+                    : RemoteWindowCaptureState.Unconfirmed;
+                if (cleanup.Succeeded && !hasProtectionReconciliation)
+                {
+                    mirrorSession = null;
+                }
+
+                revision = checked(revision + 1);
+            }
+            else if (IsCurrentEmergencyStop(admittedSessionGeneration))
+            {
+                captureEmergencyConfirmed |= cleanup.Succeeded;
+                captureState = captureEmergencyConfirmed
+                    ? RemoteWindowCaptureState.Stopped
+                    : RemoteWindowCaptureState.Unconfirmed;
+                revision = checked(revision + 1);
+            }
+        }
+
+        return cleanup;
+    }
+
     private RemoteWindowCommandResult Result(
         RemoteWindowCommandStatus status,
         string reasonCode,
-        LocalBoundaryResult? boundary = null) =>
-        new(status, reasonCode, CreateSnapshot(), boundary);
+        LocalBoundaryResult? boundary = null,
+        LocalBoundaryResult? cleanupBoundary = null) =>
+        new(
+            status,
+            reasonCode,
+            CreateSnapshot(),
+            boundary,
+            cleanupBoundary);
 
     private RemoteWindowSharingSnapshot CreateSnapshot()
     {
@@ -1818,5 +2662,50 @@ public sealed class RemoteWindowSessionController : IDisposable
             mirrorSession?.DriverLease.ExpiresAt,
             protection.Kind,
             revision);
+    }
+
+    private sealed class EmergencyStopCallScope
+    {
+        private int active = 1;
+
+        public bool IsActive => Volatile.Read(ref active) != 0;
+
+        public void Deactivate() => Volatile.Write(ref active, 0);
+    }
+
+    private sealed class LifetimeOperationLease(
+        RemoteWindowSessionController owner,
+        LifetimeOperationScope currentScope,
+        LifetimeOperationScope? inheritedScope) : IDisposable
+    {
+        private int disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            {
+                return;
+            }
+
+            owner.ExitLifetimeOperation(currentScope, inheritedScope);
+        }
+    }
+
+    private sealed class LifetimeOperationScope(RemoteWindowSessionController owner)
+    {
+        private int active = 1;
+
+        public bool IsActive => Volatile.Read(ref active) != 0;
+
+        public RemoteWindowSessionController Owner { get; } = owner;
+
+        public void Deactivate() => Volatile.Write(ref active, 0);
+    }
+
+    private enum DisposalBoundaryAction
+    {
+        None,
+        EmergencyStop,
+        Stop,
     }
 }
