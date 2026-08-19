@@ -38,7 +38,9 @@ defines the still open boundary for native Windows, macOS, and Linux adapters.
   execution remains on the source Device.
 - RW1.2: Remote Window shall not become an Activity descriptor kind and shall
   not claim to transfer process memory, unsaved application state, credentials,
-  or unsupported application internals.
+  or unsupported application internals. A generic native source may use an
+  ephemeral Activity ID only to bind its live session; it shall have no Activity
+  Descriptor or semantic Activity Kind.
 - RW1.3: When capture, protection detection, or an authenticated sharing path is
   unavailable, Flowspan shall leave the source Activity unchanged and report a
   named unavailability or degradation.
@@ -62,13 +64,16 @@ defines the still open boundary for native Windows, macOS, and Linux adapters.
 ### RW2 - Session admission and visible state
 
 - RW2.1: When a Remote Window or Mirror session starts, the source shall verify
-  that the Activity is active on the local host before capture is disclosed.
+  that the semantic Activity is active on the local host or that the exact
+  generic native source token and generation remain eligible before capture is
+  disclosed.
 - RW2.2: While a session is active or protection-paused, Flowspan shall publish
   a bounded, accessible sharing snapshot containing the Activity identity,
   lifecycle, capture state, participant count, and current Driver.
-- RW2.3: A session controller shall own exactly one Activity. Independent
+- RW2.3: A session controller shall own exactly one source identity: either an
+  active semantic Activity or an ephemeral generic native source. Independent
   controllers may coexist subject to a later composition-level resource limit;
-  no controller may silently replace another Activity's session.
+  no controller may silently replace another source's session.
 - RW2.4: If capture admission fails, the session shall not become active or
   advertise that capture is running. A fresh Safe protection observation shall
   not resume capture/input or publish Active/Capturing until capture admission

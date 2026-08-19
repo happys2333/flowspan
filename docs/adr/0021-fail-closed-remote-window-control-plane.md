@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-08
-- Clarified: 2026-08-10
+- Clarified: 2026-08-10, 2026-08-20
 - Decision owners: Flowspan maintainers
 
 ## Context
@@ -47,6 +47,15 @@ and Activity descriptor payloads outside the control state and diagnostics.
 
 Do not persist a live session or Driver Lease. Restart is a fail-closed sharing
 termination and requires new authorization and capture admission.
+
+Native completion clarifies the controller's source dependency without changing
+the descriptor decision below. The controller may consume a bounded
+`RemoteWindowSourceReference`: an active semantic Activity adapts its ID, kind,
+title, and host, while a generic native window receives an ephemeral Activity ID
+and has no descriptor or semantic kind. Its source token, generation, and native
+identity remain process-local. This permits exact generic-window sharing without
+inserting a synthetic Activity into semantic operations, persistence, or wire
+payloads; protocol 1.5 continues to bind only its existing Activity ID field.
 
 ## Concurrency clarification
 

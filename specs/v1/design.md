@@ -90,7 +90,10 @@ Initial semantic kinds:
   the simulator and as a portable reference adapter.
 
 Remote Window is not an Activity descriptor kind. It is a presentation mode
-whose host remains the source device.
+whose host remains the source device. A generic native window may receive an
+ephemeral Activity ID solely to bind one live Remote Window session, but it has
+no Activity Descriptor or semantic Activity Kind and never enters semantic
+operation or Scene inventories.
 
 ### Operation lifecycle
 

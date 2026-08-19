@@ -308,6 +308,9 @@ means its linked evidence exists; it does not imply the entire product works.
 
 ## 6. Mirror, driver, and protection
 
+Detailed native contracts, platform slices, and evidence gates are tracked in
+`specs/v1/native-remote-window/`.
+
 - [-] 6.1 Implement mirror lifecycle and monotonic expiring driver leases.
   - The portable `RemoteWindowSessionController` now composes one active local
     Activity through capture admission, bounded participant roles, one current
