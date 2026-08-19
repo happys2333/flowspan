@@ -205,6 +205,16 @@ implementation convenience.
   reproducible unsigned packages also passed for the exact final commit. Every
   native/physical release gate remains open; no release criterion is closed by
   this portable/headless record.
+- [2026-08-20 Desktop quality and string externalization](../evidence/2026-08-20-desktop-quality-string-externalization.md):
+  five neutral-English catalogs, the shared Desktop resource facade, XAML/C#
+  presentation regression gates, culture-aware display formatting, and the
+  existing deterministic keyboard, automation, sizing, contrast, and no-motion
+  contracts pass locally and on exact-commit hosted Windows, macOS, and Ubuntu.
+  Downloaded TRX, Gitleaks, and three-RID reproducible unsigned package evidence
+  was independently parsed and verified. Native screen-reader, visible-focus,
+  operating-system high-contrast, font/text-scaling, reduced-motion, signed
+  package, and physical-machine gates remain open, so the related release
+  criteria remain unchecked.
 
 This is portable, headless Desktop, and hosted unsigned-package evidence only.
 It does not satisfy physical-device, native permission/hardware, signed or

@@ -603,13 +603,18 @@ means its linked evidence exists; it does not imply the entire product works.
   - _Requirements: R3, R4, R5, R6, R10, R11_
 - [-] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.
-  - [-] 7.4a Repository and deterministic headless scope: neutral-English
+  - [x] 7.4a Repository and deterministic headless scope: neutral-English
     catalogs, XAML and C# literal regression gates, culture-aware presentation,
     bidirectional resource completeness, keyboard/automation metadata, minimum
     size plus increased-text layout, contrast, and no-required-motion checks are
-    implemented in `specs/v1/desktop-quality/`. Local candidate gates pass;
-    exact-commit hosted evidence remains to be recorded before this subtask is
-    complete.
+    implemented in `specs/v1/desktop-quality/`. Exact implementation commit
+    `1c1ac2902f774435736d79bafeff4e6965426f4a` passes 1,558 tests on local
+    macOS and each hosted OS, Secret Scan, CodeQL, and the three-RID
+    reproducible unsigned package matrix; downloaded artifacts are independently
+    parsed and verified in
+    `docs/evidence/2026-08-20-desktop-quality-string-externalization.md`. This
+    status becomes effective only after the commit carrying this evidence also
+    passes the same final-HEAD workflows.
   - [ ] 7.4b Native scope: execute packaged real-machine screen-reader order and
     speech, visible focus, operating-system high contrast, font fallback and text
     scaling, and reduced-motion integration checks on Windows, macOS, and Linux.

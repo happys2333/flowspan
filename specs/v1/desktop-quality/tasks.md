@@ -43,8 +43,11 @@
     tests, explicit TEST MODE composition, protocol-1.5 simulator, dependency
     vulnerability query, XML/resource audit, and diff checks pass for the
     current worktree candidate.
-  - [ ] Record exact-commit hosted Windows/macOS/Linux CI, CodeQL, Secret Scan,
-    package, and independently parsed TRX evidence.
+  - [x] Exact implementation commit
+    `1c1ac2902f774435736d79bafeff4e6965426f4a` passes hosted
+    Windows/macOS/Linux CI, CodeQL, Secret Scan, and all three package jobs;
+    downloaded TRX and package evidence is independently parsed and verified in
+    `docs/evidence/2026-08-20-desktop-quality-string-externalization.md`.
   - [ ] Execute packaged real-machine screen-reader, focus, high-contrast,
     font/text scaling, and reduced-motion checks on Windows, macOS, and Linux.
   - _Requirements: DQ3-DQ5_
