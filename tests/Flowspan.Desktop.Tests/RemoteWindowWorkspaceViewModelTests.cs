@@ -12,6 +12,20 @@ public sealed class RemoteWindowWorkspaceViewModelTests
     private static readonly DateTimeOffset Now =
         new(2026, 8, 8, 12, 0, 0, TimeSpan.Zero);
 
+    private static Task RunOnDedicatedThread(Action action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private static Task RunOnDedicatedThread(Func<Task> action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default).Unwrap();
+
     [Fact]
     public async Task ActiveSessionCanBeEmergencyStoppedFromPersistentWorkspaceState()
     {
@@ -1020,11 +1034,12 @@ public sealed class RemoteWindowWorkspaceViewModelTests
             }
         };
         viewModel.PropertyChanged += observer;
-        Task starting = Task.Run(() => viewModel.StartRemoteWindowAsync());
+        Task starting = RunOnDedicatedThread(
+            () => viewModel.StartRemoteWindowAsync());
         await admissionPresentationReached.Task.WaitAsync(TimeSpan.FromSeconds(2));
         var selectionAttempted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        Task changingSelection = Task.Run(() =>
+        Task changingSelection = RunOnDedicatedThread(() =>
         {
             selectionAttempted.TrySetResult();
             viewModel.SetFallbackSelection(nextActivity, nextTarget);
@@ -2250,7 +2265,8 @@ public sealed class RemoteWindowWorkspaceViewModelTests
             service,
             permissionService: permissions);
 
-        Task publishing = Task.Run(permissions.PublishRevokedAndBlockGetter);
+        Task publishing = RunOnDedicatedThread(
+            permissions.PublishRevokedAndBlockGetter);
         try
         {
             await service.EmergencyStopCalled.Task
@@ -2445,7 +2461,8 @@ public sealed class RemoteWindowWorkspaceViewModelTests
         {
             Task publishingOldNull = service.PublishBlockingNull();
             await service.NullReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-            starting = Task.Run(() => viewModel.StartRemoteWindowAsync());
+            starting = RunOnDedicatedThread(
+                () => viewModel.StartRemoteWindowAsync());
             await startResultReduced.Task.WaitAsync(TimeSpan.FromSeconds(2));
             service.ReleaseNullRead();
             await publishingOldNull.WaitAsync(TimeSpan.FromSeconds(2));
@@ -2608,7 +2625,7 @@ public sealed class RemoteWindowWorkspaceViewModelTests
             Task publishingOldNull = service.PublishBlockingNull();
             await service.NullReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
             service.BlockNextAvailabilityRead();
-            stopping = Task.Run(() =>
+            stopping = RunOnDedicatedThread(() =>
                 viewModel.EmergencyStopCommand.Execute(null));
             await stopResultReduced.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
@@ -2676,7 +2693,8 @@ public sealed class RemoteWindowWorkspaceViewModelTests
             Task publishingOldNull = service.PublishBlockingNull();
             await service.NullReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
             service.BlockNextAvailabilityRead();
-            resetting = Task.Run(() => viewModel.ResetRemoteWindowAsync());
+            resetting = RunOnDedicatedThread(
+                () => viewModel.ResetRemoteWindowAsync());
             await resetResultReduced.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
             service.ReleaseNullRead();
@@ -2722,7 +2740,7 @@ public sealed class RemoteWindowWorkspaceViewModelTests
             DesktopPermissionState.Revoked,
             DesktopPermissionState.Granted));
         service.BlockNextAvailabilityRead();
-        Task applyingOldOutcome = Task.Run(dispatcher.RunAll);
+        Task applyingOldOutcome = RunOnDedicatedThread(dispatcher.RunAll);
         await service.AvailabilityReadStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(2));
         try
@@ -2734,7 +2752,8 @@ public sealed class RemoteWindowWorkspaceViewModelTests
                 activityTitle: "New controller session");
             service.ReplaceController(replacement);
             await service.StartAsync();
-            await Task.Run(dispatcher.RunAll).WaitAsync(TimeSpan.FromSeconds(2));
+            await RunOnDedicatedThread(dispatcher.RunAll)
+                .WaitAsync(TimeSpan.FromSeconds(2));
             Assert.Equal("REMOTE WINDOW ACTIVE", viewModel.SharingStatus);
             Assert.True(viewModel.IsEmergencyStopAvailable);
         }
@@ -2950,10 +2969,12 @@ public sealed class RemoteWindowWorkspaceViewModelTests
             service,
             permissionService: permissions);
 
-        Task publishing = Task.Run(permissions.PublishRevokedAndBlockRead);
+        Task publishing = RunOnDedicatedThread(
+            permissions.PublishRevokedAndBlockRead);
         await permissions.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        Task disposing = Task.Run(async () => await viewModel.DisposeAsync());
+        Task disposing = RunOnDedicatedThread(
+            () => viewModel.DisposeAsync().AsTask());
         await service.DisposedSignal.Task.WaitAsync(TimeSpan.FromSeconds(2));
         bool disposalCompletedBeforeReadReleased = disposing.IsCompleted;
         permissions.ReleaseRead();
@@ -3024,11 +3045,12 @@ public sealed class RemoteWindowWorkspaceViewModelTests
                 DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
                 "Peer desk"));
         service.BlockNextAvailabilityRead();
-        Task starting = Task.Run(() => viewModel.StartRemoteWindowAsync());
+        Task starting = RunOnDedicatedThread(
+            () => viewModel.StartRemoteWindowAsync());
         await service.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(viewModel.IsEmergencyStopAvailable);
 
-        Task stopping = Task.Run(
+        Task stopping = RunOnDedicatedThread(
             () => viewModel.EmergencyStopCommand.Execute(null));
         try
         {
@@ -4177,7 +4199,7 @@ public sealed class RemoteWindowWorkspaceViewModelTests
         {
             Volatile.Write(ref snapshot, null);
             Volatile.Write(ref blockNextNullRead, 1);
-            return Task.Run(() => Changed?.Invoke());
+            return RunOnDedicatedThread(() => Changed?.Invoke());
         }
 
         public void BlockNextAvailabilityRead()
@@ -5228,7 +5250,7 @@ public sealed class RemoteWindowWorkspaceViewModelTests
         public Task PublishStaleGrantedAndBlockRead()
         {
             Volatile.Write(ref blockNextRead, 1);
-            return Task.Run(() => Changed?.Invoke());
+            return RunOnDedicatedThread(() => Changed?.Invoke());
         }
 
         public void PublishRevoked()
