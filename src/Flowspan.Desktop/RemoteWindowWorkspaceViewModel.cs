@@ -29,7 +29,7 @@ public interface IDesktopRemoteWindowService : IAsyncDisposable
         CancellationToken cancellationToken = default) =>
         ValueTask.FromException<RemoteWindowCommandResult>(
             new PlatformNotSupportedException(
-                "Remote Window local reset is not configured by this Desktop service."));
+                DesktopText.Get("RemoteWindow_Service_ResetNotConfigured")));
 
     public ValueTask<RemoteWindowCommandResult> StartAsync(
         ActivityId activityId,
@@ -38,7 +38,7 @@ public interface IDesktopRemoteWindowService : IAsyncDisposable
         CancellationToken cancellationToken = default) =>
         ValueTask.FromException<RemoteWindowCommandResult>(
             new PlatformNotSupportedException(
-                "Remote Window start is not configured by this Desktop service."));
+                DesktopText.Get("RemoteWindow_Service_StartNotConfigured")));
 }
 
 public sealed class RemoteWindowWorkspaceViewModel :
@@ -64,33 +64,35 @@ public sealed class RemoteWindowWorkspaceViewModel :
     private readonly object presentationGate = new();
     private readonly object serviceBoundaryGate = new();
     private readonly AsyncRelayCommand startRemoteWindowCommand;
-    private string activityId = "No live Activity";
-    private string activityTitle = "No live Activity";
-    private string captureStatus = "CAPTURE: Stopped";
+    private string activityId = DesktopText.Get("RemoteWindow_Activity_NoLive");
+    private string activityTitle = DesktopText.Get("RemoteWindow_Activity_NoLive");
+    private string captureStatus = DesktopText.Get("RemoteWindow_Capture_Stopped");
     private DesktopPermissionState admissionCapturePermissionState =
         DesktopPermissionState.Unsupported;
     private DesktopPermissionState admissionInputPermissionState =
         DesktopPermissionState.Unsupported;
     private DesktopPermissionState capturePermissionState =
         DesktopPermissionState.Unsupported;
-    private string capturePermissionDescription =
-        "Native capture permission is unavailable in this platform build.";
-    private string capturePermissionRecoveryAction =
-        "Install a Flowspan build with the matching native capture adapter.";
-    private string capturePermissionStatus = "CAPTURE PERMISSION UNAVAILABLE";
-    private string driverStatus = "DRIVER: None";
+    private string capturePermissionDescription = DesktopText.Get(
+        "RemoteWindow_CapturePermission_UnsupportedDescription");
+    private string capturePermissionRecoveryAction = DesktopText.Get(
+        "RemoteWindow_CapturePermission_UnsupportedRecovery");
+    private string capturePermissionStatus = DesktopText.Get(
+        "RemoteWindow_CapturePermission_UnavailableStatus");
+    private string driverStatus = DesktopText.Get("RemoteWindow_Driver_None");
     private int emergencyStopAttempted;
     private ActivityId? emergencyStoppedActivityId;
     private int emergencyStopPresentationResetRequired;
     private long? emergencyStoppedRevision;
-    private string emergencyStopDescription =
-        "No local Emergency Stop result has been recorded.";
+    private string emergencyStopDescription = DesktopText.Get(
+        "RemoteWindow_EmergencyStop_NoResult");
     private bool emergencyStopFullyConfirmed;
-    private string emergencyStopHelpText =
-        "Unavailable while no Remote Window session is active.";
-    private string emergencyStopStatus = "EMERGENCY STOP NOT REQUIRED";
-    private string fallbackDescription =
-        "Select one local Activity and one authenticated target to review Remote Window.";
+    private string emergencyStopHelpText = DesktopText.Get(
+        "RemoteWindow_EmergencyStop_UnavailableNoSessionHelp");
+    private string emergencyStopStatus = DesktopText.Get(
+        "RemoteWindow_EmergencyStop_NotRequiredStatus");
+    private string fallbackDescription = DesktopText.Get(
+        "RemoteWindow_Fallback_SelectDescription");
     private RemoteWindowCommandStatus? fallbackFailureStatus;
     private ActivityId? retryResetCleanupActivityId;
     private long? retryResetCleanupRevision;
@@ -98,8 +100,8 @@ public sealed class RemoteWindowWorkspaceViewModel :
     private ActivityId? fallbackSessionActivityId;
     private MirrorParticipantRole? fallbackSessionRole;
     private DesktopActivityTargetSnapshot? fallbackSessionTarget;
-    private string fallbackStatus =
-        "REMOTE WINDOW FALLBACK — SELECT ACTIVITY AND TARGET";
+    private string fallbackStatus = DesktopText.Get(
+        "RemoteWindow_Fallback_SelectStatus");
     private DesktopActivitySnapshot? fallbackActivity;
     private DesktopActivityTargetSnapshot? fallbackTarget;
     private DesktopActivitySnapshot? inFlightFallbackActivity;
@@ -110,11 +112,12 @@ public sealed class RemoteWindowWorkspaceViewModel :
     private bool hasAcknowledgedInputPermissionReview;
     private DesktopPermissionState inputPermissionState =
         DesktopPermissionState.Unsupported;
-    private string inputPermissionDescription =
-        "Native input permission is unavailable in this platform build.";
-    private string inputPermissionRecoveryAction =
-        "Install a Flowspan build with the matching native input adapter.";
-    private string inputPermissionStatus = "INPUT PERMISSION UNAVAILABLE";
+    private string inputPermissionDescription = DesktopText.Get(
+        "RemoteWindow_InputPermission_UnsupportedDescription");
+    private string inputPermissionRecoveryAction = DesktopText.Get(
+        "RemoteWindow_InputPermission_UnsupportedRecovery");
+    private string inputPermissionStatus = DesktopText.Get(
+        "RemoteWindow_InputPermission_UnavailableStatus");
     private bool isCapturePermissionReviewVisible;
     private bool isEmergencyStopAvailable;
     private bool isInputPermissionReviewVisible;
@@ -148,16 +151,23 @@ public sealed class RemoteWindowWorkspaceViewModel :
     private int serviceOperationsInFlight;
     private TaskCompletionSource<bool> serviceOperationsDrained =
         CreateCompletedSignal();
-    private string localResetDescription =
-        "No local Remote Window reset is required.";
-    private string localResetStatus = "LOCAL RESET NOT REQUIRED";
-    private string participantStatus = "PARTICIPANTS: 0";
-    private string protectionStatus = "PROTECTION: Unknown";
-    private string revisionStatus = "REVISION: 0";
+    private string localResetDescription = DesktopText.Get(
+        "RemoteWindow_LocalReset_NotRequiredDescription");
+    private string localResetStatus = DesktopText.Get(
+        "RemoteWindow_LocalReset_NotRequiredStatus");
+    private string participantStatus = DesktopText.Get(
+        "RemoteWindow_Participants_Zero");
+    private string protectionStatus = DesktopText.Get(
+        "RemoteWindow_Protection_Unknown");
+    private string revisionStatus = DesktopText.Get(
+        "RemoteWindow_Revision_Zero");
     private int remoteDrivingSafetyDisableRequired;
-    private string sharingAutomationName = "Sharing state: Not sharing";
-    private string sharingDescription = "No peer can view or drive this device.";
-    private string sharingStatus = "NOT SHARING";
+    private string sharingAutomationName = DesktopText.Get(
+        "RemoteWindow_Sharing_NotSharingAutomationName");
+    private string sharingDescription = DesktopText.Get(
+        "RemoteWindow_Sharing_NotSharingDescription");
+    private string sharingStatus = DesktopText.Get(
+        "RemoteWindow_Sharing_NotSharingStatus");
     private bool serviceAvailable;
     private readonly TaskCompletionSource<bool> disposalCompletion = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
@@ -340,8 +350,8 @@ public sealed class RemoteWindowWorkspaceViewModel :
         (isFallbackBusy ? inFlightFallbackRole : null)
             is MirrorParticipantRole.DriverEligible
         || !isFallbackBusy && IsRemoteDrivingEnabled
-        ? "Start driver-enabled Remote Window for the selected Activity"
-        : "Start view-only Remote Window for the selected Activity";
+        ? DesktopText.Get("RemoteWindow_Fallback_StartDriverAutomationName")
+        : DesktopText.Get("RemoteWindow_Fallback_StartViewOnlyAutomationName");
 
     public bool HasAcknowledgedCapturePermissionReview
     {
@@ -611,7 +621,8 @@ public sealed class RemoteWindowWorkspaceViewModel :
                 0 => null,
                 1 => failures[0],
                 _ => new AggregateException(
-                    "The Remote Window fail-close boundary reported multiple failures.",
+                    DesktopText.Get(
+                        "RemoteWindow_Service_FailCloseMultipleFailures"),
                     failures),
             };
             failCloseCompleted.TrySetResult(true);
@@ -765,7 +776,8 @@ public sealed class RemoteWindowWorkspaceViewModel :
             if (!result.FullyStopped)
             {
                 failures.Add(new InvalidOperationException(
-                    "Remote Window Emergency Stop was not fully confirmed during disposal."));
+                    DesktopText.Get(
+                        "RemoteWindow_Service_DisposalStopNotConfirmed")));
             }
             else
             {
@@ -955,19 +967,24 @@ public sealed class RemoteWindowWorkspaceViewModel :
 
                 ResetEmergencyStopPresentationForNewSession();
                 LocalResetStatus = resetLifecycle == RemoteWindowLifecycle.Unavailable
-                    ? "LOCAL RETRY RESET CONFIRMED"
-                    : "LOCAL RESET CONFIRMED";
-                LocalResetDescription =
-                    "The previous session is idle. Participants, capture, and the prior Driver were not restored.";
+                    ? DesktopText.Get(
+                        "RemoteWindow_LocalReset_RetryConfirmedStatus")
+                    : DesktopText.Get(
+                        "RemoteWindow_LocalReset_ConfirmedStatus");
+                LocalResetDescription = DesktopText.Get(
+                    "RemoteWindow_LocalReset_ConfirmedDescription");
             }
             else
             {
-                LocalResetStatus = "LOCAL RESET NOT CONFIRMED";
+                LocalResetStatus = DesktopText.Get(
+                    "RemoteWindow_LocalReset_NotConfirmedStatus");
                 LocalResetDescription = resetLifecycle
                         == RemoteWindowLifecycle.EmergencyStopped
                     && result.Status == RemoteWindowCommandStatus.BoundaryFailed
-                    ? "One or more Emergency Stop boundaries remain unconfirmed. Close Flowspan and inspect local diagnostics before retrying."
-                    : "The local reset boundary rejected the current session state. No participant, capture, or Driver authority was restored.";
+                    ? DesktopText.Get(
+                        "RemoteWindow_LocalReset_StopBoundariesUnconfirmedDescription")
+                    : DesktopText.Get(
+                        "RemoteWindow_LocalReset_RejectedDescription");
             }
         }
         catch (OperationCanceledException)
@@ -985,9 +1002,10 @@ public sealed class RemoteWindowWorkspaceViewModel :
                 throw;
             }
 
-            LocalResetStatus = "LOCAL RESET UNCONFIRMED";
-            LocalResetDescription =
-                "The local reset boundary did not return a confirmation. No participant, capture, or Driver authority is claimed restored.";
+            LocalResetStatus = DesktopText.Get(
+                "RemoteWindow_LocalReset_UnconfirmedStatus");
+            LocalResetDescription = DesktopText.Get(
+                "RemoteWindow_LocalReset_NoConfirmationDescription");
         }
         finally
         {
@@ -1423,20 +1441,22 @@ public sealed class RemoteWindowWorkspaceViewModel :
                     emergencyStoppedActivityId = result.Snapshot.ActivityId;
                     emergencyStoppedRevision = result.Snapshot.Revision;
                     emergencyStopStatus = result.FullyStopped
-                        ? "EMERGENCY STOP CONFIRMED"
-                        : "EMERGENCY STOP PARTIALLY UNCONFIRMED";
-                    emergencyStopDescription =
-                        $"Capture: {ToConfirmation(result.CaptureBoundary)}. "
-                        + $"Input: {ToConfirmation(result.InputBoundary)}. "
-                        + $"Sessions: {ToConfirmation(result.SessionBoundary)}.";
+                        ? DesktopText.Get(
+                            "RemoteWindow_EmergencyStop_ConfirmedStatus")
+                        : DesktopText.Get(
+                            "RemoteWindow_EmergencyStop_PartiallyUnconfirmedStatus");
+                    emergencyStopDescription = DesktopText.Format(
+                        "RemoteWindow_EmergencyStop_ResultDescription",
+                        ToConfirmation(result.CaptureBoundary),
+                        ToConfirmation(result.InputBoundary),
+                        ToConfirmation(result.SessionBoundary));
                 }
                 else
                 {
-                    emergencyStopStatus = "EMERGENCY STOP UNCONFIRMED";
-                    emergencyStopDescription =
-                        "The local stop boundary did not return a confirmation. "
-                        + "Capture, input, and sessions are unconfirmed. Close Flowspan "
-                        + "and inspect local diagnostics before any reset.";
+                    emergencyStopStatus = DesktopText.Get(
+                        "RemoteWindow_EmergencyStop_UnconfirmedStatus");
+                    emergencyStopDescription = DesktopText.Get(
+                        "RemoteWindow_EmergencyStop_NoConfirmationDescription");
                 }
             }
         }
@@ -1485,8 +1505,8 @@ public sealed class RemoteWindowWorkspaceViewModel :
                     if (currentGeneration)
                     {
                         isEmergencyStopAvailable = false;
-                        emergencyStopHelpText =
-                            "Unavailable while no stoppable Remote Window session is active.";
+                        emergencyStopHelpText = DesktopText.Get(
+                            "RemoteWindow_EmergencyStop_UnavailableHelp");
                     }
                 }
 
@@ -2084,29 +2104,47 @@ public sealed class RemoteWindowWorkspaceViewModel :
             CapturePermissionRecoveryAction) = capturePermissionState switch
             {
                 DesktopPermissionState.NotDetermined => (
-                    "CAPTURE PERMISSION REVIEW REQUIRED",
-                    "Review what Remote Window can expose before asking the operating system for screen-capture permission.",
-                    "No permission is requested until the review is acknowledged."),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_ReviewRequiredStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_ReviewRequiredDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_ReviewRequiredRecovery")),
                 DesktopPermissionState.Granted => (
-                    "CAPTURE PERMISSION GRANTED",
-                    "The operating system currently allows screen capture. Execution still remains on the source Device.",
-                    "Stop sharing before changing capture access in system settings."),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_GrantedStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_GrantedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_GrantedRecovery")),
                 DesktopPermissionState.Denied => (
-                    "CAPTURE PERMISSION DENIED",
-                    "Remote Window cannot start capture. The source Activity remains unchanged.",
-                    "Review screen-capture privacy settings, then return to Flowspan."),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_DeniedStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_DeniedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_DeniedRecovery")),
                 DesktopPermissionState.Revoked => (
-                    "CAPTURE PERMISSION REVOKED",
-                    "Capture access was removed. New sharing and remote driving remain disabled.",
-                    "Review screen-capture privacy settings before retrying."),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_RevokedStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_RevokedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_RevokedRecovery")),
                 DesktopPermissionState.Unsupported => (
-                    "CAPTURE PERMISSION UNAVAILABLE",
-                    "Native capture permission is unavailable in this platform build.",
-                    "Install a Flowspan build with the matching native capture adapter."),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_UnavailableStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_UnsupportedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_UnsupportedRecovery")),
                 _ => (
-                    "CAPTURE PERMISSION UNAVAILABLE",
-                    "Capture permission state could not be read safely.",
-                    "Inspect local diagnostics and platform privacy settings before retrying."),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_UnavailableStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_UnavailableDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_CapturePermission_UnavailableRecovery")),
             };
     }
 
@@ -2117,29 +2155,47 @@ public sealed class RemoteWindowWorkspaceViewModel :
             InputPermissionRecoveryAction) = inputPermissionState switch
             {
                 DesktopPermissionState.NotDetermined => (
-                    "INPUT PERMISSION NOT REQUESTED",
-                    "Remote driving is off. Input or accessibility permission is requested only after remote driving is explicitly enabled.",
-                    "Viewing a Remote Window does not require input permission."),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_NotRequestedStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_NotRequestedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_NotRequestedRecovery")),
                 DesktopPermissionState.Granted => (
-                    "INPUT PERMISSION GRANTED",
-                    "The operating system currently allows Flowspan's local input boundary.",
-                    "Driver authority still requires a current Capability and Driver Lease."),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_GrantedStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_GrantedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_GrantedRecovery")),
                 DesktopPermissionState.Denied => (
-                    "INPUT PERMISSION DENIED",
-                    "Remote viewing may continue, but remote driving remains disabled.",
-                    "Review input or accessibility privacy settings, then return to Flowspan."),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_DeniedStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_DeniedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_DeniedRecovery")),
                 DesktopPermissionState.Revoked => (
-                    "INPUT PERMISSION REVOKED",
-                    "Remote driving was disabled because local input access was removed.",
-                    "Review input or accessibility privacy settings before enabling driving again."),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_RevokedStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_RevokedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_RevokedRecovery")),
                 DesktopPermissionState.Unsupported => (
-                    "INPUT PERMISSION UNAVAILABLE",
-                    "Native input permission is unavailable in this platform build.",
-                    "Install a Flowspan build with the matching native input adapter."),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_UnavailableStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_UnsupportedDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_UnsupportedRecovery")),
                 _ => (
-                    "INPUT PERMISSION UNAVAILABLE",
-                    "Input permission state could not be read safely. Remote driving remains disabled.",
-                    "Inspect local diagnostics and platform privacy settings before retrying."),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_UnavailableStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_UnavailableDescription"),
+                    DesktopText.Get(
+                        "RemoteWindow_InputPermission_UnavailableRecovery")),
             };
     }
 
@@ -2459,9 +2515,12 @@ public sealed class RemoteWindowWorkspaceViewModel :
         {
             DesktopActivitySnapshot startingActivity = inFlightFallbackActivity!;
             DesktopActivityTargetSnapshot startingTarget = inFlightFallbackTarget!;
-            FallbackStatus = "REMOTE WINDOW STARTING";
-            FallbackDescription =
-                $"Preparing {startingActivity.Title} for {startingTarget.DisplayName}. Execution remains on this source Device.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Sharing_StartingStatus");
+            FallbackDescription = DesktopText.Format(
+                "RemoteWindow_Fallback_StartingDescription",
+                startingActivity.Title,
+                startingTarget.DisplayName);
         }
         else if (observedLifecycle is
             RemoteWindowLifecycle.Starting
@@ -2470,115 +2529,145 @@ public sealed class RemoteWindowWorkspaceViewModel :
         {
             string lifecycleStatus = observedLifecycle switch
             {
-                RemoteWindowLifecycle.Starting => "REMOTE WINDOW STARTING",
-                RemoteWindowLifecycle.ProtectionPaused => "REMOTE WINDOW PAUSED",
-                _ => "REMOTE WINDOW ACTIVE",
+                RemoteWindowLifecycle.Starting => DesktopText.Get(
+                    "RemoteWindow_Sharing_StartingStatus"),
+                RemoteWindowLifecycle.ProtectionPaused => DesktopText.Get(
+                    "RemoteWindow_Sharing_PausedStatus"),
+                _ => DesktopText.Get("RemoteWindow_Sharing_ActiveStatus"),
             };
             if (fallbackSessionActivity is { } sessionActivity
                 && fallbackSessionTarget is { } sessionTarget
                 && sessionActivity.ActivityId == observedActivityId)
             {
                 FallbackStatus = lifecycleStatus;
-                FallbackDescription =
-                    $"Presenting {sessionActivity.Title} to {sessionTarget.DisplayName}. Execution remains on this source Device.";
+                FallbackDescription = DesktopText.Format(
+                    "RemoteWindow_Fallback_PresentingDescription",
+                    sessionActivity.Title,
+                    sessionTarget.DisplayName);
             }
             else
             {
                 string observedTitle = lastAcceptedSnapshot?.ActivityTitle
-                    ?? "the current Activity";
-                FallbackStatus =
-                    $"{lifecycleStatus} — TARGET CONTEXT UNAVAILABLE";
-                FallbackDescription =
-                    $"Presenting {observedTitle}. The admitted target label is unavailable, so no selected preview target is attributed to this session. Execution remains on this source Device.";
+                    ?? DesktopText.Get(
+                        "RemoteWindow_Activity_CurrentFallbackLabel");
+                FallbackStatus = DesktopText.Format(
+                    "RemoteWindow_Fallback_TargetContextUnavailableStatus",
+                    lifecycleStatus);
+                FallbackDescription = DesktopText.Format(
+                    "RemoteWindow_Fallback_TargetContextUnavailableDescription",
+                    observedTitle);
             }
         }
         else if (fallbackActivity is null || fallbackTarget is null)
         {
-            FallbackStatus =
-                "REMOTE WINDOW FALLBACK — SELECT ACTIVITY AND TARGET";
-            FallbackDescription =
-                "Select one local Activity and one authenticated target to review Remote Window.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_SelectStatus");
+            FallbackDescription = DesktopText.Get(
+                "RemoteWindow_Fallback_SelectDescription");
         }
         else if (fallbackSemanticResumeAvailability
             == DesktopSemanticResumeAvailability.Unknown)
         {
-            FallbackStatus =
-                "REMOTE WINDOW UNAVAILABLE — SEMANTIC SUPPORT UNKNOWN";
-            FallbackDescription =
-                $"Semantic resume support for {fallbackActivity.Title} could not be confirmed. Handoff, Move, and Remote Window remain disabled until support is known.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_SemanticUnknownStatus");
+            FallbackDescription = DesktopText.Format(
+                "RemoteWindow_Fallback_SemanticUnknownDescription",
+                fallbackActivity.Title);
         }
         else if (fallbackSemanticResumeAvailability
             == DesktopSemanticResumeAvailability.Available)
         {
-            FallbackStatus =
-                "REMOTE WINDOW NOT OFFERED — SEMANTIC RESUME AVAILABLE";
-            FallbackDescription =
-                $"Use Handoff or Move for {fallbackActivity.Title} on {fallbackTarget.DisplayName}. Remote Window fallback is reserved for Activities without semantic resume.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_SemanticAvailableStatus");
+            FallbackDescription = DesktopText.Format(
+                "RemoteWindow_Fallback_SemanticAvailableDescription",
+                fallbackActivity.Title,
+                fallbackTarget.DisplayName);
         }
         else if (!serviceAvailable)
         {
-            FallbackStatus = "REMOTE WINDOW UNAVAILABLE";
-            FallbackDescription =
-                $"Remote Window cannot present {fallbackActivity.Title} to {fallbackTarget.DisplayName} in this platform build. The source Activity remains unchanged.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Sharing_UnavailableStatus");
+            FallbackDescription = DesktopText.Format(
+                "RemoteWindow_Fallback_ServiceUnavailableDescription",
+                fallbackActivity.Title,
+                fallbackTarget.DisplayName);
         }
         else if (fallbackActivity.Lifecycle != ActivityLifecycle.Active)
         {
-            FallbackStatus = "REMOTE WINDOW BLOCKED — SOURCE NOT ACTIVE";
-            FallbackDescription =
-                $"{fallbackActivity.Title} is not active on this source Device. Select an active local Activity.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_SourceNotActiveStatus");
+            FallbackDescription = DesktopText.Format(
+                "RemoteWindow_Fallback_SourceNotActiveDescription",
+                fallbackActivity.Title);
         }
         else if (observedLifecycle == RemoteWindowLifecycle.EmergencyStopped)
         {
-            FallbackStatus = "REMOTE WINDOW STOPPED — LOCAL RESET REQUIRED";
-            FallbackDescription =
-                "Finish or locally reset the current Remote Window session before starting another one.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_LocalResetRequiredStatus");
+            FallbackDescription = DesktopText.Get(
+                "RemoteWindow_Fallback_ExistingSessionDescription");
         }
         else if (capturePermissionState != DesktopPermissionState.Granted)
         {
-            FallbackStatus = "REMOTE WINDOW BLOCKED — CAPTURE PERMISSION REQUIRED";
-            FallbackDescription =
-                "Review and grant screen-capture permission before starting Remote Window. No sharing request was sent.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_CapturePermissionRequiredStatus");
+            FallbackDescription = DesktopText.Get(
+                "RemoteWindow_Fallback_CapturePermissionRequiredDescription");
         }
         else if (IsRemoteDrivingEnabled
             && inputPermissionState != DesktopPermissionState.Granted)
         {
-            FallbackStatus = "REMOTE WINDOW BLOCKED — INPUT PERMISSION REQUIRED";
-            FallbackDescription =
-                "Remote driving was selected. Review and grant input or accessibility permission, or turn remote driving off to start view-only.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_InputPermissionRequiredStatus");
+            FallbackDescription = DesktopText.Get(
+                "RemoteWindow_Fallback_InputPermissionRequiredDescription");
         }
         else if (fallbackFailureStatus is { } failureStatus)
         {
             (FallbackStatus, FallbackDescription) = failureStatus switch
             {
                 RemoteWindowCommandStatus.CapabilityDenied => (
-                    "REMOTE WINDOW BLOCKED — REVIEW TRUST",
-                    "The selected target lacks the required current Mirror capability. Review Trust and retry; the source Activity remains unchanged."),
+                    DesktopText.Get(
+                        "RemoteWindow_Fallback_ReviewTrustStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_Fallback_ReviewTrustDescription")),
                 RemoteWindowCommandStatus.ProtectionBlocked => (
-                    "REMOTE WINDOW BLOCKED — PROTECTED SOURCE",
-                    "The source protection state is unsafe or uncertain. Capture and input remain blocked."),
+                    DesktopText.Get(
+                        "RemoteWindow_Fallback_ProtectedSourceStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_Fallback_ProtectedSourceDescription")),
                 RemoteWindowCommandStatus.BoundaryFailed => (
-                    "REMOTE WINDOW COULD NOT START",
-                    "A local or authenticated sharing boundary did not confirm startup. Inspect local diagnostics before retrying."),
+                    DesktopText.Get(
+                        "RemoteWindow_Fallback_CouldNotStartStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_Fallback_CouldNotStartDescription")),
                 _ => (
-                    "REMOTE WINDOW NOT STARTED",
-                    "The exact selected Remote Window request was not applied. Review the visible session, permission, and Trust state before retrying."),
+                    DesktopText.Get(
+                        "RemoteWindow_Fallback_NotStartedStatus"),
+                    DesktopText.Get(
+                        "RemoteWindow_Fallback_NotStartedDescription")),
             };
         }
         else if (observedLifecycle is not null and not RemoteWindowLifecycle.Idle)
         {
-            FallbackStatus = "REMOTE WINDOW BUSY — ANOTHER SESSION EXISTS";
-            FallbackDescription =
-                "Finish or locally reset the current Remote Window session before starting another one.";
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_AnotherSessionStatus");
+            FallbackDescription = DesktopText.Get(
+                "RemoteWindow_Fallback_ExistingSessionDescription");
         }
         else
         {
             string role = IsRemoteDrivingEnabled
-                ? "driver-eligible"
-                : "view-only";
-            FallbackStatus =
-                "REMOTE WINDOW READY — EXECUTION STAYS ON SOURCE";
-            FallbackDescription =
-                $"Present {fallbackActivity.Title} on {fallbackTarget.DisplayName} as {role}. Execution remains on this source Device; application and process state do not move.";
+                ? DesktopText.Get("RemoteWindow_Fallback_DriverEligibleRole")
+                : DesktopText.Get("RemoteWindow_Fallback_ViewOnlyRole");
+            FallbackStatus = DesktopText.Get(
+                "RemoteWindow_Fallback_ReadyStatus");
+            FallbackDescription = DesktopText.Format(
+                "RemoteWindow_Fallback_ReadyDescription",
+                fallbackActivity.Title,
+                fallbackTarget.DisplayName,
+                role);
         }
 
         OnPropertyChanged(nameof(IsFallbackStartAvailable));
@@ -2862,47 +2951,82 @@ public sealed class RemoteWindowWorkspaceViewModel :
 
             ActivityTitle = snapshot.ActivityTitle;
             ActivityId = snapshot.ActivityId.ToString();
-            CaptureStatus = $"CAPTURE: {snapshot.CaptureState}";
-            ParticipantStatus = $"PARTICIPANTS: {snapshot.Participants.Count}";
+            CaptureStatus = DesktopText.Format(
+                "RemoteWindow_Capture_Status",
+                snapshot.CaptureState);
+            ParticipantStatus = DesktopText.Format(
+                "RemoteWindow_Participants_Status",
+                snapshot.Participants.Count);
             DriverStatus = snapshot.CurrentDriverDeviceId is null
-                ? "DRIVER: None"
-                : $"DRIVER: {snapshot.CurrentDriverDeviceId} / "
-                    + $"EPOCH {snapshot.DriverLeaseEpoch?.ToString(CultureInfo.InvariantCulture) ?? "Unknown"} / "
-                    + (snapshot.DriverLeaseExpiresAt is { } expiresAt
-                        ? $"LEASE EXPIRES {expiresAt:O}"
-                        : "LEASE EXPIRES Unknown");
-            ProtectionStatus = $"PROTECTION: {snapshot.ProtectionKind}";
-            RevisionStatus = $"REVISION: {snapshot.Revision}";
+                ? DesktopText.Get("RemoteWindow_Driver_None")
+                : DesktopText.Format(
+                    "RemoteWindow_Driver_Detail",
+                    snapshot.CurrentDriverDeviceId,
+                    snapshot.DriverLeaseEpoch?.ToString(
+                        CultureInfo.InvariantCulture)
+                        ?? DesktopText.Get("RemoteWindow_Value_Unknown"),
+                    snapshot.DriverLeaseExpiresAt is { } expiresAt
+                        ? expiresAt.ToString("O", CultureInfo.InvariantCulture)
+                        : DesktopText.Get("RemoteWindow_Value_Unknown"));
+            ProtectionStatus = DesktopText.Format(
+                "RemoteWindow_Protection_Status",
+                snapshot.ProtectionKind);
+            RevisionStatus = DesktopText.Format(
+                "RemoteWindow_Revision_Status",
+                snapshot.Revision);
             IsDetailVisible = snapshot.Lifecycle != RemoteWindowLifecycle.Idle;
-            string currentDriver =
-                snapshot.CurrentDriverDeviceId?.ToString() ?? "None";
+            string currentDriver = snapshot.CurrentDriverDeviceId?.ToString()
+                ?? DesktopText.Get("RemoteWindow_Value_None");
             SharingStatus = snapshot.Lifecycle switch
             {
-                RemoteWindowLifecycle.Starting => "REMOTE WINDOW STARTING",
-                RemoteWindowLifecycle.Active => "REMOTE WINDOW ACTIVE",
-                RemoteWindowLifecycle.ProtectionPaused => "REMOTE WINDOW PAUSED",
-                RemoteWindowLifecycle.EmergencyStopped => "EMERGENCY STOPPED",
-                RemoteWindowLifecycle.Unavailable => "REMOTE WINDOW UNAVAILABLE",
-                _ => "NOT SHARING",
+                RemoteWindowLifecycle.Starting => DesktopText.Get(
+                    "RemoteWindow_Sharing_StartingStatus"),
+                RemoteWindowLifecycle.Active => DesktopText.Get(
+                    "RemoteWindow_Sharing_ActiveStatus"),
+                RemoteWindowLifecycle.ProtectionPaused => DesktopText.Get(
+                    "RemoteWindow_Sharing_PausedStatus"),
+                RemoteWindowLifecycle.EmergencyStopped => DesktopText.Get(
+                    "RemoteWindow_Sharing_EmergencyStoppedStatus"),
+                RemoteWindowLifecycle.Unavailable => DesktopText.Get(
+                    "RemoteWindow_Sharing_UnavailableStatus"),
+                _ => DesktopText.Get(
+                    "RemoteWindow_Sharing_NotSharingStatus"),
             };
             SharingDescription = snapshot.Lifecycle switch
             {
-                RemoteWindowLifecycle.Starting =>
-                    $"Preparing {snapshot.ActivityTitle}. Current Driver: {currentDriver}. Execution remains on this source Device.",
-                RemoteWindowLifecycle.Active =>
-                    $"Presenting {snapshot.ActivityTitle}. Current Driver: {currentDriver}. Execution remains on this source Device.",
-                RemoteWindowLifecycle.ProtectionPaused =>
-                    $"{snapshot.ActivityTitle} remains on this source Device. Current Driver: {currentDriver}. Capture and input are blocked by protection state.",
-                RemoteWindowLifecycle.EmergencyStopped =>
-                    $"{snapshot.ActivityTitle} is Emergency Stopped. Current Driver: {currentDriver}. Local Driver authority is revoked; capture, input, and sharing boundary results are shown below.",
-                RemoteWindowLifecycle.Unavailable =>
-                    $"Remote Window state for {snapshot.ActivityTitle} is unavailable. Current Driver: {currentDriver}. The source Activity remains unchanged.",
-                _ => "No peer can view or drive this device.",
+                RemoteWindowLifecycle.Starting => DesktopText.Format(
+                    "RemoteWindow_Sharing_StartingDescription",
+                    snapshot.ActivityTitle,
+                    currentDriver),
+                RemoteWindowLifecycle.Active => DesktopText.Format(
+                    "RemoteWindow_Sharing_ActiveDescription",
+                    snapshot.ActivityTitle,
+                    currentDriver),
+                RemoteWindowLifecycle.ProtectionPaused => DesktopText.Format(
+                    "RemoteWindow_Sharing_PausedDescription",
+                    snapshot.ActivityTitle,
+                    currentDriver),
+                RemoteWindowLifecycle.EmergencyStopped => DesktopText.Format(
+                    "RemoteWindow_Sharing_EmergencyStoppedDescription",
+                    snapshot.ActivityTitle,
+                    currentDriver),
+                RemoteWindowLifecycle.Unavailable => DesktopText.Format(
+                    "RemoteWindow_Sharing_UnavailableDescription",
+                    snapshot.ActivityTitle,
+                    currentDriver),
+                _ => DesktopText.Get(
+                    "RemoteWindow_Sharing_NotSharingDescription"),
             };
             SharingAutomationName = snapshot.Lifecycle
                     == RemoteWindowLifecycle.Idle
-                ? $"Sharing state: {SharingStatus}"
-                : $"Sharing state: {SharingStatus}; Activity: {snapshot.ActivityTitle}; Current Driver: {currentDriver}";
+                ? DesktopText.Format(
+                    "RemoteWindow_Sharing_StateAutomationName",
+                    SharingStatus)
+                : DesktopText.Format(
+                    "RemoteWindow_Sharing_SessionAutomationName",
+                    SharingStatus,
+                    snapshot.ActivityTitle,
+                    currentDriver);
             if (snapshot.Lifecycle is
                     RemoteWindowLifecycle.Starting
                     or RemoteWindowLifecycle.Active
@@ -2926,16 +3050,19 @@ public sealed class RemoteWindowWorkspaceViewModel :
 
     private void ApplyInactive()
     {
-        ActivityTitle = "No live Activity";
-        ActivityId = "No live Activity";
-        CaptureStatus = "CAPTURE: Stopped";
-        ParticipantStatus = "PARTICIPANTS: 0";
-        DriverStatus = "DRIVER: None";
-        ProtectionStatus = "PROTECTION: Unknown";
-        RevisionStatus = "REVISION: 0";
-        SharingStatus = "NOT SHARING";
-        SharingDescription = "No peer can view or drive this device.";
-        SharingAutomationName = "Sharing state: Not sharing";
+        ActivityTitle = DesktopText.Get("RemoteWindow_Activity_NoLive");
+        ActivityId = DesktopText.Get("RemoteWindow_Activity_NoLive");
+        CaptureStatus = DesktopText.Get("RemoteWindow_Capture_Stopped");
+        ParticipantStatus = DesktopText.Get("RemoteWindow_Participants_Zero");
+        DriverStatus = DesktopText.Get("RemoteWindow_Driver_None");
+        ProtectionStatus = DesktopText.Get("RemoteWindow_Protection_Unknown");
+        RevisionStatus = DesktopText.Get("RemoteWindow_Revision_Zero");
+        SharingStatus = DesktopText.Get(
+            "RemoteWindow_Sharing_NotSharingStatus");
+        SharingDescription = DesktopText.Get(
+            "RemoteWindow_Sharing_NotSharingDescription");
+        SharingAutomationName = DesktopText.Get(
+            "RemoteWindow_Sharing_NotSharingAutomationName");
         IsDetailVisible = false;
         UpdateEmergencyStopAvailability(null);
         UpdateLocalResetPresentation(null, null);
@@ -2982,56 +3109,82 @@ public sealed class RemoteWindowWorkspaceViewModel :
     {
         if (lastAcceptedSnapshot is { } lastKnown)
         {
-            string currentDriver =
-                lastKnown.CurrentDriverDeviceId?.ToString() ?? "None";
-            ActivityTitle = $"{lastKnown.ActivityTitle} — LAST KNOWN";
-            ActivityId = $"{lastKnown.ActivityId} — LAST KNOWN";
-            CaptureStatus = $"CAPTURE (LAST KNOWN): {lastKnown.CaptureState}";
-            ParticipantStatus =
-                $"PARTICIPANTS (LAST KNOWN): {lastKnown.Participants.Count}";
+            string currentDriver = lastKnown.CurrentDriverDeviceId?.ToString()
+                ?? DesktopText.Get("RemoteWindow_Value_None");
+            ActivityTitle = DesktopText.Format(
+                "RemoteWindow_Activity_LastKnown",
+                lastKnown.ActivityTitle);
+            ActivityId = DesktopText.Format(
+                "RemoteWindow_Activity_LastKnown",
+                lastKnown.ActivityId);
+            CaptureStatus = DesktopText.Format(
+                "RemoteWindow_Capture_LastKnownStatus",
+                lastKnown.CaptureState);
+            ParticipantStatus = DesktopText.Format(
+                "RemoteWindow_Participants_LastKnownStatus",
+                lastKnown.Participants.Count);
             DriverStatus = lastKnown.CurrentDriverDeviceId is null
-                ? "DRIVER (LAST KNOWN): None"
-                : $"DRIVER (LAST KNOWN): {lastKnown.CurrentDriverDeviceId} / "
-                    + $"EPOCH {lastKnown.DriverLeaseEpoch?.ToString(CultureInfo.InvariantCulture) ?? "Unknown"} / "
-                    + (lastKnown.DriverLeaseExpiresAt is { } expiresAt
-                        ? $"LEASE EXPIRES {expiresAt:O}"
-                        : "LEASE EXPIRES Unknown");
-            ProtectionStatus =
-                $"PROTECTION (LAST KNOWN): {lastKnown.ProtectionKind}";
-            RevisionStatus = $"REVISION (LAST KNOWN): {lastKnown.Revision}";
-            SharingAutomationName =
-                "Sharing state: Remote Window unavailable; "
-                + $"Last known Activity: {lastKnown.ActivityTitle}; "
-                + $"Last known Driver: {currentDriver}";
+                ? DesktopText.Get("RemoteWindow_Driver_LastKnownNone")
+                : DesktopText.Format(
+                    "RemoteWindow_Driver_LastKnownDetail",
+                    lastKnown.CurrentDriverDeviceId,
+                    lastKnown.DriverLeaseEpoch?.ToString(
+                        CultureInfo.InvariantCulture)
+                        ?? DesktopText.Get("RemoteWindow_Value_Unknown"),
+                    lastKnown.DriverLeaseExpiresAt is { } expiresAt
+                        ? expiresAt.ToString("O", CultureInfo.InvariantCulture)
+                        : DesktopText.Get("RemoteWindow_Value_Unknown"));
+            ProtectionStatus = DesktopText.Format(
+                "RemoteWindow_Protection_LastKnownStatus",
+                lastKnown.ProtectionKind);
+            RevisionStatus = DesktopText.Format(
+                "RemoteWindow_Revision_LastKnownStatus",
+                lastKnown.Revision);
+            SharingAutomationName = DesktopText.Format(
+                "RemoteWindow_Sharing_LastKnownAutomationName",
+                lastKnown.ActivityTitle,
+                currentDriver);
             UpdateEmergencyStopAvailability(observedLifecycle);
             UpdateLocalResetPresentation(observedLifecycle, observedLifecycle);
             UpdateFallbackPresentation();
         }
         else
         {
-            ActivityTitle = "Unknown Activity";
-            ActivityId = "Unknown Activity";
-            CaptureStatus = "CAPTURE: Unknown";
-            ParticipantStatus = "PARTICIPANTS: Unknown";
-            DriverStatus = "DRIVER: Unknown";
-            ProtectionStatus = "PROTECTION: Unknown";
-            RevisionStatus = "REVISION: Unknown";
-            SharingAutomationName = "Sharing state: Remote Window unavailable";
+            ActivityTitle = DesktopText.Get("RemoteWindow_Activity_Unknown");
+            ActivityId = DesktopText.Get("RemoteWindow_Activity_Unknown");
+            CaptureStatus = DesktopText.Get("RemoteWindow_Capture_Unknown");
+            ParticipantStatus = DesktopText.Get(
+                "RemoteWindow_Participants_Unknown");
+            DriverStatus = DesktopText.Get("RemoteWindow_Driver_Unknown");
+            ProtectionStatus = DesktopText.Get(
+                "RemoteWindow_Protection_Unknown");
+            RevisionStatus = DesktopText.Get("RemoteWindow_Revision_Unknown");
+            SharingAutomationName = DesktopText.Get(
+                "RemoteWindow_Sharing_UnavailableAutomationName");
             UpdateEmergencyStopAvailability(observedLifecycle);
             UpdateLocalResetPresentation(observedLifecycle, observedLifecycle);
             UpdateFallbackPresentation();
         }
 
         IsDetailVisible = true;
-        SharingStatus = "REMOTE WINDOW UNAVAILABLE";
+        SharingStatus = DesktopText.Get(
+            "RemoteWindow_Sharing_UnavailableStatus");
         SharingDescription = reasonCode switch
         {
             "native_adapters_unavailable" =>
-                "Capture and input adapters are not available on this platform build. The source Activity remains unchanged.",
+                DesktopText.Get(
+                    "RemoteWindow_Sharing_NativeAdaptersUnavailableDescription"),
             _ when lastAcceptedSnapshot is { } accepted =>
-                $"Remote Window state is unavailable. Last known Activity {accepted.ActivityTitle} at revision {accepted.Revision} reported capture {accepted.CaptureState} and Driver {accepted.CurrentDriverDeviceId?.ToString() ?? "None"}. Local capture and input are not claimed stopped; inspect local diagnostics before retrying.",
+                DesktopText.Format(
+                    "RemoteWindow_Sharing_LastKnownUnavailableDescription",
+                    accepted.ActivityTitle,
+                    accepted.Revision,
+                    accepted.CaptureState,
+                    accepted.CurrentDriverDeviceId?.ToString()
+                        ?? DesktopText.Get("RemoteWindow_Value_None")),
             _ =>
-                "Remote Window state is unavailable and no Remote Window snapshot has been accepted. Capture, input, participants, and Driver are unknown; inspect local diagnostics before retrying.",
+                DesktopText.Get(
+                    "RemoteWindow_Sharing_NoSnapshotUnavailableDescription"),
         };
     }
 
@@ -3045,8 +3198,8 @@ public sealed class RemoteWindowWorkspaceViewModel :
         IsEmergencyStopAvailable = (lifecycleAllowsStop || isFallbackBusy)
             && Volatile.Read(ref emergencyStopAttempted) == 0;
         EmergencyStopHelpText = IsEmergencyStopAvailable
-            ? "Stops local capture, input, and sharing sessions immediately without waiting for the peer."
-            : "Unavailable while no stoppable Remote Window session is active.";
+            ? DesktopText.Get("RemoteWindow_EmergencyStop_AvailableHelp")
+            : DesktopText.Get("RemoteWindow_EmergencyStop_UnavailableHelp");
     }
 
     private void UpdateLocalResetPresentation(
@@ -3058,29 +3211,33 @@ public sealed class RemoteWindowWorkspaceViewModel :
             if (lifecycle == RemoteWindowLifecycle.EmergencyStopped
                 && emergencyStopFullyConfirmed)
             {
-                LocalResetStatus = "LOCAL RESET REQUIRED";
-                LocalResetDescription =
-                    "Confirm a local reset before another session starts. Reset does not restore prior participants, capture, or Driver authority.";
+                LocalResetStatus = DesktopText.Get(
+                    "RemoteWindow_LocalReset_RequiredStatus");
+                LocalResetDescription = DesktopText.Get(
+                    "RemoteWindow_LocalReset_RequiredDescription");
             }
             else if (lifecycle == RemoteWindowLifecycle.EmergencyStopped)
             {
-                LocalResetStatus = "LOCAL RESET UNAVAILABLE";
-                LocalResetDescription =
-                    "One or more local Emergency Stop boundaries are unconfirmed. Reset is unavailable; close Flowspan and inspect local diagnostics.";
+                LocalResetStatus = DesktopText.Get(
+                    "RemoteWindow_LocalReset_UnavailableStatus");
+                LocalResetDescription = DesktopText.Get(
+                    "RemoteWindow_LocalReset_UnavailableDescription");
             }
             else if (lifecycle == RemoteWindowLifecycle.Unavailable
                 && serviceAvailable
                 && IsUnavailableResetSafe())
             {
-                LocalResetStatus = "LOCAL RETRY RESET REQUIRED";
-                LocalResetDescription =
-                    "The failed start is confirmed stopped with no remote Driver. Confirm a local retry reset before starting another session; no participant or authority is restored.";
+                LocalResetStatus = DesktopText.Get(
+                    "RemoteWindow_LocalReset_RetryRequiredStatus");
+                LocalResetDescription = DesktopText.Get(
+                    "RemoteWindow_LocalReset_RetryRequiredDescription");
             }
             else if (lifecycle == RemoteWindowLifecycle.Unavailable)
             {
-                LocalResetStatus = "LOCAL RETRY RESET UNAVAILABLE";
-                LocalResetDescription =
-                    "Remote Window is unavailable, but a safely stopped local start state is not confirmed. Inspect local diagnostics before retrying.";
+                LocalResetStatus = DesktopText.Get(
+                    "RemoteWindow_LocalReset_RetryUnavailableStatus");
+                LocalResetDescription = DesktopText.Get(
+                    "RemoteWindow_LocalReset_RetryUnavailableDescription");
             }
             else if (lifecycle == RemoteWindowLifecycle.Idle
                 && previousLifecycle is RemoteWindowLifecycle.EmergencyStopped
@@ -3088,16 +3245,19 @@ public sealed class RemoteWindowWorkspaceViewModel :
             {
                 LocalResetStatus = previousLifecycle
                     == RemoteWindowLifecycle.Unavailable
-                    ? "LOCAL RETRY RESET CONFIRMED"
-                    : "LOCAL RESET CONFIRMED";
-                LocalResetDescription =
-                    "The previous session is idle. Participants, capture, and the prior Driver were not restored.";
+                    ? DesktopText.Get(
+                        "RemoteWindow_LocalReset_RetryConfirmedStatus")
+                    : DesktopText.Get(
+                        "RemoteWindow_LocalReset_ConfirmedStatus");
+                LocalResetDescription = DesktopText.Get(
+                    "RemoteWindow_LocalReset_ConfirmedDescription");
             }
             else
             {
-                LocalResetStatus = "LOCAL RESET NOT REQUIRED";
-                LocalResetDescription =
-                    "No local Remote Window reset is required.";
+                LocalResetStatus = DesktopText.Get(
+                    "RemoteWindow_LocalReset_NotRequiredStatus");
+                LocalResetDescription = DesktopText.Get(
+                    "RemoteWindow_LocalReset_NotRequiredDescription");
             }
         }
 
@@ -3113,9 +3273,10 @@ public sealed class RemoteWindowWorkspaceViewModel :
         emergencyStoppedActivityId = null;
         emergencyStoppedRevision = null;
         observedInactiveAfterEmergencyStop = false;
-        EmergencyStopStatus = "EMERGENCY STOP NOT REQUIRED";
-        EmergencyStopDescription =
-            "No local Emergency Stop result has been recorded for this session.";
+        EmergencyStopStatus = DesktopText.Get(
+            "RemoteWindow_EmergencyStop_NotRequiredStatus");
+        EmergencyStopDescription = DesktopText.Get(
+            "RemoteWindow_EmergencyStop_NoResultForSession");
     }
 
     private void ObserveAuthoritativeSessionForEmergencyStop(
@@ -3186,7 +3347,11 @@ public sealed class RemoteWindowWorkspaceViewModel :
             && role == participant.Value);
 
     private static string ToConfirmation(LocalBoundaryResult boundary) =>
-        boundary.Succeeded ? "confirmed" : $"unconfirmed ({boundary.ReasonCode})";
+        boundary.Succeeded
+            ? DesktopText.Get("RemoteWindow_EmergencyStop_ConfirmedBoundary")
+            : DesktopText.Format(
+                "RemoteWindow_EmergencyStop_UnconfirmedBoundary",
+                boundary.ReasonCode);
 
     private void OnPropertyChanged(string propertyName) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -3277,7 +3442,7 @@ internal sealed class UnavailableDesktopRemoteWindowService :
 
     public RemoteWindowEmergencyStopResult EmergencyStop() =>
         throw new InvalidOperationException(
-            "No Remote Window session is available to stop.");
+            DesktopText.Get("RemoteWindow_Service_NoSessionToStop"));
 
     public RemoteWindowSharingSnapshot? GetSnapshot() => null;
 

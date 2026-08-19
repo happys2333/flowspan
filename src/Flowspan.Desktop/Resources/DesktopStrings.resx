@@ -1,0 +1,1759 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="MainWindow_Title" xml:space="preserve">
+    <value>Flowspan &#x2014; Continuous workspace</value>
+    <comment>MainWindow.axaml:7 Title</comment>
+  </data>
+<data name="MainWindow_FlowspanContinuousWorkspace_AutomationName" xml:space="preserve">
+  <value>Flowspan continuous workspace</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Flowspan_Text" xml:space="preserve">
+  <value>FLOWSPAN</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ContinuityControl_Text" xml:space="preserve">
+  <value>CONTINUITY CONTROL</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_LocalDevice_Text" xml:space="preserve">
+  <value>LOCAL DEVICE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_LocalDeviceName_AutomationName" xml:space="preserve">
+  <value>Local device name</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalIdentityStatus_AutomationName" xml:space="preserve">
+  <value>Local identity status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ShowOrHideTheLocalDeviceIdAnd_AutomationHelp" xml:space="preserve">
+  <value>Show or hide the local Device ID and identity fingerprint.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_DeviceId_Text" xml:space="preserve">
+  <value>DEVICE ID</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_DeviceId_AutomationName" xml:space="preserve">
+  <value>Device ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_IdentityFingerprint_Text" xml:space="preserve">
+  <value>IDENTITY FINGERPRINT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_IdentityFingerprint_AutomationName" xml:space="preserve">
+  <value>Identity fingerprint</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TestModeIdentityIsNotPersisted_Text" xml:space="preserve">
+  <value>TEST MODE — identity is not persisted</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_TestModeWarning_AutomationName" xml:space="preserve">
+  <value>Test mode warning</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_IdentityRecovery_AutomationName" xml:space="preserve">
+  <value>Identity recovery</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RecoveryRequired_Text" xml:space="preserve">
+  <value>RECOVERY REQUIRED</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_RetryIdentity_Content" xml:space="preserve">
+  <value>Retry identity</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_RetryLocalIdentity_AutomationName" xml:space="preserve">
+  <value>Retry local identity</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalFirst_Text" xml:space="preserve">
+  <value>LOCAL FIRST</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_NoOnlineAccountNoCaptureOrInputPermission_Text" xml:space="preserve">
+  <value>No online account. No capture or input permission requested at launch.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_SharingState_Text" xml:space="preserve">
+  <value>SHARING STATE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_EmergencyStop_Content" xml:space="preserve">
+  <value>EMERGENCY STOP</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_EmergencyStop_AutomationName" xml:space="preserve">
+  <value>Emergency stop</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ContinuousWorkspace_Text" xml:space="preserve">
+  <value>Continuous workspace</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ContinueIntentAndPortableContextAcrossTrustedComputers_Text" xml:space="preserve">
+  <value>Continue intent and portable context across trusted computers. Unsupported application state remains on its source and is never described as migrated.</value>
+  <comment>MainWindow.axaml:3 Text</comment>
+</data>
+<data name="MainWindow_StartupProtection_Text" xml:space="preserve">
+  <value>STARTUP PROTECTION</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_IdentityProtection_AutomationName" xml:space="preserve">
+  <value>Identity protection</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowLiveSharingDetails_AutomationName" xml:space="preserve">
+  <value>Remote Window live sharing details</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowExecutionStaysOnSource_Text" xml:space="preserve">
+  <value>REMOTE WINDOW — EXECUTION STAYS ON SOURCE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_RemoteWindowActivityTitle_AutomationName" xml:space="preserve">
+  <value>Remote Window Activity title</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowActivityId_AutomationName" xml:space="preserve">
+  <value>Remote Window Activity ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowSourceExecutionAndSharingState_AutomationName" xml:space="preserve">
+  <value>Remote Window source execution and sharing state</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowEmergencyStopResult_AutomationName" xml:space="preserve">
+  <value>Remote Window Emergency Stop result</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowLocalResetStatus_AutomationName" xml:space="preserve">
+  <value>Remote Window local reset status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowLocalResetGuidance_AutomationName" xml:space="preserve">
+  <value>Remote Window local reset guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ConfirmLocalReset_Content" xml:space="preserve">
+  <value>CONFIRM LOCAL RESET</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ConfirmLocalRemoteWindowReset_AutomationName" xml:space="preserve">
+  <value>Confirm local Remote Window reset</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ConfirmsALocalResetToNotSharingThis_AutomationHelp" xml:space="preserve">
+  <value>Confirms a local reset to NOT SHARING. This does not restore previous participants, Driver authority, or capture.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_RemoteWindowCaptureState_AutomationName" xml:space="preserve">
+  <value>Remote Window capture state</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowParticipantCount_AutomationName" xml:space="preserve">
+  <value>Remote Window participant count</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowDriverState_AutomationName" xml:space="preserve">
+  <value>Remote Window Driver state</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowProtectionState_AutomationName" xml:space="preserve">
+  <value>Remote Window protection state</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowStateRevision_AutomationName" xml:space="preserve">
+  <value>Remote Window state revision</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowProgressivePermissions_AutomationName" xml:space="preserve">
+  <value>Remote Window progressive permissions</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ScreenCapturePermission_Text" xml:space="preserve">
+  <value>SCREEN CAPTURE PERMISSION</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ScreenCapturePermissionStatus_AutomationName" xml:space="preserve">
+  <value>Screen capture permission status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ScreenCapturePermissionRecoveryAction_AutomationName" xml:space="preserve">
+  <value>Screen capture permission recovery action</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewCaptureAccess_Content" xml:space="preserve">
+  <value>REVIEW CAPTURE ACCESS</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ReviewScreenCapturePermission_AutomationName" xml:space="preserve">
+  <value>Review screen capture permission</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_OpensThePermissionRationaleWithoutRequestingOperatingSystem_AutomationHelp" xml:space="preserve">
+  <value>Opens the permission rationale without requesting operating-system access.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_ScreenCapturePermissionReview_AutomationName" xml:space="preserve">
+  <value>Screen capture permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewBeforeRequest_Text" xml:space="preserve">
+  <value>REVIEW BEFORE REQUEST</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_RemoteWindowCanExposeTheSelectedActivityS_Text" xml:space="preserve">
+  <value>Remote Window can expose the selected Activity's visible screen output to an authenticated peer. Execution and application state remain on this Device. Revoke access later in the operating system's screen-capture privacy settings; active sharing will stop.</value>
+  <comment>MainWindow.axaml:6 Text</comment>
+</data>
+<data name="MainWindow_IReviewedWhatScreenCaptureExposes_Content" xml:space="preserve">
+  <value>I reviewed what screen capture exposes.</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AcknowledgeScreenCapturePermissionReview_AutomationName" xml:space="preserve">
+  <value>Acknowledge screen capture permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RequestCaptureAccess_Content" xml:space="preserve">
+  <value>REQUEST CAPTURE ACCESS</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_RequestScreenCapturePermission_AutomationName" xml:space="preserve">
+  <value>Request screen capture permission</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Cancel_Content" xml:space="preserve">
+  <value>Cancel</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelScreenCapturePermissionReview_AutomationName" xml:space="preserve">
+  <value>Cancel screen capture permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteDriving_Text" xml:space="preserve">
+  <value>REMOTE DRIVING</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_EnableRemoteDriving_Content" xml:space="preserve">
+  <value>Enable remote driving</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_EnableRemoteWindowDriving_AutomationName" xml:space="preserve">
+  <value>Enable Remote Window driving</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_EnablingDrivingOpensInputPermissionReviewItDoes_AutomationHelp" xml:space="preserve">
+  <value>Enabling driving opens input permission review. It does not grant Driver authority or request permission by itself.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_InputPermissionStatus_AutomationName" xml:space="preserve">
+  <value>Input permission status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_InputPermissionRecoveryAction_AutomationName" xml:space="preserve">
+  <value>Input permission recovery action</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_InputPermissionReview_AutomationName" xml:space="preserve">
+  <value>Input permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewBeforeRequest_Text_02" xml:space="preserve">
+  <value>REVIEW BEFORE REQUEST</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_RemoteDrivingCanExposeKeyboardPointerAndScroll_Text" xml:space="preserve">
+  <value>Remote driving can expose keyboard, pointer, and scroll input to the source Device. Input is accepted only for a currently authorized Driver and remains blocked by protection state and Emergency Stop. Revoke access later in the operating system's accessibility or input privacy settings; remote driving will stop.</value>
+  <comment>MainWindow.axaml:7 Text</comment>
+</data>
+<data name="MainWindow_IReviewedRemoteInputAccess_Content" xml:space="preserve">
+  <value>I reviewed remote input access.</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AcknowledgeInputPermissionReview_AutomationName" xml:space="preserve">
+  <value>Acknowledge input permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RequestInputAccess_Content" xml:space="preserve">
+  <value>REQUEST INPUT ACCESS</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_RequestInputPermission_AutomationName" xml:space="preserve">
+  <value>Request input permission</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Cancel_Content_02" xml:space="preserve">
+  <value>Cancel</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelInputPermissionReview_AutomationName" xml:space="preserve">
+  <value>Cancel input permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PrivateLocalData_Text" xml:space="preserve">
+  <value>PRIVATE LOCAL DATA</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_OperationHistory_Text" xml:space="preserve">
+  <value>Operation history</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_OperationHistoryStatus_AutomationName" xml:space="preserve">
+  <value>Operation history status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RefreshLocalData_Content" xml:space="preserve">
+  <value>REFRESH LOCAL DATA</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_RefreshOperationHistoryAndDiagnostics_AutomationName" xml:space="preserve">
+  <value>Refresh operation history and diagnostics</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ProtectedOperationReceiptHistory_AutomationName" xml:space="preserve">
+  <value>Protected operation receipt history</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectedRedactedOperationReceipt_AutomationName" xml:space="preserve">
+  <value>Selected redacted operation receipt</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectedReceipt_Text" xml:space="preserve">
+  <value>SELECTED RECEIPT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ExportRedactedHistory_Content" xml:space="preserve">
+  <value>EXPORT REDACTED HISTORY</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ExportRedactedOperationHistory_AutomationName" xml:space="preserve">
+  <value>Export redacted operation history</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewDelete_Content" xml:space="preserve">
+  <value>Review delete</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ReviewSelectedHistoryReceiptDeletion_AutomationName" xml:space="preserve">
+  <value>Review selected history receipt deletion</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewClearAll_Content" xml:space="preserve">
+  <value>Review clear all</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ReviewClearingAllOperationHistory_AutomationName" xml:space="preserve">
+  <value>Review clearing all operation history</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Cancel_Content_03" xml:space="preserve">
+  <value>Cancel</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelHistoryReceiptDeletion_AutomationName" xml:space="preserve">
+  <value>Cancel history receipt deletion</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DeleteReceipt_Content" xml:space="preserve">
+  <value>DELETE RECEIPT</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_DeleteSelectedHistoryReceipt_AutomationName" xml:space="preserve">
+  <value>Delete selected history receipt</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Cancel_Content_04" xml:space="preserve">
+  <value>Cancel</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelClearingOperationHistory_AutomationName" xml:space="preserve">
+  <value>Cancel clearing operation history</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DeleteAllReceipts_Content" xml:space="preserve">
+  <value>DELETE ALL RECEIPTS</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_DeleteAllOperationHistory_AutomationName" xml:space="preserve">
+  <value>Delete all operation history</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_HistoryExportPath_AutomationName" xml:space="preserve">
+  <value>History export path</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RedactedHistoryExportPreview_AutomationName" xml:space="preserve">
+  <value>Redacted history export preview</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SupportData_Text" xml:space="preserve">
+  <value>SUPPORT DATA</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_RedactedDiagnostics_Text" xml:space="preserve">
+  <value>Redacted diagnostics</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_RedactedDiagnosticsStatus_AutomationName" xml:space="preserve">
+  <value>Redacted diagnostics status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_VersionsActiveNegotiatedProtocolsAuthorizedCapabilitiesOperationStates_Text" xml:space="preserve">
+  <value>Versions, active negotiated protocols, authorized Capabilities, operation states, and recent reason codes only. Nothing is uploaded.</value>
+  <comment>MainWindow.axaml:3 Text</comment>
+</data>
+<data name="MainWindow_ExportRedactedDiagnostics_Content" xml:space="preserve">
+  <value>EXPORT REDACTED DIAGNOSTICS</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ExportRedactedDiagnosticBundle_AutomationName" xml:space="preserve">
+  <value>Export redacted diagnostic bundle</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DiagnosticExportPath_AutomationName" xml:space="preserve">
+  <value>Diagnostic export path</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ExactRedactedDiagnosticPreview_AutomationName" xml:space="preserve">
+  <value>Exact redacted diagnostic preview</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalDiagnosticBundles_Text" xml:space="preserve">
+  <value>LOCAL DIAGNOSTIC BUNDLES</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_LocalRedactedDiagnosticBundleFiles_AutomationName" xml:space="preserve">
+  <value>Local redacted diagnostic bundle files</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewBundleDelete_Content" xml:space="preserve">
+  <value>Review bundle delete</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ReviewSelectedDiagnosticBundleDeletion_AutomationName" xml:space="preserve">
+  <value>Review selected diagnostic bundle deletion</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Cancel_Content_05" xml:space="preserve">
+  <value>Cancel</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelDiagnosticBundleDeletion_AutomationName" xml:space="preserve">
+  <value>Cancel diagnostic bundle deletion</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DeleteBundle_Content" xml:space="preserve">
+  <value>DELETE BUNDLE</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_DeleteSelectedDiagnosticBundle_AutomationName" xml:space="preserve">
+  <value>Delete selected diagnostic bundle</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalPairingNetwork_AutomationName" xml:space="preserve">
+  <value>Local pairing network</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalPairing_Text" xml:space="preserve">
+  <value>LOCAL PAIRING</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ReviewLocalNetworkAccess_Content" xml:space="preserve">
+  <value>REVIEW LOCAL NETWORK ACCESS</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ReviewLocalNetworkAccess_AutomationName" xml:space="preserve">
+  <value>Review local network access</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewWhatFlowspanExposesOnTheLocalNetwork_AutomationHelp" xml:space="preserve">
+  <value>Review what Flowspan exposes on the local network, possible platform prompts, and how to revoke access. Reviewing alone starts no networking.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_LocalNetworkPermissionReview_AutomationName" xml:space="preserve">
+  <value>Local network permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PermissionPreflight_Text" xml:space="preserve">
+  <value>PERMISSION PREFLIGHT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_LocalNetworkPermissionPlatform_AutomationName" xml:space="preserve">
+  <value>Local network permission platform</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DataVisibleOnThisLan_Text" xml:space="preserve">
+  <value>DATA VISIBLE ON THIS LAN</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_LocalNetworkDataExposure_AutomationName" xml:space="preserve">
+  <value>Local network data exposure</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_WhatThePlatformMayDo_Text" xml:space="preserve">
+  <value>WHAT THE PLATFORM MAY DO</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_LocalNetworkPromptExpectation_AutomationName" xml:space="preserve">
+  <value>Local network prompt expectation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_HowToRevoke_Text" xml:space="preserve">
+  <value>HOW TO REVOKE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_LocalNetworkRevocationPath_AutomationName" xml:space="preserve">
+  <value>Local network revocation path</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_AcknowledgeLocalNetworkExposure_AutomationName" xml:space="preserve">
+  <value>Acknowledge local network exposure</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_IUnderstandThatThisDeviceBecomesDiscoverableOn_Text" xml:space="preserve">
+  <value>I understand that this device becomes discoverable on the current local network.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_EnableOnLocalNetwork_Content" xml:space="preserve">
+  <value>ENABLE ON LOCAL NETWORK</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_EnableLocalNetworkAfterPermissionReview_AutomationName" xml:space="preserve">
+  <value>Enable local network after permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_StartsTheListenerDiscoveryAdvertisementAndTrustedReconnect_AutomationHelp" xml:space="preserve">
+  <value>Starts the listener, discovery, advertisement, and trusted reconnect lifetime after the permission preflight is acknowledged.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_Cancel_Content_06" xml:space="preserve">
+  <value>Cancel</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelLocalNetworkPermissionReview_AutomationName" xml:space="preserve">
+  <value>Cancel local network permission review</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalPairingListenerStatus_AutomationName" xml:space="preserve">
+  <value>Local pairing listener status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalPairingRecoveryAction_AutomationName" xml:space="preserve">
+  <value>Local pairing recovery action</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Disable_Content" xml:space="preserve">
+  <value>Disable</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_DisableLocalPairing_AutomationName" xml:space="preserve">
+  <value>Disable local pairing</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TrustedPeerChannels_Text" xml:space="preserve">
+  <value>TRUSTED PEER CHANNELS</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_PerPeerStateForTheExplicitlyEnabledLocal_Text" xml:space="preserve">
+  <value>Per-peer state for the explicitly enabled local network. Authenticated idle is not sharing.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_NoCurrentTrustRecordHasALocalConnection_Text" xml:space="preserve">
+  <value>No current Trust Record has a local connection status.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_IdentityClaimBlockedReviewTheExpectedAndConflicting_Text" xml:space="preserve">
+  <value>IDENTITY CLAIM BLOCKED — review the expected and conflicting fingerprints below. Trust was preserved.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_TrustedPeerIdentityWarning_AutomationName" xml:space="preserve">
+  <value>Trusted peer identity warning</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TrustedPeerLocalConnectionStatus_AutomationName" xml:space="preserve">
+  <value>Trusted peer local connection status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_BlockedTrustedPeerIdentityClaim_AutomationName" xml:space="preserve">
+  <value>Blocked trusted peer identity claim</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TrustedFingerprint_Text" xml:space="preserve">
+  <value>TRUSTED FINGERPRINT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ExpectedTrustedPeerFingerprint_AutomationName" xml:space="preserve">
+  <value>Expected trusted peer fingerprint</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ConflictingAdvertisedFingerprint_Text" xml:space="preserve">
+  <value>CONFLICTING ADVERTISED FINGERPRINT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ConflictingAdvertisedPeerFingerprint_AutomationName" xml:space="preserve">
+  <value>Conflicting advertised peer fingerprint</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ObservedCandidates_Text" xml:space="preserve">
+  <value>OBSERVED CANDIDATES</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_DiscoveryMetadataIsUnverifiedUntilTheConnectedIdentity_Text" xml:space="preserve">
+  <value>Discovery metadata is unverified until the connected identity verifies the signed offer and both users compare the SAS.</value>
+  <comment>MainWindow.axaml:3 Text</comment>
+</data>
+<data name="MainWindow_DiscoveredLocalPairingCandidates_AutomationName" xml:space="preserve">
+  <value>Discovered local pairing candidates</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectedLocalPairingCandidate_AutomationName" xml:space="preserve">
+  <value>Selected local pairing candidate</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectedDiscoveryRecord_Text" xml:space="preserve">
+  <value>SELECTED DISCOVERY RECORD</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_IdentityFingerprint_Text_02" xml:space="preserve">
+  <value>IDENTITY FINGERPRINT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_AdvertisedUnverifiedIdentityFingerprint_AutomationName" xml:space="preserve">
+  <value>Advertised unverified identity fingerprint</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PairDevice_Content" xml:space="preserve">
+  <value>PAIR DEVICE</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_PairSelectedLocalDevice_AutomationName" xml:space="preserve">
+  <value>Pair selected local device</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_AvailableOnlyForAnUnverifiedCandidateThatIs_AutomationHelp" xml:space="preserve">
+  <value>Available only for an unverified candidate that is not blocked by an existing Trust Record.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_CancelPairing_Content" xml:space="preserve">
+  <value>Cancel pairing</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelOutboundPairing_AutomationName" xml:space="preserve">
+  <value>Cancel outbound pairing</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_OutboundPairingResult_AutomationName" xml:space="preserve">
+  <value>Outbound pairing result</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PrimaryWorkspace_Text" xml:space="preserve">
+  <value>PRIMARY WORKSPACE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_Activities_Text" xml:space="preserve">
+  <value>Activities</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_NewPortableNote_Text" xml:space="preserve">
+  <value>NEW PORTABLE NOTE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_CreateABoundedWorkspaceNoteV1ActivityThis_Text" xml:space="preserve">
+  <value>Create a bounded workspace.note/v1 Activity. This does not inspect another application's unsaved state.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_Title_Text" xml:space="preserve">
+  <value>Title</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_PortableNoteTitle_AutomationName" xml:space="preserve">
+  <value>Portable note title</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PlainTextNote_Text" xml:space="preserve">
+  <value>Plain-text note</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_PortableNoteBody_AutomationName" xml:space="preserve">
+  <value>Portable note body</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_CreatePortableNote_Content" xml:space="preserve">
+  <value>CREATE PORTABLE NOTE</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CreatePortableNoteActivity_AutomationName" xml:space="preserve">
+  <value>Create portable note Activity</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PortableNoteCreationResult_AutomationName" xml:space="preserve">
+  <value>Portable note creation result</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalActivities_Text" xml:space="preserve">
+  <value>LOCAL ACTIVITIES</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_LocalSemanticActivities_AutomationName" xml:space="preserve">
+  <value>Local semantic Activities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_AuthenticatedTarget_Text" xml:space="preserve">
+  <value>AUTHENTICATED TARGET</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_AuthenticatedSemanticActivityTargets_AutomationName" xml:space="preserve">
+  <value>Authenticated semantic Activity targets</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowFallbackAvailability_AutomationName" xml:space="preserve">
+  <value>Remote Window fallback availability</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemoteWindowExecutionStaysOnSource_Text_02" xml:space="preserve">
+  <value>REMOTE WINDOW — EXECUTION STAYS ON SOURCE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_RemoteWindowTarget_Text" xml:space="preserve">
+  <value>REMOTE WINDOW TARGET</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_AuthenticatedRemoteWindowTargetsForCurrentRole_AutomationName" xml:space="preserve">
+  <value>Authenticated Remote Window targets for current role</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ViewOnlyRequiresMirrorViewingAuthorizationDrivingRequires_AutomationHelp" xml:space="preserve">
+  <value>View-only requires mirror viewing authorization. Driving requires both viewing and driving authorization.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_RemoteWindowFallbackAvailability_AutomationName_02" xml:space="preserve">
+  <value>Remote Window fallback availability</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_StartRemoteWindow_Content" xml:space="preserve">
+  <value>START REMOTE WINDOW</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_SemanticHandoffPreview_AutomationName" xml:space="preserve">
+  <value>Semantic handoff preview</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SemanticHandoffPreviewStatus_AutomationName" xml:space="preserve">
+  <value>Semantic handoff preview status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SemanticHandoffDataDisclosure_AutomationName" xml:space="preserve">
+  <value>Semantic handoff data disclosure</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_HandOffCopy_Content" xml:space="preserve">
+  <value>HAND OFF COPY</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ConfirmSemanticHandoffCopy_AutomationName" xml:space="preserve">
+  <value>Confirm semantic handoff copy</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_CreatesASemanticCopyOnTheSelectedAuthenticated_AutomationHelp" xml:space="preserve">
+  <value>Creates a semantic copy on the selected authenticated target and keeps the source open.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_SemanticMovePreview_AutomationName" xml:space="preserve">
+  <value>Semantic move preview</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SemanticMovePreviewStatus_AutomationName" xml:space="preserve">
+  <value>Semantic move preview status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_MoveAfterTargetAck_Content" xml:space="preserve">
+  <value>MOVE AFTER TARGET ACK</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ConfirmSemanticMoveAfterTargetAcknowledgement_AutomationName" xml:space="preserve">
+  <value>Confirm semantic move after target acknowledgement</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ResumesTheActivityOnTheSelectedAuthenticatedTarget_AutomationHelp" xml:space="preserve">
+  <value>Resumes the Activity on the selected authenticated target first, then closes the source only after a verified target acknowledgement.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_ExactConfirmationDestructiveReplaceWorkflow_AutomationName" xml:space="preserve">
+  <value>Exact-confirmation destructive Replace workflow</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceExactConfirmation_Text" xml:space="preserve">
+  <value>REPLACE / EXACT CONFIRMATION</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_QueryAPurposeScopedPayloadFreeTargetInventory_Text" xml:space="preserve">
+  <value>Query a purpose-scoped, payload-free target inventory. Activation revalidates the exact snapshot and requires the target to durably store a bounded undo capsule before replacement.</value>
+  <comment>MainWindow.axaml:4 Text</comment>
+</data>
+<data name="MainWindow_LoadRefreshReplaceTargets_Content" xml:space="preserve">
+  <value>LOAD / REFRESH REPLACE TARGETS</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_LoadOrRefreshReplaceTargetInventory_AutomationName" xml:space="preserve">
+  <value>Load or refresh Replace target inventory</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_QueriesEligibleSameKindTargetSnapshotsFromThe_AutomationHelp" xml:space="preserve">
+  <value>Queries eligible same-kind target snapshots from the selected authenticated device. It sends no destructive Replace request.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_ReplaceTargetInventoryStatus_AutomationName" xml:space="preserve">
+  <value>Replace target inventory status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceTargetInventoryRecoveryGuidance_AutomationName" xml:space="preserve">
+  <value>Replace target inventory recovery guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceTargetInventoryCoverage_AutomationName" xml:space="preserve">
+  <value>Replace target inventory coverage</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceTargetInventoryCaptureTime_AutomationName" xml:space="preserve">
+  <value>Replace target inventory capture time</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceEligibleActivitiesOnSelectedTargetDevice_AutomationName" xml:space="preserve">
+  <value>Replace-eligible Activities on selected target device</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TargetDescriptorDigest_AutomationName" xml:space="preserve">
+  <value>Target descriptor digest</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ExactDestructiveReplaceComparison_AutomationName" xml:space="preserve">
+  <value>Exact destructive Replace comparison</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplacePreviewStatus_AutomationName" xml:space="preserve">
+  <value>Replace preview status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Incoming_Text" xml:space="preserve">
+  <value>INCOMING</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_IncomingReplaceActivity_AutomationName" xml:space="preserve">
+  <value>Incoming Replace Activity</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplacedTarget_Text" xml:space="preserve">
+  <value>REPLACED TARGET</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ExactActivityThatWouldBeReplaced_AutomationName" xml:space="preserve">
+  <value>Exact Activity that would be replaced</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ConfirmationAppliesOnlyToTheCurrentlyDisplayedDevice_AutomationHelp" xml:space="preserve">
+  <value>Confirmation applies only to the currently displayed device, target Activity ID, revision, and descriptor digest and is revoked on refresh.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_DestructiveReplaceActivationStatus_AutomationName" xml:space="preserve">
+  <value>Destructive Replace activation status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceSelectedActivity_Content" xml:space="preserve">
+  <value>REPLACE SELECTED ACTIVITY</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ReplaceSelectedTargetActivityAfterExactConfirmation_AutomationName" xml:space="preserve">
+  <value>Replace selected target Activity after exact confirmation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RevalidatesTheExactTargetIdRevisionDescriptorDigest_AutomationHelp" xml:space="preserve">
+  <value>Revalidates the exact target ID, revision, descriptor digest, kind, and placement before sending one authenticated Replace request. Duplicate activation is disabled while pending.</value>
+  <comment>MainWindow.axaml:4 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_DestructiveReplaceResultAndRecoveryGuidance_AutomationName" xml:space="preserve">
+  <value>Destructive Replace result and recovery guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DestructiveReplaceOperationStatus_AutomationName" xml:space="preserve">
+  <value>Destructive Replace operation status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DestructiveReplaceOutcomeAndRecoveryGuidance_AutomationName" xml:space="preserve">
+  <value>Destructive Replace outcome and recovery guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Operation_Text" xml:space="preserve">
+  <value>OPERATION</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ReplaceOperationId_AutomationName" xml:space="preserve">
+  <value>Replace operation ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Correlation_Text" xml:space="preserve">
+  <value>CORRELATION</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ReplaceCorrelationId_AutomationName" xml:space="preserve">
+  <value>Replace correlation ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Reason_Text" xml:space="preserve">
+  <value>REASON</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ReplaceResultReason_AutomationName" xml:space="preserve">
+  <value>Replace result reason</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Occurred_Text" xml:space="preserve">
+  <value>OCCURRED</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ReplaceReceiptTime_AutomationName" xml:space="preserve">
+  <value>Replace receipt time</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Capsule_Text" xml:space="preserve">
+  <value>CAPSULE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ReplaceUndoCapsuleId_AutomationName" xml:space="preserve">
+  <value>Replace undo capsule ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_UndoExpires_Text" xml:space="preserve">
+  <value>UNDO EXPIRES</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ReplaceUndoCapsuleExpiry_AutomationName" xml:space="preserve">
+  <value>Replace undo capsule expiry</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TargetLocalReplaceReceiptAndRecoveryState_AutomationName" xml:space="preserve">
+  <value>Target-local Replace receipt and recovery state</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryTargetLocalUndo_Text" xml:space="preserve">
+  <value>REPLACE RECOVERY / TARGET-LOCAL UNDO</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryStatus_AutomationName" xml:space="preserve">
+  <value>Replace recovery status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryGuidance_AutomationName" xml:space="preserve">
+  <value>Replace recovery guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryRecordCoverage_AutomationName" xml:space="preserve">
+  <value>Replace recovery record coverage</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoverySnapshotTime_AutomationName" xml:space="preserve">
+  <value>Replace recovery snapshot time</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TargetLocalReplaceAndUndoRecoveryRecords_AutomationName" xml:space="preserve">
+  <value>Target-local Replace and undo recovery records</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryRecordState_AutomationName" xml:space="preserve">
+  <value>Replace recovery record state</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryOperationId_AutomationName" xml:space="preserve">
+  <value>Replace recovery Operation ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryCorrelationId_AutomationName" xml:space="preserve">
+  <value>Replace recovery correlation ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryCapsuleId_AutomationName" xml:space="preserve">
+  <value>Replace recovery capsule ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReplaceRecoveryUndoAvailability_AutomationName" xml:space="preserve">
+  <value>Replace recovery undo availability</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectedTargetLocalUndoAction_AutomationName" xml:space="preserve">
+  <value>Selected target-local undo action</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TargetLocalUndoStatus_AutomationName" xml:space="preserve">
+  <value>Target-local undo status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TargetLocalUndoOutcomeGuidance_AutomationName" xml:space="preserve">
+  <value>Target-local undo outcome guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ExactTargetLocalUndoBinding_AutomationName" xml:space="preserve">
+  <value>Exact target-local undo binding</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ConfirmationAppliesOnlyToTheSelectedCapsuleBoth_AutomationHelp" xml:space="preserve">
+  <value>Confirmation applies only to the selected capsule, both displayed opaque Activity IDs, exact current replacement, and displayed expiry.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_IReviewedThisExactCapsuleAndWantTo_Text" xml:space="preserve">
+  <value>I reviewed this exact capsule and want to restore its preserved target-local semantic Activity.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_UndoSelectedReplace_Content" xml:space="preserve">
+  <value>UNDO SELECTED REPLACE</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ActivateTheConfirmedTargetLocalUndo_AutomationName" xml:space="preserve">
+  <value>Activate the confirmed target-local undo</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_WritesAProtectedPendingRecordBeforeOneExact_AutomationHelp" xml:space="preserve">
+  <value>Writes a protected pending record before one exact local Adapter restore. No remote request or sharing session is started.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_TargetLocalUndoReason_AutomationName" xml:space="preserve">
+  <value>Target-local undo reason</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TargetLocalUndoOutcomeTime_AutomationName" xml:space="preserve">
+  <value>Target-local undo outcome time</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SemanticActivityOperationReceipt_AutomationName" xml:space="preserve">
+  <value>Semantic Activity operation receipt</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SemanticActivityOperationReceiptStatus_AutomationName" xml:space="preserve">
+  <value>Semantic Activity operation receipt status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SemanticActivityOperationCorrelationId_AutomationName" xml:space="preserve">
+  <value>Semantic Activity operation correlation ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneRepositoryListInspectionDeleteAndExport_AutomationName" xml:space="preserve">
+  <value>Scene repository list, inspection, delete, and export</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneRepositoryPrivateLocalStore_Text" xml:space="preserve">
+  <value>SCENE REPOSITORY — PRIVATE LOCAL STORE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_SceneRepositoryStatus_AutomationName" xml:space="preserve">
+  <value>Scene repository status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneRepositoryGuidance_AutomationName" xml:space="preserve">
+  <value>Scene repository guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RefreshStoredScenes_Content" xml:space="preserve">
+  <value>REFRESH STORED SCENES</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_RefreshTheStoredSceneList_AutomationName" xml:space="preserve">
+  <value>Refresh the stored Scene list</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReadsTheProtectedLocalSceneRepositoryWithoutMutating_AutomationHelp" xml:space="preserve">
+  <value>Reads the protected local Scene repository without mutating any Scene or Activity.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_StoredScenes_AutomationName" xml:space="preserve">
+  <value>Stored Scenes</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_StoredSceneId_AutomationName" xml:space="preserve">
+  <value>Stored Scene ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_StoredSceneCanonicalDigest_AutomationName" xml:space="preserve">
+  <value>Stored Scene canonical digest</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_StoredSceneOrderedItemInspection_AutomationName" xml:space="preserve">
+  <value>Stored Scene ordered item inspection</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_StoredSceneItemsLocalInspectionOnly_Text" xml:space="preserve">
+  <value>STORED SCENE ITEMS — LOCAL INSPECTION ONLY</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_StoredSceneItemActivityId_AutomationName" xml:space="preserve">
+  <value>Stored Scene item Activity ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectForApplyPreview_Content" xml:space="preserve">
+  <value>SELECT FOR APPLY PREVIEW</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_SelectTheStoredSceneForApplyPreview_AutomationName" xml:space="preserve">
+  <value>Select the stored Scene for apply preview</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_HandsTheStoredPlanToTheSceneApply_AutomationHelp" xml:space="preserve">
+  <value>Hands the stored plan to the Scene apply panel. Selection previews, authorizes, and executes nothing.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_SceneRepositoryLifecycleStatus_AutomationName" xml:space="preserve">
+  <value>Scene repository lifecycle status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneRepositoryLifecycleGuidance_AutomationName" xml:space="preserve">
+  <value>Scene repository lifecycle guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewSceneDelete_Content" xml:space="preserve">
+  <value>Review Scene delete</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ReviewStoredSceneDeletion_AutomationName" xml:space="preserve">
+  <value>Review stored Scene deletion</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_StoredSceneDeleteConfirmation_AutomationName" xml:space="preserve">
+  <value>Stored Scene delete confirmation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ExactStoredSceneDeleteConfirmation_AutomationName" xml:space="preserve">
+  <value>Exact stored Scene delete confirmation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Cancel_Content_07" xml:space="preserve">
+  <value>Cancel</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelStoredSceneDeletion_AutomationName" xml:space="preserve">
+  <value>Cancel stored Scene deletion</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DeleteScene_Content" xml:space="preserve">
+  <value>DELETE SCENE</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_DeleteTheStoredScenePermanently_AutomationName" xml:space="preserve">
+  <value>Delete the stored Scene permanently</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RemovesOnlyTheStoredPlanOnThisDevice_AutomationHelp" xml:space="preserve">
+  <value>Removes only the stored plan on this device. Applied Activities, Scene apply journals, and Replace undo state are not affected. This action has no undo.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_ExportRedactedSceneRecord_Content" xml:space="preserve">
+  <value>EXPORT REDACTED SCENE RECORD</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ExportARedactedRecordOfTheSelectedStored_AutomationName" xml:space="preserve">
+  <value>Export a redacted record of the selected stored Scene</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_WritesIdentifiersRevisionsDigestsTimestampsAndPoliciesOnly_AutomationHelp" xml:space="preserve">
+  <value>Writes identifiers, revisions, digests, timestamps, and policies only. Scene names, Activity IDs, Device IDs, and placement slots are never exported.</value>
+  <comment>MainWindow.axaml:3 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_SceneExportFilePath_AutomationName" xml:space="preserve">
+  <value>Scene export file path</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RedactedSceneExportContent_AutomationName" xml:space="preserve">
+  <value>Redacted Scene export content</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneApplyPreviewConfirmationResultAndCompensation_AutomationName" xml:space="preserve">
+  <value>Scene Apply preview, confirmation, result, and compensation</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneApplyNonAtomic_Text" xml:space="preserve">
+  <value>SCENE APPLY — NON-ATOMIC</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_SelectedSceneName_AutomationName" xml:space="preserve">
+  <value>Selected Scene name</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectedSceneRevisionAndOrderedItemCount_AutomationName" xml:space="preserve">
+  <value>Selected Scene revision and ordered item count</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PreviewCurrentSceneState_Content" xml:space="preserve">
+  <value>PREVIEW CURRENT SCENE STATE</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_PreviewSelectedSceneWithoutMutation_AutomationName" xml:space="preserve">
+  <value>Preview selected Scene without mutation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReadsEverySavedSceneItemInOrderAnd_AutomationHelp" xml:space="preserve">
+  <value>Reads every saved Scene item in order and acquires no mutation authority.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_ScenePreviewStatus_AutomationName" xml:space="preserve">
+  <value>Scene preview status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ScenePreviewGuidance_AutomationName" xml:space="preserve">
+  <value>Scene preview guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ScenePreviewExpiryState_AutomationName" xml:space="preserve">
+  <value>Scene preview expiry state</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneStaleGroupWarning_AutomationName" xml:space="preserve">
+  <value>Scene stale Group warning</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_OrderedSceneActionsAndBlockers_AutomationName" xml:space="preserve">
+  <value>Ordered Scene actions and blockers</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneItemActivityId_AutomationName" xml:space="preserve">
+  <value>Scene item Activity ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ResolvedSceneItemAction_AutomationName" xml:space="preserve">
+  <value>Resolved Scene item action</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneItemSourceDisposition_AutomationName" xml:space="preserve">
+  <value>Scene item source disposition</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneItemBlockerOrReadinessReason_AutomationName" xml:space="preserve">
+  <value>Scene item blocker or readiness reason</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectOneExactSourceForThisSceneItem_AutomationName" xml:space="preserve">
+  <value>Select one exact source for this Scene item</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ExactReplaceTargetPreservedInUndoCapsule_Text" xml:space="preserve">
+  <value>EXACT REPLACE TARGET PRESERVED IN UNDO CAPSULE</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ExactSceneReplaceTargetBinding_AutomationName" xml:space="preserve">
+  <value>Exact Scene Replace target binding</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ConfirmsOnlyThisExactTargetDeviceActivityRevision_AutomationHelp" xml:space="preserve">
+  <value>Confirms only this exact target Device, Activity, revision, digest, kind, and slot.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_IExplicitlyConfirmThisExactDestructiveReplacement_Text" xml:space="preserve">
+  <value>I explicitly confirm this exact destructive replacement.</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_RegenerateCompletePreviewWithSelectedSources_Content" xml:space="preserve">
+  <value>REGENERATE COMPLETE PREVIEW WITH SELECTED SOURCES</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_RegenerateCompleteScenePreviewWithExactSourceSelections_AutomationName" xml:space="preserve">
+  <value>Regenerate complete Scene preview with exact source selections</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ConfirmThisExactExpiringScenePreview_AutomationName" xml:space="preserve">
+  <value>Confirm this exact expiring Scene preview</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DoesNotReplaceAnyPerItemDestructiveConfirmation_AutomationHelp" xml:space="preserve">
+  <value>Does not replace any per-item destructive confirmation and does not authorize changed or expired evidence.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_IReviewedTheOrderedActionsBlockersSourceDispositions_Text" xml:space="preserve">
+  <value>I reviewed the ordered actions, blockers, source dispositions, and preview expiry.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_ApplyConfirmedSceneItems_Content" xml:space="preserve">
+  <value>APPLY CONFIRMED SCENE ITEMS</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ApplyTheExactConfirmedScenePreview_AutomationName" xml:space="preserve">
+  <value>Apply the exact confirmed Scene preview</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ProcessesSavedOrderSequentiallyThisIsNotAn_AutomationHelp" xml:space="preserve">
+  <value>Processes saved order sequentially. This is not an atomic whole-Scene transaction.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_TruthfulPerItemSceneApplyResult_AutomationName" xml:space="preserve">
+  <value>Truthful per-item Scene Apply result</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneApplyOverallResult_AutomationName" xml:space="preserve">
+  <value>Scene Apply overall result</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneApplyPartialResultGuidance_AutomationName" xml:space="preserve">
+  <value>Scene Apply partial-result guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_OrderedSceneApplyItemOutcomes_AutomationName" xml:space="preserve">
+  <value>Ordered Scene Apply item outcomes</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneItemOutcome_AutomationName" xml:space="preserve">
+  <value>Scene item outcome</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ExplicitSafeSceneCompensation_AutomationName" xml:space="preserve">
+  <value>Explicit safe Scene compensation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ExplicitCompensationReplaceOnly_Text" xml:space="preserve">
+  <value>EXPLICIT COMPENSATION — REPLACE ONLY</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_ConfirmExplicitReverseOrderSceneReplaceCompensation_AutomationName" xml:space="preserve">
+  <value>Confirm explicit reverse-order Scene Replace compensation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_AttemptOnlyEligibleCommittedPreserveSourceReplaceUndo_Text" xml:space="preserve">
+  <value>Attempt only eligible committed Preserve-Source Replace undo; never reverse Handoff or Move.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_AttemptEligibleReplaceUndo_Content" xml:space="preserve">
+  <value>ATTEMPT ELIGIBLE REPLACE UNDO</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AttemptExplicitSafeSceneCompensation_AutomationName" xml:space="preserve">
+  <value>Attempt explicit safe Scene compensation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneCompensationOverallStatus_AutomationName" xml:space="preserve">
+  <value>Scene compensation overall status</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneCompensationPartialResultGuidance_AutomationName" xml:space="preserve">
+  <value>Scene compensation partial-result guidance</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReverseOrderSceneCompensationItemOutcomes_AutomationName" xml:space="preserve">
+  <value>Reverse-order Scene compensation item outcomes</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneCompensationItemOutcome_AutomationName" xml:space="preserve">
+  <value>Scene compensation item outcome</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalNetwork_Text" xml:space="preserve">
+  <value>LOCAL NETWORK</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_TrustedDevices_Text" xml:space="preserve">
+  <value>Trusted devices</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_TrustStoreProtection_AutomationName" xml:space="preserve">
+  <value>Trust Store protection</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_NoPairedDeviceHasAPersistedTrustRecord_Text" xml:space="preserve">
+  <value>No paired device has a persisted Trust Record.</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_TrustedDevicesStatusNoPairedDevices_AutomationName" xml:space="preserve">
+  <value>Trusted devices status: No paired devices</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PairedDevices_AutomationName" xml:space="preserve">
+  <value>Paired devices</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectedTrustRecord_Text" xml:space="preserve">
+  <value>SELECTED TRUST RECORD</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_SelectedPairedDevice_AutomationName" xml:space="preserve">
+  <value>Selected paired device</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DeviceId_Text_02" xml:space="preserve">
+  <value>DEVICE ID</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_SelectedPeerDeviceId_AutomationName" xml:space="preserve">
+  <value>Selected peer Device ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_IdentityFingerprint_Text_03" xml:space="preserve">
+  <value>IDENTITY FINGERPRINT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_SelectedPeerIdentityFingerprint_AutomationName" xml:space="preserve">
+  <value>Selected peer identity fingerprint</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TrustVerificationTime_AutomationName" xml:space="preserve">
+  <value>Trust verification time</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_LocalCapabilityGrant_Text" xml:space="preserve">
+  <value>LOCAL CAPABILITY GRANT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_AGrantPermitsAClassOfPeerRequest_Text" xml:space="preserve">
+  <value>A grant permits a class of peer request. It does not start sharing or request an operating-system permission.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_ActivityOfferAllowThisPeerToSendActivities_Content" xml:space="preserve">
+  <value>activity.offer — allow this peer to send Activities to this device</value>
+  <comment>MainWindow.axaml:2 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToOfferActivities_AutomationName" xml:space="preserve">
+  <value>Allow peer to offer Activities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ActivityReceiveAllowThisPeerToReceiveActivities_Content" xml:space="preserve">
+  <value>activity.receive — allow this peer to receive Activities from this device</value>
+  <comment>MainWindow.axaml:2 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToReceiveActivities_AutomationName" xml:space="preserve">
+  <value>Allow peer to receive Activities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ActivityReplaceReplaceActivities_Content" xml:space="preserve">
+  <value>activity.replace — replace Activities</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToReplaceActivities_AutomationName" xml:space="preserve">
+  <value>Allow peer to replace Activities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ActivitySwapParticipateInAtomicActivitySwaps_Content" xml:space="preserve">
+  <value>activity.swap — participate in atomic Activity swaps</value>
+  <comment>MainWindow.axaml:2 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToParticipateInAtomicActivitySwaps_AutomationName" xml:space="preserve">
+  <value>Allow peer to participate in atomic Activity swaps</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_MirrorViewViewMirroredActivities_Content" xml:space="preserve">
+  <value>mirror.view — view mirrored Activities</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToViewMirroredActivities_AutomationName" xml:space="preserve">
+  <value>Allow peer to view mirrored Activities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_MirrorDriveDriveMirroredActivities_Content" xml:space="preserve">
+  <value>mirror.drive — drive mirrored Activities</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToDriveMirroredActivities_AutomationName" xml:space="preserve">
+  <value>Allow peer to drive mirrored Activities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_FileReceiveReceiveFiles_Content" xml:space="preserve">
+  <value>file.receive — receive files</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToReceiveFiles_AutomationName" xml:space="preserve">
+  <value>Allow peer to receive files</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SceneApplyApplyScenes_Content" xml:space="preserve">
+  <value>scene.apply — apply Scenes</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToApplyScenes_AutomationName" xml:space="preserve">
+  <value>Allow peer to apply Scenes</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SaveCapabilities_Content" xml:space="preserve">
+  <value>SAVE CAPABILITIES</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_SavePeerCapabilities_AutomationName" xml:space="preserve">
+  <value>Save peer capabilities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ReviewRevoke_Content" xml:space="preserve">
+  <value>Review revoke</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ReviewDeviceRevocation_AutomationName" xml:space="preserve">
+  <value>Review device revocation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_DeviceRevocationConfirmation_AutomationName" xml:space="preserve">
+  <value>Device revocation confirmation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Cancel_Content_08" xml:space="preserve">
+  <value>Cancel</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_CancelDeviceRevocation_AutomationName" xml:space="preserve">
+  <value>Cancel device revocation</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RevokeDevice_Content" xml:space="preserve">
+  <value>REVOKE DEVICE</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_RevokePairedDevice_AutomationName" xml:space="preserve">
+  <value>Revoke paired device</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TrustMutationResult_AutomationName" xml:space="preserve">
+  <value>Trust mutation result</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_TrustMutationDetails_AutomationName" xml:space="preserve">
+  <value>Trust mutation details</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ExportRedactedTrust_Content" xml:space="preserve">
+  <value>EXPORT REDACTED TRUST</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ExportRedactedTrustInventory_AutomationName" xml:space="preserve">
+  <value>Export redacted Trust inventory</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_WritesAnOwnerOnlyExportWithoutPeerNames_AutomationHelp" xml:space="preserve">
+  <value>Writes an owner-only export without peer names, Device IDs, fingerprints, or keys.</value>
+  <comment>MainWindow.axaml:2 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_TrustExportPath_AutomationName" xml:space="preserve">
+  <value>Trust export path</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RedactedTrustExportPreview_AutomationName" xml:space="preserve">
+  <value>Redacted Trust export preview</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PairingReadiness_AutomationName" xml:space="preserve">
+  <value>Pairing readiness</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PairingConfirmationRequired_AutomationName" xml:space="preserve">
+  <value>Pairing confirmation required</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_PairingConfirmation_Text" xml:space="preserve">
+  <value>PAIRING CONFIRMATION</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_PairingPeerName_AutomationName" xml:space="preserve">
+  <value>Pairing peer name</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_CompareThisCodeOnBothDevicesAMatching_Text" xml:space="preserve">
+  <value>Compare this code on both devices. A matching code verifies the identities; it does not start sharing.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_PairingCode_AutomationName" xml:space="preserve">
+  <value>Pairing code</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_IComparedThisCodeOnBothDevices_Content" xml:space="preserve">
+  <value>I compared this code on both devices</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_IComparedThePairingCodeOnBothDevices_AutomationName" xml:space="preserve">
+  <value>I compared the pairing code on both devices</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_RequiredBeforeConfirmingPairing_AutomationHelp" xml:space="preserve">
+  <value>Required before confirming pairing.</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_LocalCapabilityGrant_Text_02" xml:space="preserve">
+  <value>LOCAL CAPABILITY GRANT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_StartWithNoAccessTheseOptionsDoNot_Text" xml:space="preserve">
+  <value>Start with no access. These options do not request operating-system permissions.</value>
+  <comment>MainWindow.axaml:2 Text</comment>
+</data>
+<data name="MainWindow_AllowThisPeerToSendActivitiesToThis_Content" xml:space="preserve">
+  <value>Allow this peer to send Activities to this device</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToOfferActivities_AutomationName_02" xml:space="preserve">
+  <value>Allow peer to offer Activities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_AllowThisPeerToReceiveActivitiesFromThis_Content" xml:space="preserve">
+  <value>Allow this peer to receive Activities from this device</value>
+  <comment>MainWindow.axaml:2 Content</comment>
+</data>
+<data name="MainWindow_AllowPeerToReceiveActivities_AutomationName_02" xml:space="preserve">
+  <value>Allow peer to receive Activities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_SelectedPairingCapabilities_AutomationName" xml:space="preserve">
+  <value>Selected pairing capabilities</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Reject_Content" xml:space="preserve">
+  <value>Reject</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_RejectPairing_AutomationName" xml:space="preserve">
+  <value>Reject pairing</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_ConfirmPairing_Content" xml:space="preserve">
+  <value>CONFIRM PAIRING</value>
+  <comment>MainWindow.axaml:1 Content</comment>
+</data>
+<data name="MainWindow_ConfirmPairing_AutomationName" xml:space="preserve">
+  <value>Confirm pairing</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_EnabledOnlyAfterTheCodeComparisonIsConfirmed_AutomationHelp" xml:space="preserve">
+  <value>Enabled only after the code comparison is confirmed.</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.HelpText</comment>
+</data>
+<data name="MainWindow_VerifiedRequestDetails_Text" xml:space="preserve">
+  <value>VERIFIED REQUEST DETAILS</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_DeviceId_Text_03" xml:space="preserve">
+  <value>DEVICE ID</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_PairingPeerDeviceId_AutomationName" xml:space="preserve">
+  <value>Pairing peer Device ID</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_IdentityFingerprint_Text_04" xml:space="preserve">
+  <value>IDENTITY FINGERPRINT</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_PairingPeerIdentityFingerprint_AutomationName" xml:space="preserve">
+  <value>Pairing peer identity fingerprint</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Protocol_Text" xml:space="preserve">
+  <value>PROTOCOL</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_PairingProtocolVersion_AutomationName" xml:space="preserve">
+  <value>Pairing protocol version</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Expires_Text" xml:space="preserve">
+  <value>EXPIRES</value>
+  <comment>MainWindow.axaml:1 Text</comment>
+</data>
+<data name="MainWindow_PairingRequestExpiry_AutomationName" xml:space="preserve">
+  <value>Pairing request expiry</value>
+  <comment>MainWindow.axaml:1 AutomationProperties.Name</comment>
+</data>
+<data name="MainWindow_Format_HistoryKind" xml:space="preserve">
+  <value>Kind: {0}</value>
+  <comment>Selected operation history kind format</comment>
+</data>
+<data name="MainWindow_Format_HistoryStatus" xml:space="preserve">
+  <value>Status: {0}</value>
+  <comment>Selected operation history status format</comment>
+</data>
+<data name="MainWindow_Format_Reason" xml:space="preserve">
+  <value>Reason: {0}</value>
+  <comment>Operation and recovery reason format</comment>
+</data>
+<data name="MainWindow_Format_Occurred" xml:space="preserve">
+  <value>Occurred: {0}</value>
+  <comment>Operation occurrence time format</comment>
+</data>
+<data name="MainWindow_Format_Recorded" xml:space="preserve">
+  <value>Recorded: {0}</value>
+  <comment>Operation history recording time format</comment>
+</data>
+<data name="MainWindow_Format_OfferExpires" xml:space="preserve">
+  <value>Offer expires {0}</value>
+  <comment>Local pairing offer expiry format</comment>
+</data>
+<data name="MainWindow_Format_Captured" xml:space="preserve">
+  <value>Captured: {0}</value>
+  <comment>Replace inventory capture time format</comment>
+</data>
+<data name="MainWindow_Format_Placement" xml:space="preserve">
+  <value>Placement: {0}</value>
+  <comment>Replace target placement format</comment>
+</data>
+<data name="MainWindow_Format_Revision" xml:space="preserve">
+  <value>REV {0}</value>
+  <comment>Replace target revision format</comment>
+</data>
+<data name="MainWindow_Format_Snapshot" xml:space="preserve">
+  <value>Snapshot: {0}</value>
+  <comment>Replace recovery snapshot time format</comment>
+</data>
+<data name="MainWindow_Format_Operation" xml:space="preserve">
+  <value>Operation: {0}</value>
+  <comment>Operation identifier format</comment>
+</data>
+<data name="MainWindow_Format_Correlation" xml:space="preserve">
+  <value>Correlation: {0}</value>
+  <comment>Correlation identifier format</comment>
+</data>
+<data name="MainWindow_Format_Capsule" xml:space="preserve">
+  <value>Capsule: {0}</value>
+  <comment>Replace recovery capsule format</comment>
+</data>
+<data name="MainWindow_Format_Outcome" xml:space="preserve">
+  <value>Outcome: {0}</value>
+  <comment>Undo outcome time format</comment>
+</data>
+<data name="MainWindow_Format_Digest" xml:space="preserve">
+  <value>Digest: {0}</value>
+  <comment>Stored Scene digest format</comment>
+</data>
+<data name="MainWindow_Format_Saved" xml:space="preserve">
+  <value>Saved: {0}</value>
+  <comment>Stored Scene save time format</comment>
+</data>
+<data name="MainWindow_Format_Destination" xml:space="preserve">
+  <value>Destination: {0}</value>
+  <comment>Scene destination format</comment>
+</data>
+<data name="MainWindow_Format_Source" xml:space="preserve">
+  <value>Source: {0}</value>
+  <comment>Scene source format</comment>
+</data>
+<data name="MainWindow_Format_State" xml:space="preserve">
+  <value>State: {0}</value>
+  <comment>Scene item readiness state format</comment>
+</data>
+<data name="MainWindow_Format_Action" xml:space="preserve">
+  <value>Action: {0}</value>
+  <comment>Scene result action format</comment>
+</data>
+<data name="MainWindow_Format_UndoCapsule" xml:space="preserve">
+  <value>Undo capsule: {0}</value>
+  <comment>Scene result undo capsule format</comment>
+</data>
+<data name="MainWindow_Format_TargetDevice" xml:space="preserve">
+  <value>Target Device: {0}</value>
+  <comment>Scene compensation target Device format</comment>
+</data>
+<data name="MainWindow_Format_Verified" xml:space="preserve">
+  <value>Verified {0}</value>
+  <comment>Trust verification time format</comment>
+</data>
+</root>

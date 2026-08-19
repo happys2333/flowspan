@@ -306,6 +306,10 @@ interfaces.
 - Unattended remote administration or hidden monitoring.
 - Multiple maintained UI translations in v1.
 
+The approved distinction between Flowspan's single implementation language and
+single maintained neutral-English UI language is recorded in
+[the v1 language scope](language-scope.md).
+
 ## 6. Release-level acceptance
 
 v1 is acceptable only when all R1–R12 criteria are implemented or explicitly

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Flowspan.Application;
 using Flowspan.Domain;
@@ -227,6 +228,43 @@ public sealed class RemoteWindowWorkspaceViewModelTests
                 + $"EPOCH {snapshot.DriverLeaseEpoch} / "
                 + $"LEASE EXPIRES {snapshot.DriverLeaseExpiresAt:O}",
             viewModel.DriverStatus);
+    }
+
+    [Fact]
+    public async Task DriverLeasePresentationRemainsInvariantAcrossDisplayCultures()
+    {
+        CultureInfo originalCulture = CultureInfo.CurrentCulture;
+        CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("fr-FR");
+            var service = new ControllerRemoteWindowService(CreateController());
+            await service.StartAsync();
+            RemoteWindowSharingSnapshot snapshot = service.Controller.Snapshot;
+            Assert.NotNull(snapshot.CurrentDriverDeviceId);
+            Assert.NotNull(snapshot.DriverLeaseEpoch);
+            Assert.NotNull(snapshot.DriverLeaseExpiresAt);
+            await using var viewModel = new RemoteWindowWorkspaceViewModel(
+                service,
+                permissionService: CreateGrantedCapturePermissionService());
+
+            Assert.Equal(
+                "DRIVER: "
+                    + $"{snapshot.CurrentDriverDeviceId} / EPOCH "
+                    + snapshot.DriverLeaseEpoch.Value.ToString(
+                        CultureInfo.InvariantCulture)
+                    + " / LEASE EXPIRES "
+                    + snapshot.DriverLeaseExpiresAt.Value.ToString(
+                        "O",
+                        CultureInfo.InvariantCulture),
+                viewModel.DriverStatus);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
     }
 
     [Fact]

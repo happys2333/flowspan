@@ -51,15 +51,24 @@ public sealed class SceneRepositoryItemViewModel
         ScenePlan scene = entry.Scene;
         Name = scene.Name;
         SceneId = scene.Id.ToString();
-        Summary =
-            $"{scene.Activities.Length} ordered Activities; revision {scene.Revision}; format {scene.FormatVersion}";
+        Summary = DesktopText.Format(
+            "SceneRepository_ItemSummaryFormat",
+            scene.Activities.Length,
+            scene.Revision,
+            scene.FormatVersion);
         GroupBinding = scene.GroupBinding is null
-            ? "No Group binding."
-            : $"Group {scene.GroupBinding.GroupId} revision {scene.GroupBinding.GroupRevision}";
+            ? DesktopText.Get("SceneRepository_NoGroupBinding")
+            : DesktopText.Format(
+                "SceneRepository_GroupBindingFormat",
+                scene.GroupBinding.GroupId,
+                scene.GroupBinding.GroupRevision);
         SceneDigest = entry.SceneDigest;
         SavedAt = entry.SavedAt.ToString("O");
-        AutomationName =
-            $"Stored Scene {scene.Id} revision {scene.Revision} with {scene.Activities.Length} Activities";
+        AutomationName = DesktopText.Format(
+            "SceneRepository_ItemAutomationNameFormat",
+            scene.Id,
+            scene.Revision,
+            scene.Activities.Length);
     }
 
     internal SceneRepositoryEntry Entry { get; }
@@ -99,15 +108,18 @@ public sealed class SceneRepositoryViewModel :
     private bool isRepositoryAvailable;
     private SceneRepositoryItemViewModel? selectedScene;
     private string deleteConfirmation = string.Empty;
-    private string exportPath = "No Scene export has been written.";
+    private string exportPath = DesktopText.Get(
+        "SceneRepository_ExportPath_None");
     private string exportPreview =
-        "Exports contain identifiers, revisions, digests, timestamps, and policies only.";
+        DesktopText.Get("SceneRepository_ExportPreview_Default");
     private string lifecycleDescription =
-        "Selection hands the stored Scene to the Scene apply preview workflow.";
-    private string lifecycleStatus = "NO REPOSITORY ACTION";
+        DesktopText.Get("SceneRepository_LifecycleDescription_Default");
+    private string lifecycleStatus = DesktopText.Get(
+        "SceneRepository_LifecycleStatus_None");
     private string repositoryDescription =
-        "Stored Scenes live in one protected local repository file.";
-    private string repositoryStatus = "SCENE REPOSITORY UNAVAILABLE";
+        DesktopText.Get("SceneRepository_Description_Default");
+    private string repositoryStatus = DesktopText.Get(
+        "SceneRepository_Status_Unavailable");
 
     public SceneRepositoryViewModel(
         IDesktopSceneRepositoryService service,
@@ -264,9 +276,10 @@ public sealed class SceneRepositoryViewModel :
         }
         catch (Exception)
         {
-            RepositoryStatus = "SCENE REPOSITORY UNAVAILABLE";
+            RepositoryStatus = DesktopText.Get(
+                "SceneRepository_Status_Unavailable");
             RepositoryDescription =
-                "The protected Scene repository could not be opened. No exception content is displayed.";
+                DesktopText.Get("SceneRepository_Description_OpenFailed");
             return;
         }
 
@@ -279,9 +292,10 @@ public sealed class SceneRepositoryViewModel :
         if (!service.IsSceneRepositoryReady)
         {
             IsRepositoryAvailable = false;
-            RepositoryStatus = "SCENE REPOSITORY UNAVAILABLE";
+            RepositoryStatus = DesktopText.Get(
+                "SceneRepository_Status_Unavailable");
             RepositoryDescription =
-                "No protected Scene repository is configured for this desktop session.";
+                DesktopText.Get("SceneRepository_Description_NotConfigured");
             return;
         }
 
@@ -301,24 +315,28 @@ public sealed class SceneRepositoryViewModel :
             IsRepositoryAvailable = true;
             RepositoryStatus = entries.Length switch
             {
-                0 => "SCENE REPOSITORY EMPTY",
-                1 => "1 SCENE STORED",
-                _ => $"{entries.Length} SCENES STORED",
+                0 => DesktopText.Get("SceneRepository_Status_Empty"),
+                1 => DesktopText.Get("SceneRepository_Status_OneStored"),
+                _ => DesktopText.Format(
+                    "SceneRepository_Status_MultipleStoredFormat",
+                    entries.Length),
             };
             RepositoryDescription =
-                "Stored Scenes live in one protected local repository file.";
+                DesktopText.Get("SceneRepository_Description_Default");
         }
         catch (OperationCanceledException)
             when (lifetimeCancellation.IsCancellationRequested)
         {
-            RepositoryStatus = "SCENE REPOSITORY REFRESH CANCELLED";
+            RepositoryStatus = DesktopText.Get(
+                "SceneRepository_Status_RefreshCancelled");
         }
         catch (Exception)
         {
             IsRepositoryAvailable = false;
-            RepositoryStatus = "SCENE REPOSITORY UNAVAILABLE";
+            RepositoryStatus = DesktopText.Get(
+                "SceneRepository_Status_Unavailable");
             RepositoryDescription =
-                "Stored Scenes could not be read. No exception content is displayed.";
+                DesktopText.Get("SceneRepository_Description_ReadFailed");
         }
         finally
         {
@@ -366,9 +384,11 @@ public sealed class SceneRepositoryViewModel :
         }
 
         selectScene(selectedScene.Entry.Scene, null);
-        LifecycleStatus = "SCENE SELECTED FOR APPLY";
+        LifecycleStatus = DesktopText.Get(
+            "SceneRepository_LifecycleStatus_SelectedForApply");
         LifecycleDescription =
-            "The Scene apply panel now binds this stored plan. No current Group revision source exists, so no stale-Group warning is observed at selection.";
+            DesktopText.Get(
+                "SceneRepository_LifecycleDescription_SelectedForApply");
     }
 
     public void BeginDelete()
@@ -378,8 +398,11 @@ public sealed class SceneRepositoryViewModel :
             return;
         }
 
-        DeleteConfirmation =
-            $"Delete Scene \"{selectedScene.Name}\" ({selectedScene.SceneId} revision {selectedScene.Entry.Scene.Revision})? Only the stored plan is removed from this device; applied Activities are not affected. This action has no undo.";
+        DeleteConfirmation = DesktopText.Format(
+            "SceneRepository_DeleteConfirmationFormat",
+            selectedScene.Name,
+            selectedScene.SceneId,
+            selectedScene.Entry.Scene.Revision);
         IsDeleteConfirmationVisible = true;
     }
 
@@ -404,24 +427,30 @@ public sealed class SceneRepositoryViewModel :
                 sceneId,
                 lifetimeCancellation.Token).ConfigureAwait(true);
             LifecycleStatus = deleted
-                ? "SCENE DELETED"
-                : "SCENE NOT FOUND — REFRESH THE LIST";
+                ? DesktopText.Get("SceneRepository_LifecycleStatus_Deleted")
+                : DesktopText.Get("SceneRepository_LifecycleStatus_NotFound");
             LifecycleDescription = deleted
-                ? "The stored Scene plan was removed. Scene apply journals, Replace undo state, and applied Activities were not touched."
-                : "The stored Scene no longer exists. Refresh the repository list.";
+                ? DesktopText.Get(
+                    "SceneRepository_LifecycleDescription_Deleted")
+                : DesktopText.Get(
+                    "SceneRepository_LifecycleDescription_NotFound");
         }
         catch (OperationCanceledException)
             when (lifetimeCancellation.IsCancellationRequested)
         {
-            LifecycleStatus = "DELETE CANCELLED";
+            LifecycleStatus = DesktopText.Get(
+                "SceneRepository_LifecycleStatus_DeleteCancelled");
             LifecycleDescription =
-                "The delete request was cancelled before a durable outcome was observed.";
+                DesktopText.Get(
+                    "SceneRepository_LifecycleDescription_DeleteCancelled");
         }
         catch (Exception)
         {
-            LifecycleStatus = "DELETE FAILED";
+            LifecycleStatus = DesktopText.Get(
+                "SceneRepository_LifecycleStatus_DeleteFailed");
             LifecycleDescription =
-                "The stored Scene could not be deleted. No exception content is displayed.";
+                DesktopText.Get(
+                    "SceneRepository_LifecycleDescription_DeleteFailed");
         }
         finally
         {
@@ -452,30 +481,38 @@ public sealed class SceneRepositoryViewModel :
                 lifetimeCancellation.Token).ConfigureAwait(true);
             if (export is null)
             {
-                LifecycleStatus = "SCENE NOT FOUND — REFRESH THE LIST";
+                LifecycleStatus = DesktopText.Get(
+                    "SceneRepository_LifecycleStatus_NotFound");
                 LifecycleDescription =
-                    "The stored Scene no longer exists. Refresh the repository list.";
+                    DesktopText.Get(
+                        "SceneRepository_LifecycleDescription_NotFound");
                 return;
             }
 
-            LifecycleStatus = "EXPORT WRITTEN";
+            LifecycleStatus = DesktopText.Get(
+                "SceneRepository_LifecycleStatus_ExportWritten");
             LifecycleDescription =
-                "The export is redacted: it contains no Scene name, Activity ID, Device ID, or placement slot.";
+                DesktopText.Get(
+                    "SceneRepository_LifecycleDescription_ExportWritten");
             ExportPath = export.FullPath;
             ExportPreview = export.RedactedContent;
         }
         catch (OperationCanceledException)
             when (lifetimeCancellation.IsCancellationRequested)
         {
-            LifecycleStatus = "EXPORT CANCELLED";
+            LifecycleStatus = DesktopText.Get(
+                "SceneRepository_LifecycleStatus_ExportCancelled");
             LifecycleDescription =
-                "The export request was cancelled before a file was reported.";
+                DesktopText.Get(
+                    "SceneRepository_LifecycleDescription_ExportCancelled");
         }
         catch (Exception)
         {
-            LifecycleStatus = "EXPORT FAILED";
+            LifecycleStatus = DesktopText.Get(
+                "SceneRepository_LifecycleStatus_ExportFailed");
             LifecycleDescription =
-                "No export file can be reported as written. No exception content is displayed.";
+                DesktopText.Get(
+                    "SceneRepository_LifecycleDescription_ExportFailed");
         }
         finally
         {
@@ -497,21 +534,30 @@ public sealed class SceneRepositoryViewModel :
         {
             SceneActivityPlan item = scene.Activities[index];
             InspectItems.Add(new DesktopSceneRepositoryPlanItem(
-                $"ITEM {index + 1}",
+                DesktopText.Format("Scene_ItemLabelFormat", index + 1),
                 item.ActivityId.ToString(),
-                $"Device {item.Placement.DeviceId}; slot {item.Placement.Slot}",
+                DesktopText.Format(
+                    "Scene_DestinationDescriptionFormat",
+                    item.Placement.DeviceId,
+                    item.Placement.Slot),
                 item.SourceDisposition switch
                 {
-                    SceneSourceDisposition.PreserveSource => "SOURCE STAYS OPEN",
+                    SceneSourceDisposition.PreserveSource => DesktopText.Get(
+                        "Scene_SourceDisposition_PreserveSource"),
                     SceneSourceDisposition.MoveAfterAcknowledgement =>
-                        "SOURCE CLOSES ONLY AFTER ACKNOWLEDGEMENT",
-                    _ => "SOURCE POLICY UNAVAILABLE",
+                        DesktopText.Get(
+                            "Scene_SourceDisposition_MoveAfterAcknowledgement"),
+                    _ => DesktopText.Get(
+                        "Scene_SourceDisposition_Unavailable"),
                 },
                 item.ConflictPolicy switch
                 {
-                    SceneConflictPolicy.RequireEmpty => "REQUIRE EMPTY DESTINATION",
-                    SceneConflictPolicy.ReplaceWithUndo => "REPLACE WITH UNDO",
-                    _ => "CONFLICT POLICY UNAVAILABLE",
+                    SceneConflictPolicy.RequireEmpty => DesktopText.Get(
+                        "SceneRepository_ConflictPolicy_RequireEmpty"),
+                    SceneConflictPolicy.ReplaceWithUndo => DesktopText.Get(
+                        "SceneRepository_ConflictPolicy_ReplaceWithUndo"),
+                    _ => DesktopText.Get(
+                        "SceneRepository_ConflictPolicy_Unavailable"),
                 }));
         }
     }

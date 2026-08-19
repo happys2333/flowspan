@@ -25,11 +25,12 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     private readonly IDesktopIdentityStartup startup;
     private readonly RelayCommand toggleIdentityDetailsCommand;
     private readonly AsyncRelayCommand retryIdentityCommand;
-    private string deviceId = "Pending";
-    private string deviceName = "Local device";
-    private string fingerprint = "Pending";
-    private string identityDetailsActionLabel = "Show identity details";
-    private string identityProtection = "Pending";
+    private string deviceId = DesktopText.Get("Shell_Pending");
+    private string deviceName = DesktopText.Get("Shell_LocalDevice");
+    private string fingerprint = DesktopText.Get("Shell_Pending");
+    private string identityDetailsActionLabel = DesktopText.Get(
+        "Shell_ShowIdentityDetails");
+    private string identityProtection = DesktopText.Get("Shell_Pending");
     private bool isIdentityAvailable;
     private bool isIdentityDetailsVisible;
     private bool isInitializing = true;
@@ -37,9 +38,9 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     private bool isTestMode;
     private bool remoteWindowProjectionClosed;
     private string recoveryAction = string.Empty;
-    private string startupDescription =
-        "Flowspan is opening without requesting capture or input access.";
-    private string startupStatus = "INITIALIZING IDENTITY";
+    private string startupDescription = DesktopText.Get(
+        "Shell_InitializingDescription");
+    private string startupStatus = DesktopText.Get("Shell_InitializingStatus");
     private int activeInitializations;
     private int activeRemoteWindowProjections;
     private Exception? disposalFailure;
@@ -264,9 +265,9 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
                 if (!IsIdentityAvailable || IsStartupBlocked)
                 {
                     IsStartupBlocked = false;
-                    StartupStatus = "INITIALIZING IDENTITY";
-                    StartupDescription =
-                        "Flowspan is opening without requesting capture or input access.";
+                    StartupStatus = DesktopText.Get("Shell_InitializingStatus");
+                    StartupDescription = DesktopText.Get(
+                        "Shell_InitializingDescription");
                     RecoveryAction = string.Empty;
                 }
 
@@ -714,11 +715,11 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         IsStartupBlocked = false;
         IsTestMode = snapshot.IsTestMode;
         StartupStatus = snapshot.IsTestMode
-            ? "LOCAL WORKSPACE READY — TEST MODE"
-            : "LOCAL WORKSPACE READY";
+            ? DesktopText.Get("Shell_ReadyTestModeStatus")
+            : DesktopText.Get("Shell_ReadyStatus");
         StartupDescription = snapshot.IsTestMode
-            ? "The validation identity exists only for this process and is not trusted."
-            : "The local identity is ready. Pairing and sharing remain inactive.";
+            ? DesktopText.Get("Shell_ReadyTestModeDescription")
+            : DesktopText.Get("Shell_ReadyDescription");
     }
 
     private void ApplyFailure(DesktopStartupFailure failure)
@@ -728,21 +729,22 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         IsStartupBlocked = true;
         IsTestMode = false;
         LocalPairing.SetPrerequisitesAvailable(false);
-        DeviceId = "Unavailable";
-        Fingerprint = "Unavailable";
+        DeviceId = DesktopText.Get("Shell_Unavailable");
+        Fingerprint = DesktopText.Get("Shell_Unavailable");
         IdentityProtection = failure.ReasonCode;
-        StartupStatus = "IDENTITY UNAVAILABLE";
+        StartupStatus = DesktopText.Get("Shell_UnavailableStatus");
         StartupDescription = failure.Summary;
         RecoveryAction = failure.RecoveryAction;
-        IdentityDetailsActionLabel = "Show identity details";
+        IdentityDetailsActionLabel = DesktopText.Get(
+            "Shell_ShowIdentityDetails");
     }
 
     private void ToggleIdentityDetails()
     {
         IsIdentityDetailsVisible = !IsIdentityDetailsVisible;
         IdentityDetailsActionLabel = IsIdentityDetailsVisible
-            ? "Hide identity details"
-            : "Show identity details";
+            ? DesktopText.Get("Shell_HideIdentityDetails")
+            : DesktopText.Get("Shell_ShowIdentityDetails");
     }
 
     private bool SetProperty<T>(

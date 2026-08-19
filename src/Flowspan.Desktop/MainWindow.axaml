@@ -4,7 +4,7 @@
         x:Class="Flowspan.Desktop.MainWindow"
         x:DataType="vm:WorkspaceShellViewModel"
         x:Name="FlowspanMainWindow"
-        Title="Flowspan — Continuous workspace"
+        Title="{DynamicResource MainWindow_Title}"
         Width="1180"
         Height="760"
         MinWidth="900"
@@ -71,7 +71,7 @@
 
   <Grid x:Name="WorkspaceRoot"
         ColumnDefinitions="252,*"
-        AutomationProperties.Name="Flowspan continuous workspace">
+        AutomationProperties.Name="{DynamicResource MainWindow_FlowspanContinuousWorkspace_AutomationName}">
     <Border Grid.Column="0"
             Background="{StaticResource SteelBrush}"
             BorderBrush="{StaticResource SafetyAmberBrush}"
@@ -79,23 +79,23 @@
             Padding="24">
       <Grid RowDefinitions="Auto,32,Auto,24,Auto,*,Auto">
         <StackPanel Grid.Row="0" Spacing="4">
-          <TextBlock Classes="heading" FontSize="30" Text="FLOWSPAN" />
+          <TextBlock Classes="heading" FontSize="30" Text="{DynamicResource MainWindow_Flowspan_Text}" />
           <TextBlock Classes="label"
                      Foreground="{StaticResource SafetyAmberBrush}"
-                     Text="CONTINUITY CONTROL" />
+                     Text="{DynamicResource MainWindow_ContinuityControl_Text}" />
         </StackPanel>
 
         <StackPanel Grid.Row="2" Spacing="10">
-          <TextBlock Classes="label" Text="LOCAL DEVICE" />
+          <TextBlock Classes="label" Text="{DynamicResource MainWindow_LocalDevice_Text}" />
           <TextBlock x:Name="LocalDeviceName"
                      FontSize="20"
                      FontWeight="SemiBold"
                      Text="{Binding DeviceName}"
                      TextWrapping="Wrap"
-                     AutomationProperties.Name="Local device name" />
+                     AutomationProperties.Name="{DynamicResource MainWindow_LocalDeviceName_AutomationName}" />
           <TextBlock Classes="secondary"
                      Text="{Binding StartupStatus}"
-                     AutomationProperties.Name="Local identity status" />
+                     AutomationProperties.Name="{DynamicResource MainWindow_LocalIdentityStatus_AutomationName}" />
           <TextBlock Classes="secondary"
                      FontSize="13"
                      Text="{Binding StartupDescription}" />
@@ -105,27 +105,27 @@
                         Content="{Binding IdentityDetailsActionLabel}"
                         Command="{Binding ToggleIdentityDetailsCommand}"
                         AutomationProperties.Name="{Binding IdentityDetailsActionLabel}"
-                        AutomationProperties.HelpText="Show or hide the local Device ID and identity fingerprint." />
+                        AutomationProperties.HelpText="{DynamicResource MainWindow_ShowOrHideTheLocalDeviceIdAnd_AutomationHelp}" />
 
           <Border IsVisible="{Binding IsIdentityDetailsVisible}"
                   BorderBrush="{StaticResource CoolGrayBrush}"
                   BorderThickness="1"
                   Padding="12">
             <StackPanel Spacing="10">
-              <TextBlock Classes="label" Text="DEVICE ID" />
+              <TextBlock Classes="label" Text="{DynamicResource MainWindow_DeviceId_Text}" />
               <SelectableTextBlock x:Name="DeviceIdValue"
                                    FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                    FontSize="12"
                                    Text="{Binding DeviceId}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Device ID" />
-              <TextBlock Classes="label" Text="IDENTITY FINGERPRINT" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_DeviceId_AutomationName}" />
+              <TextBlock Classes="label" Text="{DynamicResource MainWindow_IdentityFingerprint_Text}" />
               <SelectableTextBlock x:Name="FingerprintValue"
                                    FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                    FontSize="12"
                                    Text="{Binding Fingerprint}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Identity fingerprint" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_IdentityFingerprint_AutomationName}" />
             </StackPanel>
           </Border>
 
@@ -134,31 +134,31 @@
                   Padding="10">
             <TextBlock Foreground="{StaticResource GraphiteBrush}"
                        FontWeight="Bold"
-                       Text="TEST MODE — identity is not persisted"
+                       Text="{DynamicResource MainWindow_TestModeIdentityIsNotPersisted_Text}"
                        TextWrapping="Wrap"
-                       AutomationProperties.Name="Test mode warning" />
+                       AutomationProperties.Name="{DynamicResource MainWindow_TestModeWarning_AutomationName}" />
           </Border>
         </StackPanel>
 
         <StackPanel Grid.Row="4"
                     IsVisible="{Binding IsStartupBlocked}"
                     Spacing="8"
-                    AutomationProperties.Name="Identity recovery">
+                    AutomationProperties.Name="{DynamicResource MainWindow_IdentityRecovery_AutomationName}">
           <TextBlock Classes="label"
                      Foreground="{StaticResource SignalRedBrush}"
-                     Text="RECOVERY REQUIRED" />
+                     Text="{DynamicResource MainWindow_RecoveryRequired_Text}" />
           <TextBlock Classes="secondary" Text="{Binding RecoveryAction}" />
           <Button x:Name="RetryIdentityButton"
-                  Content="Retry identity"
+                  Content="{DynamicResource MainWindow_RetryIdentity_Content}"
                   Command="{Binding RetryIdentityCommand}"
-                  AutomationProperties.Name="Retry local identity" />
+                  AutomationProperties.Name="{DynamicResource MainWindow_RetryLocalIdentity_AutomationName}" />
         </StackPanel>
 
         <StackPanel Grid.Row="6" Spacing="4">
-          <TextBlock Classes="label" Text="LOCAL FIRST" />
+          <TextBlock Classes="label" Text="{DynamicResource MainWindow_LocalFirst_Text}" />
           <TextBlock Classes="secondary"
                      FontSize="12"
-                     Text="No online account. No capture or input permission requested at launch." />
+                     Text="{DynamicResource MainWindow_NoOnlineAccountNoCaptureOrInputPermission_Text}" />
         </StackPanel>
       </Grid>
     </Border>
@@ -171,7 +171,7 @@
               Padding="28,18">
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0" Spacing="3">
-            <TextBlock Classes="label" Text="SHARING STATE" />
+            <TextBlock Classes="label" Text="{DynamicResource MainWindow_SharingState_Text}" />
             <TextBlock x:Name="SharingStatusText"
                        Classes="heading"
                        FontSize="22"
@@ -188,10 +188,10 @@
                   BorderBrush="{StaticResource SignalRedBrush}"
                   Foreground="{StaticResource GraphiteBrush}"
                   FontWeight="Bold"
-                  Content="EMERGENCY STOP"
+                  Content="{DynamicResource MainWindow_EmergencyStop_Content}"
                   Command="{Binding RemoteWindow.EmergencyStopCommand}"
                   IsEnabled="{Binding RemoteWindow.IsEmergencyStopAvailable}"
-                  AutomationProperties.Name="Emergency stop"
+                  AutomationProperties.Name="{DynamicResource MainWindow_EmergencyStop_AutomationName}"
                   AutomationProperties.HelpText="{Binding RemoteWindow.EmergencyStopHelpText}" />
         </Grid>
       </Border>
@@ -205,23 +205,23 @@
             <StackPanel Grid.Column="0" Spacing="8">
               <TextBlock Classes="heading"
                          FontSize="42"
-                         Text="Continuous workspace" />
+                         Text="{DynamicResource MainWindow_ContinuousWorkspace_Text}" />
               <TextBlock Classes="secondary"
                          FontSize="17"
                          MaxWidth="650"
                          HorizontalAlignment="Left"
-                         Text="Continue intent and portable context across trusted computers. Unsupported application state remains on its source and is never described as migrated." />
+                         Text="{DynamicResource MainWindow_ContinueIntentAndPortableContextAcrossTrustedComputers_Text}" />
             </StackPanel>
             <Border Grid.Column="1"
                     BorderBrush="{StaticResource SafetyAmberBrush}"
                     BorderThickness="3,0,0,0"
                     Padding="18,4,0,4">
               <StackPanel Spacing="4">
-                <TextBlock Classes="label" Text="STARTUP PROTECTION" />
+                <TextBlock Classes="label" Text="{DynamicResource MainWindow_StartupProtection_Text}" />
                 <TextBlock FontWeight="SemiBold"
                            Text="{Binding IdentityProtection}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Identity protection" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_IdentityProtection_AutomationName}" />
               </StackPanel>
             </Border>
           </Grid>
@@ -231,31 +231,31 @@
                   BorderThickness="2,1"
                   Padding="18"
                   IsVisible="{Binding RemoteWindow.IsDetailVisible}"
-                  AutomationProperties.Name="Remote Window live sharing details">
+                  AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowLiveSharingDetails_AutomationName}">
             <Grid ColumnDefinitions="7*,5*" ColumnSpacing="24">
               <StackPanel Grid.Column="0" Spacing="7">
                 <TextBlock Classes="label"
                            Foreground="{StaticResource SafetyAmberBrush}"
-                           Text="REMOTE WINDOW — EXECUTION STAYS ON SOURCE" />
+                           Text="{DynamicResource MainWindow_RemoteWindowExecutionStaysOnSource_Text}" />
                 <TextBlock Classes="heading"
                            FontSize="25"
                            Text="{Binding RemoteWindow.ActivityTitle}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Remote Window Activity title" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowActivityTitle_AutomationName}" />
                 <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                      FontSize="11"
                                      Text="{Binding RemoteWindow.ActivityId}"
                                      TextWrapping="Wrap"
-                                     AutomationProperties.Name="Remote Window Activity ID" />
+                                     AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowActivityId_AutomationName}" />
                 <TextBlock Text="{Binding RemoteWindow.SharingDescription}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Remote Window source execution and sharing state" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowSourceExecutionAndSharingState_AutomationName}" />
                 <TextBlock x:Name="RemoteWindowEmergencyStopResultText"
                            Classes="label"
                            Foreground="{StaticResource SignalRedBrush}"
                            Text="{Binding RemoteWindow.EmergencyStopStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Remote Window Emergency Stop result" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowEmergencyStopResult_AutomationName}" />
                 <TextBlock x:Name="RemoteWindowEmergencyStopDescriptionText"
                            Classes="secondary"
                            Text="{Binding RemoteWindow.EmergencyStopDescription}"
@@ -265,34 +265,34 @@
                            Foreground="{StaticResource SafetyAmberBrush}"
                            Text="{Binding RemoteWindow.LocalResetStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Remote Window local reset status" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowLocalResetStatus_AutomationName}" />
                 <TextBlock x:Name="RemoteWindowLocalResetDescriptionText"
                            Classes="secondary"
                            Text="{Binding RemoteWindow.LocalResetDescription}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Remote Window local reset guidance" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowLocalResetGuidance_AutomationName}" />
                 <Button x:Name="ConfirmLocalResetButton"
                         HorizontalAlignment="Left"
                         MinHeight="44"
-                        Content="CONFIRM LOCAL RESET"
+                        Content="{DynamicResource MainWindow_ConfirmLocalReset_Content}"
                         Command="{Binding RemoteWindow.ResetRemoteWindowCommand}"
                         IsVisible="{Binding RemoteWindow.IsLocalResetAvailable}"
-                        AutomationProperties.Name="Confirm local Remote Window reset"
-                        AutomationProperties.HelpText="Confirms a local reset to NOT SHARING. This does not restore previous participants, Driver authority, or capture." />
+                        AutomationProperties.Name="{DynamicResource MainWindow_ConfirmLocalRemoteWindowReset_AutomationName}"
+                        AutomationProperties.HelpText="{DynamicResource MainWindow_ConfirmsALocalResetToNotSharingThis_AutomationHelp}" />
               </StackPanel>
               <Grid Grid.Column="1"
                     RowDefinitions="Auto,Auto,Auto,Auto,Auto"
                     RowSpacing="7">
-                <TextBlock Grid.Row="0" Classes="label" Text="{Binding RemoteWindow.CaptureStatus}" TextWrapping="Wrap" AutomationProperties.Name="Remote Window capture state" />
-                <TextBlock Grid.Row="1" Classes="label" Text="{Binding RemoteWindow.ParticipantStatus}" TextWrapping="Wrap" AutomationProperties.Name="Remote Window participant count" />
-                <TextBlock Grid.Row="2" Classes="label" Text="{Binding RemoteWindow.DriverStatus}" TextWrapping="Wrap" AutomationProperties.Name="Remote Window Driver state" />
+                <TextBlock Grid.Row="0" Classes="label" Text="{Binding RemoteWindow.CaptureStatus}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowCaptureState_AutomationName}" />
+                <TextBlock Grid.Row="1" Classes="label" Text="{Binding RemoteWindow.ParticipantStatus}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowParticipantCount_AutomationName}" />
+                <TextBlock Grid.Row="2" Classes="label" Text="{Binding RemoteWindow.DriverStatus}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowDriverState_AutomationName}" />
                 <TextBlock x:Name="RemoteWindowProtectionStatusText"
                            Grid.Row="3"
                            Classes="label"
                            Text="{Binding RemoteWindow.ProtectionStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Remote Window protection state" />
-                <TextBlock Grid.Row="4" Classes="label" Text="{Binding RemoteWindow.RevisionStatus}" TextWrapping="Wrap" AutomationProperties.Name="Remote Window state revision" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowProtectionState_AutomationName}" />
+                <TextBlock Grid.Row="4" Classes="label" Text="{Binding RemoteWindow.RevisionStatus}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowStateRevision_AutomationName}" />
               </Grid>
             </Grid>
           </Border>
@@ -302,7 +302,7 @@
                   BorderBrush="{StaticResource CoolGrayBrush}"
                   BorderThickness="0,1"
                   Padding="18"
-                  AutomationProperties.Name="Remote Window progressive permissions">
+                  AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowProgressivePermissions_AutomationName}">
             <Grid x:Name="RemoteWindowPermissionGrid"
                   ColumnDefinitions="*,*"
                   ColumnSpacing="28">
@@ -311,46 +311,46 @@
                           Spacing="7">
                 <TextBlock Classes="label"
                            Foreground="{StaticResource SafetyAmberBrush}"
-                           Text="SCREEN CAPTURE PERMISSION" />
+                           Text="{DynamicResource MainWindow_ScreenCapturePermission_Text}" />
                 <TextBlock x:Name="CapturePermissionStatusText"
                            FontWeight="SemiBold"
                            Text="{Binding RemoteWindow.CapturePermissionStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Screen capture permission status" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_ScreenCapturePermissionStatus_AutomationName}" />
                 <TextBlock Classes="secondary"
                            Text="{Binding RemoteWindow.CapturePermissionDescription}"
                            TextWrapping="Wrap" />
                 <TextBlock Classes="secondary"
                            Text="{Binding RemoteWindow.CapturePermissionRecoveryAction}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Screen capture permission recovery action" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_ScreenCapturePermissionRecoveryAction_AutomationName}" />
                 <Button x:Name="ReviewCapturePermissionButton"
                         IsVisible="{Binding RemoteWindow.IsCapturePermissionReviewActionVisible}"
-                        Content="REVIEW CAPTURE ACCESS"
+                        Content="{DynamicResource MainWindow_ReviewCaptureAccess_Content}"
                         Command="{Binding RemoteWindow.ReviewCapturePermissionCommand}"
-                        AutomationProperties.Name="Review screen capture permission"
-                        AutomationProperties.HelpText="Opens the permission rationale without requesting operating-system access." />
+                        AutomationProperties.Name="{DynamicResource MainWindow_ReviewScreenCapturePermission_AutomationName}"
+                        AutomationProperties.HelpText="{DynamicResource MainWindow_OpensThePermissionRationaleWithoutRequestingOperatingSystem_AutomationHelp}" />
                 <StackPanel x:Name="CapturePermissionReviewBand"
                             IsVisible="{Binding RemoteWindow.IsCapturePermissionReviewVisible}"
                             Spacing="8"
-                            AutomationProperties.Name="Screen capture permission review">
-                  <TextBlock Classes="label" Text="REVIEW BEFORE REQUEST" />
+                            AutomationProperties.Name="{DynamicResource MainWindow_ScreenCapturePermissionReview_AutomationName}">
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_ReviewBeforeRequest_Text}" />
                   <TextBlock x:Name="CapturePermissionRationaleText"
                              Classes="secondary"
-                             Text="Remote Window can expose the selected Activity's visible screen output to an authenticated peer. Execution and application state remain on this Device. Revoke access later in the operating system's screen-capture privacy settings; active sharing will stop."
+                             Text="{DynamicResource MainWindow_RemoteWindowCanExposeTheSelectedActivityS_Text}"
                              TextWrapping="Wrap" />
                   <CheckBox x:Name="CapturePermissionAcknowledgement"
                             IsChecked="{Binding RemoteWindow.HasAcknowledgedCapturePermissionReview, Mode=TwoWay}"
-                            Content="I reviewed what screen capture exposes."
-                            AutomationProperties.Name="Acknowledge screen capture permission review" />
+                            Content="{DynamicResource MainWindow_IReviewedWhatScreenCaptureExposes_Content}"
+                            AutomationProperties.Name="{DynamicResource MainWindow_AcknowledgeScreenCapturePermissionReview_AutomationName}" />
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button x:Name="RequestCapturePermissionButton"
-                            Content="REQUEST CAPTURE ACCESS"
+                            Content="{DynamicResource MainWindow_RequestCaptureAccess_Content}"
                             Command="{Binding RemoteWindow.RequestCapturePermissionCommand}"
-                            AutomationProperties.Name="Request screen capture permission" />
-                    <Button Content="Cancel"
+                            AutomationProperties.Name="{DynamicResource MainWindow_RequestScreenCapturePermission_AutomationName}" />
+                    <Button Content="{DynamicResource MainWindow_Cancel_Content}"
                             Command="{Binding RemoteWindow.CancelCapturePermissionReviewCommand}"
-                            AutomationProperties.Name="Cancel screen capture permission review" />
+                            AutomationProperties.Name="{DynamicResource MainWindow_CancelScreenCapturePermissionReview_AutomationName}" />
                   </StackPanel>
                 </StackPanel>
               </StackPanel>
@@ -360,46 +360,46 @@
                           Spacing="7">
                 <TextBlock Classes="label"
                            Foreground="{StaticResource SafetyAmberBrush}"
-                           Text="REMOTE DRIVING" />
+                           Text="{DynamicResource MainWindow_RemoteDriving_Text}" />
                 <CheckBox x:Name="RemoteDrivingCheckBox"
                           IsChecked="{Binding RemoteWindow.IsRemoteDrivingEnabled, Mode=TwoWay}"
                           IsEnabled="{Binding RemoteWindow.CanEnableRemoteDriving}"
-                          Content="Enable remote driving"
-                          AutomationProperties.Name="Enable Remote Window driving"
-                          AutomationProperties.HelpText="Enabling driving opens input permission review. It does not grant Driver authority or request permission by itself." />
+                          Content="{DynamicResource MainWindow_EnableRemoteDriving_Content}"
+                          AutomationProperties.Name="{DynamicResource MainWindow_EnableRemoteWindowDriving_AutomationName}"
+                          AutomationProperties.HelpText="{DynamicResource MainWindow_EnablingDrivingOpensInputPermissionReviewItDoes_AutomationHelp}" />
                 <TextBlock x:Name="InputPermissionStatusText"
                            FontWeight="SemiBold"
                            Text="{Binding RemoteWindow.InputPermissionStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Input permission status" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_InputPermissionStatus_AutomationName}" />
                 <TextBlock Classes="secondary"
                            Text="{Binding RemoteWindow.InputPermissionDescription}"
                            TextWrapping="Wrap" />
                 <TextBlock Classes="secondary"
                            Text="{Binding RemoteWindow.InputPermissionRecoveryAction}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Input permission recovery action" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_InputPermissionRecoveryAction_AutomationName}" />
                 <StackPanel x:Name="InputPermissionReviewBand"
                             IsVisible="{Binding RemoteWindow.IsInputPermissionReviewVisible}"
                             Spacing="8"
-                            AutomationProperties.Name="Input permission review">
-                  <TextBlock Classes="label" Text="REVIEW BEFORE REQUEST" />
+                            AutomationProperties.Name="{DynamicResource MainWindow_InputPermissionReview_AutomationName}">
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_ReviewBeforeRequest_Text_02}" />
                   <TextBlock x:Name="InputPermissionRationaleText"
                              Classes="secondary"
-                             Text="Remote driving can expose keyboard, pointer, and scroll input to the source Device. Input is accepted only for a currently authorized Driver and remains blocked by protection state and Emergency Stop. Revoke access later in the operating system's accessibility or input privacy settings; remote driving will stop."
+                             Text="{DynamicResource MainWindow_RemoteDrivingCanExposeKeyboardPointerAndScroll_Text}"
                              TextWrapping="Wrap" />
                   <CheckBox x:Name="InputPermissionAcknowledgement"
                             IsChecked="{Binding RemoteWindow.HasAcknowledgedInputPermissionReview, Mode=TwoWay}"
-                            Content="I reviewed remote input access."
-                            AutomationProperties.Name="Acknowledge input permission review" />
+                            Content="{DynamicResource MainWindow_IReviewedRemoteInputAccess_Content}"
+                            AutomationProperties.Name="{DynamicResource MainWindow_AcknowledgeInputPermissionReview_AutomationName}" />
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button x:Name="RequestInputPermissionButton"
-                            Content="REQUEST INPUT ACCESS"
+                            Content="{DynamicResource MainWindow_RequestInputAccess_Content}"
                             Command="{Binding RemoteWindow.RequestInputPermissionCommand}"
-                            AutomationProperties.Name="Request input permission" />
-                    <Button Content="Cancel"
+                            AutomationProperties.Name="{DynamicResource MainWindow_RequestInputPermission_AutomationName}" />
+                    <Button Content="{DynamicResource MainWindow_Cancel_Content_02}"
                             Command="{Binding RemoteWindow.CancelInputPermissionReviewCommand}"
-                            AutomationProperties.Name="Cancel input permission review" />
+                            AutomationProperties.Name="{DynamicResource MainWindow_CancelInputPermissionReview_AutomationName}" />
                   </StackPanel>
                 </StackPanel>
               </StackPanel>
@@ -417,26 +417,26 @@
                 <StackPanel Spacing="4">
                   <TextBlock Classes="label"
                              Foreground="{StaticResource SafetyAmberBrush}"
-                             Text="PRIVATE LOCAL DATA" />
-                  <TextBlock Classes="heading" FontSize="27" Text="Operation history" />
+                             Text="{DynamicResource MainWindow_PrivateLocalData_Text}" />
+                  <TextBlock Classes="heading" FontSize="27" Text="{DynamicResource MainWindow_OperationHistory_Text}" />
                 </StackPanel>
                 <TextBlock FontWeight="SemiBold"
                            Text="{Binding LocalData.HistoryStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Operation history status" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_OperationHistoryStatus_AutomationName}" />
                 <TextBlock Classes="secondary"
                            Text="{Binding LocalData.HistoryDescription}"
                            TextWrapping="Wrap" />
                 <Button x:Name="RefreshLocalDataButton"
                         MinHeight="44"
-                        Content="REFRESH LOCAL DATA"
+                        Content="{DynamicResource MainWindow_RefreshLocalData_Content}"
                         Command="{Binding LocalData.RefreshCommand}"
-                        AutomationProperties.Name="Refresh operation history and diagnostics" />
+                        AutomationProperties.Name="{DynamicResource MainWindow_RefreshOperationHistoryAndDiagnostics_AutomationName}" />
                 <ListBox x:Name="OperationHistoryList"
                          ItemsSource="{Binding LocalData.History}"
                          SelectedItem="{Binding LocalData.SelectedHistory, Mode=TwoWay}"
                          MaxHeight="230"
-                         AutomationProperties.Name="Protected operation receipt history">
+                         AutomationProperties.Name="{DynamicResource MainWindow_ProtectedOperationReceiptHistory_AutomationName}">
                   <ListBox.ItemTemplate>
                     <DataTemplate>
                       <StackPanel Margin="8" Spacing="3">
@@ -452,34 +452,34 @@
                         BorderBrush="{StaticResource CoolGrayBrush}"
                         BorderThickness="1"
                         Padding="12"
-                        AutomationProperties.Name="Selected redacted operation receipt">
+                        AutomationProperties.Name="{DynamicResource MainWindow_SelectedRedactedOperationReceipt_AutomationName}">
                   <StackPanel Spacing="5">
-                    <TextBlock Classes="label" Text="SELECTED RECEIPT" />
-                    <TextBlock Text="{Binding LocalData.SelectedHistory.Kind, StringFormat='Kind: {0}'}" />
-                    <TextBlock Text="{Binding LocalData.SelectedHistory.Status, StringFormat='Status: {0}'}" />
-                    <TextBlock Text="{Binding LocalData.SelectedHistory.FailureCode, StringFormat='Reason: {0}'}" />
+                    <TextBlock Classes="label" Text="{DynamicResource MainWindow_SelectedReceipt_Text}" />
+                    <TextBlock Text="{Binding LocalData.SelectedHistory.Kind, StringFormat={StaticResource MainWindow_Format_HistoryKind}}" />
+                    <TextBlock Text="{Binding LocalData.SelectedHistory.Status, StringFormat={StaticResource MainWindow_Format_HistoryStatus}}" />
+                    <TextBlock Text="{Binding LocalData.SelectedHistory.FailureCode, StringFormat={StaticResource MainWindow_Format_Reason}}" />
                     <TextBlock Classes="secondary"
-                               Text="{Binding LocalData.SelectedHistory.OccurredAt, StringFormat='Occurred: {0}'}" />
+                               Text="{Binding LocalData.SelectedHistory.OccurredAt, StringFormat={StaticResource MainWindow_Format_Occurred}}" />
                     <TextBlock Classes="secondary"
-                               Text="{Binding LocalData.SelectedHistory.RecordedAt, StringFormat='Recorded: {0}'}" />
+                               Text="{Binding LocalData.SelectedHistory.RecordedAt, StringFormat={StaticResource MainWindow_Format_Recorded}}" />
                   </StackPanel>
                 </Border>
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <Button x:Name="ExportHistoryButton"
                           MinHeight="44"
-                          Content="EXPORT REDACTED HISTORY"
+                          Content="{DynamicResource MainWindow_ExportRedactedHistory_Content}"
                           Command="{Binding LocalData.ExportHistoryCommand}"
-                          AutomationProperties.Name="Export redacted operation history" />
+                          AutomationProperties.Name="{DynamicResource MainWindow_ExportRedactedOperationHistory_AutomationName}" />
                   <Button x:Name="BeginDeleteHistoryButton"
                           MinHeight="44"
-                          Content="Review delete"
+                          Content="{DynamicResource MainWindow_ReviewDelete_Content}"
                           Command="{Binding LocalData.BeginDeleteHistoryCommand}"
-                          AutomationProperties.Name="Review selected history receipt deletion" />
+                          AutomationProperties.Name="{DynamicResource MainWindow_ReviewSelectedHistoryReceiptDeletion_AutomationName}" />
                   <Button x:Name="BeginClearHistoryButton"
                           MinHeight="44"
-                          Content="Review clear all"
+                          Content="{DynamicResource MainWindow_ReviewClearAll_Content}"
                           Command="{Binding LocalData.BeginClearHistoryCommand}"
-                          AutomationProperties.Name="Review clearing all operation history" />
+                          AutomationProperties.Name="{DynamicResource MainWindow_ReviewClearingAllOperationHistory_AutomationName}" />
                 </StackPanel>
                 <Border IsVisible="{Binding LocalData.IsDeleteHistoryVisible}"
                         BorderBrush="{StaticResource SignalRedBrush}"
@@ -488,13 +488,13 @@
                     <TextBlock Text="{Binding LocalData.HistoryDeleteConfirmation}"
                                TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                      <Button Content="Cancel"
+                      <Button Content="{DynamicResource MainWindow_Cancel_Content_03}"
                               Command="{Binding LocalData.CancelDeleteHistoryCommand}"
-                              AutomationProperties.Name="Cancel history receipt deletion" />
+                              AutomationProperties.Name="{DynamicResource MainWindow_CancelHistoryReceiptDeletion_AutomationName}" />
                       <Button x:Name="ConfirmDeleteHistoryButton"
-                              Content="DELETE RECEIPT"
+                              Content="{DynamicResource MainWindow_DeleteReceipt_Content}"
                               Command="{Binding LocalData.ConfirmDeleteHistoryCommand}"
-                              AutomationProperties.Name="Delete selected history receipt" />
+                              AutomationProperties.Name="{DynamicResource MainWindow_DeleteSelectedHistoryReceipt_AutomationName}" />
                     </StackPanel>
                   </StackPanel>
                 </Border>
@@ -505,26 +505,26 @@
                     <TextBlock Text="{Binding LocalData.HistoryClearConfirmation}"
                                TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                      <Button Content="Cancel"
+                      <Button Content="{DynamicResource MainWindow_Cancel_Content_04}"
                               Command="{Binding LocalData.CancelClearHistoryCommand}"
-                              AutomationProperties.Name="Cancel clearing operation history" />
+                              AutomationProperties.Name="{DynamicResource MainWindow_CancelClearingOperationHistory_AutomationName}" />
                       <Button x:Name="ConfirmClearHistoryButton"
-                              Content="DELETE ALL RECEIPTS"
+                              Content="{DynamicResource MainWindow_DeleteAllReceipts_Content}"
                               Command="{Binding LocalData.ConfirmClearHistoryCommand}"
-                              AutomationProperties.Name="Delete all operation history" />
+                              AutomationProperties.Name="{DynamicResource MainWindow_DeleteAllOperationHistory_AutomationName}" />
                     </StackPanel>
                   </StackPanel>
                 </Border>
                 <TextBlock Classes="secondary" FontSize="11"
                            Text="{Binding LocalData.HistoryExportPath}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="History export path" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_HistoryExportPath_AutomationName}" />
                 <SelectableTextBlock Classes="secondary"
                                      FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                      FontSize="10" MaxHeight="130"
                                      Text="{Binding LocalData.HistoryExportPreview}"
                                      TextWrapping="Wrap"
-                                     AutomationProperties.Name="Redacted history export preview" />
+                                     AutomationProperties.Name="{DynamicResource MainWindow_RedactedHistoryExportPreview_AutomationName}" />
               </StackPanel>
             </Border>
 
@@ -536,36 +536,36 @@
                     Margin="12,0,0,0">
               <StackPanel Spacing="12">
                 <StackPanel Spacing="4">
-                  <TextBlock Classes="label" Text="SUPPORT DATA" />
-                  <TextBlock Classes="heading" FontSize="27" Text="Redacted diagnostics" />
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_SupportData_Text}" />
+                  <TextBlock Classes="heading" FontSize="27" Text="{DynamicResource MainWindow_RedactedDiagnostics_Text}" />
                 </StackPanel>
                 <TextBlock FontWeight="SemiBold"
                            Text="{Binding LocalData.DiagnosticsStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Redacted diagnostics status" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_RedactedDiagnosticsStatus_AutomationName}" />
                 <TextBlock Classes="secondary"
-                           Text="Versions, active negotiated protocols, authorized Capabilities, operation states, and recent reason codes only. Nothing is uploaded." />
+                           Text="{DynamicResource MainWindow_VersionsActiveNegotiatedProtocolsAuthorizedCapabilitiesOperationStates_Text}" />
                 <Button x:Name="ExportDiagnosticsButton"
                         MinHeight="44"
-                        Content="EXPORT REDACTED DIAGNOSTICS"
+                        Content="{DynamicResource MainWindow_ExportRedactedDiagnostics_Content}"
                         Command="{Binding LocalData.ExportDiagnosticsCommand}"
-                        AutomationProperties.Name="Export redacted diagnostic bundle" />
+                        AutomationProperties.Name="{DynamicResource MainWindow_ExportRedactedDiagnosticBundle_AutomationName}" />
                 <TextBlock Classes="secondary" FontSize="11"
                            Text="{Binding LocalData.DiagnosticsExportPath}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Diagnostic export path" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_DiagnosticExportPath_AutomationName}" />
                 <SelectableTextBlock Classes="secondary"
                                      FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                      FontSize="10" MaxHeight="220"
                                      Text="{Binding LocalData.DiagnosticsPreview}"
                                      TextWrapping="Wrap"
-                                     AutomationProperties.Name="Exact redacted diagnostic preview" />
-                <TextBlock Classes="label" Text="LOCAL DIAGNOSTIC BUNDLES" />
+                                     AutomationProperties.Name="{DynamicResource MainWindow_ExactRedactedDiagnosticPreview_AutomationName}" />
+                <TextBlock Classes="label" Text="{DynamicResource MainWindow_LocalDiagnosticBundles_Text}" />
                 <ListBox x:Name="DiagnosticExportList"
                          ItemsSource="{Binding LocalData.DiagnosticExports}"
                          SelectedItem="{Binding LocalData.SelectedDiagnosticExport, Mode=TwoWay}"
                          MaxHeight="150"
-                         AutomationProperties.Name="Local redacted diagnostic bundle files">
+                         AutomationProperties.Name="{DynamicResource MainWindow_LocalRedactedDiagnosticBundleFiles_AutomationName}">
                   <ListBox.ItemTemplate>
                     <DataTemplate>
                       <TextBlock Margin="8"
@@ -579,9 +579,9 @@
                 </ListBox>
                 <Button x:Name="BeginDeleteDiagnosticButton"
                         MinHeight="44"
-                        Content="Review bundle delete"
+                        Content="{DynamicResource MainWindow_ReviewBundleDelete_Content}"
                         Command="{Binding LocalData.BeginDeleteDiagnosticCommand}"
-                        AutomationProperties.Name="Review selected diagnostic bundle deletion" />
+                        AutomationProperties.Name="{DynamicResource MainWindow_ReviewSelectedDiagnosticBundleDeletion_AutomationName}" />
                 <Border IsVisible="{Binding LocalData.IsDeleteDiagnosticVisible}"
                         BorderBrush="{StaticResource SignalRedBrush}"
                         BorderThickness="2" Padding="10">
@@ -589,13 +589,13 @@
                     <TextBlock Text="{Binding LocalData.DiagnosticDeleteConfirmation}"
                                TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                      <Button Content="Cancel"
+                      <Button Content="{DynamicResource MainWindow_Cancel_Content_05}"
                               Command="{Binding LocalData.CancelDeleteDiagnosticCommand}"
-                              AutomationProperties.Name="Cancel diagnostic bundle deletion" />
+                              AutomationProperties.Name="{DynamicResource MainWindow_CancelDiagnosticBundleDeletion_AutomationName}" />
                       <Button x:Name="ConfirmDeleteDiagnosticButton"
-                              Content="DELETE BUNDLE"
+                              Content="{DynamicResource MainWindow_DeleteBundle_Content}"
                               Command="{Binding LocalData.ConfirmDeleteDiagnosticCommand}"
-                              AutomationProperties.Name="Delete selected diagnostic bundle" />
+                              AutomationProperties.Name="{DynamicResource MainWindow_DeleteSelectedDiagnosticBundle_AutomationName}" />
                     </StackPanel>
                   </StackPanel>
                 </Border>
@@ -607,12 +607,12 @@
                   BorderBrush="{StaticResource SafetyAmberBrush}"
                   BorderThickness="2"
                   Padding="26"
-                  AutomationProperties.Name="Local pairing network">
+                  AutomationProperties.Name="{DynamicResource MainWindow_LocalPairingNetwork_AutomationName}">
             <Grid ColumnDefinitions="5*,7*">
               <StackPanel Grid.Column="0" Margin="0,0,26,0" Spacing="12">
                 <TextBlock Classes="label"
                            Foreground="{StaticResource SafetyAmberBrush}"
-                           Text="LOCAL PAIRING" />
+                           Text="{DynamicResource MainWindow_LocalPairing_Text}" />
                 <TextBlock Classes="heading"
                            FontSize="27"
                            Text="{Binding LocalPairing.Status}"
@@ -625,95 +625,95 @@
                            Text="{Binding LocalPairing.PermissionEducation}" />
                 <Button x:Name="ReviewLocalNetworkAccessButton"
                         IsVisible="{Binding LocalPairing.IsPermissionReviewActionVisible}"
-                        Content="REVIEW LOCAL NETWORK ACCESS"
+                        Content="{DynamicResource MainWindow_ReviewLocalNetworkAccess_Content}"
                         Command="{Binding LocalPairing.ReviewPermissionCommand}"
-                        AutomationProperties.Name="Review local network access"
-                        AutomationProperties.HelpText="Review what Flowspan exposes on the local network, possible platform prompts, and how to revoke access. Reviewing alone starts no networking." />
+                        AutomationProperties.Name="{DynamicResource MainWindow_ReviewLocalNetworkAccess_AutomationName}"
+                        AutomationProperties.HelpText="{DynamicResource MainWindow_ReviewWhatFlowspanExposesOnTheLocalNetwork_AutomationHelp}" />
                 <Border IsVisible="{Binding LocalPairing.IsPermissionReviewVisible}"
                         BorderBrush="{StaticResource SafetyAmberBrush}"
                         BorderThickness="2"
                         Padding="12"
-                        AutomationProperties.Name="Local network permission review">
+                        AutomationProperties.Name="{DynamicResource MainWindow_LocalNetworkPermissionReview_AutomationName}">
                   <StackPanel Spacing="8">
-                    <TextBlock Classes="label" Text="PERMISSION PREFLIGHT" />
+                    <TextBlock Classes="label" Text="{DynamicResource MainWindow_PermissionPreflight_Text}" />
                     <TextBlock FontWeight="SemiBold"
                                Text="{Binding LocalPairing.PermissionPlatformName}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Local network permission platform" />
-                    <TextBlock Classes="label" Text="DATA VISIBLE ON THIS LAN" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_LocalNetworkPermissionPlatform_AutomationName}" />
+                    <TextBlock Classes="label" Text="{DynamicResource MainWindow_DataVisibleOnThisLan_Text}" />
                     <TextBlock x:Name="LocalNetworkDataExposureText"
                                Classes="secondary"
                                FontSize="12"
                                Text="{Binding LocalPairing.PermissionDataExposure}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Local network data exposure" />
-                    <TextBlock Classes="label" Text="WHAT THE PLATFORM MAY DO" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_LocalNetworkDataExposure_AutomationName}" />
+                    <TextBlock Classes="label" Text="{DynamicResource MainWindow_WhatThePlatformMayDo_Text}" />
                     <TextBlock x:Name="LocalNetworkPromptExpectationText"
                                Classes="secondary"
                                FontSize="12"
                                Text="{Binding LocalPairing.PermissionPromptExpectation}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Local network prompt expectation" />
-                    <TextBlock Classes="label" Text="HOW TO REVOKE" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_LocalNetworkPromptExpectation_AutomationName}" />
+                    <TextBlock Classes="label" Text="{DynamicResource MainWindow_HowToRevoke_Text}" />
                     <TextBlock x:Name="LocalNetworkRevocationText"
                                Classes="secondary"
                                FontSize="12"
                                Text="{Binding LocalPairing.PermissionRevocationAction}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Local network revocation path" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_LocalNetworkRevocationPath_AutomationName}" />
                     <CheckBox x:Name="LocalNetworkPermissionAcknowledgement"
                               IsChecked="{Binding LocalPairing.HasAcknowledgedPermissionReview, Mode=TwoWay}"
-                              AutomationProperties.Name="Acknowledge local network exposure">
-                      <TextBlock Text="I understand that this device becomes discoverable on the current local network."
+                              AutomationProperties.Name="{DynamicResource MainWindow_AcknowledgeLocalNetworkExposure_AutomationName}">
+                      <TextBlock Text="{DynamicResource MainWindow_IUnderstandThatThisDeviceBecomesDiscoverableOn_Text}"
                                  TextWrapping="Wrap" />
                     </CheckBox>
                     <StackPanel Orientation="Horizontal" Spacing="10">
                       <Button x:Name="EnableLocalPairingButton"
-                              Content="ENABLE ON LOCAL NETWORK"
+                              Content="{DynamicResource MainWindow_EnableOnLocalNetwork_Content}"
                               Command="{Binding LocalPairing.EnableCommand}"
-                              AutomationProperties.Name="Enable local network after permission review"
-                              AutomationProperties.HelpText="Starts the listener, discovery, advertisement, and trusted reconnect lifetime after the permission preflight is acknowledged." />
+                              AutomationProperties.Name="{DynamicResource MainWindow_EnableLocalNetworkAfterPermissionReview_AutomationName}"
+                              AutomationProperties.HelpText="{DynamicResource MainWindow_StartsTheListenerDiscoveryAdvertisementAndTrustedReconnect_AutomationHelp}" />
                       <Button x:Name="CancelLocalNetworkPermissionReviewButton"
-                              Content="Cancel"
+                              Content="{DynamicResource MainWindow_Cancel_Content_06}"
                               Command="{Binding LocalPairing.CancelPermissionReviewCommand}"
-                              AutomationProperties.Name="Cancel local network permission review" />
+                              AutomationProperties.Name="{DynamicResource MainWindow_CancelLocalNetworkPermissionReview_AutomationName}" />
                     </StackPanel>
                   </StackPanel>
                 </Border>
                 <TextBlock Classes="label"
                            Text="{Binding LocalPairing.ListenerStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Local pairing listener status" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_LocalPairingListenerStatus_AutomationName}" />
                 <TextBlock Foreground="{StaticResource SignalRedBrush}"
                            Text="{Binding LocalPairing.RecoveryAction}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Local pairing recovery action" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_LocalPairingRecoveryAction_AutomationName}" />
                 <Button x:Name="DisableLocalPairingButton"
-                        Content="Disable"
+                        Content="{DynamicResource MainWindow_Disable_Content}"
                         Command="{Binding LocalPairing.DisableCommand}"
-                        AutomationProperties.Name="Disable local pairing" />
+                        AutomationProperties.Name="{DynamicResource MainWindow_DisableLocalPairing_AutomationName}" />
               </StackPanel>
 
               <StackPanel Grid.Column="1" Spacing="12">
-                <TextBlock Classes="label" Text="TRUSTED PEER CHANNELS" />
+                <TextBlock Classes="label" Text="{DynamicResource MainWindow_TrustedPeerChannels_Text}" />
                 <TextBlock Classes="secondary"
                            FontSize="12"
-                           Text="Per-peer state for the explicitly enabled local network. Authenticated idle is not sharing." />
+                           Text="{DynamicResource MainWindow_PerPeerStateForTheExplicitlyEnabledLocal_Text}" />
                 <TextBlock Classes="secondary"
                            IsVisible="{Binding !LocalPairing.HasTrustedPeerConnections}"
-                           Text="No current Trust Record has a local connection status." />
+                           Text="{DynamicResource MainWindow_NoCurrentTrustRecordHasALocalConnection_Text}" />
                 <TextBlock x:Name="TrustedPeerIdentityWarningSummary"
                            IsVisible="{Binding LocalPairing.HasIdentityWarnings}"
                            Foreground="{StaticResource SignalRedBrush}"
                            FontWeight="SemiBold"
-                           Text="IDENTITY CLAIM BLOCKED — review the expected and conflicting fingerprints below. Trust was preserved."
+                           Text="{DynamicResource MainWindow_IdentityClaimBlockedReviewTheExpectedAndConflicting_Text}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Trusted peer identity warning" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_TrustedPeerIdentityWarning_AutomationName}" />
                 <ListBox x:Name="TrustedPeerConnectionList"
                          IsVisible="{Binding LocalPairing.HasTrustedPeerConnections}"
                          ItemsSource="{Binding LocalPairing.TrustedPeerConnections}"
                          MaxHeight="240"
-                         AutomationProperties.Name="Trusted peer local connection status">
+                         AutomationProperties.Name="{DynamicResource MainWindow_TrustedPeerLocalConnectionStatus_AutomationName}">
                   <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:TrustedPeerConnectionItemViewModel">
                       <Border Margin="4"
@@ -741,24 +741,24 @@
                                   BorderBrush="{StaticResource SignalRedBrush}"
                                   BorderThickness="2"
                                   Padding="9"
-                                  AutomationProperties.Name="Blocked trusted peer identity claim">
+                                  AutomationProperties.Name="{DynamicResource MainWindow_BlockedTrustedPeerIdentityClaim_AutomationName}">
                             <StackPanel Spacing="4">
                               <TextBlock Foreground="{StaticResource SignalRedBrush}"
                                          FontWeight="SemiBold"
                                          Text="{Binding IdentityWarning}"
                                          TextWrapping="Wrap" />
-                              <TextBlock Classes="label" Text="TRUSTED FINGERPRINT" />
+                              <TextBlock Classes="label" Text="{DynamicResource MainWindow_TrustedFingerprint_Text}" />
                               <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                    FontSize="10"
                                                    Text="{Binding ExpectedFingerprint}"
                                                    TextWrapping="Wrap"
-                                                   AutomationProperties.Name="Expected trusted peer fingerprint" />
-                              <TextBlock Classes="label" Text="CONFLICTING ADVERTISED FINGERPRINT" />
+                                                   AutomationProperties.Name="{DynamicResource MainWindow_ExpectedTrustedPeerFingerprint_AutomationName}" />
+                              <TextBlock Classes="label" Text="{DynamicResource MainWindow_ConflictingAdvertisedFingerprint_Text}" />
                               <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                    FontSize="10"
                                                    Text="{Binding ConflictingFingerprint}"
                                                    TextWrapping="Wrap"
-                                                   AutomationProperties.Name="Conflicting advertised peer fingerprint" />
+                                                   AutomationProperties.Name="{DynamicResource MainWindow_ConflictingAdvertisedPeerFingerprint_AutomationName}" />
                             </StackPanel>
                           </Border>
                         </StackPanel>
@@ -767,15 +767,15 @@
                   </ListBox.ItemTemplate>
                 </ListBox>
 
-                <TextBlock Classes="label" Text="OBSERVED CANDIDATES" />
+                <TextBlock Classes="label" Text="{DynamicResource MainWindow_ObservedCandidates_Text}" />
                 <TextBlock Classes="secondary"
                            FontSize="12"
-                           Text="Discovery metadata is unverified until the connected identity verifies the signed offer and both users compare the SAS." />
+                           Text="{DynamicResource MainWindow_DiscoveryMetadataIsUnverifiedUntilTheConnectedIdentity_Text}" />
                 <ListBox x:Name="LocalPairingCandidateList"
                          ItemsSource="{Binding LocalPairing.Candidates}"
                          SelectedItem="{Binding LocalPairing.SelectedCandidate, Mode=TwoWay}"
                          MaxHeight="210"
-                         AutomationProperties.Name="Discovered local pairing candidates">
+                         AutomationProperties.Name="{DynamicResource MainWindow_DiscoveredLocalPairingCandidates_AutomationName}">
                   <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:LocalPairingCandidateItemViewModel">
                       <Grid Margin="8" ColumnDefinitions="*,Auto">
@@ -808,39 +808,39 @@
                         BorderBrush="{StaticResource CoolGrayBrush}"
                         BorderThickness="1"
                         Padding="14"
-                        AutomationProperties.Name="Selected local pairing candidate">
+                        AutomationProperties.Name="{DynamicResource MainWindow_SelectedLocalPairingCandidate_AutomationName}">
                   <StackPanel Spacing="8">
-                    <TextBlock Classes="label" Text="SELECTED DISCOVERY RECORD" />
+                    <TextBlock Classes="label" Text="{DynamicResource MainWindow_SelectedDiscoveryRecord_Text}" />
                     <TextBlock FontWeight="SemiBold"
                                Text="{Binding LocalPairing.SelectedCandidate.Status}"
                                TextWrapping="Wrap" />
-                    <TextBlock Classes="label" Text="IDENTITY FINGERPRINT" />
+                    <TextBlock Classes="label" Text="{DynamicResource MainWindow_IdentityFingerprint_Text_02}" />
                     <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                          FontSize="11"
                                          Text="{Binding LocalPairing.SelectedCandidate.Fingerprint}"
                                          TextWrapping="Wrap"
-                                         AutomationProperties.Name="Advertised unverified identity fingerprint" />
+                                         AutomationProperties.Name="{DynamicResource MainWindow_AdvertisedUnverifiedIdentityFingerprint_AutomationName}" />
                     <TextBlock Classes="secondary"
                                FontSize="11"
-                               Text="{Binding LocalPairing.SelectedCandidate.ExpiresAt, StringFormat='Offer expires {0}'}" />
+                               Text="{Binding LocalPairing.SelectedCandidate.ExpiresAt, StringFormat={StaticResource MainWindow_Format_OfferExpires}}" />
                   </StackPanel>
                 </Border>
 
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <Button x:Name="PairDiscoveredDeviceButton"
-                          Content="PAIR DEVICE"
+                          Content="{DynamicResource MainWindow_PairDevice_Content}"
                           Command="{Binding LocalPairing.PairDeviceCommand}"
-                          AutomationProperties.Name="Pair selected local device"
-                          AutomationProperties.HelpText="Available only for an unverified candidate that is not blocked by an existing Trust Record." />
+                          AutomationProperties.Name="{DynamicResource MainWindow_PairSelectedLocalDevice_AutomationName}"
+                          AutomationProperties.HelpText="{DynamicResource MainWindow_AvailableOnlyForAnUnverifiedCandidateThatIs_AutomationHelp}" />
                   <Button x:Name="CancelOutboundPairingButton"
-                          Content="Cancel pairing"
+                          Content="{DynamicResource MainWindow_CancelPairing_Content}"
                           Command="{Binding LocalPairing.CancelPairingCommand}"
-                          AutomationProperties.Name="Cancel outbound pairing" />
+                          AutomationProperties.Name="{DynamicResource MainWindow_CancelOutboundPairing_AutomationName}" />
                 </StackPanel>
                 <TextBlock Classes="secondary"
                            Text="{Binding LocalPairing.PairingStatus}"
                            TextWrapping="Wrap"
-                           AutomationProperties.Name="Outbound pairing result" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_OutboundPairingResult_AutomationName}" />
               </StackPanel>
             </Grid>
           </Border>
@@ -856,49 +856,49 @@
                 <StackPanel Spacing="4">
                   <TextBlock Classes="label"
                              Foreground="{StaticResource SafetyAmberBrush}"
-                             Text="PRIMARY WORKSPACE" />
-                  <TextBlock Classes="heading" FontSize="30" Text="Activities" />
+                             Text="{DynamicResource MainWindow_PrimaryWorkspace_Text}" />
+                  <TextBlock Classes="heading" FontSize="30" Text="{DynamicResource MainWindow_Activities_Text}" />
                 </StackPanel>
                 <Border BorderBrush="{StaticResource CoolGrayBrush}"
                         BorderThickness="0,1,0,0"
                         Padding="0,22,0,0">
                   <StackPanel Spacing="16">
                     <StackPanel Spacing="8">
-                      <TextBlock Classes="label" Text="NEW PORTABLE NOTE" />
+                      <TextBlock Classes="label" Text="{DynamicResource MainWindow_NewPortableNote_Text}" />
                       <TextBlock Classes="secondary"
-                                 Text="Create a bounded workspace.note/v1 Activity. This does not inspect another application's unsaved state." />
-                      <TextBlock Text="Title" />
+                                 Text="{DynamicResource MainWindow_CreateABoundedWorkspaceNoteV1ActivityThis_Text}" />
+                      <TextBlock Text="{DynamicResource MainWindow_Title_Text}" />
                       <TextBox x:Name="WorkspaceNoteTitleTextBox"
                                Text="{Binding Activities.DraftTitle, Mode=TwoWay}"
                                MaxLength="120"
-                               AutomationProperties.Name="Portable note title" />
-                      <TextBlock Text="Plain-text note" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_PortableNoteTitle_AutomationName}" />
+                      <TextBlock Text="{DynamicResource MainWindow_PlainTextNote_Text}" />
                       <TextBox x:Name="WorkspaceNoteBodyTextBox"
                                Text="{Binding Activities.DraftText, Mode=TwoWay}"
                                AcceptsReturn="True"
                                MinHeight="88"
                                MaxLength="16384"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Portable note body" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_PortableNoteBody_AutomationName}" />
                       <Button x:Name="CreateWorkspaceNoteButton"
-                              Content="CREATE PORTABLE NOTE"
+                              Content="{DynamicResource MainWindow_CreatePortableNote_Content}"
                               Command="{Binding Activities.CreateWorkspaceNoteCommand}"
                               IsEnabled="{Binding Activities.IsNoteCreationAvailable}"
-                              AutomationProperties.Name="Create portable note Activity" />
+                              AutomationProperties.Name="{DynamicResource MainWindow_CreatePortableNoteActivity_AutomationName}" />
                       <TextBlock Classes="secondary"
                                  Text="{Binding Activities.CreationStatus}"
                                  TextWrapping="Wrap"
-                                 AutomationProperties.Name="Portable note creation result" />
+                                 AutomationProperties.Name="{DynamicResource MainWindow_PortableNoteCreationResult_AutomationName}" />
                     </StackPanel>
 
                     <Grid ColumnDefinitions="*,*">
                       <StackPanel Grid.Column="0" Margin="0,0,8,0" Spacing="6">
-                        <TextBlock Classes="label" Text="LOCAL ACTIVITIES" />
+                        <TextBlock Classes="label" Text="{DynamicResource MainWindow_LocalActivities_Text}" />
                         <ListBox x:Name="ActivityList"
                                  ItemsSource="{Binding Activities.Activities}"
                                  SelectedItem="{Binding Activities.SelectedActivity, Mode=TwoWay}"
                                  MaxHeight="190"
-                                 AutomationProperties.Name="Local semantic Activities">
+                                 AutomationProperties.Name="{DynamicResource MainWindow_LocalSemanticActivities_AutomationName}">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DesktopActivitySnapshot">
                               <StackPanel Margin="8" Spacing="3">
@@ -918,12 +918,12 @@
                       </StackPanel>
 
                       <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="6">
-                        <TextBlock Classes="label" Text="AUTHENTICATED TARGET" />
+                        <TextBlock Classes="label" Text="{DynamicResource MainWindow_AuthenticatedTarget_Text}" />
                         <ListBox x:Name="ActivityTargetList"
                                  ItemsSource="{Binding Activities.Targets}"
                                  SelectedItem="{Binding Activities.SelectedTarget, Mode=TwoWay}"
                                  MaxHeight="190"
-                                 AutomationProperties.Name="Authenticated semantic Activity targets">
+                                 AutomationProperties.Name="{DynamicResource MainWindow_AuthenticatedSemanticActivityTargets_AutomationName}">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DesktopActivityTargetSnapshot">
                               <StackPanel Margin="8" Spacing="3">
@@ -945,18 +945,18 @@
                     <Border BorderBrush="{StaticResource CoolGrayBrush}"
                             BorderThickness="1"
                             Padding="14"
-                            AutomationProperties.Name="Remote Window fallback availability">
+                            AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowFallbackAvailability_AutomationName}">
                       <StackPanel Spacing="8">
                         <TextBlock Classes="label"
                                    Foreground="{StaticResource SafetyAmberBrush}"
-                                   Text="REMOTE WINDOW — EXECUTION STAYS ON SOURCE" />
-                        <TextBlock Classes="label" Text="REMOTE WINDOW TARGET" />
+                                   Text="{DynamicResource MainWindow_RemoteWindowExecutionStaysOnSource_Text_02}" />
+                        <TextBlock Classes="label" Text="{DynamicResource MainWindow_RemoteWindowTarget_Text}" />
                         <ListBox x:Name="RemoteWindowTargetList"
                                  ItemsSource="{Binding Activities.RemoteWindowTargets}"
                                  SelectedItem="{Binding Activities.SelectedRemoteWindowTarget, Mode=TwoWay}"
                                  MaxHeight="132"
-                                 AutomationProperties.Name="Authenticated Remote Window targets for current role"
-                                 AutomationProperties.HelpText="View-only requires mirror viewing authorization. Driving requires both viewing and driving authorization.">
+                                 AutomationProperties.Name="{DynamicResource MainWindow_AuthenticatedRemoteWindowTargetsForCurrentRole_AutomationName}"
+                                 AutomationProperties.HelpText="{DynamicResource MainWindow_ViewOnlyRequiresMirrorViewingAuthorizationDrivingRequires_AutomationHelp}">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DesktopActivityTargetSnapshot">
                               <StackPanel Margin="8" Spacing="3">
@@ -977,13 +977,13 @@
                                    Foreground="{StaticResource SignalRedBrush}"
                                    Text="{Binding RemoteWindow.FallbackStatus}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Remote Window fallback availability" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_RemoteWindowFallbackAvailability_AutomationName_02}" />
                         <TextBlock x:Name="RemoteWindowFallbackDescriptionText"
                                    Classes="secondary"
                                    Text="{Binding RemoteWindow.FallbackDescription}"
                                    TextWrapping="Wrap" />
                         <Button x:Name="StartRemoteWindowButton"
-                                Content="START REMOTE WINDOW"
+                                Content="{DynamicResource MainWindow_StartRemoteWindow_Content}"
                                 Command="{Binding RemoteWindow.StartRemoteWindowCommand}"
                                 IsEnabled="{Binding RemoteWindow.IsFallbackStartAvailable}"
                                 AutomationProperties.Name="{Binding RemoteWindow.FallbackStartAutomationName}"
@@ -994,97 +994,97 @@
                     <Border BorderBrush="{StaticResource SafetyAmberBrush}"
                             BorderThickness="2"
                             Padding="14"
-                            AutomationProperties.Name="Semantic handoff preview">
+                            AutomationProperties.Name="{DynamicResource MainWindow_SemanticHandoffPreview_AutomationName}">
                       <StackPanel Spacing="8">
                         <TextBlock x:Name="ActivityPreviewStatusText"
                                    Classes="label"
                                    Foreground="{StaticResource SafetyAmberBrush}"
                                    Text="{Binding Activities.PreviewStatus}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Semantic handoff preview status" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_SemanticHandoffPreviewStatus_AutomationName}" />
                         <TextBlock Text="{Binding Activities.PreviewDescription}"
                                    TextWrapping="Wrap" />
                         <TextBlock x:Name="ActivityDataDisclosureText"
                                    Classes="secondary"
                                    Text="{Binding Activities.DataDisclosure}"
-                                   AutomationProperties.Name="Semantic handoff data disclosure" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_SemanticHandoffDataDisclosure_AutomationName}" />
                         <Button x:Name="ActivityHandoffButton"
-                                Content="HAND OFF COPY"
+                                Content="{DynamicResource MainWindow_HandOffCopy_Content}"
                                 Command="{Binding Activities.HandoffCommand}"
                                 IsEnabled="{Binding Activities.IsHandoffAvailable}"
-                                AutomationProperties.Name="Confirm semantic handoff copy"
-                                AutomationProperties.HelpText="Creates a semantic copy on the selected authenticated target and keeps the source open." />
+                                AutomationProperties.Name="{DynamicResource MainWindow_ConfirmSemanticHandoffCopy_AutomationName}"
+                                AutomationProperties.HelpText="{DynamicResource MainWindow_CreatesASemanticCopyOnTheSelectedAuthenticated_AutomationHelp}" />
                       </StackPanel>
                     </Border>
 
                     <Border BorderBrush="{StaticResource SignalRedBrush}"
                             BorderThickness="2"
                             Padding="14"
-                            AutomationProperties.Name="Semantic move preview">
+                            AutomationProperties.Name="{DynamicResource MainWindow_SemanticMovePreview_AutomationName}">
                       <StackPanel Spacing="8">
                         <TextBlock x:Name="ActivityMovePreviewStatusText"
                                    Classes="label"
                                    Foreground="{StaticResource SignalRedBrush}"
                                    Text="{Binding Activities.MovePreviewStatus}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Semantic move preview status" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_SemanticMovePreviewStatus_AutomationName}" />
                         <TextBlock Text="{Binding Activities.MovePreviewDescription}"
                                    TextWrapping="Wrap" />
                         <Button x:Name="ActivityMoveButton"
-                                Content="MOVE AFTER TARGET ACK"
+                                Content="{DynamicResource MainWindow_MoveAfterTargetAck_Content}"
                                 Command="{Binding Activities.MoveCommand}"
                                 IsEnabled="{Binding Activities.IsMoveAvailable}"
-                                AutomationProperties.Name="Confirm semantic move after target acknowledgement"
-                                AutomationProperties.HelpText="Resumes the Activity on the selected authenticated target first, then closes the source only after a verified target acknowledgement." />
+                                AutomationProperties.Name="{DynamicResource MainWindow_ConfirmSemanticMoveAfterTargetAcknowledgement_AutomationName}"
+                                AutomationProperties.HelpText="{DynamicResource MainWindow_ResumesTheActivityOnTheSelectedAuthenticatedTarget_AutomationHelp}" />
                       </StackPanel>
                     </Border>
 
                     <Border BorderBrush="{StaticResource SignalRedBrush}"
                             BorderThickness="4,1,1,1"
                             Padding="14"
-                            AutomationProperties.Name="Exact-confirmation destructive Replace workflow">
+                            AutomationProperties.Name="{DynamicResource MainWindow_ExactConfirmationDestructiveReplaceWorkflow_AutomationName}">
                       <StackPanel Spacing="10">
                         <TextBlock Classes="label"
                                    Foreground="{StaticResource SignalRedBrush}"
-                                   Text="REPLACE / EXACT CONFIRMATION" />
+                                   Text="{DynamicResource MainWindow_ReplaceExactConfirmation_Text}" />
                         <TextBlock Classes="secondary"
-                                   Text="Query a purpose-scoped, payload-free target inventory. Activation revalidates the exact snapshot and requires the target to durably store a bounded undo capsule before replacement."
+                                   Text="{DynamicResource MainWindow_QueryAPurposeScopedPayloadFreeTargetInventory_Text}"
                                    TextWrapping="Wrap" />
                         <Button x:Name="ReviewReplaceTargetsButton"
-                                Content="LOAD / REFRESH REPLACE TARGETS"
+                                Content="{DynamicResource MainWindow_LoadRefreshReplaceTargets_Content}"
                                 Command="{Binding Activities.RefreshReplaceTargetsCommand}"
                                 IsEnabled="{Binding Activities.IsReplaceInventoryAvailable}"
-                                AutomationProperties.Name="Load or refresh Replace target inventory"
-                                AutomationProperties.HelpText="Queries eligible same-kind target snapshots from the selected authenticated device. It sends no destructive Replace request." />
+                                AutomationProperties.Name="{DynamicResource MainWindow_LoadOrRefreshReplaceTargetInventory_AutomationName}"
+                                AutomationProperties.HelpText="{DynamicResource MainWindow_QueriesEligibleSameKindTargetSnapshotsFromThe_AutomationHelp}" />
                         <TextBlock x:Name="ReplaceInventoryStatusText"
                                    Classes="label"
                                    Text="{Binding Activities.ReplaceInventoryStatus}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Replace target inventory status" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_ReplaceTargetInventoryStatus_AutomationName}" />
                         <TextBlock Classes="secondary"
                                    Text="{Binding Activities.ReplaceInventoryDescription}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Replace target inventory recovery guidance" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_ReplaceTargetInventoryRecoveryGuidance_AutomationName}" />
                         <Grid ColumnDefinitions="5*,7*">
                           <TextBlock Grid.Column="0"
                                      Classes="secondary"
                                      FontSize="11"
                                      Text="{Binding Activities.ReplaceInventoryCoverage}"
                                      TextWrapping="Wrap"
-                                     AutomationProperties.Name="Replace target inventory coverage" />
+                                     AutomationProperties.Name="{DynamicResource MainWindow_ReplaceTargetInventoryCoverage_AutomationName}" />
                           <TextBlock Grid.Column="1"
                                      Classes="secondary"
                                      FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                      FontSize="10"
-                                     Text="{Binding Activities.ReplaceInventoryCapturedAt, StringFormat='Captured: {0}'}"
+                                     Text="{Binding Activities.ReplaceInventoryCapturedAt, StringFormat={StaticResource MainWindow_Format_Captured}}"
                                      TextWrapping="Wrap"
-                                     AutomationProperties.Name="Replace target inventory capture time" />
+                                     AutomationProperties.Name="{DynamicResource MainWindow_ReplaceTargetInventoryCaptureTime_AutomationName}" />
                         </Grid>
                         <ListBox x:Name="ReplaceTargetList"
                                  ItemsSource="{Binding Activities.ReplaceTargets}"
                                  SelectedItem="{Binding Activities.SelectedReplaceTarget, Mode=TwoWay}"
                                  MaxHeight="190"
-                                 AutomationProperties.Name="Replace-eligible Activities on selected target device">
+                                 AutomationProperties.Name="{DynamicResource MainWindow_ReplaceEligibleActivitiesOnSelectedTargetDevice_AutomationName}">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DesktopReplaceTargetSnapshot">
                               <Grid Margin="8" ColumnDefinitions="*,Auto">
@@ -1097,21 +1097,21 @@
                                              Text="{Binding Kind}" />
                                   <TextBlock Classes="secondary"
                                              FontSize="11"
-                                             Text="{Binding PlacementSlot, StringFormat='Placement: {0}'}" />
+                                             Text="{Binding PlacementSlot, StringFormat={StaticResource MainWindow_Format_Placement}}" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1"
                                             Margin="12,0,0,0"
                                             HorizontalAlignment="Right"
                                             Spacing="3">
                                   <TextBlock Classes="label"
-                                             Text="{Binding Revision, StringFormat='REV {0}'}" />
+                                             Text="{Binding Revision, StringFormat={StaticResource MainWindow_Format_Revision}}" />
                                   <TextBlock Classes="secondary"
                                              FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                              FontSize="9"
                                              Text="{Binding DescriptorDigest}"
                                              MaxWidth="150"
                                              TextTrimming="CharacterEllipsis"
-                                             AutomationProperties.Name="Target descriptor digest" />
+                                             AutomationProperties.Name="{DynamicResource MainWindow_TargetDescriptorDigest_AutomationName}" />
                                 </StackPanel>
                               </Grid>
                             </DataTemplate>
@@ -1122,20 +1122,20 @@
                                 BorderBrush="{StaticResource SignalRedBrush}"
                                 BorderThickness="1"
                                 Padding="12"
-                                AutomationProperties.Name="Exact destructive Replace comparison">
+                                AutomationProperties.Name="{DynamicResource MainWindow_ExactDestructiveReplaceComparison_AutomationName}">
                           <StackPanel Spacing="10">
                             <TextBlock Classes="label"
                                        Foreground="{StaticResource SignalRedBrush}"
                                        Text="{Binding Activities.ReplacePreviewStatus}"
                                        TextWrapping="Wrap"
-                                       AutomationProperties.Name="Replace preview status" />
+                                       AutomationProperties.Name="{DynamicResource MainWindow_ReplacePreviewStatus_AutomationName}" />
                             <Grid ColumnDefinitions="5*,Auto,7*">
                               <StackPanel Grid.Column="0" Spacing="4">
-                                <TextBlock Classes="label" Text="INCOMING" />
+                                <TextBlock Classes="label" Text="{DynamicResource MainWindow_Incoming_Text}" />
                                 <TextBlock x:Name="ReplaceIncomingDescriptionText"
                                            Text="{Binding Activities.ReplaceIncomingDescription}"
                                            TextWrapping="Wrap"
-                                           AutomationProperties.Name="Incoming Replace Activity" />
+                                           AutomationProperties.Name="{DynamicResource MainWindow_IncomingReplaceActivity_AutomationName}" />
                               </StackPanel>
                               <Border Grid.Column="1"
                                       Margin="10,0"
@@ -1144,18 +1144,18 @@
                               <StackPanel Grid.Column="2" Spacing="4">
                                 <TextBlock Classes="label"
                                            Foreground="{StaticResource SignalRedBrush}"
-                                           Text="REPLACED TARGET" />
+                                           Text="{DynamicResource MainWindow_ReplacedTarget_Text}" />
                                 <TextBlock x:Name="ReplaceTargetDescriptionText"
                                            Text="{Binding Activities.ReplaceTargetDescription}"
                                            TextWrapping="Wrap"
-                                           AutomationProperties.Name="Exact Activity that would be replaced" />
+                                           AutomationProperties.Name="{DynamicResource MainWindow_ExactActivityThatWouldBeReplaced_AutomationName}" />
                               </StackPanel>
                             </Grid>
                             <CheckBox x:Name="ReplaceConfirmationCheckBox"
                                       IsChecked="{Binding Activities.HasAcknowledgedReplace, Mode=TwoWay}"
                                       IsEnabled="{Binding Activities.IsReplaceConfirmationAvailable}"
                                       AutomationProperties.Name="{Binding Activities.ReplaceConfirmationAutomationName}"
-                                      AutomationProperties.HelpText="Confirmation applies only to the currently displayed device, target Activity ID, revision, and descriptor digest and is revoked on refresh.">
+                                      AutomationProperties.HelpText="{DynamicResource MainWindow_ConfirmationAppliesOnlyToTheCurrentlyDisplayedDevice_AutomationHelp}">
                               <TextBlock Text="{Binding Activities.ReplaceConfirmationDescription}"
                                          TextWrapping="Wrap" />
                             </CheckBox>
@@ -1164,45 +1164,45 @@
                                        Foreground="{StaticResource SignalRedBrush}"
                                        Text="{Binding Activities.ReplaceActivationStatus}"
                                        TextWrapping="Wrap"
-                                       AutomationProperties.Name="Destructive Replace activation status" />
+                                       AutomationProperties.Name="{DynamicResource MainWindow_DestructiveReplaceActivationStatus_AutomationName}" />
                             <Button x:Name="DestructiveReplaceButton"
-                                    Content="REPLACE SELECTED ACTIVITY"
+                                    Content="{DynamicResource MainWindow_ReplaceSelectedActivity_Content}"
                                     Command="{Binding Activities.ReplaceCommand}"
                                     IsEnabled="{Binding Activities.IsDestructiveReplaceAvailable}"
-                                    AutomationProperties.Name="Replace selected target Activity after exact confirmation"
-                                    AutomationProperties.HelpText="Revalidates the exact target ID, revision, descriptor digest, kind, and placement before sending one authenticated Replace request. Duplicate activation is disabled while pending." />
+                                    AutomationProperties.Name="{DynamicResource MainWindow_ReplaceSelectedTargetActivityAfterExactConfirmation_AutomationName}"
+                                    AutomationProperties.HelpText="{DynamicResource MainWindow_RevalidatesTheExactTargetIdRevisionDescriptorDigest_AutomationHelp}" />
                             <Border BorderBrush="{StaticResource SignalRedBrush}"
                                     BorderThickness="1"
                                     Padding="10"
                                     IsVisible="{Binding Activities.IsReplaceOperationResultVisible}"
-                                    AutomationProperties.Name="Destructive Replace result and recovery guidance">
+                                    AutomationProperties.Name="{DynamicResource MainWindow_DestructiveReplaceResultAndRecoveryGuidance_AutomationName}">
                               <StackPanel Spacing="6">
                                 <TextBlock x:Name="ReplaceOperationStatusText"
                                            Classes="label"
                                            Foreground="{StaticResource SignalRedBrush}"
                                            Text="{Binding Activities.ReplaceOperationStatus}"
                                            TextWrapping="Wrap"
-                                           AutomationProperties.Name="Destructive Replace operation status" />
+                                           AutomationProperties.Name="{DynamicResource MainWindow_DestructiveReplaceOperationStatus_AutomationName}" />
                                 <TextBlock Classes="secondary"
                                            Text="{Binding Activities.ReplaceOperationDescription}"
                                            TextWrapping="Wrap"
-                                           AutomationProperties.Name="Destructive Replace outcome and recovery guidance" />
+                                           AutomationProperties.Name="{DynamicResource MainWindow_DestructiveReplaceOutcomeAndRecoveryGuidance_AutomationName}" />
                                 <Grid ColumnDefinitions="Auto,*"
                                       RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
                                       ColumnSpacing="10"
                                       RowSpacing="3">
-                                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="secondary" Text="OPERATION" />
-                                  <TextBlock Grid.Row="0" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationId}" TextWrapping="Wrap" AutomationProperties.Name="Replace operation ID" />
-                                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="secondary" Text="CORRELATION" />
-                                  <TextBlock Grid.Row="1" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationCorrelationId}" TextWrapping="Wrap" AutomationProperties.Name="Replace correlation ID" />
-                                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="secondary" Text="REASON" />
-                                  <TextBlock Grid.Row="2" Grid.Column="1" Classes="secondary" Text="{Binding Activities.ReplaceOperationReason}" TextWrapping="Wrap" AutomationProperties.Name="Replace result reason" />
-                                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="secondary" Text="OCCURRED" />
-                                  <TextBlock Grid.Row="3" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationOccurredAt}" TextWrapping="Wrap" AutomationProperties.Name="Replace receipt time" />
-                                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="secondary" Text="CAPSULE" />
-                                  <TextBlock Grid.Row="4" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationCapsule}" TextWrapping="Wrap" AutomationProperties.Name="Replace undo capsule ID" />
-                                  <TextBlock Grid.Row="5" Grid.Column="0" Classes="secondary" Text="UNDO EXPIRES" />
-                                  <TextBlock Grid.Row="5" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationUndoExpiry}" TextWrapping="Wrap" AutomationProperties.Name="Replace undo capsule expiry" />
+                                  <TextBlock Grid.Row="0" Grid.Column="0" Classes="secondary" Text="{DynamicResource MainWindow_Operation_Text}" />
+                                  <TextBlock Grid.Row="0" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationId}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_ReplaceOperationId_AutomationName}" />
+                                  <TextBlock Grid.Row="1" Grid.Column="0" Classes="secondary" Text="{DynamicResource MainWindow_Correlation_Text}" />
+                                  <TextBlock Grid.Row="1" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationCorrelationId}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_ReplaceCorrelationId_AutomationName}" />
+                                  <TextBlock Grid.Row="2" Grid.Column="0" Classes="secondary" Text="{DynamicResource MainWindow_Reason_Text}" />
+                                  <TextBlock Grid.Row="2" Grid.Column="1" Classes="secondary" Text="{Binding Activities.ReplaceOperationReason}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_ReplaceResultReason_AutomationName}" />
+                                  <TextBlock Grid.Row="3" Grid.Column="0" Classes="secondary" Text="{DynamicResource MainWindow_Occurred_Text}" />
+                                  <TextBlock Grid.Row="3" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationOccurredAt}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_ReplaceReceiptTime_AutomationName}" />
+                                  <TextBlock Grid.Row="4" Grid.Column="0" Classes="secondary" Text="{DynamicResource MainWindow_Capsule_Text}" />
+                                  <TextBlock Grid.Row="4" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationCapsule}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_ReplaceUndoCapsuleId_AutomationName}" />
+                                  <TextBlock Grid.Row="5" Grid.Column="0" Classes="secondary" Text="{DynamicResource MainWindow_UndoExpires_Text}" />
+                                  <TextBlock Grid.Row="5" Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding Activities.ReplaceOperationUndoExpiry}" TextWrapping="Wrap" AutomationProperties.Name="{DynamicResource MainWindow_ReplaceUndoCapsuleExpiry_AutomationName}" />
                                 </Grid>
                               </StackPanel>
                             </Border>
@@ -1214,39 +1214,39 @@
                     <Border BorderBrush="{StaticResource SafetyAmberBrush}"
                             BorderThickness="1"
                             Padding="14"
-                            AutomationProperties.Name="Target-local Replace receipt and recovery state">
+                            AutomationProperties.Name="{DynamicResource MainWindow_TargetLocalReplaceReceiptAndRecoveryState_AutomationName}">
                       <StackPanel Spacing="8">
                         <TextBlock Classes="label"
                                    Foreground="{StaticResource SafetyAmberBrush}"
-                                   Text="REPLACE RECOVERY / TARGET-LOCAL UNDO" />
+                                   Text="{DynamicResource MainWindow_ReplaceRecoveryTargetLocalUndo_Text}" />
                         <TextBlock x:Name="ReplaceRecoveryStatusText"
                                    Classes="label"
                                    Text="{Binding Activities.ReplaceRecoveryStatus}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Replace recovery status" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoveryStatus_AutomationName}" />
                         <TextBlock Text="{Binding Activities.ReplaceRecoveryDescription}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Replace recovery guidance" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoveryGuidance_AutomationName}" />
                         <Grid ColumnDefinitions="5*,7*">
                           <TextBlock Grid.Column="0"
                                      Classes="secondary"
                                      FontSize="11"
                                      Text="{Binding Activities.ReplaceRecoveryCoverage}"
                                      TextWrapping="Wrap"
-                                     AutomationProperties.Name="Replace recovery record coverage" />
+                                     AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoveryRecordCoverage_AutomationName}" />
                           <TextBlock Grid.Column="1"
                                      Classes="secondary"
                                      FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                      FontSize="10"
-                                     Text="{Binding Activities.ReplaceRecoveryCapturedAt, StringFormat='Snapshot: {0}'}"
+                                     Text="{Binding Activities.ReplaceRecoveryCapturedAt, StringFormat={StaticResource MainWindow_Format_Snapshot}}"
                                      TextWrapping="Wrap"
-                                     AutomationProperties.Name="Replace recovery snapshot time" />
+                                     AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoverySnapshotTime_AutomationName}" />
                         </Grid>
                         <ListBox x:Name="ReplaceRecoveryList"
                                  ItemsSource="{Binding Activities.ReplaceRecoveryItems}"
                                  SelectedItem="{Binding Activities.SelectedReplaceRecoveryItem, Mode=TwoWay}"
                                  MaxHeight="260"
-                                 AutomationProperties.Name="Target-local Replace and undo recovery records">
+                                 AutomationProperties.Name="{DynamicResource MainWindow_TargetLocalReplaceAndUndoRecoveryRecords_AutomationName}">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DesktopReplaceRecoveryItem">
                               <Border Margin="4"
@@ -1262,22 +1262,22 @@
                                                Classes="label"
                                                Text="{Binding State}"
                                                TextWrapping="Wrap"
-                                               AutomationProperties.Name="Replace recovery record state" />
+                                               AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoveryRecordState_AutomationName}" />
                                   </Grid>
                                   <TextBlock Classes="secondary"
-                                             Text="{Binding Reason, StringFormat='Reason: {0}'}" />
+                                             Text="{Binding Reason, StringFormat={StaticResource MainWindow_Format_Reason}}" />
                                   <SelectableTextBlock Classes="secondary"
                                                        FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                        FontSize="10"
-                                                       Text="{Binding OperationId, StringFormat='Operation: {0}'}"
+                                                       Text="{Binding OperationId, StringFormat={StaticResource MainWindow_Format_Operation}}"
                                                        TextWrapping="Wrap"
-                                                       AutomationProperties.Name="Replace recovery Operation ID" />
+                                                       AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoveryOperationId_AutomationName}" />
                                   <SelectableTextBlock Classes="secondary"
                                                        FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                        FontSize="10"
-                                                       Text="{Binding CorrelationId, StringFormat='Correlation: {0}'}"
+                                                       Text="{Binding CorrelationId, StringFormat={StaticResource MainWindow_Format_Correlation}}"
                                                        TextWrapping="Wrap"
-                                                       AutomationProperties.Name="Replace recovery correlation ID" />
+                                                       AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoveryCorrelationId_AutomationName}" />
                                   <TextBlock Classes="secondary"
                                              Text="{Binding Participants}"
                                              TextWrapping="Wrap" />
@@ -1287,16 +1287,16 @@
                                   <SelectableTextBlock Classes="secondary"
                                                        FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                        FontSize="10"
-                                                       Text="{Binding Capsule, StringFormat='Capsule: {0}'}"
+                                                       Text="{Binding Capsule, StringFormat={StaticResource MainWindow_Format_Capsule}}"
                                                        TextWrapping="Wrap"
-                                                       AutomationProperties.Name="Replace recovery capsule ID" />
+                                                       AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoveryCapsuleId_AutomationName}" />
                                   <TextBlock Classes="secondary"
                                              Text="{Binding Timestamp}"
                                              TextWrapping="Wrap" />
                                   <TextBlock Classes="label"
                                              Text="{Binding Undo}"
                                              TextWrapping="Wrap"
-                                             AutomationProperties.Name="Replace recovery undo availability" />
+                                             AutomationProperties.Name="{DynamicResource MainWindow_ReplaceRecoveryUndoAvailability_AutomationName}" />
                                 </StackPanel>
                               </Border>
                             </DataTemplate>
@@ -1305,50 +1305,50 @@
                         <Border BorderBrush="{StaticResource SignalRedBrush}"
                                 BorderThickness="1"
                                 Padding="12"
-                                AutomationProperties.Name="Selected target-local undo action">
+                                AutomationProperties.Name="{DynamicResource MainWindow_SelectedTargetLocalUndoAction_AutomationName}">
                           <StackPanel Spacing="8">
                             <TextBlock x:Name="TargetLocalUndoStatusText"
                                        Classes="label"
                                        Foreground="{StaticResource SignalRedBrush}"
                                        Text="{Binding Activities.TargetLocalUndoStatus}"
                                        TextWrapping="Wrap"
-                                       AutomationProperties.Name="Target-local undo status" />
+                                       AutomationProperties.Name="{DynamicResource MainWindow_TargetLocalUndoStatus_AutomationName}" />
                             <TextBlock Text="{Binding Activities.TargetLocalUndoDescription}"
                                        TextWrapping="Wrap"
-                                       AutomationProperties.Name="Target-local undo outcome guidance" />
+                                       AutomationProperties.Name="{DynamicResource MainWindow_TargetLocalUndoOutcomeGuidance_AutomationName}" />
                             <TextBlock Classes="secondary"
                                        FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                        FontSize="10"
                                        Text="{Binding Activities.TargetLocalUndoConfirmationDescription}"
                                        TextWrapping="Wrap"
-                                       AutomationProperties.Name="Exact target-local undo binding" />
+                                       AutomationProperties.Name="{DynamicResource MainWindow_ExactTargetLocalUndoBinding_AutomationName}" />
                             <CheckBox x:Name="TargetLocalUndoConfirmationCheckBox"
                                       IsChecked="{Binding Activities.HasAcknowledgedTargetLocalUndo, Mode=TwoWay}"
                                       IsEnabled="{Binding Activities.IsTargetLocalUndoConfirmationAvailable}"
                                       AutomationProperties.Name="{Binding Activities.TargetLocalUndoConfirmationAutomationName}"
-                                      AutomationProperties.HelpText="Confirmation applies only to the selected capsule, both displayed opaque Activity IDs, exact current replacement, and displayed expiry.">
-                              <TextBlock Text="I reviewed this exact capsule and want to restore its preserved target-local semantic Activity."
+                                      AutomationProperties.HelpText="{DynamicResource MainWindow_ConfirmationAppliesOnlyToTheSelectedCapsuleBoth_AutomationHelp}">
+                              <TextBlock Text="{DynamicResource MainWindow_IReviewedThisExactCapsuleAndWantTo_Text}"
                                          TextWrapping="Wrap" />
                             </CheckBox>
                             <Button x:Name="TargetLocalUndoButton"
-                                    Content="UNDO SELECTED REPLACE"
+                                    Content="{DynamicResource MainWindow_UndoSelectedReplace_Content}"
                                     Command="{Binding Activities.TargetLocalUndoCommand}"
                                     IsEnabled="{Binding Activities.IsTargetLocalUndoAvailable}"
-                                    AutomationProperties.Name="Activate the confirmed target-local undo"
-                                    AutomationProperties.HelpText="Writes a protected pending record before one exact local Adapter restore. No remote request or sharing session is started." />
+                                    AutomationProperties.Name="{DynamicResource MainWindow_ActivateTheConfirmedTargetLocalUndo_AutomationName}"
+                                    AutomationProperties.HelpText="{DynamicResource MainWindow_WritesAProtectedPendingRecordBeforeOneExact_AutomationHelp}" />
                             <Grid ColumnDefinitions="*,*">
                               <TextBlock Grid.Column="0"
                                          Classes="secondary"
-                                         Text="{Binding Activities.TargetLocalUndoReason, StringFormat='Reason: {0}'}"
+                                         Text="{Binding Activities.TargetLocalUndoReason, StringFormat={StaticResource MainWindow_Format_Reason}}"
                                          TextWrapping="Wrap"
-                                         AutomationProperties.Name="Target-local undo reason" />
+                                         AutomationProperties.Name="{DynamicResource MainWindow_TargetLocalUndoReason_AutomationName}" />
                               <TextBlock Grid.Column="1"
                                          Classes="secondary"
                                          FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                          FontSize="10"
-                                         Text="{Binding Activities.TargetLocalUndoOccurredAt, StringFormat='Outcome: {0}'}"
+                                         Text="{Binding Activities.TargetLocalUndoOccurredAt, StringFormat={StaticResource MainWindow_Format_Outcome}}"
                                          TextWrapping="Wrap"
-                                         AutomationProperties.Name="Target-local undo outcome time" />
+                                         AutomationProperties.Name="{DynamicResource MainWindow_TargetLocalUndoOutcomeTime_AutomationName}" />
                             </Grid>
                           </StackPanel>
                         </Border>
@@ -1359,24 +1359,24 @@
                             BorderBrush="{StaticResource CoolGrayBrush}"
                             BorderThickness="1"
                             Padding="14"
-                            AutomationProperties.Name="Semantic Activity operation receipt">
+                            AutomationProperties.Name="{DynamicResource MainWindow_SemanticActivityOperationReceipt_AutomationName}">
                       <StackPanel Spacing="6">
                         <TextBlock x:Name="ActivityReceiptStatusText"
                                    Classes="label"
                                    Text="{Binding Activities.ReceiptStatus}"
-                                   AutomationProperties.Name="Semantic Activity operation receipt status" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_SemanticActivityOperationReceiptStatus_AutomationName}" />
                         <TextBlock Text="{Binding Activities.ReceiptSummary}"
                                    TextWrapping="Wrap" />
                         <TextBlock Classes="secondary"
-                                   Text="{Binding Activities.ReceiptReason, StringFormat='Reason: {0}'}" />
+                                   Text="{Binding Activities.ReceiptReason, StringFormat={StaticResource MainWindow_Format_Reason}}" />
                         <SelectableTextBlock Classes="secondary"
                                              FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                              FontSize="11"
-                                             Text="{Binding Activities.ReceiptCorrelationId, StringFormat='Correlation: {0}'}"
+                                             Text="{Binding Activities.ReceiptCorrelationId, StringFormat={StaticResource MainWindow_Format_Correlation}}"
                                              TextWrapping="Wrap"
-                                             AutomationProperties.Name="Semantic Activity operation correlation ID" />
+                                             AutomationProperties.Name="{DynamicResource MainWindow_SemanticActivityOperationCorrelationId_AutomationName}" />
                         <TextBlock Classes="secondary"
-                                   Text="{Binding Activities.ReceiptOccurredAt, StringFormat='Occurred: {0}'}" />
+                                   Text="{Binding Activities.ReceiptOccurredAt, StringFormat={StaticResource MainWindow_Format_Occurred}}" />
                         <TextBlock Classes="secondary"
                                    Text="{Binding Activities.UndoDescription}" />
                       </StackPanel>
@@ -1387,32 +1387,32 @@
                 <Border BorderBrush="{StaticResource SafetyAmberBrush}"
                         BorderThickness="1"
                         Padding="14"
-                        AutomationProperties.Name="Scene repository list, inspection, delete, and export">
+                        AutomationProperties.Name="{DynamicResource MainWindow_SceneRepositoryListInspectionDeleteAndExport_AutomationName}">
                   <StackPanel Spacing="10">
                     <TextBlock Classes="label"
                                Foreground="{StaticResource SafetyAmberBrush}"
-                               Text="SCENE REPOSITORY — PRIVATE LOCAL STORE" />
+                               Text="{DynamicResource MainWindow_SceneRepositoryPrivateLocalStore_Text}" />
                     <TextBlock x:Name="SceneRepositoryStatusText"
                                Classes="label"
                                Text="{Binding SceneRepository.RepositoryStatus}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Scene repository status" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_SceneRepositoryStatus_AutomationName}" />
                     <TextBlock Classes="secondary"
                                Text="{Binding SceneRepository.RepositoryDescription}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Scene repository guidance" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_SceneRepositoryGuidance_AutomationName}" />
                     <Button x:Name="SceneRepositoryRefreshButton"
-                            Content="REFRESH STORED SCENES"
+                            Content="{DynamicResource MainWindow_RefreshStoredScenes_Content}"
                             Command="{Binding SceneRepository.RefreshCommand}"
                             IsEnabled="{Binding SceneRepository.CanRefresh}"
-                            AutomationProperties.Name="Refresh the stored Scene list"
-                            AutomationProperties.HelpText="Reads the protected local Scene repository without mutating any Scene or Activity." />
+                            AutomationProperties.Name="{DynamicResource MainWindow_RefreshTheStoredSceneList_AutomationName}"
+                            AutomationProperties.HelpText="{DynamicResource MainWindow_ReadsTheProtectedLocalSceneRepositoryWithoutMutating_AutomationHelp}" />
 
                     <ListBox x:Name="SceneRepositoryList"
                              ItemsSource="{Binding SceneRepository.Scenes}"
                              SelectedItem="{Binding SceneRepository.SelectedScene, Mode=TwoWay}"
                              MaxHeight="280"
-                             AutomationProperties.Name="Stored Scenes">
+                             AutomationProperties.Name="{DynamicResource MainWindow_StoredScenes_AutomationName}">
                       <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:SceneRepositoryItemViewModel">
                           <Border Margin="4"
@@ -1432,18 +1432,18 @@
                                                    FontSize="10"
                                                    Text="{Binding SceneId}"
                                                    TextWrapping="Wrap"
-                                                   AutomationProperties.Name="Stored Scene ID" />
+                                                   AutomationProperties.Name="{DynamicResource MainWindow_StoredSceneId_AutomationName}" />
                               <TextBlock Classes="secondary"
                                          Text="{Binding GroupBinding}"
                                          TextWrapping="Wrap" />
                               <SelectableTextBlock Classes="secondary"
                                                    FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                    FontSize="10"
-                                                   Text="{Binding SceneDigest, StringFormat='Digest: {0}'}"
+                                                   Text="{Binding SceneDigest, StringFormat={StaticResource MainWindow_Format_Digest}}"
                                                    TextWrapping="Wrap"
-                                                   AutomationProperties.Name="Stored Scene canonical digest" />
+                                                   AutomationProperties.Name="{DynamicResource MainWindow_StoredSceneCanonicalDigest_AutomationName}" />
                               <TextBlock Classes="secondary"
-                                         Text="{Binding SavedAt, StringFormat='Saved: {0}'}"
+                                         Text="{Binding SavedAt, StringFormat={StaticResource MainWindow_Format_Saved}}"
                                          TextWrapping="Wrap" />
                             </StackPanel>
                           </Border>
@@ -1454,10 +1454,10 @@
                     <Border BorderBrush="{StaticResource CoolGrayBrush}"
                             BorderThickness="1"
                             Padding="10"
-                            AutomationProperties.Name="Stored Scene ordered item inspection">
+                            AutomationProperties.Name="{DynamicResource MainWindow_StoredSceneOrderedItemInspection_AutomationName}">
                       <StackPanel Spacing="6">
                         <TextBlock Classes="label"
-                                   Text="STORED SCENE ITEMS — LOCAL INSPECTION ONLY" />
+                                   Text="{DynamicResource MainWindow_StoredSceneItemsLocalInspectionOnly_Text}" />
                         <ItemsControl x:Name="SceneRepositoryInspectList"
                                       ItemsSource="{Binding SceneRepository.InspectItems}">
                           <ItemsControl.ItemTemplate>
@@ -1475,10 +1475,10 @@
                                                          FontSize="10"
                                                          Text="{Binding ActivityId}"
                                                          TextWrapping="Wrap"
-                                                         AutomationProperties.Name="Stored Scene item Activity ID" />
+                                                         AutomationProperties.Name="{DynamicResource MainWindow_StoredSceneItemActivityId_AutomationName}" />
                                   </Grid>
                                   <TextBlock Classes="secondary"
-                                             Text="{Binding Destination, StringFormat='Destination: {0}'}"
+                                             Text="{Binding Destination, StringFormat={StaticResource MainWindow_Format_Destination}}"
                                              TextWrapping="Wrap" />
                                   <TextBlock Classes="secondary"
                                              Text="{Binding SourceDisposition}"
@@ -1495,129 +1495,129 @@
                     </Border>
 
                     <Button x:Name="SceneRepositorySelectButton"
-                            Content="SELECT FOR APPLY PREVIEW"
+                            Content="{DynamicResource MainWindow_SelectForApplyPreview_Content}"
                             Command="{Binding SceneRepository.SelectForApplyCommand}"
                             IsEnabled="{Binding SceneRepository.CanSelectForApply}"
-                            AutomationProperties.Name="Select the stored Scene for apply preview"
-                            AutomationProperties.HelpText="Hands the stored plan to the Scene apply panel. Selection previews, authorizes, and executes nothing." />
+                            AutomationProperties.Name="{DynamicResource MainWindow_SelectTheStoredSceneForApplyPreview_AutomationName}"
+                            AutomationProperties.HelpText="{DynamicResource MainWindow_HandsTheStoredPlanToTheSceneApply_AutomationHelp}" />
                     <TextBlock x:Name="SceneRepositoryLifecycleStatusText"
                                Classes="label"
                                Text="{Binding SceneRepository.LifecycleStatus}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Scene repository lifecycle status" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_SceneRepositoryLifecycleStatus_AutomationName}" />
                     <TextBlock Text="{Binding SceneRepository.LifecycleDescription}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Scene repository lifecycle guidance" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_SceneRepositoryLifecycleGuidance_AutomationName}" />
 
                     <Button x:Name="SceneRepositoryBeginDeleteButton"
-                            Content="Review Scene delete"
+                            Content="{DynamicResource MainWindow_ReviewSceneDelete_Content}"
                             Command="{Binding SceneRepository.BeginDeleteCommand}"
                             IsEnabled="{Binding SceneRepository.CanBeginDelete}"
-                            AutomationProperties.Name="Review stored Scene deletion" />
+                            AutomationProperties.Name="{DynamicResource MainWindow_ReviewStoredSceneDeletion_AutomationName}" />
                     <Border IsVisible="{Binding SceneRepository.IsDeleteConfirmationVisible}"
                             BorderBrush="{StaticResource SignalRedBrush}"
                             BorderThickness="2"
                             Padding="12"
-                            AutomationProperties.Name="Stored Scene delete confirmation">
+                            AutomationProperties.Name="{DynamicResource MainWindow_StoredSceneDeleteConfirmation_AutomationName}">
                       <StackPanel Spacing="10">
                         <TextBlock x:Name="SceneRepositoryDeleteConfirmationText"
                                    Foreground="{StaticResource SignalRedBrush}"
                                    FontWeight="SemiBold"
                                    Text="{Binding SceneRepository.DeleteConfirmation}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Exact stored Scene delete confirmation" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_ExactStoredSceneDeleteConfirmation_AutomationName}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                           <Button x:Name="SceneRepositoryCancelDeleteButton"
-                                  Content="Cancel"
+                                  Content="{DynamicResource MainWindow_Cancel_Content_07}"
                                   Command="{Binding SceneRepository.CancelDeleteCommand}"
-                                  AutomationProperties.Name="Cancel stored Scene deletion" />
+                                  AutomationProperties.Name="{DynamicResource MainWindow_CancelStoredSceneDeletion_AutomationName}" />
                           <Button x:Name="SceneRepositoryConfirmDeleteButton"
                                   Background="{StaticResource SignalRedBrush}"
                                   BorderBrush="{StaticResource SignalRedBrush}"
                                   Foreground="{StaticResource GraphiteBrush}"
-                                  Content="DELETE SCENE"
+                                  Content="{DynamicResource MainWindow_DeleteScene_Content}"
                                   Command="{Binding SceneRepository.ConfirmDeleteCommand}"
                                   IsEnabled="{Binding SceneRepository.CanConfirmDelete}"
-                                  AutomationProperties.Name="Delete the stored Scene permanently"
-                                  AutomationProperties.HelpText="Removes only the stored plan on this device. Applied Activities, Scene apply journals, and Replace undo state are not affected. This action has no undo." />
+                                  AutomationProperties.Name="{DynamicResource MainWindow_DeleteTheStoredScenePermanently_AutomationName}"
+                                  AutomationProperties.HelpText="{DynamicResource MainWindow_RemovesOnlyTheStoredPlanOnThisDevice_AutomationHelp}" />
                         </StackPanel>
                       </StackPanel>
                     </Border>
 
                     <Button x:Name="SceneRepositoryExportButton"
-                            Content="EXPORT REDACTED SCENE RECORD"
+                            Content="{DynamicResource MainWindow_ExportRedactedSceneRecord_Content}"
                             Command="{Binding SceneRepository.ExportCommand}"
                             IsEnabled="{Binding SceneRepository.CanExport}"
-                            AutomationProperties.Name="Export a redacted record of the selected stored Scene"
-                            AutomationProperties.HelpText="Writes identifiers, revisions, digests, timestamps, and policies only. Scene names, Activity IDs, Device IDs, and placement slots are never exported." />
+                            AutomationProperties.Name="{DynamicResource MainWindow_ExportARedactedRecordOfTheSelectedStored_AutomationName}"
+                            AutomationProperties.HelpText="{DynamicResource MainWindow_WritesIdentifiersRevisionsDigestsTimestampsAndPoliciesOnly_AutomationHelp}" />
                     <SelectableTextBlock x:Name="SceneRepositoryExportPathText"
                                          Classes="secondary"
                                          FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                          FontSize="10"
                                          Text="{Binding SceneRepository.ExportPath}"
                                          TextWrapping="Wrap"
-                                         AutomationProperties.Name="Scene export file path" />
+                                         AutomationProperties.Name="{DynamicResource MainWindow_SceneExportFilePath_AutomationName}" />
                     <SelectableTextBlock x:Name="SceneRepositoryExportPreviewText"
                                          Classes="secondary"
                                          FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                          FontSize="10"
                                          Text="{Binding SceneRepository.ExportPreview}"
                                          TextWrapping="Wrap"
-                                         AutomationProperties.Name="Redacted Scene export content" />
+                                         AutomationProperties.Name="{DynamicResource MainWindow_RedactedSceneExportContent_AutomationName}" />
                   </StackPanel>
                 </Border>
 
                 <Border BorderBrush="{StaticResource SafetyAmberBrush}"
                         BorderThickness="1"
                         Padding="14"
-                        AutomationProperties.Name="Scene Apply preview, confirmation, result, and compensation">
+                        AutomationProperties.Name="{DynamicResource MainWindow_SceneApplyPreviewConfirmationResultAndCompensation_AutomationName}">
                   <StackPanel Spacing="10">
                     <StackPanel Spacing="4">
                       <TextBlock Classes="label"
                                  Foreground="{StaticResource SafetyAmberBrush}"
-                                 Text="SCENE APPLY — NON-ATOMIC" />
+                                 Text="{DynamicResource MainWindow_SceneApplyNonAtomic_Text}" />
                       <TextBlock x:Name="SceneApplyNameText"
                                  FontSize="20"
                                  FontWeight="SemiBold"
                                  Text="{Binding Scenes.SceneName}"
                                  TextWrapping="Wrap"
-                                 AutomationProperties.Name="Selected Scene name" />
+                                 AutomationProperties.Name="{DynamicResource MainWindow_SelectedSceneName_AutomationName}" />
                       <TextBlock Classes="secondary"
                                  Text="{Binding Scenes.SceneDescription}"
                                  TextWrapping="Wrap"
-                                 AutomationProperties.Name="Selected Scene revision and ordered item count" />
+                                 AutomationProperties.Name="{DynamicResource MainWindow_SelectedSceneRevisionAndOrderedItemCount_AutomationName}" />
                     </StackPanel>
 
                     <Button x:Name="ScenePreviewButton"
-                            Content="PREVIEW CURRENT SCENE STATE"
+                            Content="{DynamicResource MainWindow_PreviewCurrentSceneState_Content}"
                             Command="{Binding Scenes.PreviewCommand}"
                             IsEnabled="{Binding Scenes.CanPreview}"
-                            AutomationProperties.Name="Preview selected Scene without mutation"
-                            AutomationProperties.HelpText="Reads every saved Scene item in order and acquires no mutation authority." />
+                            AutomationProperties.Name="{DynamicResource MainWindow_PreviewSelectedSceneWithoutMutation_AutomationName}"
+                            AutomationProperties.HelpText="{DynamicResource MainWindow_ReadsEverySavedSceneItemInOrderAnd_AutomationHelp}" />
                     <TextBlock x:Name="ScenePreviewStatusText"
                                Classes="label"
                                Text="{Binding Scenes.PreviewStatus}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Scene preview status" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_ScenePreviewStatus_AutomationName}" />
                     <TextBlock Text="{Binding Scenes.PreviewDescription}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Scene preview guidance" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_ScenePreviewGuidance_AutomationName}" />
                     <TextBlock x:Name="ScenePreviewExpiryText"
                                Classes="secondary"
                                Text="{Binding Scenes.PreviewExpiry}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Scene preview expiry state" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_ScenePreviewExpiryState_AutomationName}" />
                     <TextBlock x:Name="SceneStaleGroupWarningText"
                                Classes="label"
                                Foreground="{StaticResource SafetyAmberBrush}"
                                Text="{Binding Scenes.StaleGroupWarning}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Scene stale Group warning" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_SceneStaleGroupWarning_AutomationName}" />
 
                     <ListBox x:Name="ScenePreviewList"
                              ItemsSource="{Binding Scenes.PreviewItems}"
                              MaxHeight="420"
-                             AutomationProperties.Name="Ordered Scene actions and blockers">
+                             AutomationProperties.Name="{DynamicResource MainWindow_OrderedSceneActionsAndBlockers_AutomationName}">
                       <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:DesktopSceneApplyItemViewModel">
                           <Border Margin="4"
@@ -1633,30 +1633,30 @@
                                                      FontSize="10"
                                                      Text="{Binding ActivityId}"
                                                      TextWrapping="Wrap"
-                                                     AutomationProperties.Name="Scene item Activity ID" />
+                                                     AutomationProperties.Name="{DynamicResource MainWindow_SceneItemActivityId_AutomationName}" />
                                 <TextBlock Grid.Column="2"
                                            Classes="label"
                                            Foreground="{StaticResource SafetyAmberBrush}"
                                            Text="{Binding Action}"
-                                           AutomationProperties.Name="Resolved Scene item action" />
+                                           AutomationProperties.Name="{DynamicResource MainWindow_ResolvedSceneItemAction_AutomationName}" />
                               </Grid>
                               <TextBlock Classes="label"
                                          Text="{Binding SourceDisposition}"
-                                         AutomationProperties.Name="Scene item source disposition" />
+                                         AutomationProperties.Name="{DynamicResource MainWindow_SceneItemSourceDisposition_AutomationName}" />
                               <TextBlock Classes="secondary"
-                                         Text="{Binding SourceDescription, StringFormat='Source: {0}'}"
+                                         Text="{Binding SourceDescription, StringFormat={StaticResource MainWindow_Format_Source}}"
                                          TextWrapping="Wrap" />
                               <TextBlock Classes="secondary"
-                                         Text="{Binding DestinationDescription, StringFormat='Destination: {0}'}"
+                                         Text="{Binding DestinationDescription, StringFormat={StaticResource MainWindow_Format_Destination}}"
                                          TextWrapping="Wrap" />
                               <TextBlock Classes="secondary"
-                                         Text="{Binding Reason, StringFormat='State: {0}'}"
+                                         Text="{Binding Reason, StringFormat={StaticResource MainWindow_Format_State}}"
                                          TextWrapping="Wrap"
-                                         AutomationProperties.Name="Scene item blocker or readiness reason" />
+                                         AutomationProperties.Name="{DynamicResource MainWindow_SceneItemBlockerOrReadinessReason_AutomationName}" />
                               <ComboBox ItemsSource="{Binding SourceOptions}"
                                         SelectedItem="{Binding SelectedSource, Mode=TwoWay}"
                                         IsVisible="{Binding CanSelectSource}"
-                                        AutomationProperties.Name="Select one exact source for this Scene item" />
+                                        AutomationProperties.Name="{DynamicResource MainWindow_SelectOneExactSourceForThisSceneItem_AutomationName}" />
                               <Border BorderBrush="{StaticResource SignalRedBrush}"
                                       BorderThickness="1"
                                       Padding="8"
@@ -1664,17 +1664,17 @@
                                 <StackPanel Spacing="5">
                                   <TextBlock Classes="label"
                                              Foreground="{StaticResource SignalRedBrush}"
-                                             Text="EXACT REPLACE TARGET PRESERVED IN UNDO CAPSULE" />
+                                             Text="{DynamicResource MainWindow_ExactReplaceTargetPreservedInUndoCapsule_Text}" />
                                   <SelectableTextBlock Classes="secondary"
                                                        FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                        FontSize="10"
                                                        Text="{Binding ReplaceTargetDescription}"
                                                        TextWrapping="Wrap"
-                                                       AutomationProperties.Name="Exact Scene Replace target binding" />
+                                                       AutomationProperties.Name="{DynamicResource MainWindow_ExactSceneReplaceTargetBinding_AutomationName}" />
                                   <CheckBox IsChecked="{Binding IsReplaceConfirmed, Mode=TwoWay}"
                                             AutomationProperties.Name="{Binding ReplaceConfirmationAutomationName}"
-                                            AutomationProperties.HelpText="Confirms only this exact target Device, Activity, revision, digest, kind, and slot.">
-                                    <TextBlock Text="I explicitly confirm this exact destructive replacement."
+                                            AutomationProperties.HelpText="{DynamicResource MainWindow_ConfirmsOnlyThisExactTargetDeviceActivityRevision_AutomationHelp}">
+                                    <TextBlock Text="{DynamicResource MainWindow_IExplicitlyConfirmThisExactDestructiveReplacement_Text}"
                                                TextWrapping="Wrap" />
                                   </CheckBox>
                                 </StackPanel>
@@ -1686,41 +1686,41 @@
                     </ListBox>
 
                     <Button x:Name="SceneRepreviewButton"
-                            Content="REGENERATE COMPLETE PREVIEW WITH SELECTED SOURCES"
+                            Content="{DynamicResource MainWindow_RegenerateCompletePreviewWithSelectedSources_Content}"
                             Command="{Binding Scenes.RepreviewCommand}"
                             IsEnabled="{Binding Scenes.CanRepreview}"
-                            AutomationProperties.Name="Regenerate complete Scene preview with exact source selections" />
+                            AutomationProperties.Name="{DynamicResource MainWindow_RegenerateCompleteScenePreviewWithExactSourceSelections_AutomationName}" />
                     <CheckBox x:Name="SceneApplyConfirmationCheckBox"
                               IsChecked="{Binding Scenes.HasAcknowledgedApply, Mode=TwoWay}"
-                              AutomationProperties.Name="Confirm this exact expiring Scene preview"
-                              AutomationProperties.HelpText="Does not replace any per-item destructive confirmation and does not authorize changed or expired evidence.">
-                      <TextBlock Text="I reviewed the ordered actions, blockers, source dispositions, and preview expiry."
+                              AutomationProperties.Name="{DynamicResource MainWindow_ConfirmThisExactExpiringScenePreview_AutomationName}"
+                              AutomationProperties.HelpText="{DynamicResource MainWindow_DoesNotReplaceAnyPerItemDestructiveConfirmation_AutomationHelp}">
+                      <TextBlock Text="{DynamicResource MainWindow_IReviewedTheOrderedActionsBlockersSourceDispositions_Text}"
                                  TextWrapping="Wrap" />
                     </CheckBox>
                     <Button x:Name="SceneApplyButton"
-                            Content="APPLY CONFIRMED SCENE ITEMS"
+                            Content="{DynamicResource MainWindow_ApplyConfirmedSceneItems_Content}"
                             Command="{Binding Scenes.ApplyCommand}"
                             IsEnabled="{Binding Scenes.CanApply}"
-                            AutomationProperties.Name="Apply the exact confirmed Scene preview"
-                            AutomationProperties.HelpText="Processes saved order sequentially. This is not an atomic whole-Scene transaction." />
+                            AutomationProperties.Name="{DynamicResource MainWindow_ApplyTheExactConfirmedScenePreview_AutomationName}"
+                            AutomationProperties.HelpText="{DynamicResource MainWindow_ProcessesSavedOrderSequentiallyThisIsNotAn_AutomationHelp}" />
 
                     <Border BorderBrush="{StaticResource CoolGrayBrush}"
                             BorderThickness="1"
                             Padding="10"
-                            AutomationProperties.Name="Truthful per-item Scene Apply result">
+                            AutomationProperties.Name="{DynamicResource MainWindow_TruthfulPerItemSceneApplyResult_AutomationName}">
                       <StackPanel Spacing="6">
                         <TextBlock x:Name="SceneApplyResultStatusText"
                                    Classes="label"
                                    Text="{Binding Scenes.ResultStatus}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Scene Apply overall result" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_SceneApplyOverallResult_AutomationName}" />
                         <TextBlock Text="{Binding Scenes.ResultDescription}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Scene Apply partial-result guidance" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_SceneApplyPartialResultGuidance_AutomationName}" />
                         <ListBox x:Name="SceneApplyResultList"
                                  ItemsSource="{Binding Scenes.ResultItems}"
                                  MaxHeight="320"
-                                 AutomationProperties.Name="Ordered Scene Apply item outcomes">
+                                 AutomationProperties.Name="{DynamicResource MainWindow_OrderedSceneApplyItemOutcomes_AutomationName}">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DesktopSceneApplyResultItem">
                               <Border Margin="3" Padding="8" BorderBrush="{StaticResource CoolGrayBrush}" BorderThickness="1">
@@ -1728,14 +1728,14 @@
                                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                     <TextBlock Grid.Column="0" Classes="label" Text="{Binding ItemLabel}" />
                                     <SelectableTextBlock Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding ActivityId}" TextWrapping="Wrap" />
-                                    <TextBlock Grid.Column="2" Classes="label" Text="{Binding Outcome}" AutomationProperties.Name="Scene item outcome" />
+                                    <TextBlock Grid.Column="2" Classes="label" Text="{Binding Outcome}" AutomationProperties.Name="{DynamicResource MainWindow_SceneItemOutcome_AutomationName}" />
                                   </Grid>
-                                  <TextBlock Classes="secondary" Text="{Binding Action, StringFormat='Action: {0}'}" />
-                                  <TextBlock Classes="secondary" Text="{Binding Reason, StringFormat='Reason: {0}'}" />
-                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding OperationId, StringFormat='Operation: {0}'}" TextWrapping="Wrap" />
-                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding CorrelationId, StringFormat='Correlation: {0}'}" TextWrapping="Wrap" />
-                                  <TextBlock Classes="secondary" Text="{Binding OccurredAt, StringFormat='Occurred: {0}'}" />
-                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding UndoCapsule, StringFormat='Undo capsule: {0}'}" TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary" Text="{Binding Action, StringFormat={StaticResource MainWindow_Format_Action}}" />
+                                  <TextBlock Classes="secondary" Text="{Binding Reason, StringFormat={StaticResource MainWindow_Format_Reason}}" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding OperationId, StringFormat={StaticResource MainWindow_Format_Operation}}" TextWrapping="Wrap" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding CorrelationId, StringFormat={StaticResource MainWindow_Format_Correlation}}" TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary" Text="{Binding OccurredAt, StringFormat={StaticResource MainWindow_Format_Occurred}}" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding UndoCapsule, StringFormat={StaticResource MainWindow_Format_UndoCapsule}}" TextWrapping="Wrap" />
                                 </StackPanel>
                               </Border>
                             </DataTemplate>
@@ -1747,34 +1747,34 @@
                     <Border BorderBrush="{StaticResource SignalRedBrush}"
                             BorderThickness="1"
                             Padding="10"
-                            AutomationProperties.Name="Explicit safe Scene compensation">
+                            AutomationProperties.Name="{DynamicResource MainWindow_ExplicitSafeSceneCompensation_AutomationName}">
                       <StackPanel Spacing="6">
                         <TextBlock Classes="label"
                                    Foreground="{StaticResource SignalRedBrush}"
-                                   Text="EXPLICIT COMPENSATION — REPLACE ONLY" />
+                                   Text="{DynamicResource MainWindow_ExplicitCompensationReplaceOnly_Text}" />
                         <CheckBox x:Name="SceneCompensationConfirmationCheckBox"
                                   IsChecked="{Binding Scenes.HasAcknowledgedCompensation, Mode=TwoWay}"
-                                  AutomationProperties.Name="Confirm explicit reverse-order Scene Replace compensation">
-                          <TextBlock Text="Attempt only eligible committed Preserve-Source Replace undo; never reverse Handoff or Move."
+                                  AutomationProperties.Name="{DynamicResource MainWindow_ConfirmExplicitReverseOrderSceneReplaceCompensation_AutomationName}">
+                          <TextBlock Text="{DynamicResource MainWindow_AttemptOnlyEligibleCommittedPreserveSourceReplaceUndo_Text}"
                                      TextWrapping="Wrap" />
                         </CheckBox>
                         <Button x:Name="SceneCompensateButton"
-                                Content="ATTEMPT ELIGIBLE REPLACE UNDO"
+                                Content="{DynamicResource MainWindow_AttemptEligibleReplaceUndo_Content}"
                                 Command="{Binding Scenes.CompensateCommand}"
                                 IsEnabled="{Binding Scenes.CanCompensate}"
-                                AutomationProperties.Name="Attempt explicit safe Scene compensation" />
+                                AutomationProperties.Name="{DynamicResource MainWindow_AttemptExplicitSafeSceneCompensation_AutomationName}" />
                         <TextBlock x:Name="SceneCompensationStatusText"
                                    Classes="label"
                                    Text="{Binding Scenes.CompensationStatus}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Scene compensation overall status" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_SceneCompensationOverallStatus_AutomationName}" />
                         <TextBlock Text="{Binding Scenes.CompensationDescription}"
                                    TextWrapping="Wrap"
-                                   AutomationProperties.Name="Scene compensation partial-result guidance" />
+                                   AutomationProperties.Name="{DynamicResource MainWindow_SceneCompensationPartialResultGuidance_AutomationName}" />
                         <ListBox x:Name="SceneCompensationResultList"
                                  ItemsSource="{Binding Scenes.CompensationItems}"
                                  MaxHeight="260"
-                                 AutomationProperties.Name="Reverse-order Scene compensation item outcomes">
+                                 AutomationProperties.Name="{DynamicResource MainWindow_ReverseOrderSceneCompensationItemOutcomes_AutomationName}">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DesktopSceneCompensationItem">
                               <Border Margin="3" Padding="8" BorderBrush="{StaticResource CoolGrayBrush}" BorderThickness="1">
@@ -1782,13 +1782,13 @@
                                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                     <TextBlock Grid.Column="0" Classes="label" Text="{Binding ItemLabel}" />
                                     <SelectableTextBlock Grid.Column="1" Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding CapsuleId}" TextWrapping="Wrap" />
-                                    <TextBlock Grid.Column="2" Classes="label" Text="{Binding Outcome}" AutomationProperties.Name="Scene compensation item outcome" />
+                                    <TextBlock Grid.Column="2" Classes="label" Text="{Binding Outcome}" AutomationProperties.Name="{DynamicResource MainWindow_SceneCompensationItemOutcome_AutomationName}" />
                                   </Grid>
-                                  <TextBlock Classes="secondary" Text="{Binding TargetDeviceId, StringFormat='Target Device: {0}'}" />
-                                  <TextBlock Classes="secondary" Text="{Binding Reason, StringFormat='Reason: {0}'}" />
-                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding OperationId, StringFormat='Operation: {0}'}" TextWrapping="Wrap" />
-                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding CorrelationId, StringFormat='Correlation: {0}'}" TextWrapping="Wrap" />
-                                  <TextBlock Classes="secondary" Text="{Binding OccurredAt, StringFormat='Occurred: {0}'}" />
+                                  <TextBlock Classes="secondary" Text="{Binding TargetDeviceId, StringFormat={StaticResource MainWindow_Format_TargetDevice}}" />
+                                  <TextBlock Classes="secondary" Text="{Binding Reason, StringFormat={StaticResource MainWindow_Format_Reason}}" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding OperationId, StringFormat={StaticResource MainWindow_Format_Operation}}" TextWrapping="Wrap" />
+                                  <SelectableTextBlock Classes="secondary" FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono" FontSize="10" Text="{Binding CorrelationId, StringFormat={StaticResource MainWindow_Format_Correlation}}" TextWrapping="Wrap" />
+                                  <TextBlock Classes="secondary" Text="{Binding OccurredAt, StringFormat={StaticResource MainWindow_Format_Occurred}}" />
                                 </StackPanel>
                               </Border>
                             </DataTemplate>
@@ -1809,8 +1809,8 @@
                     Margin="12,0,0,0">
               <StackPanel MinHeight="310" Spacing="16">
                 <StackPanel Spacing="4">
-                  <TextBlock Classes="label" Text="LOCAL NETWORK" />
-                  <TextBlock Classes="heading" FontSize="27" Text="Trusted devices" />
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_LocalNetwork_Text}" />
+                  <TextBlock Classes="heading" FontSize="27" Text="{DynamicResource MainWindow_TrustedDevices_Text}" />
                 </StackPanel>
                 <Border BorderBrush="{StaticResource CoolGrayBrush}"
                         BorderThickness="0,1,0,0"
@@ -1827,7 +1827,7 @@
                                Foreground="{StaticResource SafetyAmberBrush}"
                                Text="{Binding TrustedDevices.Protection}"
                                TextWrapping="Wrap"
-                               AutomationProperties.Name="Trust Store protection" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_TrustStoreProtection_AutomationName}" />
                     <TextBlock Classes="secondary"
                                IsVisible="{Binding TrustedDevices.IsEmpty}"
                                Text="{Binding TrustedDevices.RecoveryAction}" />
@@ -1838,15 +1838,15 @@
                                  IsVisible="{Binding TrustedDevices.IsEmpty}"
                                  FontSize="15"
                                  FontWeight="SemiBold"
-                                 Text="No paired device has a persisted Trust Record."
+                                 Text="{DynamicResource MainWindow_NoPairedDeviceHasAPersistedTrustRecord_Text}"
                                  TextWrapping="Wrap"
-                                 AutomationProperties.Name="Trusted devices status: No paired devices" />
+                                 AutomationProperties.Name="{DynamicResource MainWindow_TrustedDevicesStatusNoPairedDevices_AutomationName}" />
 
                       <ListBox x:Name="TrustedDeviceList"
                                ItemsSource="{Binding TrustedDevices.Devices}"
                                SelectedItem="{Binding TrustedDevices.SelectedDevice, Mode=TwoWay}"
                                MaxHeight="220"
-                               AutomationProperties.Name="Paired devices">
+                               AutomationProperties.Name="{DynamicResource MainWindow_PairedDevices_AutomationName}">
                         <ListBox.ItemTemplate>
                           <DataTemplate>
                             <StackPanel Margin="8" Spacing="3">
@@ -1873,89 +1873,89 @@
                               BorderThickness="1"
                               Padding="14">
                         <StackPanel Spacing="10">
-                          <TextBlock Classes="label" Text="SELECTED TRUST RECORD" />
+                          <TextBlock Classes="label" Text="{DynamicResource MainWindow_SelectedTrustRecord_Text}" />
                           <TextBlock FontWeight="SemiBold"
                                      Text="{Binding TrustedDevices.SelectedDevice.DisplayName}"
                                      TextWrapping="Wrap"
-                                     AutomationProperties.Name="Selected paired device" />
-                          <TextBlock Classes="label" Text="DEVICE ID" />
+                                     AutomationProperties.Name="{DynamicResource MainWindow_SelectedPairedDevice_AutomationName}" />
+                          <TextBlock Classes="label" Text="{DynamicResource MainWindow_DeviceId_Text_02}" />
                           <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                FontSize="11"
                                                Text="{Binding TrustedDevices.SelectedDevice.DeviceId}"
                                                TextWrapping="Wrap"
-                                               AutomationProperties.Name="Selected peer Device ID" />
-                          <TextBlock Classes="label" Text="IDENTITY FINGERPRINT" />
+                                               AutomationProperties.Name="{DynamicResource MainWindow_SelectedPeerDeviceId_AutomationName}" />
+                          <TextBlock Classes="label" Text="{DynamicResource MainWindow_IdentityFingerprint_Text_03}" />
                           <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                                FontSize="11"
                                                Text="{Binding TrustedDevices.SelectedDevice.Fingerprint}"
                                                TextWrapping="Wrap"
-                                               AutomationProperties.Name="Selected peer identity fingerprint" />
+                                               AutomationProperties.Name="{DynamicResource MainWindow_SelectedPeerIdentityFingerprint_AutomationName}" />
                           <TextBlock Classes="secondary"
                                      FontSize="11"
-                                     Text="{Binding TrustedDevices.SelectedDevice.VerifiedAt, StringFormat='Verified {0}'}"
-                                     AutomationProperties.Name="Trust verification time" />
+                                     Text="{Binding TrustedDevices.SelectedDevice.VerifiedAt, StringFormat={StaticResource MainWindow_Format_Verified}}"
+                                     AutomationProperties.Name="{DynamicResource MainWindow_TrustVerificationTime_AutomationName}" />
 
-                          <TextBlock Classes="label" Text="LOCAL CAPABILITY GRANT" />
+                          <TextBlock Classes="label" Text="{DynamicResource MainWindow_LocalCapabilityGrant_Text}" />
                           <TextBlock Classes="secondary"
                                      FontSize="12"
-                                     Text="A grant permits a class of peer request. It does not start sharing or request an operating-system permission." />
+                                     Text="{DynamicResource MainWindow_AGrantPermitsAClassOfPeerRequest_Text}" />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityOffer, Mode=TwoWay}"
-                                    Content="activity.offer — allow this peer to send Activities to this device"
-                                    AutomationProperties.Name="Allow peer to offer Activities" />
+                                    Content="{DynamicResource MainWindow_ActivityOfferAllowThisPeerToSendActivities_Content}"
+                                    AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToOfferActivities_AutomationName}" />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityReceive, Mode=TwoWay}"
-                                    Content="activity.receive — allow this peer to receive Activities from this device"
-                                    AutomationProperties.Name="Allow peer to receive Activities" />
+                                    Content="{DynamicResource MainWindow_ActivityReceiveAllowThisPeerToReceiveActivities_Content}"
+                                    AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToReceiveActivities_AutomationName}" />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantActivityReplace, Mode=TwoWay}"
-                                    Content="activity.replace — replace Activities"
-                                    AutomationProperties.Name="Allow peer to replace Activities" />
+                                    Content="{DynamicResource MainWindow_ActivityReplaceReplaceActivities_Content}"
+                                    AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToReplaceActivities_AutomationName}" />
                           <CheckBox x:Name="GrantActivitySwapCheckBox"
                                     IsChecked="{Binding TrustedDevices.GrantActivitySwap, Mode=TwoWay}"
-                                    Content="activity.swap — participate in atomic Activity swaps"
-                                    AutomationProperties.Name="Allow peer to participate in atomic Activity swaps" />
+                                    Content="{DynamicResource MainWindow_ActivitySwapParticipateInAtomicActivitySwaps_Content}"
+                                    AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToParticipateInAtomicActivitySwaps_AutomationName}" />
                           <CheckBox x:Name="GrantMirrorViewCheckBox"
                                     IsChecked="{Binding TrustedDevices.GrantMirrorView, Mode=TwoWay}"
-                                    Content="mirror.view — view mirrored Activities"
-                                    AutomationProperties.Name="Allow peer to view mirrored Activities" />
+                                    Content="{DynamicResource MainWindow_MirrorViewViewMirroredActivities_Content}"
+                                    AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToViewMirroredActivities_AutomationName}" />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantMirrorDrive, Mode=TwoWay}"
-                                    Content="mirror.drive — drive mirrored Activities"
-                                    AutomationProperties.Name="Allow peer to drive mirrored Activities" />
+                                    Content="{DynamicResource MainWindow_MirrorDriveDriveMirroredActivities_Content}"
+                                    AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToDriveMirroredActivities_AutomationName}" />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantFileReceive, Mode=TwoWay}"
-                                    Content="file.receive — receive files"
-                                    AutomationProperties.Name="Allow peer to receive files" />
+                                    Content="{DynamicResource MainWindow_FileReceiveReceiveFiles_Content}"
+                                    AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToReceiveFiles_AutomationName}" />
                           <CheckBox IsChecked="{Binding TrustedDevices.GrantSceneApply, Mode=TwoWay}"
-                                    Content="scene.apply — apply Scenes"
-                                    AutomationProperties.Name="Allow peer to apply Scenes" />
+                                    Content="{DynamicResource MainWindow_SceneApplyApplyScenes_Content}"
+                                    AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToApplyScenes_AutomationName}" />
 
                           <Button x:Name="SaveCapabilitiesButton"
-                                  Content="SAVE CAPABILITIES"
+                                  Content="{DynamicResource MainWindow_SaveCapabilities_Content}"
                                   Command="{Binding TrustedDevices.SaveCapabilitiesCommand}"
-                                  AutomationProperties.Name="Save peer capabilities" />
+                                  AutomationProperties.Name="{DynamicResource MainWindow_SavePeerCapabilities_AutomationName}" />
 
                           <Button x:Name="ReviewRevokeButton"
-                                  Content="Review revoke"
+                                  Content="{DynamicResource MainWindow_ReviewRevoke_Content}"
                                   Command="{Binding TrustedDevices.BeginRevokeCommand}"
-                                  AutomationProperties.Name="Review device revocation" />
+                                  AutomationProperties.Name="{DynamicResource MainWindow_ReviewDeviceRevocation_AutomationName}" />
                           <Border IsVisible="{Binding TrustedDevices.IsRevokeConfirmationVisible}"
                                   BorderBrush="{StaticResource SignalRedBrush}"
                                   BorderThickness="2"
                                   Padding="12"
-                                  AutomationProperties.Name="Device revocation confirmation">
+                                  AutomationProperties.Name="{DynamicResource MainWindow_DeviceRevocationConfirmation_AutomationName}">
                             <StackPanel Spacing="10">
                               <TextBlock Foreground="{StaticResource SignalRedBrush}"
                                          FontWeight="SemiBold"
                                          Text="{Binding TrustedDevices.RevokeConfirmation}"
                                          TextWrapping="Wrap" />
                               <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Content="Cancel"
+                                <Button Content="{DynamicResource MainWindow_Cancel_Content_08}"
                                         Command="{Binding TrustedDevices.CancelRevokeCommand}"
-                                        AutomationProperties.Name="Cancel device revocation" />
+                                        AutomationProperties.Name="{DynamicResource MainWindow_CancelDeviceRevocation_AutomationName}" />
                                 <Button x:Name="ConfirmRevokeButton"
                                         Background="{StaticResource SignalRedBrush}"
                                         BorderBrush="{StaticResource SignalRedBrush}"
                                         Foreground="{StaticResource GraphiteBrush}"
-                                        Content="REVOKE DEVICE"
+                                        Content="{DynamicResource MainWindow_RevokeDevice_Content}"
                                         Command="{Binding TrustedDevices.ConfirmRevokeCommand}"
-                                        AutomationProperties.Name="Revoke paired device" />
+                                        AutomationProperties.Name="{DynamicResource MainWindow_RevokePairedDevice_AutomationName}" />
                               </StackPanel>
                             </StackPanel>
                           </Border>
@@ -1966,36 +1966,36 @@
                                  Classes="secondary"
                                  Text="{Binding TrustedDevices.MutationStatus}"
                                  TextWrapping="Wrap"
-                                 AutomationProperties.Name="Trust mutation result" />
+                                 AutomationProperties.Name="{DynamicResource MainWindow_TrustMutationResult_AutomationName}" />
                       <TextBlock Classes="secondary"
                                  FontSize="12"
                                  Text="{Binding TrustedDevices.MutationDescription}"
                                  TextWrapping="Wrap"
-                                 AutomationProperties.Name="Trust mutation details" />
+                                 AutomationProperties.Name="{DynamicResource MainWindow_TrustMutationDetails_AutomationName}" />
                       <Button x:Name="ExportTrustButton"
                               MinHeight="44"
-                              Content="EXPORT REDACTED TRUST"
+                              Content="{DynamicResource MainWindow_ExportRedactedTrust_Content}"
                               Command="{Binding TrustedDevices.ExportTrustCommand}"
-                              AutomationProperties.Name="Export redacted Trust inventory"
-                              AutomationProperties.HelpText="Writes an owner-only export without peer names, Device IDs, fingerprints, or keys." />
+                              AutomationProperties.Name="{DynamicResource MainWindow_ExportRedactedTrustInventory_AutomationName}"
+                              AutomationProperties.HelpText="{DynamicResource MainWindow_WritesAnOwnerOnlyExportWithoutPeerNames_AutomationHelp}" />
                       <TextBlock Classes="secondary"
                                  FontSize="11"
                                  Text="{Binding TrustedDevices.TrustExportPath}"
                                  TextWrapping="Wrap"
-                                 AutomationProperties.Name="Trust export path" />
+                                 AutomationProperties.Name="{DynamicResource MainWindow_TrustExportPath_AutomationName}" />
                       <SelectableTextBlock Classes="secondary"
                                            FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                            FontSize="10"
                                            MaxHeight="110"
                                            Text="{Binding TrustedDevices.TrustExportPreview}"
                                            TextWrapping="Wrap"
-                                           AutomationProperties.Name="Redacted Trust export preview" />
+                                           AutomationProperties.Name="{DynamicResource MainWindow_RedactedTrustExportPreview_AutomationName}" />
                     </StackPanel>
 
                     <TextBlock Classes="secondary"
                                FontSize="12"
                                Text="{Binding Pairing.Status}"
-                               AutomationProperties.Name="Pairing readiness" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_PairingReadiness_AutomationName}" />
                   </StackPanel>
                 </Border>
               </StackPanel>
@@ -2007,20 +2007,20 @@
                   BorderBrush="{StaticResource SafetyAmberBrush}"
                   BorderThickness="2"
                   Padding="28"
-                  AutomationProperties.Name="Pairing confirmation required">
+                  AutomationProperties.Name="{DynamicResource MainWindow_PairingConfirmationRequired_AutomationName}">
             <Grid ColumnDefinitions="7*,5*">
               <StackPanel Grid.Column="0" Spacing="14" Margin="0,0,24,0">
                 <StackPanel Spacing="4">
                   <TextBlock Classes="label"
                              Foreground="{StaticResource SafetyAmberBrush}"
-                             Text="PAIRING CONFIRMATION" />
+                             Text="{DynamicResource MainWindow_PairingConfirmation_Text}" />
                   <TextBlock Classes="heading"
                              FontSize="30"
                              Text="{Binding Pairing.PeerDisplayName}"
                              TextWrapping="Wrap"
-                             AutomationProperties.Name="Pairing peer name" />
+                             AutomationProperties.Name="{DynamicResource MainWindow_PairingPeerName_AutomationName}" />
                   <TextBlock Classes="secondary"
-                             Text="Compare this code on both devices. A matching code verifies the identities; it does not start sharing." />
+                             Text="{DynamicResource MainWindow_CompareThisCodeOnBothDevicesAMatching_Text}" />
                 </StackPanel>
 
                 <TextBlock x:Name="PairingCodeValue"
@@ -2030,53 +2030,53 @@
                            Foreground="{StaticResource SafetyAmberBrush}"
                            LetterSpacing="4"
                            Text="{Binding Pairing.PairingCode}"
-                           AutomationProperties.Name="Pairing code" />
+                           AutomationProperties.Name="{DynamicResource MainWindow_PairingCode_AutomationName}" />
 
                 <CheckBox x:Name="PairingCodeConfirmation"
                           IsChecked="{Binding Pairing.IsCodeConfirmed, Mode=TwoWay}"
-                          Content="I compared this code on both devices"
-                          AutomationProperties.Name="I compared the pairing code on both devices"
-                          AutomationProperties.HelpText="Required before confirming pairing." />
+                          Content="{DynamicResource MainWindow_IComparedThisCodeOnBothDevices_Content}"
+                          AutomationProperties.Name="{DynamicResource MainWindow_IComparedThePairingCodeOnBothDevices_AutomationName}"
+                          AutomationProperties.HelpText="{DynamicResource MainWindow_RequiredBeforeConfirmingPairing_AutomationHelp}" />
 
                 <Border BorderBrush="{StaticResource CoolGrayBrush}"
                         BorderThickness="1"
                         Padding="14">
                   <StackPanel Spacing="8">
-                    <TextBlock Classes="label" Text="LOCAL CAPABILITY GRANT" />
+                    <TextBlock Classes="label" Text="{DynamicResource MainWindow_LocalCapabilityGrant_Text_02}" />
                     <TextBlock Classes="secondary"
-                               Text="Start with no access. These options do not request operating-system permissions." />
+                               Text="{DynamicResource MainWindow_StartWithNoAccessTheseOptionsDoNot_Text}" />
                     <CheckBox x:Name="GrantActivityOfferCheckBox"
                               IsChecked="{Binding Pairing.GrantActivityOffer, Mode=TwoWay}"
-                              Content="Allow this peer to send Activities to this device"
-                              AutomationProperties.Name="Allow peer to offer Activities" />
+                              Content="{DynamicResource MainWindow_AllowThisPeerToSendActivitiesToThis_Content}"
+                              AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToOfferActivities_AutomationName_02}" />
                     <CheckBox x:Name="GrantActivityReceiveCheckBox"
                               IsChecked="{Binding Pairing.GrantActivityReceive, Mode=TwoWay}"
-                              Content="Allow this peer to receive Activities from this device"
-                              AutomationProperties.Name="Allow peer to receive Activities" />
+                              Content="{DynamicResource MainWindow_AllowThisPeerToReceiveActivitiesFromThis_Content}"
+                              AutomationProperties.Name="{DynamicResource MainWindow_AllowPeerToReceiveActivities_AutomationName_02}" />
                     <TextBlock Classes="secondary"
                                FontSize="12"
                                Text="{Binding Pairing.CapabilitySummary}"
-                               AutomationProperties.Name="Selected pairing capabilities" />
+                               AutomationProperties.Name="{DynamicResource MainWindow_SelectedPairingCapabilities_AutomationName}" />
                   </StackPanel>
                 </Border>
 
                 <StackPanel Orientation="Horizontal" Spacing="12">
                   <Button x:Name="RejectPairingButton"
                           MinWidth="150"
-                          Content="Reject"
+                          Content="{DynamicResource MainWindow_Reject_Content}"
                           Command="{Binding Pairing.RejectPairingCommand}"
-                          AutomationProperties.Name="Reject pairing" />
+                          AutomationProperties.Name="{DynamicResource MainWindow_RejectPairing_AutomationName}" />
                   <Button x:Name="AcceptPairingButton"
                           MinWidth="190"
                           Background="{StaticResource SafetyAmberBrush}"
                           BorderBrush="{StaticResource SafetyAmberBrush}"
                           Foreground="{StaticResource GraphiteBrush}"
                           FontWeight="Bold"
-                          Content="CONFIRM PAIRING"
+                          Content="{DynamicResource MainWindow_ConfirmPairing_Content}"
                           IsEnabled="{Binding Pairing.CanAcceptPairing}"
                           Command="{Binding Pairing.AcceptPairingCommand}"
-                          AutomationProperties.Name="Confirm pairing"
-                          AutomationProperties.HelpText="Enabled only after the code comparison is confirmed." />
+                          AutomationProperties.Name="{DynamicResource MainWindow_ConfirmPairing_AutomationName}"
+                          AutomationProperties.HelpText="{DynamicResource MainWindow_EnabledOnlyAfterTheCodeComparisonIsConfirmed_AutomationHelp}" />
                 </StackPanel>
               </StackPanel>
 
@@ -2085,26 +2085,26 @@
                       BorderThickness="1,0,0,0"
                       Padding="24,0,0,0">
                 <StackPanel Spacing="12">
-                  <TextBlock Classes="label" Text="VERIFIED REQUEST DETAILS" />
-                  <TextBlock Classes="label" Text="DEVICE ID" />
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_VerifiedRequestDetails_Text}" />
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_DeviceId_Text_03}" />
                   <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                        FontSize="12"
                                        Text="{Binding Pairing.PeerDeviceId}"
                                        TextWrapping="Wrap"
-                                       AutomationProperties.Name="Pairing peer Device ID" />
-                  <TextBlock Classes="label" Text="IDENTITY FINGERPRINT" />
+                                       AutomationProperties.Name="{DynamicResource MainWindow_PairingPeerDeviceId_AutomationName}" />
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_IdentityFingerprint_Text_04}" />
                   <SelectableTextBlock FontFamily="Cascadia Mono, Menlo, DejaVu Sans Mono"
                                        FontSize="12"
                                        Text="{Binding Pairing.PeerFingerprint}"
                                        TextWrapping="Wrap"
-                                       AutomationProperties.Name="Pairing peer identity fingerprint" />
-                  <TextBlock Classes="label" Text="PROTOCOL" />
+                                       AutomationProperties.Name="{DynamicResource MainWindow_PairingPeerIdentityFingerprint_AutomationName}" />
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_Protocol_Text}" />
                   <TextBlock Text="{Binding Pairing.PairingProtocol}"
-                             AutomationProperties.Name="Pairing protocol version" />
-                  <TextBlock Classes="label" Text="EXPIRES" />
+                             AutomationProperties.Name="{DynamicResource MainWindow_PairingProtocolVersion_AutomationName}" />
+                  <TextBlock Classes="label" Text="{DynamicResource MainWindow_Expires_Text}" />
                   <TextBlock Text="{Binding Pairing.PairingExpiresAt}"
                              TextWrapping="Wrap"
-                             AutomationProperties.Name="Pairing request expiry" />
+                             AutomationProperties.Name="{DynamicResource MainWindow_PairingRequestExpiry_AutomationName}" />
                 </StackPanel>
               </Border>
             </Grid>

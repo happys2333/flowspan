@@ -12,14 +12,17 @@ public sealed class OperationHistoryItemViewModel
     internal OperationHistoryItemViewModel(OperationHistoryEntry entry)
     {
         Entry = entry;
-        Label = $"Receipt {entry.Sequence}";
+        Label = DesktopText.Format("LocalData_HistoryItemLabelFormat", entry.Sequence);
         Kind = entry.Receipt.Kind.ToString();
         Status = entry.Receipt.Status.ToString();
         FailureCode = entry.Receipt.FailureCode.ToString();
         RecordedAt = entry.RecordedAt.ToString("O");
         OccurredAt = entry.Receipt.OccurredAt.ToUniversalTime().ToString("O");
-        AutomationName =
-            $"{Kind} receipt {Status} recorded {RecordedAt}";
+        AutomationName = DesktopText.Format(
+            "LocalData_HistoryItemAutomationNameFormat",
+            Kind,
+            Status,
+            RecordedAt);
     }
 
     internal OperationHistoryEntry Entry { get; }
@@ -37,7 +40,9 @@ public sealed class DiagnosticExportItemViewModel(string fileName)
 {
     public string FileName { get; } = fileName;
 
-    public string AutomationName => $"Redacted diagnostic bundle {FileName}";
+    public string AutomationName => DesktopText.Format(
+        "LocalData_DiagnosticItemAutomationNameFormat",
+        FileName);
 }
 
 public sealed class LocalDataViewModel :
@@ -60,19 +65,22 @@ public sealed class LocalDataViewModel :
     private readonly IDesktopLocalDataService service;
     private string diagnosticDeleteConfirmation = string.Empty;
     private string diagnosticsExportPath =
-        "No diagnostic bundle has been written.";
+        DesktopText.Get("LocalData_DiagnosticsExportPath_None");
     private string diagnosticsPreview =
-        "Refresh to inspect the exact redacted diagnostic bundle.";
-    private string diagnosticsStatus = "DIAGNOSTICS NOT LOADED";
+        DesktopText.Get("LocalData_DiagnosticsPreview_Default");
+    private string diagnosticsStatus = DesktopText.Get(
+        "LocalData_DiagnosticsStatus_NotLoaded");
     private bool disposed;
     private string historyClearConfirmation = string.Empty;
     private string historyDeleteConfirmation = string.Empty;
     private string historyDescription =
-        "History contains only protected structured operation receipts.";
-    private string historyExportPath = "No history export has been written.";
+        DesktopText.Get("LocalData_HistoryDescription_Default");
+    private string historyExportPath = DesktopText.Get(
+        "LocalData_HistoryExportPath_None");
     private string historyExportPreview =
-        "Exports omit all operation, Activity, and Device identifiers.";
-    private string historyStatus = "HISTORY NOT LOADED";
+        DesktopText.Get("LocalData_HistoryExportPreview_Default");
+    private string historyStatus = DesktopText.Get(
+        "LocalData_HistoryStatus_NotLoaded");
     private bool isBusy;
     private bool isClearHistoryVisible;
     private bool isDeleteDiagnosticVisible;
@@ -321,23 +329,27 @@ public sealed class LocalDataViewModel :
             IsHistoryAvailable = service.IsReady;
             HistoryStatus = entries.Length switch
             {
-                0 => "OPERATION HISTORY EMPTY",
-                1 => "1 RECEIPT RETAINED",
-                _ => $"{entries.Length} RECEIPTS RETAINED",
+                0 => DesktopText.Get("LocalData_HistoryStatus_Empty"),
+                1 => DesktopText.Get("LocalData_HistoryStatus_OneRetained"),
+                _ => DesktopText.Format(
+                    "LocalData_HistoryStatus_MultipleRetainedFormat",
+                    entries.Length),
             };
             HistoryDescription = service.IsHistoryWriteDegraded
-                ? "A protected history write could not be completed. Durable truth was reopened; product operations remain governed by their own results."
-                : "Receipts are stored in one protected bounded local history.";
+                ? DesktopText.Get("LocalData_HistoryDescription_Degraded")
+                : DesktopText.Get("LocalData_HistoryDescription_Ready");
             DiagnosticsPreview = await service
                 .PreviewDiagnosticsAsync(lifetimeCancellation.Token)
                 .ConfigureAwait(true);
-            DiagnosticsStatus = "REDACTED DIAGNOSTICS READY";
+            DiagnosticsStatus = DesktopText.Get(
+                "LocalData_DiagnosticsStatus_Ready");
             ReloadDiagnosticExports();
         }
         catch (OperationCanceledException)
             when (lifetimeCancellation.IsCancellationRequested)
         {
-            HistoryStatus = "LOCAL DATA REFRESH CANCELLED";
+            HistoryStatus = DesktopText.Get(
+                "LocalData_HistoryStatus_RefreshCancelled");
         }
         catch (Exception)
         {
@@ -393,12 +405,13 @@ public sealed class LocalDataViewModel :
         SelectedHistory = null;
         SelectedDiagnosticExport = null;
         IsHistoryAvailable = false;
-        HistoryStatus = "OPERATION HISTORY UNAVAILABLE";
+        HistoryStatus = DesktopText.Get("LocalData_HistoryStatus_Unavailable");
         HistoryDescription =
-            "Protected local history could not be opened. No unprotected fallback is used.";
-        DiagnosticsStatus = "DIAGNOSTICS UNAVAILABLE";
+            DesktopText.Get("LocalData_HistoryDescription_Unavailable");
+        DiagnosticsStatus = DesktopText.Get(
+            "LocalData_DiagnosticsStatus_Unavailable");
         DiagnosticsPreview =
-            "No diagnostic preview is available. Exception content is hidden.";
+            DesktopText.Get("LocalData_DiagnosticsPreview_Unavailable");
     }
 
     public void BeginDeleteHistory()
@@ -408,8 +421,10 @@ public sealed class LocalDataViewModel :
             return;
         }
 
-        HistoryDeleteConfirmation =
-            $"Delete the selected {SelectedHistory.Kind} receipt recorded {SelectedHistory.RecordedAt}? This action has no undo.";
+        HistoryDeleteConfirmation = DesktopText.Format(
+            "LocalData_HistoryDeleteConfirmationFormat",
+            SelectedHistory.Kind,
+            SelectedHistory.RecordedAt);
         IsDeleteHistoryVisible = true;
     }
 
@@ -435,17 +450,19 @@ public sealed class LocalDataViewModel :
                 lifetimeCancellation.Token).ConfigureAwait(true);
             CancelDeleteHistory();
             HistoryStatus = deleted
-                ? "HISTORY RECEIPT DELETED"
-                : "HISTORY RECEIPT NO LONGER EXISTS";
+                ? DesktopText.Get("LocalData_HistoryStatus_ReceiptDeleted")
+                : DesktopText.Get(
+                    "LocalData_HistoryStatus_ReceiptNoLongerExists");
             await RefreshAsync().ConfigureAwait(true);
         }
         catch (Exception exception)
             when (exception is not OperationCanceledException)
         {
             CancelDeleteHistory();
-            HistoryStatus = "HISTORY DELETE FAILED";
+            HistoryStatus = DesktopText.Get(
+                "LocalData_HistoryStatus_DeleteFailed");
             HistoryDescription =
-                "Protected history kept its durable state. Exception content is hidden.";
+                DesktopText.Get("LocalData_HistoryDescription_MutationFailed");
         }
         finally
         {
@@ -460,8 +477,9 @@ public sealed class LocalDataViewModel :
             return;
         }
 
-        HistoryClearConfirmation =
-            $"Delete all {History.Count} retained operation receipts? This action has no undo.";
+        HistoryClearConfirmation = DesktopText.Format(
+            "LocalData_HistoryClearConfirmationFormat",
+            History.Count);
         IsClearHistoryVisible = true;
     }
 
@@ -490,9 +508,10 @@ public sealed class LocalDataViewModel :
             when (exception is not OperationCanceledException)
         {
             CancelClearHistory();
-            HistoryStatus = "HISTORY CLEAR FAILED";
+            HistoryStatus = DesktopText.Get(
+                "LocalData_HistoryStatus_ClearFailed");
             HistoryDescription =
-                "Protected history kept its durable state. Exception content is hidden.";
+                DesktopText.Get("LocalData_HistoryDescription_MutationFailed");
         }
         finally
         {
@@ -510,14 +529,16 @@ public sealed class LocalDataViewModel :
                 .ConfigureAwait(true);
             HistoryExportPath = exported.FullPath;
             HistoryExportPreview = exported.RedactedContent;
-            HistoryStatus = "REDACTED HISTORY EXPORT WRITTEN";
+            HistoryStatus = DesktopText.Get(
+                "LocalData_HistoryStatus_ExportWritten");
         }
         catch (Exception exception)
             when (exception is not OperationCanceledException)
         {
-            HistoryStatus = "HISTORY EXPORT FAILED";
+            HistoryStatus = DesktopText.Get(
+                "LocalData_HistoryStatus_ExportFailed");
             HistoryDescription =
-                "No export was reported. Exception content is hidden.";
+                DesktopText.Get("LocalData_HistoryDescription_ExportFailed");
         }
         finally
         {
@@ -535,13 +556,15 @@ public sealed class LocalDataViewModel :
                 .ConfigureAwait(true);
             DiagnosticsExportPath = exported.FullPath;
             DiagnosticsPreview = exported.RedactedContent;
-            DiagnosticsStatus = "REDACTED DIAGNOSTIC BUNDLE WRITTEN";
+            DiagnosticsStatus = DesktopText.Get(
+                "LocalData_DiagnosticsStatus_ExportWritten");
             ReloadDiagnosticExports();
         }
         catch (Exception exception)
             when (exception is not OperationCanceledException)
         {
-            DiagnosticsStatus = "DIAGNOSTIC EXPORT FAILED";
+            DiagnosticsStatus = DesktopText.Get(
+                "LocalData_DiagnosticsStatus_ExportFailed");
         }
         finally
         {
@@ -557,7 +580,7 @@ public sealed class LocalDataViewModel :
         }
 
         DiagnosticDeleteConfirmation =
-            "Delete the selected redacted diagnostic bundle? This action has no undo.";
+            DesktopText.Get("LocalData_DiagnosticDeleteConfirmation");
         IsDeleteDiagnosticVisible = true;
     }
 
@@ -583,15 +606,18 @@ public sealed class LocalDataViewModel :
                 lifetimeCancellation.Token).ConfigureAwait(true);
             CancelDeleteDiagnostic();
             DiagnosticsStatus = deleted
-                ? "DIAGNOSTIC BUNDLE DELETED"
-                : "DIAGNOSTIC BUNDLE NO LONGER EXISTS";
+                ? DesktopText.Get(
+                    "LocalData_DiagnosticsStatus_BundleDeleted")
+                : DesktopText.Get(
+                    "LocalData_DiagnosticsStatus_BundleNoLongerExists");
             ReloadDiagnosticExports();
         }
         catch (Exception exception)
             when (exception is not OperationCanceledException)
         {
             CancelDeleteDiagnostic();
-            DiagnosticsStatus = "DIAGNOSTIC DELETE FAILED";
+            DiagnosticsStatus = DesktopText.Get(
+                "LocalData_DiagnosticsStatus_DeleteFailed");
         }
         finally
         {

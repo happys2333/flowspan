@@ -39,10 +39,10 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     private string pairingStatus = string.Empty;
     private string recoveryAction = string.Empty;
     private bool prerequisitesAvailable;
-    private string listenerStatus = "Listener inactive";
-    private string status = "LOCAL PAIRING OFF";
-    private string statusDescription =
-        "No listener, discovery browser, or advertisement is active.";
+    private string listenerStatus = DesktopText.Get("LocalPairing_ListenerInactive");
+    private string status = DesktopText.Get("LocalPairing_OffStatus");
+    private string statusDescription = DesktopText.Get(
+        "LocalPairing_OffDescription");
     private LocalPairingCandidateItemViewModel? selectedCandidate;
     private Exception? disposalFailure;
     private int disposed;
@@ -264,9 +264,9 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         try
         {
             IsEnabling = true;
-            Status = "ENABLING LOCAL PAIRING";
-            StatusDescription =
-                "Opening one local listener and starting minimized discovery.";
+            Status = DesktopText.Get("LocalPairing_EnablingStatus");
+            StatusDescription = DesktopText.Get(
+                "LocalPairing_EnablingDescription");
             RecoveryAction = string.Empty;
             using CancellationTokenSource linkedCancellation =
                 CancellationTokenSource.CreateLinkedTokenSource(
@@ -293,16 +293,15 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
                 bool cleanupUnconfirmed = failureProjection?.Status
                     == DesktopLocalPairingStatus.CleanupUnconfirmed;
                 IsEnabled = false;
-                Status = "LOCAL PAIRING UNAVAILABLE";
+                Status = DesktopText.Get("LocalPairing_UnavailableStatus");
                 StatusDescription = cleanupUnconfirmed
-                    ? "Flowspan could not confirm that every local network owner stopped."
-                    : "Flowspan could not safely open local discovery and the listener.";
-                RecoveryAction =
-                    "Check the local firewall or network permission, then retry.";
+                    ? DesktopText.Get("LocalPairing_CleanupUnconfirmedDescription")
+                    : DesktopText.Get("LocalPairing_OpenFailedDescription");
+                RecoveryAction = DesktopText.Get("LocalPairing_RecoveryAction");
                 ListenerStatus = cleanupUnconfirmed
                     ? FormatCleanupUnconfirmedListenerStatus(
                         failureProjection?.ListeningPort)
-                    : "Listener inactive";
+                    : DesktopText.Get("LocalPairing_ListenerInactive");
                 NotifyCommandStates();
             }
             finally
@@ -327,10 +326,9 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         {
             await runtime.DisableAsync().ConfigureAwait(true);
             IsEnabled = false;
-            Status = "LOCAL PAIRING OFF";
-            StatusDescription =
-                "No listener, discovery browser, or advertisement is active.";
-            ListenerStatus = "Listener inactive";
+            Status = DesktopText.Get("LocalPairing_OffStatus");
+            StatusDescription = DesktopText.Get("LocalPairing_OffDescription");
+            ListenerStatus = DesktopText.Get("LocalPairing_ListenerInactive");
             RecoveryAction = string.Empty;
             IsPermissionReviewVisible = false;
             HasAcknowledgedPermissionReview = false;
@@ -379,7 +377,7 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
             }
 
             IsPairing = true;
-            PairingStatus = "PAIRING IN PROGRESS";
+            PairingStatus = DesktopText.Get("LocalPairing_InProgressStatus");
             PairingCeremonyResult result = await runtime.PairAsync(
                 selected.Candidate,
                 linked.Token).ConfigureAwait(true);
@@ -387,24 +385,24 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
             if (result.Succeeded)
             {
                 await refreshTrust(linked.Token).ConfigureAwait(true);
-                PairingStatus = "DEVICE PAIRED";
+                PairingStatus = DesktopText.Get("LocalPairing_PairedStatus");
                 RefreshFromRuntime();
             }
             else
             {
                 PairingStatus = result.Failure == PairingFailure.IdentityChanged
-                    ? "IDENTITY CHANGED — BLOCKED"
-                    : "PAIRING REJECTED";
+                    ? DesktopText.Get("LocalPairing_IdentityChangedStatus")
+                    : DesktopText.Get("LocalPairing_RejectedStatus");
             }
         }
         catch (OperationCanceledException) when (
             linked?.IsCancellationRequested == true)
         {
-            PairingStatus = "PAIRING CANCELED";
+            PairingStatus = DesktopText.Get("LocalPairing_CanceledStatus");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            PairingStatus = "PAIRING FAILED — RETRY";
+            PairingStatus = DesktopText.Get("LocalPairing_FailedStatus");
         }
         finally
         {
@@ -813,7 +811,8 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         {
             if (Volatile.Read(ref disposed) == 0)
             {
-                PairingStatus = "TRUST REFRESH FAILED — RETRY";
+                PairingStatus = DesktopText.Get(
+                    "LocalPairing_TrustRefreshFailedStatus");
             }
         }
         finally
@@ -887,26 +886,26 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
         IsEnabled = projection.IsEnabled;
         if (projection.Status == DesktopLocalPairingStatus.Enabled)
         {
-            Status = "LOCAL PAIRING ENABLED";
-            StatusDescription =
-                "This device is discoverable for pairing. NOT SHARING remains active.";
-            ListenerStatus = $"Listening on local TCP port {projection.ListeningPort}";
+            Status = DesktopText.Get("LocalPairing_EnabledStatus");
+            StatusDescription = DesktopText.Get("LocalPairing_EnabledDescription");
+            ListenerStatus = DesktopText.Format(
+                "LocalPairing_ListeningPort",
+                projection.ListeningPort);
         }
         else if (projection.Status is DesktopLocalPairingStatus.Faulted
                  or DesktopLocalPairingStatus.CleanupUnconfirmed)
         {
-            Status = "LOCAL PAIRING UNAVAILABLE";
+            Status = DesktopText.Get("LocalPairing_UnavailableStatus");
             StatusDescription = projection.Status
                 == DesktopLocalPairingStatus.CleanupUnconfirmed
-                ? "Flowspan could not confirm that every local network owner stopped."
-                : "Flowspan stopped local discovery because a background network service failed.";
-            RecoveryAction =
-                "Check the local firewall or network permission, then retry.";
+                ? DesktopText.Get("LocalPairing_CleanupUnconfirmedDescription")
+                : DesktopText.Get("LocalPairing_BackgroundFailedDescription");
+            RecoveryAction = DesktopText.Get("LocalPairing_RecoveryAction");
             ListenerStatus = projection.Status
                 == DesktopLocalPairingStatus.CleanupUnconfirmed
                 ? FormatCleanupUnconfirmedListenerStatus(
                     projection.ListeningPort)
-                : "Listener inactive";
+                : DesktopText.Get("LocalPairing_ListenerInactive");
             IsPermissionReviewVisible = true;
         }
 
@@ -932,8 +931,8 @@ public sealed class LocalPairingViewModel : INotifyPropertyChanged, IAsyncDispos
     private static string FormatCleanupUnconfirmedListenerStatus(
         int? listeningPort) =>
         listeningPort is { } port
-            ? $"Cleanup unconfirmed; local TCP port {port} may still be listening"
-            : "Cleanup unconfirmed; a local listener may still be active";
+            ? DesktopText.Format("LocalPairing_CleanupPort", port)
+            : DesktopText.Get("LocalPairing_CleanupListener");
 
     private bool SetProperty<T>(
         ref T field,
@@ -1025,7 +1024,7 @@ public sealed class TrustedPeerConnectionItemViewModel
         DisplayName = snapshot.DisplayName;
         ExpectedFingerprint = snapshot.ExpectedFingerprint;
         ConflictingFingerprint = snapshot.ConflictingFingerprint
-            ?? "Unavailable from authentication";
+            ?? DesktopText.Get("LocalPairing_AuthenticationUnavailable");
         HasIdentityWarning = snapshot.HasIdentityWarning;
         IdentityWarning = snapshot.IdentityWarning;
         Status = snapshot.StatusLabel;
@@ -1064,10 +1063,11 @@ public sealed class LocalPairingCandidateItemViewModel
         Status = candidate.TrustState switch
         {
             PairingCandidateTrustState.UnverifiedPairingRequired =>
-                "UNVERIFIED — PAIRING REQUIRED",
-            PairingCandidateTrustState.AlreadyPaired => "ALREADY PAIRED",
+                DesktopText.Get("LocalPairing_CandidateUnverified"),
+            PairingCandidateTrustState.AlreadyPaired => DesktopText.Get(
+                "LocalPairing_CandidatePaired"),
             PairingCandidateTrustState.IdentityChangedBlocked =>
-                "IDENTITY CHANGED — BLOCKED",
+                DesktopText.Get("LocalPairing_IdentityChangedStatus"),
             _ => throw new InvalidOperationException(
                 "The local pairing candidate Trust state is not supported."),
         };

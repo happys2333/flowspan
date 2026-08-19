@@ -1,0 +1,787 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Activity_DataDisclosure" xml:space="preserve">
+    <value>Sends the note title, sensitivity, and bounded plain-text note over the end-to-end encrypted control channel.</value>
+    <comment>Activity workspace note disclosure.</comment>
+  </data>
+  <data name="Activity_DegradationDescription" xml:space="preserve">
+    <value>Only {0} resumes semantically here. Flowspan does not transfer process memory, unsaved application internals, credentials, or unsupported app state.</value>
+    <comment>Activity workspace semantic fallback description; {0} is an invariant Activity kind.</comment>
+  </data>
+  <data name="Activity_DegradationStatus" xml:space="preserve">
+    <value>REMOTE WINDOW NOT AVAILABLE IN THIS BUILD</value>
+    <comment>Activity workspace fallback availability status.</comment>
+  </data>
+  <data name="Activity_HandoffPreview_NotReadyDescription" xml:space="preserve">
+    <value>Select one local Activity and one authenticated target to review a handoff.</value>
+    <comment>Handoff preview guidance before selection.</comment>
+  </data>
+  <data name="Activity_HandoffPreview_NotReadyStatus" xml:space="preserve">
+    <value>HANDOFF PREVIEW NOT READY</value>
+    <comment>Handoff preview status before selection.</comment>
+  </data>
+  <data name="Activity_HandoffPreview_ReadyDescription" xml:space="preserve">
+    <value>Create a native {0} copy on {1}. The source Activity remains active on this device. Sensitivity: {2}.</value>
+    <comment>Ready handoff preview; arguments are Activity kind, target name, and sensitivity.</comment>
+  </data>
+  <data name="Activity_HandoffPreview_ReadyStatus" xml:space="preserve">
+    <value>SEMANTIC HANDOFF — SOURCE STAYS OPEN</value>
+    <comment>Ready handoff preview status.</comment>
+  </data>
+  <data name="Activity_Handoff_UnavailableDescription" xml:space="preserve">
+    <value>{0} did not return a verified receipt. The source remains available; retry after the authenticated local connection recovers.</value>
+    <comment>Unavailable handoff description; {0} is the target display name.</comment>
+  </data>
+  <data name="Activity_Handoff_UnavailableStatus" xml:space="preserve">
+    <value>HANDOFF UNAVAILABLE</value>
+    <comment>Unavailable handoff status.</comment>
+  </data>
+  <data name="Activity_Handoff_UnavailableUndoDescription" xml:space="preserve">
+    <value>NO UNDO REQUIRED — the handoff did not change the source Activity.</value>
+    <comment>Undo guidance after an unavailable handoff.</comment>
+  </data>
+  <data name="Activity_MovePreview_NotReadyDescription" xml:space="preserve">
+    <value>Select one local Activity and one authenticated target to review a move.</value>
+    <comment>Move preview guidance before selection.</comment>
+  </data>
+  <data name="Activity_MovePreview_NotReadyStatus" xml:space="preserve">
+    <value>MOVE PREVIEW NOT READY</value>
+    <comment>Move preview status before selection.</comment>
+  </data>
+  <data name="Activity_MovePreview_ReadyDescription" xml:space="preserve">
+    <value>The target {0} resumes {1} first. Flowspan closes the source only after a verified target acknowledgement; it remains active after rejection, failure, or an uncertain outcome. Sensitivity: {2}.</value>
+    <comment>Ready move preview; arguments are target name, Activity kind, and sensitivity.</comment>
+  </data>
+  <data name="Activity_MovePreview_ReadyStatus" xml:space="preserve">
+    <value>SEMANTIC MOVE — SOURCE CLOSES AFTER TARGET ACKNOWLEDGEMENT</value>
+    <comment>Ready move preview status.</comment>
+  </data>
+  <data name="Activity_Move_UnavailableDescription" xml:space="preserve">
+    <value>{0} did not return a verified receipt. The source remains active; retry after the authenticated local connection recovers.</value>
+    <comment>Unavailable move description; {0} is the target display name.</comment>
+  </data>
+  <data name="Activity_Move_UnavailableStatus" xml:space="preserve">
+    <value>MOVE UNAVAILABLE</value>
+    <comment>Unavailable move status.</comment>
+  </data>
+  <data name="Activity_Move_UnavailableUndoDescription" xml:space="preserve">
+    <value>NO UNDO REQUIRED — the move did not close the source Activity.</value>
+    <comment>Undo guidance after an unavailable move.</comment>
+  </data>
+  <data name="Activity_Note_CreateFailedStatus" xml:space="preserve">
+    <value>NOTE COULD NOT BE CREATED — check the title and the 16 KiB plain-text limit.</value>
+    <comment>Workspace note creation failure status.</comment>
+  </data>
+  <data name="Activity_Note_ReadyStatus" xml:space="preserve">
+    <value>PORTABLE NOTE READY</value>
+    <comment>Workspace note creation success status.</comment>
+  </data>
+  <data name="Activity_Receipt_CommittedOutcome" xml:space="preserve">
+    <value>COMMITTED</value>
+    <comment>Committed operation receipt outcome.</comment>
+  </data>
+  <data name="Activity_Receipt_CommittedWithWarningOutcome" xml:space="preserve">
+    <value>COMMITTED WITH WARNING</value>
+    <comment>Committed-with-warning receipt outcome.</comment>
+  </data>
+  <data name="Activity_Receipt_FailedOutcome" xml:space="preserve">
+    <value>FAILED</value>
+    <comment>Failed operation receipt outcome.</comment>
+  </data>
+  <data name="Activity_Receipt_GenericOperation" xml:space="preserve">
+    <value>OPERATION</value>
+    <comment>Fallback operation label for a receipt.</comment>
+  </data>
+  <data name="Activity_Receipt_HandoffCommittedSummary" xml:space="preserve">
+    <value>{0} acknowledged a semantic copy; the source remains available on this device.</value>
+    <comment>Committed handoff summary; {0} is the target display name.</comment>
+  </data>
+  <data name="Activity_Receipt_HandoffNotAcceptedSummary" xml:space="preserve">
+    <value>{0} did not accept a semantic copy; the source remains available and unchanged.</value>
+    <comment>Rejected handoff summary; {0} is the target display name.</comment>
+  </data>
+  <data name="Activity_Receipt_HandoffOperation" xml:space="preserve">
+    <value>HANDOFF</value>
+    <comment>Handoff operation label for a receipt.</comment>
+  </data>
+  <data name="Activity_Receipt_HandoffRecoveringSummary" xml:space="preserve">
+    <value>{0} may have accepted a semantic copy, but the verified outcome is unavailable. The source remains available and unchanged.</value>
+    <comment>Uncertain handoff summary; {0} is the target display name.</comment>
+  </data>
+  <data name="Activity_Receipt_MoveCommittedSummary" xml:space="preserve">
+    <value>{0} acknowledged the semantic resume; the source closed only after that verified receipt.</value>
+    <comment>Committed move summary; {0} is the target display name.</comment>
+  </data>
+  <data name="Activity_Receipt_MoveCommittedWithWarningSummary" xml:space="preserve">
+    <value>The target committed the semantic resume, but source cleanup failed. The source remains active, so two active copies may exist.</value>
+    <comment>Move summary when source cleanup fails.</comment>
+  </data>
+  <data name="Activity_Receipt_MoveNotAcceptedSummary" xml:space="preserve">
+    <value>{0} did not accept the semantic resume; the source remains available and unchanged.</value>
+    <comment>Rejected move summary; {0} is the target display name.</comment>
+  </data>
+  <data name="Activity_Receipt_MoveOperation" xml:space="preserve">
+    <value>MOVE</value>
+    <comment>Move operation label for a receipt.</comment>
+  </data>
+  <data name="Activity_Receipt_MoveRecoveringSummary" xml:space="preserve">
+    <value>{0} may have accepted the semantic resume, but the verified acknowledgement is unavailable. The source remains available and unchanged; inspect both devices before retrying.</value>
+    <comment>Uncertain move summary; {0} is the target display name.</comment>
+  </data>
+  <data name="Activity_Receipt_RejectedOutcome" xml:space="preserve">
+    <value>REJECTED</value>
+    <comment>Rejected operation receipt outcome.</comment>
+  </data>
+  <data name="Activity_Receipt_Status" xml:space="preserve">
+    <value>{0} {1}</value>
+    <comment>Receipt status composed from localized operation and outcome labels.</comment>
+  </data>
+  <data name="Activity_Receipt_UnavailableOutcome" xml:space="preserve">
+    <value>RESULT UNAVAILABLE</value>
+    <comment>Unavailable operation receipt outcome.</comment>
+  </data>
+  <data name="Activity_Receipt_UncertainOutcome" xml:space="preserve">
+    <value>OUTCOME UNCERTAIN</value>
+    <comment>Uncertain operation receipt outcome.</comment>
+  </data>
+  <data name="Activity_WorkspaceUnavailableStatus" xml:space="preserve">
+    <value>ACTIVITY WORKSPACE UNAVAILABLE — protected identity or Trust is not ready.</value>
+    <comment>Activity workspace initialization failure status.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_ActivitiesSeparator" xml:space="preserve">
+    <value> ← </value>
+    <comment>Separator between target and incoming Activity identifiers.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_CapsuleCapturedTimestamp" xml:space="preserve">
+    <value>Undo capsule captured: {0}</value>
+    <comment>Capsule capture timestamp; {0} is a timestamp.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_CapsuleNotRecorded" xml:space="preserve">
+    <value>NO CAPSULE ID RECORDED</value>
+    <comment>Recovery item fallback when no capsule ID was recorded.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_CommittedState" xml:space="preserve">
+    <value>COMMITTED</value>
+    <comment>Committed recovery item state.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_CommittedWithWarningState" xml:space="preserve">
+    <value>COMMITTED WITH WARNING</value>
+    <comment>Committed-with-warning recovery item state.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_CorrelationNotRecorded" xml:space="preserve">
+    <value>NOT RECORDED — NO VALUE IN PROTECTED STATE</value>
+    <comment>Recovery item fallback when no correlation ID was recorded.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_FailedState" xml:space="preserve">
+    <value>FAILED</value>
+    <comment>Failed recovery item state.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_IncomingActivity" xml:space="preserve">
+    <value>incoming Activity {0}</value>
+    <comment>Incoming Activity identifier label; {0} is an opaque ID.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_IncomingActivityNotRecorded" xml:space="preserve">
+    <value>INCOMING ACTIVITY NOT RECORDED</value>
+    <comment>Recovery item fallback for a missing incoming Activity ID.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_OperationKind" xml:space="preserve">
+    <value>TARGET-LOCAL OPERATION</value>
+    <comment>Fallback recovery item operation kind.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_OutcomeRecordedTimestamp" xml:space="preserve">
+    <value>Outcome recorded: {0}</value>
+    <comment>Outcome timestamp; {0} is a timestamp.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_OutcomeUnavailableState" xml:space="preserve">
+    <value>OUTCOME UNAVAILABLE</value>
+    <comment>Unavailable recovery item state.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_ParticipantsSeparator" xml:space="preserve">
+    <value> → </value>
+    <comment>Separator between source and target device identifiers.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_PendingState" xml:space="preserve">
+    <value>PENDING — RECOVERY REQUIRED</value>
+    <comment>Pending recovery item state.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_RecoveringState" xml:space="preserve">
+    <value>RECORDED RECOVERING — OUTCOME UNCERTAIN</value>
+    <comment>Recovering recovery item state.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_RejectedState" xml:space="preserve">
+    <value>REJECTED</value>
+    <comment>Rejected recovery item state.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_ReplaceKind" xml:space="preserve">
+    <value>TARGET-LOCAL REPLACE</value>
+    <comment>Replace recovery item kind.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_SourceDevice" xml:space="preserve">
+    <value>Replace source device {0}</value>
+    <comment>Replace source device label; {0} is an opaque ID.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_SourceDeviceNotRecorded" xml:space="preserve">
+    <value>SOURCE DEVICE NOT RECORDED</value>
+    <comment>Recovery item fallback for a missing source device ID.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_TargetActivity" xml:space="preserve">
+    <value>Target Activity {0}</value>
+    <comment>Target Activity identifier label; {0} is an opaque ID.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_TargetActivityNotRecorded" xml:space="preserve">
+    <value>TARGET ACTIVITY NOT RECORDED</value>
+    <comment>Recovery item fallback for a missing target Activity ID.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_TargetDevice" xml:space="preserve">
+    <value>target device {0}</value>
+    <comment>Replace target device label; {0} is an opaque ID.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_TargetDeviceNotRecorded" xml:space="preserve">
+    <value>TARGET DEVICE NOT RECORDED</value>
+    <comment>Recovery item fallback for a missing target device ID.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_TimeNotRecordedTimestamp" xml:space="preserve">
+    <value>TIME NOT RECORDED — pre-capture pending boundary.</value>
+    <comment>Recovery item fallback when no timestamp was recorded.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_UndoAvailable" xml:space="preserve">
+    <value>UNDO AVAILABLE — EXPIRES {0} — SELECT AND CONFIRM THIS EXACT CAPSULE</value>
+    <comment>Available undo state; {0} is the expiry timestamp.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_UndoConsumed" xml:space="preserve">
+    <value>UNDO ALREADY CONSUMED</value>
+    <comment>Consumed undo state.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_UndoExpired" xml:space="preserve">
+    <value>UNDO EXPIRED AT {0}</value>
+    <comment>Expired undo state; {0} is the expiry timestamp.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_UndoKind" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO</value>
+    <comment>Undo recovery item kind.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_UndoLocked" xml:space="preserve">
+    <value>CAPSULE UNCONSUMED AT SNAPSHOT — EXPIRES {0} — LOCAL UNDO LOCKED: EXACT CURRENT REPLACEMENT NOT PROVEN</value>
+    <comment>Locked undo state; {0} is the expiry timestamp.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_UndoPending" xml:space="preserve">
+    <value>UNDO / REPLACE OUTCOME PENDING — EXPIRY {0}</value>
+    <comment>Pending undo state; {0} is the expiry timestamp.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_UndoUnavailable" xml:space="preserve">
+    <value>UNDO NOT AVAILABLE FOR THIS RECORD</value>
+    <comment>Unavailable undo state without an expiry.</comment>
+  </data>
+  <data name="Activity_RecoveryItem_UndoUnavailableWithExpiry" xml:space="preserve">
+    <value>UNDO NOT AVAILABLE FOR THIS RECORD — CAPSULE EXPIRY {0}</value>
+    <comment>Unavailable undo state; {0} is the expiry timestamp.</comment>
+  </data>
+  <data name="Activity_ReplaceActivation_ConfirmationRequiredStatus" xml:space="preserve">
+    <value>CONFIRMATION REQUIRED — REVIEW THE EXACT TARGET SNAPSHOT</value>
+    <comment>Replace activation status before explicit confirmation.</comment>
+  </data>
+  <data name="Activity_ReplaceActivation_NotActivatedStatus" xml:space="preserve">
+    <value>PREVIEW CONFIRMED — DESTRUCTIVE REPLACE NOT ACTIVATED</value>
+    <comment>Replace activation status when the service remains unavailable.</comment>
+  </data>
+  <data name="Activity_ReplaceActivation_PreviewLockedStatus" xml:space="preserve">
+    <value>REPLACE ACTIVATION LOCKED — LOAD AND SELECT AN EXACT TARGET SNAPSHOT</value>
+    <comment>Replace activation status before an exact preview exists.</comment>
+  </data>
+  <data name="Activity_ReplaceActivation_ReadyStatus" xml:space="preserve">
+    <value>PREVIEW CONFIRMED — DESTRUCTIVE REPLACE READY</value>
+    <comment>Replace activation ready status.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_ConfirmationAutomationName" xml:space="preserve">
+    <value>Confirm replacing {0} on {1} with {2}</value>
+    <comment>Replace confirmation automation name; arguments are target title, device, and incoming title.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_ConfirmationAutomationNameNotReady" xml:space="preserve">
+    <value>Confirm the exact Replace preview</value>
+    <comment>Replace confirmation automation name before selection.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_ConfirmationDescription" xml:space="preserve">
+    <value>I understand that {0} on {1} would be replaced by {2}, and that activation must remain blocked unless the target first stores a 15-minute undo capsule.</value>
+    <comment>Replace confirmation disclosure; arguments are target title, device, and incoming title.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_ConfirmationDescriptionNotReady" xml:space="preserve">
+    <value>Load and select an exact target snapshot before confirming.</value>
+    <comment>Replace confirmation guidance before selection.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_IncomingDescription" xml:space="preserve">
+    <value>Incoming: {0} ({1}). The source Activity remains active on this device.</value>
+    <comment>Incoming Replace Activity summary; arguments are title and invariant kind.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_IncomingNotReadyDescription" xml:space="preserve">
+    <value>Select an incoming local Activity, an authenticated device, and one Replace target.</value>
+    <comment>Incoming Replace Activity guidance before selection.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_NotReadyStatus" xml:space="preserve">
+    <value>REPLACE PREVIEW NOT READY</value>
+    <comment>Replace preview status before selection.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_ReadyStatus" xml:space="preserve">
+    <value>REPLACE PREVIEW — CONFIRMATION REQUIRED</value>
+    <comment>Replace preview status after selection.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_TargetDescription" xml:space="preserve">
+    <value>Replaced target: {0} ({1}) on {2}, placement {3}, revision {4}, descriptor digest {5}.</value>
+    <comment>Exact Replace target summary; arguments preserve title, kind, device, placement, revision, and digest.</comment>
+  </data>
+  <data name="Activity_ReplacePreview_TargetNotSelectedDescription" xml:space="preserve">
+    <value>No exact target snapshot is selected.</value>
+    <comment>Replace target summary before selection.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_BlockedReviewTrustDescription" xml:space="preserve">
+    <value>The current {0} or {1} permission is unavailable. Review Trust on both devices and retry. No Replace request was sent.</value>
+    <comment>Replace inventory Trust failure; arguments are invariant capability names.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_BlockedReviewTrustStatus" xml:space="preserve">
+    <value>REPLACE TARGETS BLOCKED — REVIEW TRUST</value>
+    <comment>Replace inventory Trust failure status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_CommittedRefreshRequiredDescription" xml:space="preserve">
+    <value>The selected target was replaced. Load a fresh payload-free inventory before preparing another Replace.</value>
+    <comment>Replace inventory guidance after commit.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_CommittedRefreshRequiredStatus" xml:space="preserve">
+    <value>REPLACE COMMITTED — REFRESH REQUIRED</value>
+    <comment>Replace inventory status after commit.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_EligibleInventoryUnavailableDescription" xml:space="preserve">
+    <value>The authenticated local connection did not return an eligible inventory. Reconnect and retry. No Replace request was sent.</value>
+    <comment>Replace inventory generic failure description.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_IncomingActivityChangedDescription" xml:space="preserve">
+    <value>The incoming Activity is no longer active. Select it again or choose another source. No Replace request was sent.</value>
+    <comment>Replace inventory stale incoming Activity description.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_IncomingActivityChangedStatus" xml:space="preserve">
+    <value>INCOMING ACTIVITY CHANGED — SELECT AGAIN</value>
+    <comment>Replace inventory stale incoming Activity status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_LoadingDescription" xml:space="preserve">
+    <value>Requesting payload-free {0} choices from {1}. No Replace request is being sent.</value>
+    <comment>Replace inventory loading description; arguments are Activity kind and target name.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_LoadingStatus" xml:space="preserve">
+    <value>LOADING REPLACE TARGETS</value>
+    <comment>Replace inventory loading status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_NoEligibleTargetsDescription" xml:space="preserve">
+    <value>The peer returned no active same-kind target that can be preserved for undo. No Replace request was sent.</value>
+    <comment>Empty Replace inventory description.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_NoEligibleTargetsStatus" xml:space="preserve">
+    <value>NO ELIGIBLE REPLACE TARGETS</value>
+    <comment>Empty Replace inventory status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_NotLoadedDescription" xml:space="preserve">
+    <value>Select an incoming Activity and authenticated target, then load purpose-scoped Replace targets.</value>
+    <comment>Initial Replace inventory guidance.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_NotLoadedStatus" xml:space="preserve">
+    <value>REPLACE TARGETS NOT LOADED</value>
+    <comment>Initial Replace inventory status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_QueryExpiredDescription" xml:space="preserve">
+    <value>The bounded inventory query expired. Refresh the target list. No Replace request was sent.</value>
+    <comment>Expired Replace inventory query description.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_QueryExpiredStatus" xml:space="preserve">
+    <value>REPLACE TARGET QUERY EXPIRED — RETRY</value>
+    <comment>Expired Replace inventory query status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_ReadyDescription" xml:space="preserve">
+    <value>Choose one exact target snapshot to build the destructive preview. No Replace request has been sent.</value>
+    <comment>Ready Replace inventory guidance.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_ReadyStatus" xml:space="preserve">
+    <value>REPLACE TARGETS READY — SELECT ONE</value>
+    <comment>Ready Replace inventory status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_RefreshedConfirmAgainDescription" xml:space="preserve">
+    <value>The exact target snapshot is still present. Review it and confirm again; no Replace request was sent.</value>
+    <comment>Refreshed unchanged Replace inventory guidance.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_RefreshedConfirmAgainStatus" xml:space="preserve">
+    <value>TARGETS REFRESHED — CONFIRM AGAIN</value>
+    <comment>Refreshed unchanged Replace inventory status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_TargetChangedRefreshRequiredDescription" xml:space="preserve">
+    <value>The exact target ID, revision, descriptor digest, kind, or placement changed at send time. Load fresh inventory, select again, and confirm again. No destructive request was sent.</value>
+    <comment>Send-time Replace target mismatch guidance.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_TargetChangedRefreshRequiredStatus" xml:space="preserve">
+    <value>TARGET CHANGED — REFRESH REQUIRED</value>
+    <comment>Send-time Replace target mismatch status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_TargetChangedReviewStatus" xml:space="preserve">
+    <value>TARGET CHANGED — REVIEW REFRESHED INVENTORY</value>
+    <comment>Refreshed Replace target mismatch status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_TargetCountCoverage" xml:space="preserve">
+    <value>{0} ELIGIBLE REPLACE TARGETS</value>
+    <comment>Replace inventory coverage; {0} is the target count.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_TargetNoLongerEligibleDescription" xml:space="preserve">
+    <value>The previously selected target is no longer eligible. Select a fresh target snapshot and confirm again. No Replace request was sent.</value>
+    <comment>Refreshed inventory missing-target guidance.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_TargetSnapshotChangedDescription" xml:space="preserve">
+    <value>The selected target revision or descriptor digest changed. Select the refreshed snapshot and confirm again. No Replace request was sent.</value>
+    <comment>Refreshed inventory changed-target guidance.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_TruncatedCoverage" xml:space="preserve">
+    <value>SHOWING FIRST {0} ELIGIBLE TARGETS — INVENTORY TRUNCATED</value>
+    <comment>Truncated Replace inventory coverage; {0} is the display limit.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_UnavailableRetryStatus" xml:space="preserve">
+    <value>REPLACE TARGETS UNAVAILABLE — RETRY</value>
+    <comment>Unavailable Replace inventory status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_UnconfirmedDescription" xml:space="preserve">
+    <value>The inventory acknowledgement was lost. Refresh after the authenticated connection recovers. No Replace request was sent.</value>
+    <comment>Unconfirmed Replace inventory description.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_UnconfirmedStatus" xml:space="preserve">
+    <value>REPLACE TARGETS UNCONFIRMED — RETRY</value>
+    <comment>Unconfirmed Replace inventory status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_UnsupportedActivityDescription" xml:space="preserve">
+    <value>No Replace-capable semantic adapter is available for this Activity kind. No Replace request was sent.</value>
+    <comment>Unsupported Replace Activity description.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_UnsupportedActivityStatus" xml:space="preserve">
+    <value>REPLACE UNSUPPORTED FOR THIS ACTIVITY</value>
+    <comment>Unsupported Replace Activity status.</comment>
+  </data>
+  <data name="Activity_ReplaceInventory_VerifiedInventoryUnavailableDescription" xml:space="preserve">
+    <value>The authenticated local connection did not return a verified target inventory. Reconnect and retry. No Replace request was sent.</value>
+    <comment>Replace inventory transport exception description.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_AcknowledgementLostDescription" xml:space="preserve">
+    <value>{0} may have committed Replace and stored an undo capsule, but its authenticated acknowledgement was lost. The source remains active. Inspect target recovery before any new operation; Flowspan will not invent a new Operation ID or automatically retry.</value>
+    <comment>Replace acknowledgement-loss description; {0} is the target name.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_AcknowledgementLostStatus" xml:space="preserve">
+    <value>REPLACE OUTCOME UNCERTAIN — DO NOT RETRY</value>
+    <comment>Replace acknowledgement-loss status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_BlockedByRecoveryDescription" xml:space="preserve">
+    <value>{0} already has an unresolved protected Replace or undo boundary. This request did not mutate the target. Inspect target recovery and resolve the existing boundary before any new operation.</value>
+    <comment>Replace blocked by recovery description; {0} is the target name.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_BlockedByRecoveryStatus" xml:space="preserve">
+    <value>REPLACE BLOCKED BY TARGET RECOVERY — DO NOT RETRY</value>
+    <comment>Replace blocked by recovery status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_CommittedDescription" xml:space="preserve">
+    <value>{0} stored the exact undo capsule before installing the incoming Activity. The source remains active. The capsule and expiry below are also visible in target recovery.</value>
+    <comment>Committed Replace description; {0} is the target name.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_CommittedStatus" xml:space="preserve">
+    <value>REPLACE COMMITTED</value>
+    <comment>Committed Replace status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_FailedDescription" xml:space="preserve">
+    <value>{0} returned a verified failure. The source remains active; inspect target recovery when indicated and refresh before another attempt.</value>
+    <comment>Failed Replace description; {0} is the target name.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_FailedStatus" xml:space="preserve">
+    <value>REPLACE FAILED</value>
+    <comment>Failed Replace status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_MissingReceiptDescription" xml:space="preserve">
+    <value>The acknowledged response contained no verified receipt. The source remains active; inspect target recovery and do not retry.</value>
+    <comment>Replace result description for a missing receipt.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_MissingUndoCapsuleDescription" xml:space="preserve">
+    <value>The acknowledged committed response contained no verified undo capsule. The source remains active; inspect target recovery and do not retry.</value>
+    <comment>Replace result description for a missing undo capsule.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_NotDeliveredDescription" xml:space="preserve">
+    <value>No destructive Replace request was delivered to {0}. The source remains active. Recover the authenticated connection and load fresh inventory before trying again.</value>
+    <comment>Undelivered Replace description; {0} is the target name.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_NotDeliveredStatus" xml:space="preserve">
+    <value>REPLACE NOT DELIVERED — REFRESH AND RETRY</value>
+    <comment>Undelivered Replace status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_NotSentActivityChangedDescription" xml:space="preserve">
+    <value>The incoming Activity is no longer the exact active source. No destructive request was sent; select an active Activity and load fresh inventory.</value>
+    <comment>Unsent Replace description for a stale incoming Activity.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_NotSentActivityChangedStatus" xml:space="preserve">
+    <value>REPLACE NOT SENT — INCOMING ACTIVITY CHANGED</value>
+    <comment>Unsent Replace status for a stale incoming Activity.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_NotSentReviewTrustDescription" xml:space="preserve">
+    <value>The current {0} or {1} grant is unavailable. The source remains active and no destructive request was sent. Review Trust on both devices, then refresh.</value>
+    <comment>Unsent Replace Trust description; arguments are invariant capability names.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_NotSentReviewTrustStatus" xml:space="preserve">
+    <value>REPLACE NOT SENT — REVIEW TRUST</value>
+    <comment>Unsent Replace Trust status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_NotSentTargetChangedDescription" xml:space="preserve">
+    <value>Send-time revalidation did not match the confirmed target snapshot. The source remains active and the target was not mutated. Load fresh inventory, select again, and confirm again.</value>
+    <comment>Unsent Replace target mismatch description.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_NotSentTargetChangedStatus" xml:space="preserve">
+    <value>REPLACE NOT SENT — TARGET CHANGED</value>
+    <comment>Unsent Replace target mismatch status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_OutcomeUnavailableDescription" xml:space="preserve">
+    <value>The destructive application port did not return a verified outcome. The target may have crossed the commit boundary; the source remains active. Inspect target recovery before any new operation. Flowspan will not guess or automatically retry.</value>
+    <comment>Replace application-port failure description.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_OutcomeUnavailableStatus" xml:space="preserve">
+    <value>REPLACE OUTCOME UNAVAILABLE — INSPECT TARGET RECOVERY</value>
+    <comment>Replace application-port failure status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_PendingDescription" xml:space="preserve">
+    <value>Revalidating the exact snapshot for {0} on {1}, then waiting for one authenticated receipt and undo capsule. The source remains active.</value>
+    <comment>Pending Replace description; arguments are target title and device name.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_PendingStatus" xml:space="preserve">
+    <value>REPLACE PENDING — DUPLICATE DISABLED</value>
+    <comment>Pending Replace status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_RecoveryRequiredDescription" xml:space="preserve">
+    <value>{0} returned a recovery-required receipt. The source remains active. Inspect target recovery before any new operation; Flowspan will not retry Adapter work.</value>
+    <comment>Recovery-required Replace description; {0} is the target name.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_RecoveryRequiredStatus" xml:space="preserve">
+    <value>REPLACE OUTCOME REQUIRES TARGET RECOVERY — DO NOT RETRY</value>
+    <comment>Recovery-required Replace status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_RecoveryUnavailableDescription" xml:space="preserve">
+    <value>Protected Replace recovery is unavailable or unresolved on this device. The source remains active and no destructive request was sent.</value>
+    <comment>Replace recovery-unavailable description.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_RecoveryUnavailableStatus" xml:space="preserve">
+    <value>REPLACE LOCKED — PROTECTED RECOVERY UNAVAILABLE</value>
+    <comment>Replace recovery-unavailable status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_RejectedDescription" xml:space="preserve">
+    <value>{0} returned a verified rejection before commit. The source remains active; review the named reason and refresh the exact preview.</value>
+    <comment>Rejected Replace description; {0} is the target name.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_RejectedStatus" xml:space="preserve">
+    <value>REPLACE REJECTED</value>
+    <comment>Rejected Replace status.</comment>
+  </data>
+  <data name="Activity_ReplaceOperation_ResultInvalidStatus" xml:space="preserve">
+    <value>REPLACE RESULT INVALID — INSPECT TARGET RECOVERY</value>
+    <comment>Invalid Replace result status.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_CountUnavailableCoverage" xml:space="preserve">
+    <value>RECOVERY RECORD COUNT UNAVAILABLE</value>
+    <comment>Replace recovery coverage when the store is unavailable.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_NoHistoryDescription" xml:space="preserve">
+    <value>No protected Replace or undo records are stored on this device. Replace still requires an exact peer inventory, explicit confirmation, send-time revalidation, and current Trust on both devices.</value>
+    <comment>Empty Replace recovery history description.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_NoHistoryStatus" xml:space="preserve">
+    <value>NO TARGET-LOCAL REPLACE HISTORY</value>
+    <comment>Empty Replace recovery history status.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_NoUndoActionDescription" xml:space="preserve">
+    <value>Recorded outcomes and capsule state are shown without Activity content. No record is both unattempted and the exact current unexpired replacement; a new Replace still requires a fresh exact preview.</value>
+    <comment>Replace recovery history without an undo action.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_NoUndoActionStatus" xml:space="preserve">
+    <value>TARGET-LOCAL REPLACE HISTORY — NO UNDO ACTION</value>
+    <comment>Replace recovery status without an undo action.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_NotLoadedDescription" xml:space="preserve">
+    <value>Protected target-local Replace state has not been loaded.</value>
+    <comment>Initial Replace recovery description.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_NotLoadedStatus" xml:space="preserve">
+    <value>REPLACE RECOVERY STATE NOT LOADED</value>
+    <comment>Initial Replace recovery status.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_RecordCountCoverage" xml:space="preserve">
+    <value>{0} TARGET-LOCAL REPLACE / UNDO RECORDS</value>
+    <comment>Replace recovery coverage; {0} is the record count.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_RequiredDescription" xml:space="preserve">
+    <value>Inspect the opaque IDs and both devices before retrying. This read-only surface does not repeat Replace or undo Adapter work.</value>
+    <comment>Required Replace recovery guidance.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_RequiredStatus" xml:space="preserve">
+    <value>REPLACE RECOVERY REQUIRED — {0} UNRESOLVED</value>
+    <comment>Required Replace recovery status; {0} is the unresolved count.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_TruncatedCoverage" xml:space="preserve">
+    <value>SHOWING FIRST {0} RECORDS — UNRESOLVED STATE PRIORITIZED — HISTORY TRUNCATED</value>
+    <comment>Truncated Replace recovery coverage; {0} is the display limit.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_UnavailableDescription" xml:space="preserve">
+    <value>The protected target-local Replace store could not be opened. Handoff and Move remain available, but do not activate Replace. Check the current-user credential store and local Flowspan data permissions, then restart.</value>
+    <comment>Unavailable Replace recovery store description.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_UnavailableStatus" xml:space="preserve">
+    <value>REPLACE RECOVERY STATE UNAVAILABLE — REPLACE LOCKED</value>
+    <comment>Unavailable Replace recovery store status.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_UndoAvailableDescription" xml:space="preserve">
+    <value>Select one exact committed Replace record, review both opaque Activity IDs and its expiry, then confirm one target-local semantic restore. A new Replace remains independently gated by fresh inventory and Trust.</value>
+    <comment>Replace recovery guidance when undo is available.</comment>
+  </data>
+  <data name="Activity_ReplaceRecovery_UndoAvailableStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO AVAILABLE — {0} EXACT CAPSULES</value>
+    <comment>Replace recovery undo availability; {0} is the capsule count.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_CapsuleConsumedDescription" xml:space="preserve">
+    <value>The exact capsule was already consumed. No duplicate Adapter restore was performed.</value>
+    <comment>Target-local undo consumed-capsule result.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_CapsuleExpiredDescription" xml:space="preserve">
+    <value>The exact capsule expired before restore began. No Adapter restore was performed.</value>
+    <comment>Target-local undo expired-capsule result.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_CommittedDescription" xml:space="preserve">
+    <value>The preserved semantic Activity was restored at a new revision and the protected capsule is recorded as consumed.</value>
+    <comment>Committed target-local undo description.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_CommittedStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO COMMITTED</value>
+    <comment>Committed target-local undo status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_ConfirmationAutomationNameEmpty" xml:space="preserve">
+    <value>Confirm the selected target-local undo capsule</value>
+    <comment>Target-local undo confirmation automation name before selection.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_ConfirmationAutomationNameSelected" xml:space="preserve">
+    <value>Confirm target-local undo for capsule {0}</value>
+    <comment>Target-local undo confirmation automation name; {0} is an opaque capsule ID.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_ConfirmationDescriptionEmpty" xml:space="preserve">
+    <value>Select one exact available target-local Replace record before confirming undo.</value>
+    <comment>Target-local undo confirmation guidance before selection.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_ConfirmationDescriptionSelected" xml:space="preserve">
+    <value>Undo capsule {0}. {1}. Exact expiry: {2}. Restore is allowed only while the incoming Activity is still the exact current replacement.</value>
+    <comment>Target-local undo confirmation; arguments are capsule ID, Activity summary, and expiry.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_ConfirmationRequiredDescription" xml:space="preserve">
+    <value>Review the capsule, both opaque Activity IDs, and exact expiry, then confirm this one target-local action.</value>
+    <comment>Target-local undo explicit confirmation guidance.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_ConfirmationRequiredStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO — EXACT CONFIRMATION REQUIRED</value>
+    <comment>Target-local undo explicit confirmation status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_ConfirmedReadyDescription" xml:space="preserve">
+    <value>The exact capsule binding is confirmed. Activating undo will reserve one durable operation before Adapter restore.</value>
+    <comment>Confirmed target-local undo guidance.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_ConfirmedReadyStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO CONFIRMED — READY</value>
+    <comment>Confirmed target-local undo status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_FailedDescription" xml:space="preserve">
+    <value>The Adapter did not complete the semantic restore. The terminal failure is recorded and this UI does not silently retry it.</value>
+    <comment>Failed target-local undo description.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_FailedStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO FAILED</value>
+    <comment>Failed target-local undo status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_NotCommittedDescription" xml:space="preserve">
+    <value>The protected undo request was not committed. The recorded reason is shown; no outcome is inferred.</value>
+    <comment>Generic uncommitted target-local undo description.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_OperationInProgressDescription" xml:space="preserve">
+    <value>A protected pending boundary already owns this capsule. Inspect recovery; Adapter work was not repeated.</value>
+    <comment>Target-local undo operation-in-progress description.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_OutcomeUnavailableDescription" xml:space="preserve">
+    <value>The application port did not return a verified outcome. Inspect the protected pending/terminal recovery record before any further action; Flowspan will not guess or repeat Adapter work.</value>
+    <comment>Target-local undo application-port failure description.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_OutcomeUnavailableStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO OUTCOME UNAVAILABLE — INSPECT RECOVERY</value>
+    <comment>Target-local undo application-port failure status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_PendingDescription" xml:space="preserve">
+    <value>The protected journal reserved capsule {0}. Waiting for one exact local restore outcome; duplicate action is disabled.</value>
+    <comment>Pending target-local undo description; {0} is an opaque capsule ID.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_PendingStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO PENDING — DO NOT RETRY</value>
+    <comment>Pending target-local undo status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_RecordUnavailableDescription" xml:space="preserve">
+    <value>This record is pending, expired, consumed, already attempted, unsupported, or no longer the exact current replacement. No action is available.</value>
+    <comment>Unavailable target-local undo record description.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_RecordUnavailableStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO NOT AVAILABLE FOR THIS RECORD</value>
+    <comment>Unavailable target-local undo record status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_RecoveringDescription" xml:space="preserve">
+    <value>The durable terminal write or destructive boundary is uncertain. The pending record blocks duplicate restore until explicit recovery exists.</value>
+    <comment>Recovering target-local undo description.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_RejectedStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO REJECTED</value>
+    <comment>Rejected target-local undo status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_RevisionConflictDescription" xml:space="preserve">
+    <value>The replacement is no longer the exact current Activity revision. Flowspan did not overwrite newer state.</value>
+    <comment>Target-local undo revision-conflict description.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_SelectCapsuleDescription" xml:space="preserve">
+    <value>Select an available committed Replace record and review its exact capsule binding.</value>
+    <comment>Initial target-local undo selection guidance.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_SelectCapsuleStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO — SELECT AN AVAILABLE CAPSULE</value>
+    <comment>Initial target-local undo selection status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_UnavailableStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO OUTCOME UNAVAILABLE</value>
+    <comment>Unavailable target-local undo outcome status.</comment>
+  </data>
+  <data name="Activity_TargetLocalUndo_UncertainStatus" xml:space="preserve">
+    <value>TARGET-LOCAL UNDO OUTCOME UNCERTAIN — DUPLICATE DISABLED</value>
+    <comment>Uncertain target-local undo outcome status.</comment>
+  </data>
+  <data name="Activity_Undo_HandoffPreservesSourceDescription" xml:space="preserve">
+    <value>NO UNDO REQUIRED — handoff preserves the source. Each device owns its resulting copy and can delete it locally.</value>
+    <comment>Undo guidance after any handoff result.</comment>
+  </data>
+  <data name="Activity_Undo_MoveCommittedDescription" xml:space="preserve">
+    <value>NO AUTOMATIC UNDO — the source closed after verified target acknowledgement. Start a new move to move it back.</value>
+    <comment>Undo guidance after a committed move.</comment>
+  </data>
+  <data name="Activity_Undo_MoveCommittedWithWarningDescription" xml:space="preserve">
+    <value>NO AUTOMATIC UNDO — target resume is committed and source cleanup failed. Resolve the two active copies explicitly.</value>
+    <comment>Undo guidance after a move commits with source cleanup warning.</comment>
+  </data>
+  <data name="Activity_Undo_MoveNotCommittedDescription" xml:space="preserve">
+    <value>NO UNDO REQUIRED — the move did not close the source Activity.</value>
+    <comment>Undo guidance after an uncommitted move.</comment>
+  </data>
+  <data name="Activity_Undo_MoveRecoveringDescription" xml:space="preserve">
+    <value>NO AUTOMATIC UNDO — the source remains active, but target acceptance is uncertain. Inspect both devices before retrying.</value>
+    <comment>Undo guidance after an uncertain move.</comment>
+  </data>
+</root>

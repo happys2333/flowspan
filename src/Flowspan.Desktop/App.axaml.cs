@@ -6,7 +6,11 @@ namespace Flowspan.Desktop;
 
 public sealed partial class App : Avalonia.Application
 {
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+        DesktopText.AddTo(Resources);
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {

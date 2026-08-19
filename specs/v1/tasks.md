@@ -601,8 +601,19 @@ means its linked evidence exists; it does not imply the entire product works.
     screen-reader, and two-device gates remain open under tasks 6.3-6.5 and 9.3.
     - _Requirements: R3.3-R3.5, R6, R9.3-R9.4, R10_
   - _Requirements: R3, R4, R5, R6, R10, R11_
-- [ ] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
+- [-] 7.4 Externalize user-visible strings and verify keyboard, screen reader,
   scaling, contrast, and reduced motion.
+  - [-] 7.4a Repository and deterministic headless scope: neutral-English
+    catalogs, XAML and C# literal regression gates, culture-aware presentation,
+    bidirectional resource completeness, keyboard/automation metadata, minimum
+    size plus increased-text layout, contrast, and no-required-motion checks are
+    implemented in `specs/v1/desktop-quality/`. Local candidate gates pass;
+    exact-commit hosted evidence remains to be recorded before this subtask is
+    complete.
+  - [ ] 7.4b Native scope: execute packaged real-machine screen-reader order and
+    speech, visible focus, operating-system high contrast, font fallback and text
+    scaling, and reduced-motion integration checks on Windows, macOS, and Linux.
+    Headless Avalonia evidence does not close this subtask.
   - _Requirements: R10_
 
 ## 8. Groups, Scenes, and lifecycle

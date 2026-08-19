@@ -33,8 +33,12 @@ public sealed record DesktopSceneSourceOption
     internal DesktopSceneSourceOption(SceneSourceSelection selection)
     {
         Selection = selection;
-        Description =
-            $"Device {selection.DeviceId}; revision {selection.Revision}; kind {selection.Kind}; slot {selection.Placement.Slot}";
+        Description = DesktopText.Format(
+            "Scene_SourceDescriptionFormat",
+            selection.DeviceId,
+            selection.Revision,
+            selection.Kind,
+            selection.Placement.Slot);
     }
 
     internal SceneSourceSelection Selection { get; }
@@ -64,34 +68,55 @@ public sealed class DesktopSceneApplyItemViewModel : INotifyPropertyChanged
         Reason = FormatReason(item.Reason);
         SourceDisposition = item.SourceDisposition switch
         {
-            SceneSourceDisposition.PreserveSource => "SOURCE STAYS OPEN",
+            SceneSourceDisposition.PreserveSource => DesktopText.Get(
+                "Scene_SourceDisposition_PreserveSource"),
             SceneSourceDisposition.MoveAfterAcknowledgement =>
-                "SOURCE CLOSES ONLY AFTER ACKNOWLEDGEMENT",
-            _ => "SOURCE POLICY UNAVAILABLE",
+                DesktopText.Get(
+                    "Scene_SourceDisposition_MoveAfterAcknowledgement"),
+            _ => DesktopText.Get("Scene_SourceDisposition_Unavailable"),
         };
         SourceDescription = item.Source is { } source
-            ? $"Device {source.DeviceId}; revision {source.Revision}; kind {source.Kind}; slot {source.Placement.Slot}"
+            ? DesktopText.Format(
+                "Scene_SourceDescriptionFormat",
+                source.DeviceId,
+                source.Revision,
+                source.Kind,
+                source.Placement.Slot)
             : item.Reason == SceneApplyItemReason.SourceSelectionRequired
-                ? "Select one exact source and regenerate the complete preview."
-                : "No exact source metadata was published.";
-        DestinationDescription =
-            $"Device {item.Destination.DeviceId}; slot {item.Destination.Slot}";
+                ? DesktopText.Get("Scene_SourceSelectionRequiredDescription")
+                : DesktopText.Get("Scene_SourceMetadataUnavailable");
+        DestinationDescription = DesktopText.Format(
+            "Scene_DestinationDescriptionFormat",
+            item.Destination.DeviceId,
+            item.Destination.Slot);
         ReplaceTargetDescription = item.Action == SceneApplyAction.Replace
             && item.ReplaceTarget is { } target
-            ? $"Activity {target.ActivityId}; Device {target.DeviceId}; revision {target.Revision}; kind {target.Kind}; slot {target.Placement.Slot}; digest {target.DescriptorDigest}"
+            ? DesktopText.Format(
+                "Scene_ReplaceTargetDescriptionFormat",
+                target.ActivityId,
+                target.DeviceId,
+                target.Revision,
+                target.Kind,
+                target.Placement.Slot,
+                target.DescriptorDigest)
             : item.Occupancy.Kind switch
             {
                 SceneSlotOccupancyKind.Opaque =>
-                    "Protected or ineligible occupant; exact metadata withheld.",
+                    DesktopText.Get("Scene_Occupancy_Opaque"),
                 SceneSlotOccupancyKind.Ambiguous =>
-                    "Ambiguous occupants; exact metadata withheld.",
-                _ => "No Activity will be replaced.",
+                    DesktopText.Get("Scene_Occupancy_Ambiguous"),
+                _ => DesktopText.Get("Scene_NoReplacement"),
             };
         IsReplace = item.Action == SceneApplyAction.Replace;
         ReplaceConfirmation = replaceConfirmation;
         ReplaceConfirmationAutomationName = item.ReplaceTarget is { } exact
-            ? $"Confirm Scene item {item.Index + 1} replacement of Activity {exact.ActivityId} on Device {exact.DeviceId} revision {exact.Revision}"
-            : "No destructive Scene replacement confirmation";
+            ? DesktopText.Format(
+                "Scene_ReplaceConfirmationAutomationNameFormat",
+                item.Index + 1,
+                exact.ActivityId,
+                exact.DeviceId,
+                exact.Revision)
+            : DesktopText.Get("Scene_NoReplaceConfirmationAutomationName");
         SourceOptions = item.SourceLookup?.Candidates
             .Select(static candidate => new DesktopSceneSourceOption(candidate))
             .ToArray() ?? [];
@@ -107,7 +132,9 @@ public sealed class DesktopSceneApplyItemViewModel : INotifyPropertyChanged
 
     public int Index { get; }
 
-    public string ItemLabel => $"ITEM {Index + 1}";
+    public string ItemLabel => DesktopText.Format(
+        "Scene_ItemLabelFormat",
+        Index + 1);
 
     public bool CanSelectSource => SourceOptions.Count > 1;
 
@@ -160,36 +187,44 @@ public sealed class DesktopSceneApplyItemViewModel : INotifyPropertyChanged
 
     private static string FormatAction(SceneApplyAction action) => action switch
     {
-        SceneApplyAction.Blocked => "BLOCKED",
-        SceneApplyAction.NoChange => "NO CHANGE",
-        SceneApplyAction.Handoff => "HANDOFF",
-        SceneApplyAction.Move => "MOVE",
-        SceneApplyAction.Replace => "REPLACE WITH UNDO",
-        _ => "UNKNOWN ACTION",
+        SceneApplyAction.Blocked => DesktopText.Get("Scene_Action_Blocked"),
+        SceneApplyAction.NoChange => DesktopText.Get("Scene_Action_NoChange"),
+        SceneApplyAction.Handoff => DesktopText.Get("Scene_Action_Handoff"),
+        SceneApplyAction.Move => DesktopText.Get("Scene_Action_Move"),
+        SceneApplyAction.Replace => DesktopText.Get("Scene_Action_Replace"),
+        _ => DesktopText.Get("Scene_Action_Unknown"),
     };
 
     private static string FormatReason(SceneApplyItemReason reason) => reason switch
     {
-        SceneApplyItemReason.None => "Ready",
-        SceneApplyItemReason.SourceNotFound => "Source Activity not found",
+        SceneApplyItemReason.None => DesktopText.Get("Scene_Reason_None"),
+        SceneApplyItemReason.SourceNotFound => DesktopText.Get(
+            "Scene_Reason_SourceNotFound"),
         SceneApplyItemReason.SourceSelectionRequired =>
-            "Multiple exact sources require explicit selection",
-        SceneApplyItemReason.SourceLookupUnavailable => "Source lookup unavailable",
-        SceneApplyItemReason.CapabilityDenied => "Scene capability denied",
-        SceneApplyItemReason.ProtocolUnsupported => "Peer protocol unsupported",
-        SceneApplyItemReason.DestinationUnavailable => "Destination unavailable",
-        SceneApplyItemReason.DestinationOccupied => "Destination must be empty",
+            DesktopText.Get("Scene_Reason_SourceSelectionRequired"),
+        SceneApplyItemReason.SourceLookupUnavailable => DesktopText.Get(
+            "Scene_Reason_SourceLookupUnavailable"),
+        SceneApplyItemReason.CapabilityDenied => DesktopText.Get(
+            "Scene_Reason_CapabilityDenied"),
+        SceneApplyItemReason.ProtocolUnsupported => DesktopText.Get(
+            "Scene_Reason_ProtocolUnsupported"),
+        SceneApplyItemReason.DestinationUnavailable => DesktopText.Get(
+            "Scene_Reason_DestinationUnavailable"),
+        SceneApplyItemReason.DestinationOccupied => DesktopText.Get(
+            "Scene_Reason_DestinationOccupied"),
         SceneApplyItemReason.OpaqueOccupancy =>
-            "Destination occupancy is protected or ineligible",
+            DesktopText.Get("Scene_Reason_OpaqueOccupancy"),
         SceneApplyItemReason.AmbiguousOccupancy =>
-            "Destination occupancy is ambiguous",
-        SceneApplyItemReason.UndoUnavailable => "Durable undo unavailable",
+            DesktopText.Get("Scene_Reason_AmbiguousOccupancy"),
+        SceneApplyItemReason.UndoUnavailable => DesktopText.Get(
+            "Scene_Reason_UndoUnavailable"),
         SceneApplyItemReason.UnsafeMoveReplace =>
-            "Move plus Replace is unsafe and blocked",
-        SceneApplyItemReason.Cancelled => "Cancelled",
+            DesktopText.Get("Scene_Reason_UnsafeMoveReplace"),
+        SceneApplyItemReason.Cancelled => DesktopText.Get(
+            "Scene_Reason_Cancelled"),
         SceneApplyItemReason.NotAttemptedAfterRecovering =>
-            "Not attempted after uncertain outcome",
-        _ => "Unavailable",
+            DesktopText.Get("Scene_Reason_NotAttemptedAfterRecovering"),
+        _ => DesktopText.Get("Scene_Reason_Unavailable"),
     };
 
     private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? name = null)
@@ -244,15 +279,18 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
     private ScenePlan? scene;
     private long? observedGroupRevision;
     private string compensationDescription =
-        "No Scene compensation has been requested.";
-    private string compensationStatus = "NO COMPENSATION RESULT";
+        DesktopText.Get("Scene_CompensationNotRequested");
+    private string compensationStatus = DesktopText.Get(
+        "Scene_CompensationStatus_None");
     private string previewDescription =
-        "Select a Scene through the Scene repository workflow, then preview current state.";
-    private string previewExpiry = "No preview expiry.";
-    private string previewStatus = "NO SCENE SELECTED";
-    private string resultDescription = "No Scene apply has been attempted.";
-    private string resultStatus = "NO APPLY RESULT";
-    private string staleGroupWarning = "No stale Group warning.";
+        DesktopText.Get("Scene_PreviewDescription_SelectFromRepository");
+    private string previewExpiry = DesktopText.Get("Scene_PreviewExpiry_None");
+    private string previewStatus = DesktopText.Get("Scene_PreviewStatus_NoSelection");
+    private string resultDescription = DesktopText.Get(
+        "Scene_ResultDescription_NotAttempted");
+    private string resultStatus = DesktopText.Get("Scene_ResultStatus_None");
+    private string staleGroupWarning = DesktopText.Get(
+        "Scene_StaleGroupWarning_None");
 
     public SceneApplyViewModel(
         IDesktopSceneApplyService service,
@@ -390,10 +428,15 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public string SceneDescription => scene is null
-        ? "No Scene is selected. Scene repository lifecycle is handled separately."
-        : $"{scene.Activities.Length} ordered Activities; revision {scene.Revision}; format {scene.FormatVersion}.";
+        ? DesktopText.Get("Scene_Description_NoSelection")
+        : DesktopText.Format(
+            "Scene_Description_SelectedFormat",
+            scene.Activities.Length,
+            scene.Revision,
+            scene.FormatVersion);
 
-    public string SceneName => scene?.Name ?? "No Scene selected";
+    public string SceneName => scene?.Name
+        ?? DesktopText.Get("Scene_Name_NoSelection");
 
     public string StaleGroupWarning
     {
@@ -407,9 +450,9 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
         scene = selectedScene ?? throw new ArgumentNullException(nameof(selectedScene));
         observedGroupRevision = currentGroupRevision;
         ClearWorkflow();
-        PreviewStatus = "SCENE SELECTED — PREVIEW REQUIRED";
+        PreviewStatus = DesktopText.Get("Scene_PreviewStatus_Selected");
         PreviewDescription =
-            "Preview reads exact current sources and destination occupancy without mutation.";
+            DesktopText.Get("Scene_PreviewDescription_Selected");
         OnPropertyChanged(nameof(SceneName));
         OnPropertyChanged(nameof(SceneDescription));
         NotifyCommandState();
@@ -458,9 +501,11 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
             {
                 result = null;
                 ResultItems.Clear();
-                ResultStatus = $"APPLY REJECTED — {FormatApprovalStatus(execution.ApprovalStatus)}";
+                ResultStatus = DesktopText.Format(
+                    "Scene_ResultStatus_RejectedFormat",
+                    FormatApprovalStatus(execution.ApprovalStatus));
                 ResultDescription =
-                    "No new Scene mutation was authorized. Generate a fresh preview before retrying.";
+                    DesktopText.Get("Scene_ResultDescription_Rejected");
                 return;
             }
 
@@ -472,17 +517,17 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
         {
             result = null;
             ResultItems.Clear();
-            ResultStatus = "APPLY CANCELLED";
+            ResultStatus = DesktopText.Get("Scene_ResultStatus_ApplyCancelled");
             ResultDescription =
-                "Cancellation does not imply rollback; inspect every recorded item outcome.";
+                DesktopText.Get("Scene_ResultDescription_ApplyCancelled");
         }
         catch (Exception)
         {
             result = null;
             ResultItems.Clear();
-            ResultStatus = "APPLY RECOVERY REQUIRED";
+            ResultStatus = DesktopText.Get("Scene_ResultStatus_ApplyRecovering");
             ResultDescription =
-                "The presentation could not prove a terminal outcome. No exception or Activity content is displayed.";
+                DesktopText.Get("Scene_ResultDescription_ApplyRecovering");
         }
         finally
         {
@@ -510,7 +555,9 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
             foreach (SceneCompensationItemResult item in compensation.Items)
             {
                 CompensationItems.Add(new DesktopSceneCompensationItem(
-                    $"ITEM {item.SceneIndex + 1}",
+                    DesktopText.Format(
+                        "Scene_ItemLabelFormat",
+                        item.SceneIndex + 1),
                     item.TargetDeviceId.ToString(),
                     item.CapsuleId.ToString(),
                     FormatCompensationOutcome(item.Outcome),
@@ -522,30 +569,36 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
 
             CompensationStatus = compensation.Status switch
             {
-                SceneCompensationStatus.NothingToUndo => "NOTHING ELIGIBLE TO UNDO",
-                SceneCompensationStatus.Completed => "COMPENSATION COMPLETED",
+                SceneCompensationStatus.NothingToUndo => DesktopText.Get(
+                    "Scene_CompensationStatus_NothingToUndo"),
+                SceneCompensationStatus.Completed => DesktopText.Get(
+                    "Scene_CompensationStatus_Completed"),
                 SceneCompensationStatus.PartiallyCompleted =>
-                    "COMPENSATION PARTIALLY COMPLETED",
+                    DesktopText.Get(
+                        "Scene_CompensationStatus_PartiallyCompleted"),
                 SceneCompensationStatus.Recovering =>
-                    "COMPENSATION RECOVERY REQUIRED",
-                SceneCompensationStatus.Cancelled => "COMPENSATION CANCELLED",
-                _ => "COMPENSATION STATUS UNAVAILABLE",
+                    DesktopText.Get("Scene_CompensationStatus_Recovering"),
+                SceneCompensationStatus.Cancelled => DesktopText.Get(
+                    "Scene_CompensationStatus_Cancelled"),
+                _ => DesktopText.Get("Scene_CompensationStatus_Unavailable"),
             };
             CompensationDescription =
-                "Only eligible committed Preserve-Source Replace items were attempted in reverse Scene order. Handoff and Move were not reversed.";
+                DesktopText.Get("Scene_CompensationDescription_Completed");
         }
         catch (OperationCanceledException)
             when (lifetimeCancellation.IsCancellationRequested)
         {
-            CompensationStatus = "COMPENSATION CANCELLED";
+            CompensationStatus = DesktopText.Get(
+                "Scene_CompensationStatus_Cancelled");
             CompensationDescription =
-                "Cancellation is not represented as whole-Scene rollback.";
+                DesktopText.Get("Scene_CompensationDescription_Cancelled");
         }
         catch (Exception)
         {
-            CompensationStatus = "COMPENSATION RECOVERY REQUIRED";
+            CompensationStatus = DesktopText.Get(
+                "Scene_CompensationStatus_Recovering");
             CompensationDescription =
-                "The presentation could not prove a terminal undo outcome. No exception or Activity content is displayed.";
+                DesktopText.Get("Scene_CompensationDescription_Recovering");
         }
         finally
         {
@@ -612,36 +665,43 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
             CompensationItems.Clear();
             HasAcknowledgedApply = false;
             HasAcknowledgedCompensation = false;
-            ResultStatus = "NO APPLY RESULT";
-            ResultDescription = "No Scene apply has been attempted for this preview.";
-            CompensationStatus = "NO COMPENSATION RESULT";
+            ResultStatus = DesktopText.Get("Scene_ResultStatus_None");
+            ResultDescription = DesktopText.Get(
+                "Scene_ResultDescription_NotAttemptedForPreview");
+            CompensationStatus = DesktopText.Get(
+                "Scene_CompensationStatus_None");
             CompensationDescription =
-                "No Scene compensation has been requested.";
+                DesktopText.Get("Scene_CompensationNotRequested");
             PreviewStatus = next.Items.Any(static item =>
                 item.Action == SceneApplyAction.Blocked)
-                ? "PREVIEW READY — BLOCKERS PRESENT"
-                : "PREVIEW READY";
+                ? DesktopText.Get("Scene_PreviewStatus_ReadyWithBlockers")
+                : DesktopText.Get("Scene_PreviewStatus_Ready");
             PreviewDescription =
-                "Items remain in saved Scene order. Every action and blocker is bound to this expiring preview.";
+                DesktopText.Get("Scene_PreviewDescription_Ready");
             StaleGroupWarning = next.GroupRevisionWarning is null
-                ? "No stale Group warning."
-                : $"STALE GROUP — saved revision {next.GroupRevisionWarning.BoundRevision}; observed revision {next.GroupRevisionWarning.ObservedRevision}. Saved Scene item order remains authoritative.";
+                ? DesktopText.Get("Scene_StaleGroupWarning_None")
+                : DesktopText.Format(
+                    "Scene_StaleGroupWarning_Format",
+                    next.GroupRevisionWarning.BoundRevision,
+                    next.GroupRevisionWarning.ObservedRevision);
             RenderExpiry(next);
         }
         catch (OperationCanceledException)
             when (lifetimeCancellation.IsCancellationRequested)
         {
-            PreviewStatus = "PREVIEW CANCELLED";
-            PreviewDescription = "No mutation authority was acquired.";
+            PreviewStatus = DesktopText.Get("Scene_PreviewStatus_Cancelled");
+            PreviewDescription = DesktopText.Get(
+                "Scene_PreviewDescription_Cancelled");
         }
         catch (Exception)
         {
             preview = null;
             PreviewItems.Clear();
-            PreviewStatus = "PREVIEW UNAVAILABLE";
+            PreviewStatus = DesktopText.Get("Scene_PreviewStatus_Unavailable");
             PreviewDescription =
-                "Current-state evidence could not be completed. No exception or Activity content is displayed.";
-            PreviewExpiry = "Generate a complete fresh preview before applying.";
+                DesktopText.Get("Scene_PreviewDescription_Unavailable");
+            PreviewExpiry = DesktopText.Get(
+                "Scene_PreviewExpiry_FreshPreviewRequired");
         }
         finally
         {
@@ -654,11 +714,15 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
     {
         bool expired = value.ExpiresAt <= timeProvider.GetUtcNow();
         PreviewExpiry = expired
-            ? $"EXPIRED AT {value.ExpiresAt:O} — generate a fresh complete preview."
-            : $"Expires at {value.ExpiresAt:O}.";
+            ? DesktopText.Format(
+                "Scene_PreviewExpiry_ExpiredAtFormat",
+                value.ExpiresAt.ToString("O"))
+            : DesktopText.Format(
+                "Scene_PreviewExpiry_ExpiresAtFormat",
+                value.ExpiresAt.ToString("O"));
         if (expired)
         {
-            PreviewStatus = "PREVIEW EXPIRED";
+            PreviewStatus = DesktopText.Get("Scene_PreviewStatus_Expired");
         }
     }
 
@@ -668,33 +732,38 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
         foreach (SceneApplyItemResult item in applyResult.Items)
         {
             ResultItems.Add(new DesktopSceneApplyResultItem(
-                $"ITEM {item.Index + 1}",
+                DesktopText.Format("Scene_ItemLabelFormat", item.Index + 1),
                 item.ActivityId.ToString(),
-                item.Action.ToString(),
-                item.Outcome.ToString(),
+                FormatResultAction(item.Action),
+                FormatResultOutcome(item.Outcome),
                 item.Reason != SceneApplyItemReason.None
                     ? item.Reason.ToString()
                     : item.FailureCode.ToString(),
                 item.ChildOperationId.ToString(),
                 item.ChildCorrelationId.ToString(),
                 item.OccurredAt.ToString("O"),
-                item.UndoCapsule?.Id.ToString() ?? "None"));
+                item.UndoCapsule?.Id.ToString()
+                    ?? DesktopText.Get("Scene_UndoCapsule_None")));
         }
 
         ResultStatus = applyResult.Status switch
         {
-            SceneApplyOverallStatus.Completed => "SCENE COMPLETED",
+            SceneApplyOverallStatus.Completed => DesktopText.Get(
+                "Scene_ResultStatus_Completed"),
             SceneApplyOverallStatus.CompletedWithWarnings =>
-                "SCENE COMPLETED WITH WARNINGS",
+                DesktopText.Get("Scene_ResultStatus_CompletedWithWarnings"),
             SceneApplyOverallStatus.PartiallyCompleted =>
-                "SCENE PARTIALLY COMPLETED",
-            SceneApplyOverallStatus.Blocked => "SCENE BLOCKED",
-            SceneApplyOverallStatus.Recovering => "SCENE RECOVERY REQUIRED",
-            SceneApplyOverallStatus.Cancelled => "SCENE CANCELLED",
-            _ => "SCENE RESULT UNAVAILABLE",
+                DesktopText.Get("Scene_ResultStatus_PartiallyCompleted"),
+            SceneApplyOverallStatus.Blocked => DesktopText.Get(
+                "Scene_ResultStatus_Blocked"),
+            SceneApplyOverallStatus.Recovering => DesktopText.Get(
+                "Scene_ResultStatus_Recovering"),
+            SceneApplyOverallStatus.Cancelled => DesktopText.Get(
+                "Scene_ResultStatus_Cancelled"),
+            _ => DesktopText.Get("Scene_ResultStatus_Unavailable"),
         };
         ResultDescription =
-            "This is a per-item non-atomic result. Terminal failures may coexist with committed work; Recovering never means rollback.";
+            DesktopText.Get("Scene_ResultDescription_Completed");
         OnPropertyChanged(nameof(CanCompensate));
     }
 
@@ -707,12 +776,13 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
         CompensationItems.Clear();
         HasAcknowledgedApply = false;
         HasAcknowledgedCompensation = false;
-        PreviewExpiry = "No preview expiry.";
-        StaleGroupWarning = "No stale Group warning.";
-        ResultStatus = "NO APPLY RESULT";
-        ResultDescription = "No Scene apply has been attempted.";
-        CompensationStatus = "NO COMPENSATION RESULT";
-        CompensationDescription = "No Scene compensation has been requested.";
+        PreviewExpiry = DesktopText.Get("Scene_PreviewExpiry_None");
+        StaleGroupWarning = DesktopText.Get("Scene_StaleGroupWarning_None");
+        ResultStatus = DesktopText.Get("Scene_ResultStatus_None");
+        ResultDescription = DesktopText.Get("Scene_ResultDescription_NotAttempted");
+        CompensationStatus = DesktopText.Get("Scene_CompensationStatus_None");
+        CompensationDescription = DesktopText.Get(
+            "Scene_CompensationNotRequested");
     }
 
     private void NotifyCommandState()
@@ -730,24 +800,66 @@ public sealed class SceneApplyViewModel : INotifyPropertyChanged, IDisposable
     private static string FormatApprovalStatus(SceneApplyApprovalStatus status) =>
         status switch
         {
-            SceneApplyApprovalStatus.SceneChanged => "SCENE CHANGED",
-            SceneApplyApprovalStatus.PreviewMismatch => "PREVIEW CHANGED",
-            SceneApplyApprovalStatus.Expired => "PREVIEW EXPIRED",
+            SceneApplyApprovalStatus.SceneChanged => DesktopText.Get(
+                "Scene_ApprovalStatus_SceneChanged"),
+            SceneApplyApprovalStatus.PreviewMismatch => DesktopText.Get(
+                "Scene_ApprovalStatus_PreviewMismatch"),
+            SceneApplyApprovalStatus.Expired => DesktopText.Get(
+                "Scene_ApprovalStatus_Expired"),
             SceneApplyApprovalStatus.ReplaceConfirmationMismatch =>
-                "REPLACE CONFIRMATION MISMATCH",
-            SceneApplyApprovalStatus.Valid => "VALID",
-            _ => "UNAVAILABLE",
+                DesktopText.Get(
+                    "Scene_ApprovalStatus_ReplaceConfirmationMismatch"),
+            SceneApplyApprovalStatus.Valid => DesktopText.Get(
+                "Scene_ApprovalStatus_Valid"),
+            _ => DesktopText.Get("Scene_ApprovalStatus_Unavailable"),
         };
 
     private static string FormatCompensationOutcome(
         SceneCompensationItemOutcome outcome) => outcome switch
         {
-            SceneCompensationItemOutcome.Committed => "COMMITTED",
-            SceneCompensationItemOutcome.Rejected => "REJECTED",
-            SceneCompensationItemOutcome.Failed => "FAILED",
-            SceneCompensationItemOutcome.Recovering => "RECOVERING",
-            SceneCompensationItemOutcome.Cancelled => "CANCELLED",
-            _ => "UNAVAILABLE",
+            SceneCompensationItemOutcome.Committed => DesktopText.Get(
+                "Scene_CompensationOutcome_Committed"),
+            SceneCompensationItemOutcome.Rejected => DesktopText.Get(
+                "Scene_CompensationOutcome_Rejected"),
+            SceneCompensationItemOutcome.Failed => DesktopText.Get(
+                "Scene_CompensationOutcome_Failed"),
+            SceneCompensationItemOutcome.Recovering => DesktopText.Get(
+                "Scene_CompensationOutcome_Recovering"),
+            SceneCompensationItemOutcome.Cancelled => DesktopText.Get(
+                "Scene_CompensationOutcome_Cancelled"),
+            _ => DesktopText.Get("Scene_CompensationOutcome_Unavailable"),
+        };
+
+    private static string FormatResultAction(SceneApplyAction action) => action switch
+    {
+        SceneApplyAction.Blocked => DesktopText.Get("Scene_ResultAction_Blocked"),
+        SceneApplyAction.NoChange => DesktopText.Get("Scene_ResultAction_NoChange"),
+        SceneApplyAction.Handoff => DesktopText.Get("Scene_ResultAction_Handoff"),
+        SceneApplyAction.Move => DesktopText.Get("Scene_ResultAction_Move"),
+        SceneApplyAction.Replace => DesktopText.Get("Scene_ResultAction_Replace"),
+        _ => DesktopText.Get("Scene_ResultAction_Unknown"),
+    };
+
+    private static string FormatResultOutcome(SceneApplyItemOutcome outcome) =>
+        outcome switch
+        {
+            SceneApplyItemOutcome.Blocked => DesktopText.Get(
+                "Scene_ResultOutcome_Blocked"),
+            SceneApplyItemOutcome.NoChange => DesktopText.Get(
+                "Scene_ResultOutcome_NoChange"),
+            SceneApplyItemOutcome.Committed => DesktopText.Get(
+                "Scene_ResultOutcome_Committed"),
+            SceneApplyItemOutcome.CommittedWithWarning => DesktopText.Get(
+                "Scene_ResultOutcome_CommittedWithWarning"),
+            SceneApplyItemOutcome.Rejected => DesktopText.Get(
+                "Scene_ResultOutcome_Rejected"),
+            SceneApplyItemOutcome.Failed => DesktopText.Get(
+                "Scene_ResultOutcome_Failed"),
+            SceneApplyItemOutcome.Recovering => DesktopText.Get(
+                "Scene_ResultOutcome_Recovering"),
+            SceneApplyItemOutcome.NotAttempted => DesktopText.Get(
+                "Scene_ResultOutcome_NotAttempted"),
+            _ => DesktopText.Get("Scene_ResultOutcome_Unavailable"),
         };
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

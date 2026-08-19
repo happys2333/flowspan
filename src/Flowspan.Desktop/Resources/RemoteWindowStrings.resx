@@ -1,0 +1,615 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="RemoteWindow_Activity_CurrentFallbackLabel" xml:space="preserve">
+    <value>the current Activity</value>
+    <comment>RemoteWindowWorkspaceViewModel fallback label when an admitted Activity title is unavailable.</comment>
+  </data>
+  <data name="RemoteWindow_Activity_LastKnown" xml:space="preserve">
+    <value>{0} — LAST KNOWN</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known Activity title or identifier template.</comment>
+  </data>
+  <data name="RemoteWindow_Activity_NoLive" xml:space="preserve">
+    <value>No live Activity</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive Activity title and identifier.</comment>
+  </data>
+  <data name="RemoteWindow_Activity_Unknown" xml:space="preserve">
+    <value>Unknown Activity</value>
+    <comment>RemoteWindowWorkspaceViewModel Activity label when service state is unavailable without a snapshot.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_DeniedDescription" xml:space="preserve">
+    <value>Remote Window cannot start capture. The source Activity remains unchanged.</value>
+    <comment>RemoteWindowWorkspaceViewModel denied capture permission description.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_DeniedRecovery" xml:space="preserve">
+    <value>Review screen-capture privacy settings, then return to Flowspan.</value>
+    <comment>RemoteWindowWorkspaceViewModel denied capture permission recovery action.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_DeniedStatus" xml:space="preserve">
+    <value>CAPTURE PERMISSION DENIED</value>
+    <comment>RemoteWindowWorkspaceViewModel denied capture permission status.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_GrantedDescription" xml:space="preserve">
+    <value>The operating system currently allows screen capture. Execution still remains on the source Device.</value>
+    <comment>RemoteWindowWorkspaceViewModel granted capture permission description.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_GrantedRecovery" xml:space="preserve">
+    <value>Stop sharing before changing capture access in system settings.</value>
+    <comment>RemoteWindowWorkspaceViewModel granted capture permission follow-up action.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_GrantedStatus" xml:space="preserve">
+    <value>CAPTURE PERMISSION GRANTED</value>
+    <comment>RemoteWindowWorkspaceViewModel granted capture permission status.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_ReviewRequiredDescription" xml:space="preserve">
+    <value>Review what Remote Window can expose before asking the operating system for screen-capture permission.</value>
+    <comment>RemoteWindowWorkspaceViewModel pre-prompt capture permission rationale.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_ReviewRequiredRecovery" xml:space="preserve">
+    <value>No permission is requested until the review is acknowledged.</value>
+    <comment>RemoteWindowWorkspaceViewModel pre-prompt capture permission assurance.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_ReviewRequiredStatus" xml:space="preserve">
+    <value>CAPTURE PERMISSION REVIEW REQUIRED</value>
+    <comment>RemoteWindowWorkspaceViewModel pre-prompt capture permission status.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_RevokedDescription" xml:space="preserve">
+    <value>Capture access was removed. New sharing and remote driving remain disabled.</value>
+    <comment>RemoteWindowWorkspaceViewModel revoked capture permission description.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_RevokedRecovery" xml:space="preserve">
+    <value>Review screen-capture privacy settings before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel revoked capture permission recovery action.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_RevokedStatus" xml:space="preserve">
+    <value>CAPTURE PERMISSION REVOKED</value>
+    <comment>RemoteWindowWorkspaceViewModel revoked capture permission status.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_UnavailableDescription" xml:space="preserve">
+    <value>Capture permission state could not be read safely.</value>
+    <comment>RemoteWindowWorkspaceViewModel unreadable capture permission description.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_UnavailableRecovery" xml:space="preserve">
+    <value>Inspect local diagnostics and platform privacy settings before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel unreadable capture permission recovery action.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_UnavailableStatus" xml:space="preserve">
+    <value>CAPTURE PERMISSION UNAVAILABLE</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable or unsupported capture permission status.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_UnsupportedDescription" xml:space="preserve">
+    <value>Native capture permission is unavailable in this platform build.</value>
+    <comment>RemoteWindowWorkspaceViewModel unsupported capture permission description.</comment>
+  </data>
+  <data name="RemoteWindow_CapturePermission_UnsupportedRecovery" xml:space="preserve">
+    <value>Install a Flowspan build with the matching native capture adapter.</value>
+    <comment>RemoteWindowWorkspaceViewModel unsupported capture permission recovery action.</comment>
+  </data>
+  <data name="RemoteWindow_Capture_LastKnownStatus" xml:space="preserve">
+    <value>CAPTURE (LAST KNOWN): {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known capture state template.</comment>
+  </data>
+  <data name="RemoteWindow_Capture_Status" xml:space="preserve">
+    <value>CAPTURE: {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel current capture state template.</comment>
+  </data>
+  <data name="RemoteWindow_Capture_Stopped" xml:space="preserve">
+    <value>CAPTURE: Stopped</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive capture state.</comment>
+  </data>
+  <data name="RemoteWindow_Capture_Unknown" xml:space="preserve">
+    <value>CAPTURE: Unknown</value>
+    <comment>RemoteWindowWorkspaceViewModel unknown capture state.</comment>
+  </data>
+  <data name="RemoteWindow_Driver_Detail" xml:space="preserve">
+    <value>DRIVER: {0} / EPOCH {1} / LEASE EXPIRES {2}</value>
+    <comment>RemoteWindowWorkspaceViewModel current Driver, invariant epoch, and ISO lease-expiry template.</comment>
+  </data>
+  <data name="RemoteWindow_Driver_LastKnownDetail" xml:space="preserve">
+    <value>DRIVER (LAST KNOWN): {0} / EPOCH {1} / LEASE EXPIRES {2}</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known Driver, invariant epoch, and ISO lease-expiry template.</comment>
+  </data>
+  <data name="RemoteWindow_Driver_LastKnownNone" xml:space="preserve">
+    <value>DRIVER (LAST KNOWN): None</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known state without a Driver.</comment>
+  </data>
+  <data name="RemoteWindow_Driver_None" xml:space="preserve">
+    <value>DRIVER: None</value>
+    <comment>RemoteWindowWorkspaceViewModel current state without a Driver.</comment>
+  </data>
+  <data name="RemoteWindow_Driver_Unknown" xml:space="preserve">
+    <value>DRIVER: Unknown</value>
+    <comment>RemoteWindowWorkspaceViewModel unknown Driver state.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_AvailableHelp" xml:space="preserve">
+    <value>Stops local capture, input, and sharing sessions immediately without waiting for the peer.</value>
+    <comment>RemoteWindowWorkspaceViewModel enabled Emergency Stop help text.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_ConfirmedBoundary" xml:space="preserve">
+    <value>confirmed</value>
+    <comment>RemoteWindowWorkspaceViewModel successful local stop-boundary result label.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_ConfirmedStatus" xml:space="preserve">
+    <value>EMERGENCY STOP CONFIRMED</value>
+    <comment>RemoteWindowWorkspaceViewModel fully confirmed Emergency Stop status.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_NoConfirmationDescription" xml:space="preserve">
+    <value>The local stop boundary did not return a confirmation. Capture, input, and sessions are unconfirmed. Close Flowspan and inspect local diagnostics before any reset.</value>
+    <comment>RemoteWindowWorkspaceViewModel missing Emergency Stop boundary result.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_NoResult" xml:space="preserve">
+    <value>No local Emergency Stop result has been recorded.</value>
+    <comment>RemoteWindowWorkspaceViewModel initial Emergency Stop result description.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_NoResultForSession" xml:space="preserve">
+    <value>No local Emergency Stop result has been recorded for this session.</value>
+    <comment>RemoteWindowWorkspaceViewModel new-session Emergency Stop result description.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_NotRequiredStatus" xml:space="preserve">
+    <value>EMERGENCY STOP NOT REQUIRED</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive Emergency Stop status.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_PartiallyUnconfirmedStatus" xml:space="preserve">
+    <value>EMERGENCY STOP PARTIALLY UNCONFIRMED</value>
+    <comment>RemoteWindowWorkspaceViewModel partially failed Emergency Stop status.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_ResultDescription" xml:space="preserve">
+    <value>Capture: {0}. Input: {1}. Sessions: {2}.</value>
+    <comment>RemoteWindowWorkspaceViewModel capture, input, and session stop-boundary result template.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_UnavailableHelp" xml:space="preserve">
+    <value>Unavailable while no stoppable Remote Window session is active.</value>
+    <comment>RemoteWindowWorkspaceViewModel disabled Emergency Stop help text.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_UnavailableNoSessionHelp" xml:space="preserve">
+    <value>Unavailable while no Remote Window session is active.</value>
+    <comment>RemoteWindowWorkspaceViewModel initial disabled Emergency Stop help text.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_UnconfirmedBoundary" xml:space="preserve">
+    <value>unconfirmed ({0})</value>
+    <comment>RemoteWindowWorkspaceViewModel failed local stop-boundary result template; the reason code remains invariant.</comment>
+  </data>
+  <data name="RemoteWindow_EmergencyStop_UnconfirmedStatus" xml:space="preserve">
+    <value>EMERGENCY STOP UNCONFIRMED</value>
+    <comment>RemoteWindowWorkspaceViewModel unconfirmed Emergency Stop status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_AnotherSessionStatus" xml:space="preserve">
+    <value>REMOTE WINDOW BUSY — ANOTHER SESSION EXISTS</value>
+    <comment>RemoteWindowWorkspaceViewModel existing-session admission status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_CapturePermissionRequiredDescription" xml:space="preserve">
+    <value>Review and grant screen-capture permission before starting Remote Window. No sharing request was sent.</value>
+    <comment>RemoteWindowWorkspaceViewModel capture-permission admission guidance.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_CapturePermissionRequiredStatus" xml:space="preserve">
+    <value>REMOTE WINDOW BLOCKED — CAPTURE PERMISSION REQUIRED</value>
+    <comment>RemoteWindowWorkspaceViewModel capture-permission admission status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_CouldNotStartDescription" xml:space="preserve">
+    <value>A local or authenticated sharing boundary did not confirm startup. Inspect local diagnostics before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel boundary-failed start result.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_CouldNotStartStatus" xml:space="preserve">
+    <value>REMOTE WINDOW COULD NOT START</value>
+    <comment>RemoteWindowWorkspaceViewModel boundary-failed start status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_DriverEligibleRole" xml:space="preserve">
+    <value>driver-eligible</value>
+    <comment>RemoteWindowWorkspaceViewModel ready-state human role label.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ExistingSessionDescription" xml:space="preserve">
+    <value>Finish or locally reset the current Remote Window session before starting another one.</value>
+    <comment>RemoteWindowWorkspaceViewModel existing or stopped session guidance.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_InputPermissionRequiredDescription" xml:space="preserve">
+    <value>Remote driving was selected. Review and grant input or accessibility permission, or turn remote driving off to start view-only.</value>
+    <comment>RemoteWindowWorkspaceViewModel input-permission admission guidance.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_InputPermissionRequiredStatus" xml:space="preserve">
+    <value>REMOTE WINDOW BLOCKED — INPUT PERMISSION REQUIRED</value>
+    <comment>RemoteWindowWorkspaceViewModel input-permission admission status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_LocalResetRequiredStatus" xml:space="preserve">
+    <value>REMOTE WINDOW STOPPED — LOCAL RESET REQUIRED</value>
+    <comment>RemoteWindowWorkspaceViewModel stopped-session admission status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_NotStartedDescription" xml:space="preserve">
+    <value>The exact selected Remote Window request was not applied. Review the visible session, permission, and Trust state before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel generic rejected start result.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_NotStartedStatus" xml:space="preserve">
+    <value>REMOTE WINDOW NOT STARTED</value>
+    <comment>RemoteWindowWorkspaceViewModel generic rejected start status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_PresentingDescription" xml:space="preserve">
+    <value>Presenting {0} to {1}. Execution remains on this source Device.</value>
+    <comment>RemoteWindowWorkspaceViewModel active admitted Activity and target template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ProtectedSourceDescription" xml:space="preserve">
+    <value>The source protection state is unsafe or uncertain. Capture and input remain blocked.</value>
+    <comment>RemoteWindowWorkspaceViewModel protected-source start result.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ProtectedSourceStatus" xml:space="preserve">
+    <value>REMOTE WINDOW BLOCKED — PROTECTED SOURCE</value>
+    <comment>RemoteWindowWorkspaceViewModel protected-source start status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ReadyDescription" xml:space="preserve">
+    <value>Present {0} on {1} as {2}. Execution remains on this source Device; application and process state do not move.</value>
+    <comment>RemoteWindowWorkspaceViewModel ready Activity, target, and role template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ReadyStatus" xml:space="preserve">
+    <value>REMOTE WINDOW READY — EXECUTION STAYS ON SOURCE</value>
+    <comment>RemoteWindowWorkspaceViewModel ready-to-start status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ReviewTrustDescription" xml:space="preserve">
+    <value>The selected target lacks the required current Mirror capability. Review Trust and retry; the source Activity remains unchanged.</value>
+    <comment>RemoteWindowWorkspaceViewModel capability-denied start result.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ReviewTrustStatus" xml:space="preserve">
+    <value>REMOTE WINDOW BLOCKED — REVIEW TRUST</value>
+    <comment>RemoteWindowWorkspaceViewModel capability-denied start status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_SelectDescription" xml:space="preserve">
+    <value>Select one local Activity and one authenticated target to review Remote Window.</value>
+    <comment>RemoteWindowWorkspaceViewModel empty fallback selection guidance.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_SelectStatus" xml:space="preserve">
+    <value>REMOTE WINDOW FALLBACK — SELECT ACTIVITY AND TARGET</value>
+    <comment>RemoteWindowWorkspaceViewModel empty fallback selection status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_SemanticAvailableDescription" xml:space="preserve">
+    <value>Use Handoff or Move for {0} on {1}. Remote Window fallback is reserved for Activities without semantic resume.</value>
+    <comment>RemoteWindowWorkspaceViewModel semantic-resume alternative template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_SemanticAvailableStatus" xml:space="preserve">
+    <value>REMOTE WINDOW NOT OFFERED — SEMANTIC RESUME AVAILABLE</value>
+    <comment>RemoteWindowWorkspaceViewModel semantic-resume alternative status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_SemanticUnknownDescription" xml:space="preserve">
+    <value>Semantic resume support for {0} could not be confirmed. Handoff, Move, and Remote Window remain disabled until support is known.</value>
+    <comment>RemoteWindowWorkspaceViewModel unknown semantic support template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_SemanticUnknownStatus" xml:space="preserve">
+    <value>REMOTE WINDOW UNAVAILABLE — SEMANTIC SUPPORT UNKNOWN</value>
+    <comment>RemoteWindowWorkspaceViewModel unknown semantic support status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ServiceUnavailableDescription" xml:space="preserve">
+    <value>Remote Window cannot present {0} to {1} in this platform build. The source Activity remains unchanged.</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable platform Activity and target template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_SourceNotActiveDescription" xml:space="preserve">
+    <value>{0} is not active on this source Device. Select an active local Activity.</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive source Activity template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_SourceNotActiveStatus" xml:space="preserve">
+    <value>REMOTE WINDOW BLOCKED — SOURCE NOT ACTIVE</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive source Activity status.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_StartDriverAutomationName" xml:space="preserve">
+    <value>Start driver-enabled Remote Window for the selected Activity</value>
+    <comment>RemoteWindowWorkspaceViewModel driver-enabled start command automation name.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_StartViewOnlyAutomationName" xml:space="preserve">
+    <value>Start view-only Remote Window for the selected Activity</value>
+    <comment>RemoteWindowWorkspaceViewModel view-only start command automation name.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_StartingDescription" xml:space="preserve">
+    <value>Preparing {0} for {1}. Execution remains on this source Device.</value>
+    <comment>RemoteWindowWorkspaceViewModel in-flight Activity and target template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_TargetContextUnavailableDescription" xml:space="preserve">
+    <value>Presenting {0}. The admitted target label is unavailable, so no selected preview target is attributed to this session. Execution remains on this source Device.</value>
+    <comment>RemoteWindowWorkspaceViewModel active session with unavailable target context template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_TargetContextUnavailableStatus" xml:space="preserve">
+    <value>{0} — TARGET CONTEXT UNAVAILABLE</value>
+    <comment>RemoteWindowWorkspaceViewModel active lifecycle with unavailable target context template.</comment>
+  </data>
+  <data name="RemoteWindow_Fallback_ViewOnlyRole" xml:space="preserve">
+    <value>view-only</value>
+    <comment>RemoteWindowWorkspaceViewModel ready-state human role label.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_DeniedDescription" xml:space="preserve">
+    <value>Remote viewing may continue, but remote driving remains disabled.</value>
+    <comment>RemoteWindowWorkspaceViewModel denied input permission description.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_DeniedRecovery" xml:space="preserve">
+    <value>Review input or accessibility privacy settings, then return to Flowspan.</value>
+    <comment>RemoteWindowWorkspaceViewModel denied input permission recovery action.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_DeniedStatus" xml:space="preserve">
+    <value>INPUT PERMISSION DENIED</value>
+    <comment>RemoteWindowWorkspaceViewModel denied input permission status.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_GrantedDescription" xml:space="preserve">
+    <value>The operating system currently allows Flowspan's local input boundary.</value>
+    <comment>RemoteWindowWorkspaceViewModel granted input permission description.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_GrantedRecovery" xml:space="preserve">
+    <value>Driver authority still requires a current Capability and Driver Lease.</value>
+    <comment>RemoteWindowWorkspaceViewModel granted input permission follow-up action.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_GrantedStatus" xml:space="preserve">
+    <value>INPUT PERMISSION GRANTED</value>
+    <comment>RemoteWindowWorkspaceViewModel granted input permission status.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_NotRequestedDescription" xml:space="preserve">
+    <value>Remote driving is off. Input or accessibility permission is requested only after remote driving is explicitly enabled.</value>
+    <comment>RemoteWindowWorkspaceViewModel progressive input permission description.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_NotRequestedRecovery" xml:space="preserve">
+    <value>Viewing a Remote Window does not require input permission.</value>
+    <comment>RemoteWindowWorkspaceViewModel progressive input permission assurance.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_NotRequestedStatus" xml:space="preserve">
+    <value>INPUT PERMISSION NOT REQUESTED</value>
+    <comment>RemoteWindowWorkspaceViewModel progressive input permission status.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_RevokedDescription" xml:space="preserve">
+    <value>Remote driving was disabled because local input access was removed.</value>
+    <comment>RemoteWindowWorkspaceViewModel revoked input permission description.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_RevokedRecovery" xml:space="preserve">
+    <value>Review input or accessibility privacy settings before enabling driving again.</value>
+    <comment>RemoteWindowWorkspaceViewModel revoked input permission recovery action.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_RevokedStatus" xml:space="preserve">
+    <value>INPUT PERMISSION REVOKED</value>
+    <comment>RemoteWindowWorkspaceViewModel revoked input permission status.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_UnavailableDescription" xml:space="preserve">
+    <value>Input permission state could not be read safely. Remote driving remains disabled.</value>
+    <comment>RemoteWindowWorkspaceViewModel unreadable input permission description.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_UnavailableRecovery" xml:space="preserve">
+    <value>Inspect local diagnostics and platform privacy settings before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel unreadable input permission recovery action.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_UnavailableStatus" xml:space="preserve">
+    <value>INPUT PERMISSION UNAVAILABLE</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable or unsupported input permission status.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_UnsupportedDescription" xml:space="preserve">
+    <value>Native input permission is unavailable in this platform build.</value>
+    <comment>RemoteWindowWorkspaceViewModel unsupported input permission description.</comment>
+  </data>
+  <data name="RemoteWindow_InputPermission_UnsupportedRecovery" xml:space="preserve">
+    <value>Install a Flowspan build with the matching native input adapter.</value>
+    <comment>RemoteWindowWorkspaceViewModel unsupported input permission recovery action.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_ConfirmedDescription" xml:space="preserve">
+    <value>The previous session is idle. Participants, capture, and the prior Driver were not restored.</value>
+    <comment>RemoteWindowWorkspaceViewModel confirmed reset description.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_ConfirmedStatus" xml:space="preserve">
+    <value>LOCAL RESET CONFIRMED</value>
+    <comment>RemoteWindowWorkspaceViewModel confirmed normal reset status.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_NoConfirmationDescription" xml:space="preserve">
+    <value>The local reset boundary did not return a confirmation. No participant, capture, or Driver authority is claimed restored.</value>
+    <comment>RemoteWindowWorkspaceViewModel reset boundary exception description.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_NotConfirmedStatus" xml:space="preserve">
+    <value>LOCAL RESET NOT CONFIRMED</value>
+    <comment>RemoteWindowWorkspaceViewModel rejected reset status.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_NotRequiredDescription" xml:space="preserve">
+    <value>No local Remote Window reset is required.</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive reset description.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_NotRequiredStatus" xml:space="preserve">
+    <value>LOCAL RESET NOT REQUIRED</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive reset status.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_RejectedDescription" xml:space="preserve">
+    <value>The local reset boundary rejected the current session state. No participant, capture, or Driver authority was restored.</value>
+    <comment>RemoteWindowWorkspaceViewModel rejected reset description.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_RequiredDescription" xml:space="preserve">
+    <value>Confirm a local reset before another session starts. Reset does not restore prior participants, capture, or Driver authority.</value>
+    <comment>RemoteWindowWorkspaceViewModel required reset description.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_RequiredStatus" xml:space="preserve">
+    <value>LOCAL RESET REQUIRED</value>
+    <comment>RemoteWindowWorkspaceViewModel required reset status.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_RetryConfirmedStatus" xml:space="preserve">
+    <value>LOCAL RETRY RESET CONFIRMED</value>
+    <comment>RemoteWindowWorkspaceViewModel confirmed retry reset status.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_RetryRequiredDescription" xml:space="preserve">
+    <value>The failed start is confirmed stopped with no remote Driver. Confirm a local retry reset before starting another session; no participant or authority is restored.</value>
+    <comment>RemoteWindowWorkspaceViewModel safely stopped failed-start reset guidance.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_RetryRequiredStatus" xml:space="preserve">
+    <value>LOCAL RETRY RESET REQUIRED</value>
+    <comment>RemoteWindowWorkspaceViewModel safely stopped failed-start reset status.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_RetryUnavailableDescription" xml:space="preserve">
+    <value>Remote Window is unavailable, but a safely stopped local start state is not confirmed. Inspect local diagnostics before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel unsafe retry reset description.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_RetryUnavailableStatus" xml:space="preserve">
+    <value>LOCAL RETRY RESET UNAVAILABLE</value>
+    <comment>RemoteWindowWorkspaceViewModel unsafe retry reset status.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_StopBoundariesUnconfirmedDescription" xml:space="preserve">
+    <value>One or more Emergency Stop boundaries remain unconfirmed. Close Flowspan and inspect local diagnostics before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel reset failure after an unconfirmed Emergency Stop.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_UnavailableDescription" xml:space="preserve">
+    <value>One or more local Emergency Stop boundaries are unconfirmed. Reset is unavailable; close Flowspan and inspect local diagnostics.</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable reset description.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_UnavailableStatus" xml:space="preserve">
+    <value>LOCAL RESET UNAVAILABLE</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable reset status.</comment>
+  </data>
+  <data name="RemoteWindow_LocalReset_UnconfirmedStatus" xml:space="preserve">
+    <value>LOCAL RESET UNCONFIRMED</value>
+    <comment>RemoteWindowWorkspaceViewModel reset boundary exception status.</comment>
+  </data>
+  <data name="RemoteWindow_Participants_LastKnownStatus" xml:space="preserve">
+    <value>PARTICIPANTS (LAST KNOWN): {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known participant count template.</comment>
+  </data>
+  <data name="RemoteWindow_Participants_Status" xml:space="preserve">
+    <value>PARTICIPANTS: {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel current participant count template.</comment>
+  </data>
+  <data name="RemoteWindow_Participants_Unknown" xml:space="preserve">
+    <value>PARTICIPANTS: Unknown</value>
+    <comment>RemoteWindowWorkspaceViewModel unknown participant state.</comment>
+  </data>
+  <data name="RemoteWindow_Participants_Zero" xml:space="preserve">
+    <value>PARTICIPANTS: 0</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive participant state.</comment>
+  </data>
+  <data name="RemoteWindow_Protection_LastKnownStatus" xml:space="preserve">
+    <value>PROTECTION (LAST KNOWN): {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known protection state template.</comment>
+  </data>
+  <data name="RemoteWindow_Protection_Status" xml:space="preserve">
+    <value>PROTECTION: {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel current protection state template.</comment>
+  </data>
+  <data name="RemoteWindow_Protection_Unknown" xml:space="preserve">
+    <value>PROTECTION: Unknown</value>
+    <comment>RemoteWindowWorkspaceViewModel unknown protection state.</comment>
+  </data>
+  <data name="RemoteWindow_Revision_LastKnownStatus" xml:space="preserve">
+    <value>REVISION (LAST KNOWN): {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known revision template.</comment>
+  </data>
+  <data name="RemoteWindow_Revision_Status" xml:space="preserve">
+    <value>REVISION: {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel current revision template.</comment>
+  </data>
+  <data name="RemoteWindow_Revision_Unknown" xml:space="preserve">
+    <value>REVISION: Unknown</value>
+    <comment>RemoteWindowWorkspaceViewModel unknown revision state.</comment>
+  </data>
+  <data name="RemoteWindow_Revision_Zero" xml:space="preserve">
+    <value>REVISION: 0</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive revision state.</comment>
+  </data>
+  <data name="RemoteWindow_Service_DisposalStopNotConfirmed" xml:space="preserve">
+    <value>Remote Window Emergency Stop was not fully confirmed during disposal.</value>
+    <comment>RemoteWindowWorkspaceViewModel disposal safety-boundary exception message.</comment>
+  </data>
+  <data name="RemoteWindow_Service_FailCloseMultipleFailures" xml:space="preserve">
+    <value>The Remote Window fail-close boundary reported multiple failures.</value>
+    <comment>RemoteWindowWorkspaceViewModel aggregate disposal exception message.</comment>
+  </data>
+  <data name="RemoteWindow_Service_NoSessionToStop" xml:space="preserve">
+    <value>No Remote Window session is available to stop.</value>
+    <comment>UnavailableDesktopRemoteWindowService Emergency Stop exception message.</comment>
+  </data>
+  <data name="RemoteWindow_Service_ResetNotConfigured" xml:space="preserve">
+    <value>Remote Window local reset is not configured by this Desktop service.</value>
+    <comment>IDesktopRemoteWindowService default reset exception message.</comment>
+  </data>
+  <data name="RemoteWindow_Service_StartNotConfigured" xml:space="preserve">
+    <value>Remote Window start is not configured by this Desktop service.</value>
+    <comment>IDesktopRemoteWindowService default start exception message.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_ActiveDescription" xml:space="preserve">
+    <value>Presenting {0}. Current Driver: {1}. Execution remains on this source Device.</value>
+    <comment>RemoteWindowWorkspaceViewModel active sharing description template.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_ActiveStatus" xml:space="preserve">
+    <value>REMOTE WINDOW ACTIVE</value>
+    <comment>RemoteWindowWorkspaceViewModel active sharing status.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_EmergencyStoppedDescription" xml:space="preserve">
+    <value>{0} is Emergency Stopped. Current Driver: {1}. Local Driver authority is revoked; capture, input, and sharing boundary results are shown below.</value>
+    <comment>RemoteWindowWorkspaceViewModel Emergency Stopped sharing description template.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_EmergencyStoppedStatus" xml:space="preserve">
+    <value>EMERGENCY STOPPED</value>
+    <comment>RemoteWindowWorkspaceViewModel Emergency Stopped sharing status.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_LastKnownAutomationName" xml:space="preserve">
+    <value>Sharing state: Remote Window unavailable; Last known Activity: {0}; Last known Driver: {1}</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known unavailable sharing automation name.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_LastKnownUnavailableDescription" xml:space="preserve">
+    <value>Remote Window state is unavailable. Last known Activity {0} at revision {1} reported capture {2} and Driver {3}. Local capture and input are not claimed stopped; inspect local diagnostics before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel last-known unavailable sharing description template.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_NativeAdaptersUnavailableDescription" xml:space="preserve">
+    <value>Capture and input adapters are not available on this platform build. The source Activity remains unchanged.</value>
+    <comment>RemoteWindowWorkspaceViewModel native-adapter unavailable sharing description.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_NoSnapshotUnavailableDescription" xml:space="preserve">
+    <value>Remote Window state is unavailable and no Remote Window snapshot has been accepted. Capture, input, participants, and Driver are unknown; inspect local diagnostics before retrying.</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable sharing description without an accepted snapshot.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_NotSharingAutomationName" xml:space="preserve">
+    <value>Sharing state: Not sharing</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive sharing automation name.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_NotSharingDescription" xml:space="preserve">
+    <value>No peer can view or drive this device.</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive sharing description.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_NotSharingStatus" xml:space="preserve">
+    <value>NOT SHARING</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive sharing status.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_PausedDescription" xml:space="preserve">
+    <value>{0} remains on this source Device. Current Driver: {1}. Capture and input are blocked by protection state.</value>
+    <comment>RemoteWindowWorkspaceViewModel protection-paused sharing description template.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_PausedStatus" xml:space="preserve">
+    <value>REMOTE WINDOW PAUSED</value>
+    <comment>RemoteWindowWorkspaceViewModel protection-paused sharing status.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_SessionAutomationName" xml:space="preserve">
+    <value>Sharing state: {0}; Activity: {1}; Current Driver: {2}</value>
+    <comment>RemoteWindowWorkspaceViewModel active session sharing automation name template.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_StartingDescription" xml:space="preserve">
+    <value>Preparing {0}. Current Driver: {1}. Execution remains on this source Device.</value>
+    <comment>RemoteWindowWorkspaceViewModel starting sharing description template.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_StartingStatus" xml:space="preserve">
+    <value>REMOTE WINDOW STARTING</value>
+    <comment>RemoteWindowWorkspaceViewModel starting sharing status.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_StateAutomationName" xml:space="preserve">
+    <value>Sharing state: {0}</value>
+    <comment>RemoteWindowWorkspaceViewModel inactive lifecycle sharing automation name template.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_UnavailableAutomationName" xml:space="preserve">
+    <value>Sharing state: Remote Window unavailable</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable sharing automation name without a snapshot.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_UnavailableDescription" xml:space="preserve">
+    <value>Remote Window state for {0} is unavailable. Current Driver: {1}. The source Activity remains unchanged.</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable lifecycle sharing description template.</comment>
+  </data>
+  <data name="RemoteWindow_Sharing_UnavailableStatus" xml:space="preserve">
+    <value>REMOTE WINDOW UNAVAILABLE</value>
+    <comment>RemoteWindowWorkspaceViewModel unavailable sharing status.</comment>
+  </data>
+  <data name="RemoteWindow_Value_None" xml:space="preserve">
+    <value>None</value>
+    <comment>RemoteWindowWorkspaceViewModel human display value for no current Driver.</comment>
+  </data>
+  <data name="RemoteWindow_Value_Unknown" xml:space="preserve">
+    <value>Unknown</value>
+    <comment>RemoteWindowWorkspaceViewModel human display value for unknown lease metadata.</comment>
+  </data>
+</root>

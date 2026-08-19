@@ -1,0 +1,777 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <data name="Scene_SourceDescriptionFormat" xml:space="preserve">
+    <value>Device {0}; revision {1}; kind {2}; slot {3}</value>
+    <comment>SceneApplyViewModel.cs: source description.</comment>
+  </data>
+  <data name="Scene_SourceDisposition_PreserveSource" xml:space="preserve">
+    <value>SOURCE STAYS OPEN</value>
+    <comment>SceneApplyViewModel.cs and SceneRepositoryViewModel.cs: preserve-source presentation.</comment>
+  </data>
+  <data name="Scene_SourceDisposition_MoveAfterAcknowledgement" xml:space="preserve">
+    <value>SOURCE CLOSES ONLY AFTER ACKNOWLEDGEMENT</value>
+    <comment>SceneApplyViewModel.cs and SceneRepositoryViewModel.cs: move-source presentation.</comment>
+  </data>
+  <data name="Scene_SourceDisposition_Unavailable" xml:space="preserve">
+    <value>SOURCE POLICY UNAVAILABLE</value>
+    <comment>SceneApplyViewModel.cs and SceneRepositoryViewModel.cs: unknown source policy.</comment>
+  </data>
+  <data name="Scene_SourceSelectionRequiredDescription" xml:space="preserve">
+    <value>Select one exact source and regenerate the complete preview.</value>
+    <comment>SceneApplyViewModel.cs: source-selection guidance.</comment>
+  </data>
+  <data name="Scene_SourceMetadataUnavailable" xml:space="preserve">
+    <value>No exact source metadata was published.</value>
+    <comment>SceneApplyViewModel.cs: missing source metadata.</comment>
+  </data>
+  <data name="Scene_DestinationDescriptionFormat" xml:space="preserve">
+    <value>Device {0}; slot {1}</value>
+    <comment>SceneApplyViewModel.cs and SceneRepositoryViewModel.cs: destination description.</comment>
+  </data>
+  <data name="Scene_ReplaceTargetDescriptionFormat" xml:space="preserve">
+    <value>Activity {0}; Device {1}; revision {2}; kind {3}; slot {4}; digest {5}</value>
+    <comment>SceneApplyViewModel.cs: exact replacement target.</comment>
+  </data>
+  <data name="Scene_Occupancy_Opaque" xml:space="preserve">
+    <value>Protected or ineligible occupant; exact metadata withheld.</value>
+    <comment>SceneApplyViewModel.cs: opaque occupancy.</comment>
+  </data>
+  <data name="Scene_Occupancy_Ambiguous" xml:space="preserve">
+    <value>Ambiguous occupants; exact metadata withheld.</value>
+    <comment>SceneApplyViewModel.cs: ambiguous occupancy.</comment>
+  </data>
+  <data name="Scene_NoReplacement" xml:space="preserve">
+    <value>No Activity will be replaced.</value>
+    <comment>SceneApplyViewModel.cs: no replacement target.</comment>
+  </data>
+  <data name="Scene_ReplaceConfirmationAutomationNameFormat" xml:space="preserve">
+    <value>Confirm Scene item {0} replacement of Activity {1} on Device {2} revision {3}</value>
+    <comment>SceneApplyViewModel.cs: replacement confirmation automation name.</comment>
+  </data>
+  <data name="Scene_NoReplaceConfirmationAutomationName" xml:space="preserve">
+    <value>No destructive Scene replacement confirmation</value>
+    <comment>SceneApplyViewModel.cs: non-destructive row automation name.</comment>
+  </data>
+  <data name="Scene_ItemLabelFormat" xml:space="preserve">
+    <value>ITEM {0}</value>
+    <comment>SceneApplyViewModel.cs and SceneRepositoryViewModel.cs: ordered item label.</comment>
+  </data>
+
+  <data name="Scene_Action_Blocked" xml:space="preserve">
+    <value>BLOCKED</value>
+    <comment>SceneApplyViewModel.cs: preview action.</comment>
+  </data>
+  <data name="Scene_Action_NoChange" xml:space="preserve">
+    <value>NO CHANGE</value>
+    <comment>SceneApplyViewModel.cs: preview action.</comment>
+  </data>
+  <data name="Scene_Action_Handoff" xml:space="preserve">
+    <value>HANDOFF</value>
+    <comment>SceneApplyViewModel.cs: preview action.</comment>
+  </data>
+  <data name="Scene_Action_Move" xml:space="preserve">
+    <value>MOVE</value>
+    <comment>SceneApplyViewModel.cs: preview action.</comment>
+  </data>
+  <data name="Scene_Action_Replace" xml:space="preserve">
+    <value>REPLACE WITH UNDO</value>
+    <comment>SceneApplyViewModel.cs: preview action.</comment>
+  </data>
+  <data name="Scene_Action_Unknown" xml:space="preserve">
+    <value>UNKNOWN ACTION</value>
+    <comment>SceneApplyViewModel.cs: unknown preview action.</comment>
+  </data>
+
+  <data name="Scene_Reason_None" xml:space="preserve">
+    <value>Ready</value>
+    <comment>SceneApplyViewModel.cs: ready reason.</comment>
+  </data>
+  <data name="Scene_Reason_SourceNotFound" xml:space="preserve">
+    <value>Source Activity not found</value>
+    <comment>SceneApplyViewModel.cs: source-not-found reason.</comment>
+  </data>
+  <data name="Scene_Reason_SourceSelectionRequired" xml:space="preserve">
+    <value>Multiple exact sources require explicit selection</value>
+    <comment>SceneApplyViewModel.cs: source-selection reason.</comment>
+  </data>
+  <data name="Scene_Reason_SourceLookupUnavailable" xml:space="preserve">
+    <value>Source lookup unavailable</value>
+    <comment>SceneApplyViewModel.cs: source-lookup reason.</comment>
+  </data>
+  <data name="Scene_Reason_CapabilityDenied" xml:space="preserve">
+    <value>Scene capability denied</value>
+    <comment>SceneApplyViewModel.cs: capability reason.</comment>
+  </data>
+  <data name="Scene_Reason_ProtocolUnsupported" xml:space="preserve">
+    <value>Peer protocol unsupported</value>
+    <comment>SceneApplyViewModel.cs: protocol reason.</comment>
+  </data>
+  <data name="Scene_Reason_DestinationUnavailable" xml:space="preserve">
+    <value>Destination unavailable</value>
+    <comment>SceneApplyViewModel.cs: destination reason.</comment>
+  </data>
+  <data name="Scene_Reason_DestinationOccupied" xml:space="preserve">
+    <value>Destination must be empty</value>
+    <comment>SceneApplyViewModel.cs: occupied-destination reason.</comment>
+  </data>
+  <data name="Scene_Reason_OpaqueOccupancy" xml:space="preserve">
+    <value>Destination occupancy is protected or ineligible</value>
+    <comment>SceneApplyViewModel.cs: opaque-occupancy reason.</comment>
+  </data>
+  <data name="Scene_Reason_AmbiguousOccupancy" xml:space="preserve">
+    <value>Destination occupancy is ambiguous</value>
+    <comment>SceneApplyViewModel.cs: ambiguous-occupancy reason.</comment>
+  </data>
+  <data name="Scene_Reason_UndoUnavailable" xml:space="preserve">
+    <value>Durable undo unavailable</value>
+    <comment>SceneApplyViewModel.cs: undo reason.</comment>
+  </data>
+  <data name="Scene_Reason_UnsafeMoveReplace" xml:space="preserve">
+    <value>Move plus Replace is unsafe and blocked</value>
+    <comment>SceneApplyViewModel.cs: unsafe move-plus-replace reason.</comment>
+  </data>
+  <data name="Scene_Reason_Cancelled" xml:space="preserve">
+    <value>Cancelled</value>
+    <comment>SceneApplyViewModel.cs: cancellation reason.</comment>
+  </data>
+  <data name="Scene_Reason_NotAttemptedAfterRecovering" xml:space="preserve">
+    <value>Not attempted after uncertain outcome</value>
+    <comment>SceneApplyViewModel.cs: recovery-following reason.</comment>
+  </data>
+  <data name="Scene_Reason_Unavailable" xml:space="preserve">
+    <value>Unavailable</value>
+    <comment>SceneApplyViewModel.cs: unknown reason.</comment>
+  </data>
+
+  <data name="Scene_CompensationNotRequested" xml:space="preserve">
+    <value>No Scene compensation has been requested.</value>
+    <comment>SceneApplyViewModel.cs: compensation default description.</comment>
+  </data>
+  <data name="Scene_CompensationStatus_None" xml:space="preserve">
+    <value>NO COMPENSATION RESULT</value>
+    <comment>SceneApplyViewModel.cs: compensation default status.</comment>
+  </data>
+  <data name="Scene_PreviewDescription_SelectFromRepository" xml:space="preserve">
+    <value>Select a Scene through the Scene repository workflow, then preview current state.</value>
+    <comment>SceneApplyViewModel.cs: initial preview guidance.</comment>
+  </data>
+  <data name="Scene_PreviewExpiry_None" xml:space="preserve">
+    <value>No preview expiry.</value>
+    <comment>SceneApplyViewModel.cs: no-preview expiry.</comment>
+  </data>
+  <data name="Scene_PreviewStatus_NoSelection" xml:space="preserve">
+    <value>NO SCENE SELECTED</value>
+    <comment>SceneApplyViewModel.cs: no-selection preview status.</comment>
+  </data>
+  <data name="Scene_ResultDescription_NotAttempted" xml:space="preserve">
+    <value>No Scene apply has been attempted.</value>
+    <comment>SceneApplyViewModel.cs: default apply result description.</comment>
+  </data>
+  <data name="Scene_ResultStatus_None" xml:space="preserve">
+    <value>NO APPLY RESULT</value>
+    <comment>SceneApplyViewModel.cs: default apply result status.</comment>
+  </data>
+  <data name="Scene_StaleGroupWarning_None" xml:space="preserve">
+    <value>No stale Group warning.</value>
+    <comment>SceneApplyViewModel.cs: no stale-Group warning.</comment>
+  </data>
+  <data name="Scene_Description_NoSelection" xml:space="preserve">
+    <value>No Scene is selected. Scene repository lifecycle is handled separately.</value>
+    <comment>SceneApplyViewModel.cs: no-selection Scene description.</comment>
+  </data>
+  <data name="Scene_Description_SelectedFormat" xml:space="preserve">
+    <value>{0} ordered Activities; revision {1}; format {2}.</value>
+    <comment>SceneApplyViewModel.cs: selected Scene description.</comment>
+  </data>
+  <data name="Scene_Name_NoSelection" xml:space="preserve">
+    <value>No Scene selected</value>
+    <comment>SceneApplyViewModel.cs: no-selection Scene name.</comment>
+  </data>
+  <data name="Scene_PreviewStatus_Selected" xml:space="preserve">
+    <value>SCENE SELECTED &#x2014; PREVIEW REQUIRED</value>
+    <comment>SceneApplyViewModel.cs: selected Scene preview status.</comment>
+  </data>
+  <data name="Scene_PreviewDescription_Selected" xml:space="preserve">
+    <value>Preview reads exact current sources and destination occupancy without mutation.</value>
+    <comment>SceneApplyViewModel.cs: selected Scene preview description.</comment>
+  </data>
+
+  <data name="Scene_ResultStatus_RejectedFormat" xml:space="preserve">
+    <value>APPLY REJECTED &#x2014; {0}</value>
+    <comment>SceneApplyViewModel.cs: rejected apply status.</comment>
+  </data>
+  <data name="Scene_ResultDescription_Rejected" xml:space="preserve">
+    <value>No new Scene mutation was authorized. Generate a fresh preview before retrying.</value>
+    <comment>SceneApplyViewModel.cs: rejected apply description.</comment>
+  </data>
+  <data name="Scene_ResultStatus_ApplyCancelled" xml:space="preserve">
+    <value>APPLY CANCELLED</value>
+    <comment>SceneApplyViewModel.cs: cancelled apply status.</comment>
+  </data>
+  <data name="Scene_ResultDescription_ApplyCancelled" xml:space="preserve">
+    <value>Cancellation does not imply rollback; inspect every recorded item outcome.</value>
+    <comment>SceneApplyViewModel.cs: cancelled apply description.</comment>
+  </data>
+  <data name="Scene_ResultStatus_ApplyRecovering" xml:space="preserve">
+    <value>APPLY RECOVERY REQUIRED</value>
+    <comment>SceneApplyViewModel.cs: uncertain apply status.</comment>
+  </data>
+  <data name="Scene_ResultDescription_ApplyRecovering" xml:space="preserve">
+    <value>The presentation could not prove a terminal outcome. No exception or Activity content is displayed.</value>
+    <comment>SceneApplyViewModel.cs: uncertain apply description.</comment>
+  </data>
+
+  <data name="Scene_CompensationStatus_NothingToUndo" xml:space="preserve">
+    <value>NOTHING ELIGIBLE TO UNDO</value>
+    <comment>SceneApplyViewModel.cs: no-eligible-compensation status.</comment>
+  </data>
+  <data name="Scene_CompensationStatus_Completed" xml:space="preserve">
+    <value>COMPENSATION COMPLETED</value>
+    <comment>SceneApplyViewModel.cs: completed compensation status.</comment>
+  </data>
+  <data name="Scene_CompensationStatus_PartiallyCompleted" xml:space="preserve">
+    <value>COMPENSATION PARTIALLY COMPLETED</value>
+    <comment>SceneApplyViewModel.cs: partial compensation status.</comment>
+  </data>
+  <data name="Scene_CompensationStatus_Recovering" xml:space="preserve">
+    <value>COMPENSATION RECOVERY REQUIRED</value>
+    <comment>SceneApplyViewModel.cs: uncertain compensation status.</comment>
+  </data>
+  <data name="Scene_CompensationStatus_Cancelled" xml:space="preserve">
+    <value>COMPENSATION CANCELLED</value>
+    <comment>SceneApplyViewModel.cs: cancelled compensation status.</comment>
+  </data>
+  <data name="Scene_CompensationStatus_Unavailable" xml:space="preserve">
+    <value>COMPENSATION STATUS UNAVAILABLE</value>
+    <comment>SceneApplyViewModel.cs: unknown compensation status.</comment>
+  </data>
+  <data name="Scene_CompensationDescription_Completed" xml:space="preserve">
+    <value>Only eligible committed Preserve-Source Replace items were attempted in reverse Scene order. Handoff and Move were not reversed.</value>
+    <comment>SceneApplyViewModel.cs: compensation result explanation.</comment>
+  </data>
+  <data name="Scene_CompensationDescription_Cancelled" xml:space="preserve">
+    <value>Cancellation is not represented as whole-Scene rollback.</value>
+    <comment>SceneApplyViewModel.cs: cancelled compensation explanation.</comment>
+  </data>
+  <data name="Scene_CompensationDescription_Recovering" xml:space="preserve">
+    <value>The presentation could not prove a terminal undo outcome. No exception or Activity content is displayed.</value>
+    <comment>SceneApplyViewModel.cs: uncertain compensation explanation.</comment>
+  </data>
+
+  <data name="Scene_ResultDescription_NotAttemptedForPreview" xml:space="preserve">
+    <value>No Scene apply has been attempted for this preview.</value>
+    <comment>SceneApplyViewModel.cs: fresh-preview apply description.</comment>
+  </data>
+  <data name="Scene_PreviewStatus_ReadyWithBlockers" xml:space="preserve">
+    <value>PREVIEW READY &#x2014; BLOCKERS PRESENT</value>
+    <comment>SceneApplyViewModel.cs: blocked preview status.</comment>
+  </data>
+  <data name="Scene_PreviewStatus_Ready" xml:space="preserve">
+    <value>PREVIEW READY</value>
+    <comment>SceneApplyViewModel.cs: ready preview status.</comment>
+  </data>
+  <data name="Scene_PreviewDescription_Ready" xml:space="preserve">
+    <value>Items remain in saved Scene order. Every action and blocker is bound to this expiring preview.</value>
+    <comment>SceneApplyViewModel.cs: ready preview description.</comment>
+  </data>
+  <data name="Scene_StaleGroupWarning_Format" xml:space="preserve">
+    <value>STALE GROUP &#x2014; saved revision {0}; observed revision {1}. Saved Scene item order remains authoritative.</value>
+    <comment>SceneApplyViewModel.cs: stale Group warning.</comment>
+  </data>
+  <data name="Scene_PreviewStatus_Cancelled" xml:space="preserve">
+    <value>PREVIEW CANCELLED</value>
+    <comment>SceneApplyViewModel.cs: cancelled preview status.</comment>
+  </data>
+  <data name="Scene_PreviewDescription_Cancelled" xml:space="preserve">
+    <value>No mutation authority was acquired.</value>
+    <comment>SceneApplyViewModel.cs: cancelled preview description.</comment>
+  </data>
+  <data name="Scene_PreviewStatus_Unavailable" xml:space="preserve">
+    <value>PREVIEW UNAVAILABLE</value>
+    <comment>SceneApplyViewModel.cs: unavailable preview status.</comment>
+  </data>
+  <data name="Scene_PreviewDescription_Unavailable" xml:space="preserve">
+    <value>Current-state evidence could not be completed. No exception or Activity content is displayed.</value>
+    <comment>SceneApplyViewModel.cs: unavailable preview description.</comment>
+  </data>
+  <data name="Scene_PreviewExpiry_FreshPreviewRequired" xml:space="preserve">
+    <value>Generate a complete fresh preview before applying.</value>
+    <comment>SceneApplyViewModel.cs: fresh-preview requirement.</comment>
+  </data>
+  <data name="Scene_PreviewExpiry_ExpiredAtFormat" xml:space="preserve">
+    <value>EXPIRED AT {0} &#x2014; generate a fresh complete preview.</value>
+    <comment>SceneApplyViewModel.cs: expired preview timestamp.</comment>
+  </data>
+  <data name="Scene_PreviewExpiry_ExpiresAtFormat" xml:space="preserve">
+    <value>Expires at {0}.</value>
+    <comment>SceneApplyViewModel.cs: preview expiry timestamp.</comment>
+  </data>
+  <data name="Scene_PreviewStatus_Expired" xml:space="preserve">
+    <value>PREVIEW EXPIRED</value>
+    <comment>SceneApplyViewModel.cs: expired preview status.</comment>
+  </data>
+
+  <data name="Scene_UndoCapsule_None" xml:space="preserve">
+    <value>None</value>
+    <comment>SceneApplyViewModel.cs: no undo capsule.</comment>
+  </data>
+  <data name="Scene_ResultStatus_Completed" xml:space="preserve">
+    <value>SCENE COMPLETED</value>
+    <comment>SceneApplyViewModel.cs: completed result status.</comment>
+  </data>
+  <data name="Scene_ResultStatus_CompletedWithWarnings" xml:space="preserve">
+    <value>SCENE COMPLETED WITH WARNINGS</value>
+    <comment>SceneApplyViewModel.cs: warning result status.</comment>
+  </data>
+  <data name="Scene_ResultStatus_PartiallyCompleted" xml:space="preserve">
+    <value>SCENE PARTIALLY COMPLETED</value>
+    <comment>SceneApplyViewModel.cs: partial result status.</comment>
+  </data>
+  <data name="Scene_ResultStatus_Blocked" xml:space="preserve">
+    <value>SCENE BLOCKED</value>
+    <comment>SceneApplyViewModel.cs: blocked result status.</comment>
+  </data>
+  <data name="Scene_ResultStatus_Recovering" xml:space="preserve">
+    <value>SCENE RECOVERY REQUIRED</value>
+    <comment>SceneApplyViewModel.cs: uncertain result status.</comment>
+  </data>
+  <data name="Scene_ResultStatus_Cancelled" xml:space="preserve">
+    <value>SCENE CANCELLED</value>
+    <comment>SceneApplyViewModel.cs: cancelled result status.</comment>
+  </data>
+  <data name="Scene_ResultStatus_Unavailable" xml:space="preserve">
+    <value>SCENE RESULT UNAVAILABLE</value>
+    <comment>SceneApplyViewModel.cs: unknown result status.</comment>
+  </data>
+  <data name="Scene_ResultDescription_Completed" xml:space="preserve">
+    <value>This is a per-item non-atomic result. Terminal failures may coexist with committed work; Recovering never means rollback.</value>
+    <comment>SceneApplyViewModel.cs: per-item result explanation.</comment>
+  </data>
+
+  <data name="Scene_ApprovalStatus_SceneChanged" xml:space="preserve">
+    <value>SCENE CHANGED</value>
+    <comment>SceneApplyViewModel.cs: apply approval status.</comment>
+  </data>
+  <data name="Scene_ApprovalStatus_PreviewMismatch" xml:space="preserve">
+    <value>PREVIEW CHANGED</value>
+    <comment>SceneApplyViewModel.cs: apply approval status.</comment>
+  </data>
+  <data name="Scene_ApprovalStatus_Expired" xml:space="preserve">
+    <value>PREVIEW EXPIRED</value>
+    <comment>SceneApplyViewModel.cs: apply approval status.</comment>
+  </data>
+  <data name="Scene_ApprovalStatus_ReplaceConfirmationMismatch" xml:space="preserve">
+    <value>REPLACE CONFIRMATION MISMATCH</value>
+    <comment>SceneApplyViewModel.cs: apply approval status.</comment>
+  </data>
+  <data name="Scene_ApprovalStatus_Valid" xml:space="preserve">
+    <value>VALID</value>
+    <comment>SceneApplyViewModel.cs: apply approval status.</comment>
+  </data>
+  <data name="Scene_ApprovalStatus_Unavailable" xml:space="preserve">
+    <value>UNAVAILABLE</value>
+    <comment>SceneApplyViewModel.cs: unknown apply approval status.</comment>
+  </data>
+
+  <data name="Scene_CompensationOutcome_Committed" xml:space="preserve">
+    <value>COMMITTED</value>
+    <comment>SceneApplyViewModel.cs: compensation item outcome.</comment>
+  </data>
+  <data name="Scene_CompensationOutcome_Rejected" xml:space="preserve">
+    <value>REJECTED</value>
+    <comment>SceneApplyViewModel.cs: compensation item outcome.</comment>
+  </data>
+  <data name="Scene_CompensationOutcome_Failed" xml:space="preserve">
+    <value>FAILED</value>
+    <comment>SceneApplyViewModel.cs: compensation item outcome.</comment>
+  </data>
+  <data name="Scene_CompensationOutcome_Recovering" xml:space="preserve">
+    <value>RECOVERING</value>
+    <comment>SceneApplyViewModel.cs: compensation item outcome.</comment>
+  </data>
+  <data name="Scene_CompensationOutcome_Cancelled" xml:space="preserve">
+    <value>CANCELLED</value>
+    <comment>SceneApplyViewModel.cs: compensation item outcome.</comment>
+  </data>
+  <data name="Scene_CompensationOutcome_Unavailable" xml:space="preserve">
+    <value>UNAVAILABLE</value>
+    <comment>SceneApplyViewModel.cs: unknown compensation item outcome.</comment>
+  </data>
+
+  <data name="Scene_ResultAction_Blocked" xml:space="preserve">
+    <value>Blocked</value>
+    <comment>SceneApplyViewModel.cs: apply result action.</comment>
+  </data>
+  <data name="Scene_ResultAction_NoChange" xml:space="preserve">
+    <value>NoChange</value>
+    <comment>SceneApplyViewModel.cs: apply result action.</comment>
+  </data>
+  <data name="Scene_ResultAction_Handoff" xml:space="preserve">
+    <value>Handoff</value>
+    <comment>SceneApplyViewModel.cs: apply result action.</comment>
+  </data>
+  <data name="Scene_ResultAction_Move" xml:space="preserve">
+    <value>Move</value>
+    <comment>SceneApplyViewModel.cs: apply result action.</comment>
+  </data>
+  <data name="Scene_ResultAction_Replace" xml:space="preserve">
+    <value>Replace</value>
+    <comment>SceneApplyViewModel.cs: apply result action.</comment>
+  </data>
+  <data name="Scene_ResultAction_Unknown" xml:space="preserve">
+    <value>Unknown</value>
+    <comment>SceneApplyViewModel.cs: unknown apply result action.</comment>
+  </data>
+
+  <data name="Scene_ResultOutcome_Blocked" xml:space="preserve">
+    <value>Blocked</value>
+    <comment>SceneApplyViewModel.cs: apply result outcome.</comment>
+  </data>
+  <data name="Scene_ResultOutcome_NoChange" xml:space="preserve">
+    <value>NoChange</value>
+    <comment>SceneApplyViewModel.cs: apply result outcome.</comment>
+  </data>
+  <data name="Scene_ResultOutcome_Committed" xml:space="preserve">
+    <value>Committed</value>
+    <comment>SceneApplyViewModel.cs: apply result outcome.</comment>
+  </data>
+  <data name="Scene_ResultOutcome_CommittedWithWarning" xml:space="preserve">
+    <value>CommittedWithWarning</value>
+    <comment>SceneApplyViewModel.cs: apply result outcome.</comment>
+  </data>
+  <data name="Scene_ResultOutcome_Rejected" xml:space="preserve">
+    <value>Rejected</value>
+    <comment>SceneApplyViewModel.cs: apply result outcome.</comment>
+  </data>
+  <data name="Scene_ResultOutcome_Failed" xml:space="preserve">
+    <value>Failed</value>
+    <comment>SceneApplyViewModel.cs: apply result outcome.</comment>
+  </data>
+  <data name="Scene_ResultOutcome_Recovering" xml:space="preserve">
+    <value>Recovering</value>
+    <comment>SceneApplyViewModel.cs: apply result outcome.</comment>
+  </data>
+  <data name="Scene_ResultOutcome_NotAttempted" xml:space="preserve">
+    <value>NotAttempted</value>
+    <comment>SceneApplyViewModel.cs: apply result outcome.</comment>
+  </data>
+  <data name="Scene_ResultOutcome_Unavailable" xml:space="preserve">
+    <value>Unavailable</value>
+    <comment>SceneApplyViewModel.cs: unknown apply result outcome.</comment>
+  </data>
+
+  <data name="SceneRepository_ItemSummaryFormat" xml:space="preserve">
+    <value>{0} ordered Activities; revision {1}; format {2}</value>
+    <comment>SceneRepositoryViewModel.cs: stored Scene summary.</comment>
+  </data>
+  <data name="SceneRepository_NoGroupBinding" xml:space="preserve">
+    <value>No Group binding.</value>
+    <comment>SceneRepositoryViewModel.cs: unbound Scene Group.</comment>
+  </data>
+  <data name="SceneRepository_GroupBindingFormat" xml:space="preserve">
+    <value>Group {0} revision {1}</value>
+    <comment>SceneRepositoryViewModel.cs: Scene Group binding.</comment>
+  </data>
+  <data name="SceneRepository_ItemAutomationNameFormat" xml:space="preserve">
+    <value>Stored Scene {0} revision {1} with {2} Activities</value>
+    <comment>SceneRepositoryViewModel.cs: stored Scene automation name.</comment>
+  </data>
+  <data name="SceneRepository_ExportPath_None" xml:space="preserve">
+    <value>No Scene export has been written.</value>
+    <comment>SceneRepositoryViewModel.cs: default export path.</comment>
+  </data>
+  <data name="SceneRepository_ExportPreview_Default" xml:space="preserve">
+    <value>Exports contain identifiers, revisions, digests, timestamps, and policies only.</value>
+    <comment>SceneRepositoryViewModel.cs: default export preview.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_Default" xml:space="preserve">
+    <value>Selection hands the stored Scene to the Scene apply preview workflow.</value>
+    <comment>SceneRepositoryViewModel.cs: default lifecycle description.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleStatus_None" xml:space="preserve">
+    <value>NO REPOSITORY ACTION</value>
+    <comment>SceneRepositoryViewModel.cs: default lifecycle status.</comment>
+  </data>
+  <data name="SceneRepository_Description_Default" xml:space="preserve">
+    <value>Stored Scenes live in one protected local repository file.</value>
+    <comment>SceneRepositoryViewModel.cs: repository description.</comment>
+  </data>
+  <data name="SceneRepository_Status_Unavailable" xml:space="preserve">
+    <value>SCENE REPOSITORY UNAVAILABLE</value>
+    <comment>SceneRepositoryViewModel.cs: unavailable repository status.</comment>
+  </data>
+  <data name="SceneRepository_Description_OpenFailed" xml:space="preserve">
+    <value>The protected Scene repository could not be opened. No exception content is displayed.</value>
+    <comment>SceneRepositoryViewModel.cs: repository open failure.</comment>
+  </data>
+  <data name="SceneRepository_Description_NotConfigured" xml:space="preserve">
+    <value>No protected Scene repository is configured for this desktop session.</value>
+    <comment>SceneRepositoryViewModel.cs: repository not configured.</comment>
+  </data>
+  <data name="SceneRepository_Status_Empty" xml:space="preserve">
+    <value>SCENE REPOSITORY EMPTY</value>
+    <comment>SceneRepositoryViewModel.cs: empty repository status.</comment>
+  </data>
+  <data name="SceneRepository_Status_OneStored" xml:space="preserve">
+    <value>1 SCENE STORED</value>
+    <comment>SceneRepositoryViewModel.cs: one-Scene repository status.</comment>
+  </data>
+  <data name="SceneRepository_Status_MultipleStoredFormat" xml:space="preserve">
+    <value>{0} SCENES STORED</value>
+    <comment>SceneRepositoryViewModel.cs: multi-Scene repository status.</comment>
+  </data>
+  <data name="SceneRepository_Status_RefreshCancelled" xml:space="preserve">
+    <value>SCENE REPOSITORY REFRESH CANCELLED</value>
+    <comment>SceneRepositoryViewModel.cs: cancelled refresh status.</comment>
+  </data>
+  <data name="SceneRepository_Description_ReadFailed" xml:space="preserve">
+    <value>Stored Scenes could not be read. No exception content is displayed.</value>
+    <comment>SceneRepositoryViewModel.cs: repository read failure.</comment>
+  </data>
+
+  <data name="SceneRepository_LifecycleStatus_SelectedForApply" xml:space="preserve">
+    <value>SCENE SELECTED FOR APPLY</value>
+    <comment>SceneRepositoryViewModel.cs: selected-for-apply status.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_SelectedForApply" xml:space="preserve">
+    <value>The Scene apply panel now binds this stored plan. No current Group revision source exists, so no stale-Group warning is observed at selection.</value>
+    <comment>SceneRepositoryViewModel.cs: selected-for-apply description.</comment>
+  </data>
+  <data name="SceneRepository_DeleteConfirmationFormat" xml:space="preserve">
+    <value>Delete Scene "{0}" ({1} revision {2})? Only the stored plan is removed from this device; applied Activities are not affected. This action has no undo.</value>
+    <comment>SceneRepositoryViewModel.cs: exact Scene delete confirmation.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleStatus_Deleted" xml:space="preserve">
+    <value>SCENE DELETED</value>
+    <comment>SceneRepositoryViewModel.cs: deleted Scene status.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleStatus_NotFound" xml:space="preserve">
+    <value>SCENE NOT FOUND &#x2014; REFRESH THE LIST</value>
+    <comment>SceneRepositoryViewModel.cs: missing Scene status.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_Deleted" xml:space="preserve">
+    <value>The stored Scene plan was removed. Scene apply journals, Replace undo state, and applied Activities were not touched.</value>
+    <comment>SceneRepositoryViewModel.cs: deleted Scene description.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_NotFound" xml:space="preserve">
+    <value>The stored Scene no longer exists. Refresh the repository list.</value>
+    <comment>SceneRepositoryViewModel.cs: missing Scene description.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleStatus_DeleteCancelled" xml:space="preserve">
+    <value>DELETE CANCELLED</value>
+    <comment>SceneRepositoryViewModel.cs: cancelled delete status.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_DeleteCancelled" xml:space="preserve">
+    <value>The delete request was cancelled before a durable outcome was observed.</value>
+    <comment>SceneRepositoryViewModel.cs: cancelled delete description.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleStatus_DeleteFailed" xml:space="preserve">
+    <value>DELETE FAILED</value>
+    <comment>SceneRepositoryViewModel.cs: failed delete status.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_DeleteFailed" xml:space="preserve">
+    <value>The stored Scene could not be deleted. No exception content is displayed.</value>
+    <comment>SceneRepositoryViewModel.cs: failed delete description.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleStatus_ExportWritten" xml:space="preserve">
+    <value>EXPORT WRITTEN</value>
+    <comment>SceneRepositoryViewModel.cs: completed export status.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_ExportWritten" xml:space="preserve">
+    <value>The export is redacted: it contains no Scene name, Activity ID, Device ID, or placement slot.</value>
+    <comment>SceneRepositoryViewModel.cs: completed export description.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleStatus_ExportCancelled" xml:space="preserve">
+    <value>EXPORT CANCELLED</value>
+    <comment>SceneRepositoryViewModel.cs: cancelled export status.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_ExportCancelled" xml:space="preserve">
+    <value>The export request was cancelled before a file was reported.</value>
+    <comment>SceneRepositoryViewModel.cs: cancelled export description.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleStatus_ExportFailed" xml:space="preserve">
+    <value>EXPORT FAILED</value>
+    <comment>SceneRepositoryViewModel.cs: failed export status.</comment>
+  </data>
+  <data name="SceneRepository_LifecycleDescription_ExportFailed" xml:space="preserve">
+    <value>No export file can be reported as written. No exception content is displayed.</value>
+    <comment>SceneRepositoryViewModel.cs: failed export description.</comment>
+  </data>
+  <data name="SceneRepository_ConflictPolicy_RequireEmpty" xml:space="preserve">
+    <value>REQUIRE EMPTY DESTINATION</value>
+    <comment>SceneRepositoryViewModel.cs: require-empty conflict policy.</comment>
+  </data>
+  <data name="SceneRepository_ConflictPolicy_ReplaceWithUndo" xml:space="preserve">
+    <value>REPLACE WITH UNDO</value>
+    <comment>SceneRepositoryViewModel.cs: replace-with-undo conflict policy.</comment>
+  </data>
+  <data name="SceneRepository_ConflictPolicy_Unavailable" xml:space="preserve">
+    <value>CONFLICT POLICY UNAVAILABLE</value>
+    <comment>SceneRepositoryViewModel.cs: unknown conflict policy.</comment>
+  </data>
+
+  <data name="LocalData_HistoryItemLabelFormat" xml:space="preserve">
+    <value>Receipt {0}</value>
+    <comment>LocalDataViewModel.cs: operation history item label.</comment>
+  </data>
+  <data name="LocalData_HistoryItemAutomationNameFormat" xml:space="preserve">
+    <value>{0} receipt {1} recorded {2}</value>
+    <comment>LocalDataViewModel.cs: operation history automation name.</comment>
+  </data>
+  <data name="LocalData_DiagnosticItemAutomationNameFormat" xml:space="preserve">
+    <value>Redacted diagnostic bundle {0}</value>
+    <comment>LocalDataViewModel.cs: diagnostic bundle automation name.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsExportPath_None" xml:space="preserve">
+    <value>No diagnostic bundle has been written.</value>
+    <comment>LocalDataViewModel.cs: default diagnostic export path.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsPreview_Default" xml:space="preserve">
+    <value>Refresh to inspect the exact redacted diagnostic bundle.</value>
+    <comment>LocalDataViewModel.cs: default diagnostic preview.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsStatus_NotLoaded" xml:space="preserve">
+    <value>DIAGNOSTICS NOT LOADED</value>
+    <comment>LocalDataViewModel.cs: initial diagnostic status.</comment>
+  </data>
+  <data name="LocalData_HistoryDescription_Default" xml:space="preserve">
+    <value>History contains only protected structured operation receipts.</value>
+    <comment>LocalDataViewModel.cs: initial history description.</comment>
+  </data>
+  <data name="LocalData_HistoryExportPath_None" xml:space="preserve">
+    <value>No history export has been written.</value>
+    <comment>LocalDataViewModel.cs: default history export path.</comment>
+  </data>
+  <data name="LocalData_HistoryExportPreview_Default" xml:space="preserve">
+    <value>Exports omit all operation, Activity, and Device identifiers.</value>
+    <comment>LocalDataViewModel.cs: default history export preview.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_NotLoaded" xml:space="preserve">
+    <value>HISTORY NOT LOADED</value>
+    <comment>LocalDataViewModel.cs: initial history status.</comment>
+  </data>
+
+  <data name="LocalData_HistoryStatus_Empty" xml:space="preserve">
+    <value>OPERATION HISTORY EMPTY</value>
+    <comment>LocalDataViewModel.cs: empty history status.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_OneRetained" xml:space="preserve">
+    <value>1 RECEIPT RETAINED</value>
+    <comment>LocalDataViewModel.cs: one-receipt status.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_MultipleRetainedFormat" xml:space="preserve">
+    <value>{0} RECEIPTS RETAINED</value>
+    <comment>LocalDataViewModel.cs: multi-receipt status.</comment>
+  </data>
+  <data name="LocalData_HistoryDescription_Degraded" xml:space="preserve">
+    <value>A protected history write could not be completed. Durable truth was reopened; product operations remain governed by their own results.</value>
+    <comment>LocalDataViewModel.cs: degraded history description.</comment>
+  </data>
+  <data name="LocalData_HistoryDescription_Ready" xml:space="preserve">
+    <value>Receipts are stored in one protected bounded local history.</value>
+    <comment>LocalDataViewModel.cs: ready history description.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsStatus_Ready" xml:space="preserve">
+    <value>REDACTED DIAGNOSTICS READY</value>
+    <comment>LocalDataViewModel.cs: ready diagnostics status.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_RefreshCancelled" xml:space="preserve">
+    <value>LOCAL DATA REFRESH CANCELLED</value>
+    <comment>LocalDataViewModel.cs: cancelled refresh status.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_Unavailable" xml:space="preserve">
+    <value>OPERATION HISTORY UNAVAILABLE</value>
+    <comment>LocalDataViewModel.cs: unavailable history status.</comment>
+  </data>
+  <data name="LocalData_HistoryDescription_Unavailable" xml:space="preserve">
+    <value>Protected local history could not be opened. No unprotected fallback is used.</value>
+    <comment>LocalDataViewModel.cs: unavailable history description.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsStatus_Unavailable" xml:space="preserve">
+    <value>DIAGNOSTICS UNAVAILABLE</value>
+    <comment>LocalDataViewModel.cs: unavailable diagnostics status.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsPreview_Unavailable" xml:space="preserve">
+    <value>No diagnostic preview is available. Exception content is hidden.</value>
+    <comment>LocalDataViewModel.cs: unavailable diagnostic preview.</comment>
+  </data>
+
+  <data name="LocalData_HistoryDeleteConfirmationFormat" xml:space="preserve">
+    <value>Delete the selected {0} receipt recorded {1}? This action has no undo.</value>
+    <comment>LocalDataViewModel.cs: exact history receipt delete confirmation.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_ReceiptDeleted" xml:space="preserve">
+    <value>HISTORY RECEIPT DELETED</value>
+    <comment>LocalDataViewModel.cs: deleted receipt status.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_ReceiptNoLongerExists" xml:space="preserve">
+    <value>HISTORY RECEIPT NO LONGER EXISTS</value>
+    <comment>LocalDataViewModel.cs: missing receipt status.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_DeleteFailed" xml:space="preserve">
+    <value>HISTORY DELETE FAILED</value>
+    <comment>LocalDataViewModel.cs: failed receipt deletion status.</comment>
+  </data>
+  <data name="LocalData_HistoryDescription_MutationFailed" xml:space="preserve">
+    <value>Protected history kept its durable state. Exception content is hidden.</value>
+    <comment>LocalDataViewModel.cs: failed history mutation description.</comment>
+  </data>
+  <data name="LocalData_HistoryClearConfirmationFormat" xml:space="preserve">
+    <value>Delete all {0} retained operation receipts? This action has no undo.</value>
+    <comment>LocalDataViewModel.cs: clear-history confirmation.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_ClearFailed" xml:space="preserve">
+    <value>HISTORY CLEAR FAILED</value>
+    <comment>LocalDataViewModel.cs: failed history clear status.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_ExportWritten" xml:space="preserve">
+    <value>REDACTED HISTORY EXPORT WRITTEN</value>
+    <comment>LocalDataViewModel.cs: completed history export status.</comment>
+  </data>
+  <data name="LocalData_HistoryStatus_ExportFailed" xml:space="preserve">
+    <value>HISTORY EXPORT FAILED</value>
+    <comment>LocalDataViewModel.cs: failed history export status.</comment>
+  </data>
+  <data name="LocalData_HistoryDescription_ExportFailed" xml:space="preserve">
+    <value>No export was reported. Exception content is hidden.</value>
+    <comment>LocalDataViewModel.cs: failed history export description.</comment>
+  </data>
+
+  <data name="LocalData_DiagnosticsStatus_ExportWritten" xml:space="preserve">
+    <value>REDACTED DIAGNOSTIC BUNDLE WRITTEN</value>
+    <comment>LocalDataViewModel.cs: completed diagnostic export status.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsStatus_ExportFailed" xml:space="preserve">
+    <value>DIAGNOSTIC EXPORT FAILED</value>
+    <comment>LocalDataViewModel.cs: failed diagnostic export status.</comment>
+  </data>
+  <data name="LocalData_DiagnosticDeleteConfirmation" xml:space="preserve">
+    <value>Delete the selected redacted diagnostic bundle? This action has no undo.</value>
+    <comment>LocalDataViewModel.cs: diagnostic bundle delete confirmation.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsStatus_BundleDeleted" xml:space="preserve">
+    <value>DIAGNOSTIC BUNDLE DELETED</value>
+    <comment>LocalDataViewModel.cs: deleted diagnostic bundle status.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsStatus_BundleNoLongerExists" xml:space="preserve">
+    <value>DIAGNOSTIC BUNDLE NO LONGER EXISTS</value>
+    <comment>LocalDataViewModel.cs: missing diagnostic bundle status.</comment>
+  </data>
+  <data name="LocalData_DiagnosticsStatus_DeleteFailed" xml:space="preserve">
+    <value>DIAGNOSTIC DELETE FAILED</value>
+    <comment>LocalDataViewModel.cs: failed diagnostic deletion status.</comment>
+  </data>
+</root>

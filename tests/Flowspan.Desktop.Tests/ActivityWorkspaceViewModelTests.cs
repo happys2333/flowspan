@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using Flowspan.Application;
 using Flowspan.Domain;
@@ -1158,6 +1159,43 @@ public sealed class ActivityWorkspaceViewModelTests
         Assert.Equal(
             "TARGET-LOCAL UNDO CONFIRMED — READY",
             viewModel.TargetLocalUndoStatus);
+    }
+
+    [Fact]
+    public async Task RecoveryTimestampsRemainInvariantAcrossDisplayCultures()
+    {
+        CultureInfo originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            var service = new FakeActivityService
+            {
+                ReplaceRecoveryResult = await CreateReplaceRecoveryResultAsync(
+                    undoable: true),
+            };
+            await using var viewModel = new ActivityWorkspaceViewModel(
+                service,
+                InlineDesktopUiDispatcher.Instance);
+            await viewModel.InitializeAsync();
+            DesktopReplaceRecoveryItem item = Assert.Single(
+                viewModel.ReplaceRecoveryItems);
+            viewModel.SelectedReplaceRecoveryItem = item;
+
+            const string exactExpiry = "2026-07-15T12:10:00.0000000+00:00";
+            Assert.Contains(exactExpiry, item.Undo, StringComparison.Ordinal);
+            Assert.Contains(
+                exactExpiry,
+                viewModel.TargetLocalUndoConfirmationDescription,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "15/07/2026",
+                viewModel.TargetLocalUndoConfirmationDescription,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
     }
 
     [Fact]

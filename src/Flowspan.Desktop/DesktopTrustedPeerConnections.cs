@@ -51,36 +51,39 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
     public string StatusLabel => State switch
     {
         DesktopTrustedPeerConnectionState.WaitingForPeer =>
-            "WAITING FOR TRUSTED PEER",
+            DesktopText.Get("TrustedConnection_WaitingForPeerStatus"),
         DesktopTrustedPeerConnectionState.WaitingForInbound =>
-            "WAITING FOR INBOUND AUTHENTICATION",
-        DesktopTrustedPeerConnectionState.Authenticating => "AUTHENTICATING",
+            DesktopText.Get("TrustedConnection_WaitingForInboundStatus"),
+        DesktopTrustedPeerConnectionState.Authenticating => DesktopText.Get(
+            "TrustedConnection_AuthenticatingStatus"),
         DesktopTrustedPeerConnectionState.AuthenticatedIdle
             when IsLegacyCompatibilityMode =>
-                "AUTHENTICATED — LEGACY COMPATIBILITY / IDLE / NOT SHARING",
+                DesktopText.Get("TrustedConnection_LegacyIdleStatus"),
         DesktopTrustedPeerConnectionState.AuthenticatedIdle
             when IsReconnectAtKeyLimitMode =>
-                "AUTHENTICATED — ENCRYPTED FINISHED / RECONNECT-AT-KEY-LIMIT / IDLE / NOT SHARING",
+                DesktopText.Get("TrustedConnection_KeyLimitIdleStatus"),
         DesktopTrustedPeerConnectionState.AuthenticatedIdle =>
-            "AUTHENTICATED — IDLE / NOT SHARING",
-        DesktopTrustedPeerConnectionState.Retrying => "RETRYING LOCALLY",
+            DesktopText.Get("TrustedConnection_IdleStatus"),
+        DesktopTrustedPeerConnectionState.Retrying => DesktopText.Get(
+            "TrustedConnection_RetryingStatus"),
         DesktopTrustedPeerConnectionState.CapabilityRequired =>
-            "IDLE — CONTROL CHANNEL CAPABILITY NOT GRANTED",
+            DesktopText.Get("TrustedConnection_CapabilityRequiredStatus"),
         DesktopTrustedPeerConnectionState.PermanentlyBlocked => StopReason switch
         {
             PeerReconnectStopReason.CandidateIdentityChanged =>
-                "IDENTITY CHANGE — BLOCKED",
-            PeerReconnectStopReason.PeerNotTrusted => "TRUST REMOVED — BLOCKED",
+                DesktopText.Get("TrustedConnection_IdentityChangedStatus"),
+            PeerReconnectStopReason.PeerNotTrusted => DesktopText.Get(
+                "TrustedConnection_TrustRemovedStatus"),
             PeerReconnectStopReason.CapabilityDenied =>
-                "CAPABILITY DENIED — BLOCKED",
+                DesktopText.Get("TrustedConnection_CapabilityDeniedStatus"),
             PeerReconnectStopReason.ProtocolIncompatible =>
-                "PROTOCOL INCOMPATIBLE — BLOCKED",
+                DesktopText.Get("TrustedConnection_ProtocolIncompatibleStatus"),
             PeerReconnectStopReason.AuthenticationFailed =>
-                "AUTHENTICATION FAILED — BLOCKED",
-            _ => "SECURITY POLICY — BLOCKED",
+                DesktopText.Get("TrustedConnection_AuthenticationFailedStatus"),
+            _ => DesktopText.Get("TrustedConnection_SecurityPolicyStatus"),
         },
         DesktopTrustedPeerConnectionState.Unavailable =>
-            "LOCAL RECONNECT UNAVAILABLE",
+            DesktopText.Get("TrustedConnection_UnavailableStatus"),
         _ => throw new InvalidOperationException(
             "The trusted-peer connection state is not supported."),
     };
@@ -88,35 +91,45 @@ public sealed record DesktopTrustedPeerConnectionSnapshot(
     public string StatusDescription => State switch
     {
         DesktopTrustedPeerConnectionState.WaitingForPeer =>
-            "Waiting for a current-key signed local discovery offer.",
+            DesktopText.Get("TrustedConnection_WaitingForPeerDescription"),
         DesktopTrustedPeerConnectionState.WaitingForInbound =>
-            "This Device ID waits on the shared authenticated listener to avoid a duplicate connection.",
+            DesktopText.Get("TrustedConnection_WaitingForInboundDescription"),
         DesktopTrustedPeerConnectionState.Authenticating =>
-            "Verifying the signed offer, identity transcript, and current Capability grant.",
+            DesktopText.Get("TrustedConnection_AuthenticatingDescription"),
         DesktopTrustedPeerConnectionState.AuthenticatedIdle
             when IsLegacyCompatibilityMode =>
-                $"DEGRADED SECURITY — protocol {string.Join(", ", ActiveProtocolVersions)} uses legacy compatibility without encrypted Finished. The encrypted control channel is idle; no Activity is being shared.",
+                DesktopText.Format(
+                    "TrustedConnection_LegacyIdleDescription",
+                    string.Join(
+                        DesktopText.Get("TrustedConnection_ProtocolSeparator"),
+                        ActiveProtocolVersions)),
         DesktopTrustedPeerConnectionState.AuthenticatedIdle
             when IsReconnectAtKeyLimitMode =>
-                $"Protocol {string.Join(", ", ActiveProtocolVersions)} verifies encrypted Finished but predates live rekey. Flowspan closes and establishes a fresh authenticated connection at the traffic-key usage limit; the channel is idle and no Activity is being shared.",
+                DesktopText.Format(
+                    "TrustedConnection_KeyLimitIdleDescription",
+                    string.Join(
+                        DesktopText.Get("TrustedConnection_ProtocolSeparator"),
+                        ActiveProtocolVersions)),
         DesktopTrustedPeerConnectionState.AuthenticatedIdle =>
-            "The encrypted control channel supports bounded live rekey and is idle. No Activity is being shared.",
+            DesktopText.Get("TrustedConnection_IdleDescription"),
         DesktopTrustedPeerConnectionState.Retrying => RetryDelay is TimeSpan delay
-            ? $"A transient local failure is using bounded retry ({delay.TotalSeconds:0.###} seconds)."
-            : "A transient local failure is using bounded retry.",
+            ? DesktopText.Format(
+                "TrustedConnection_RetryingDelayDescription",
+                delay.TotalSeconds)
+            : DesktopText.Get("TrustedConnection_RetryingDescription"),
         DesktopTrustedPeerConnectionState.CapabilityRequired =>
-            "This device will not open the idle control channel until activity.offer, activity.receive, activity.replace, activity.swap, mirror.view, or mirror.drive is granted locally.",
+            DesktopText.Get("TrustedConnection_CapabilityRequiredDescription"),
         DesktopTrustedPeerConnectionState.PermanentlyBlocked =>
-            "Automatic retry stopped. Trust was not changed.",
+            DesktopText.Get("TrustedConnection_BlockedDescription"),
         DesktopTrustedPeerConnectionState.Unavailable =>
-            "The reconnect worker stopped unexpectedly. Disable and retry local networking.",
+            DesktopText.Get("TrustedConnection_UnavailableDescription"),
         _ => string.Empty,
     };
 
     public string IdentityWarning => HasIdentityWarning
         ? ConflictingFingerprint is null
-            ? "IDENTITY CLAIM BLOCKED — authentication rejected another key, but no safe observed fingerprint is available. The Trust Record was preserved."
-            : "IDENTITY CLAIM BLOCKED — a discovery record claimed this Device ID with another fingerprint. It was not connected; discovery alone does not prove key ownership. The Trust Record was preserved."
+            ? DesktopText.Get("TrustedConnection_AuthenticationIdentityWarning")
+            : DesktopText.Get("TrustedConnection_DiscoveryIdentityWarning")
         : string.Empty;
 }
 

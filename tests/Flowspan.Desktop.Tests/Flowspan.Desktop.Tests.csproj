@@ -28,4 +28,12 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../src/Flowspan.Desktop/MainWindow.axaml"
+          Link="Source.MainWindow.axaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/Flowspan.Desktop/*.cs"
+          Link="DesktopSource/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

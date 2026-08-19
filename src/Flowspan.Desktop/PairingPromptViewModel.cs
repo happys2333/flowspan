@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Flowspan.Domain;
@@ -12,22 +11,25 @@ public sealed class PairingPromptViewModel : INotifyPropertyChanged, IDisposable
     private readonly IDesktopUiDispatcher dispatcher;
     private readonly RelayCommand rejectPairingCommand;
     private readonly DesktopPairingDecisionSource source;
-    private string capabilitySummary = "No capabilities selected.";
+    private string capabilitySummary = DesktopText.Get(
+        "PairingPrompt_NoCapabilities");
     private bool disposed;
     private bool grantActivityOffer;
     private bool grantActivityReceive;
     private bool hasPendingPrompt;
     private bool isCodeConfirmed;
     private long lastSequence;
-    private string pairingCode = "No code";
-    private string pairingExpiresAt = "Not pending";
+    private string pairingCode = DesktopText.Get("PairingPrompt_NoCode");
+    private string pairingExpiresAt = DesktopText.Get(
+        "PairingPrompt_NotPending");
     private Guid? pairingPromptId;
-    private string pairingProtocol = "Not negotiated";
-    private string peerDeviceId = "Unavailable";
-    private string peerDisplayName = "No peer";
-    private string peerFingerprint = "Unavailable";
-    private string status =
-        "No pairing confirmation is pending. Pairing is unavailable in this build.";
+    private string pairingProtocol = DesktopText.Get(
+        "PairingPrompt_NotNegotiated");
+    private string peerDeviceId = DesktopText.Get("PairingPrompt_Unavailable");
+    private string peerDisplayName = DesktopText.Get("PairingPrompt_NoPeer");
+    private string peerFingerprint = DesktopText.Get(
+        "PairingPrompt_Unavailable");
+    private string status = DesktopText.Get("PairingPrompt_InitialStatus");
 
     public PairingPromptViewModel(
         DesktopPairingDecisionSource source,
@@ -185,7 +187,7 @@ public sealed class PairingPromptViewModel : INotifyPropertyChanged, IDisposable
 
         if (!source.TryAccept(promptId, CapabilityGrant.Of([.. capabilities])))
         {
-            Status = "The pairing request is no longer active. No capabilities were granted.";
+            Status = DesktopText.Get("PairingPrompt_RequestNoLongerActive");
         }
     }
 
@@ -206,9 +208,9 @@ public sealed class PairingPromptViewModel : INotifyPropertyChanged, IDisposable
             PeerFingerprint = prompt.PeerFingerprint;
             PairingProtocol = prompt.ProtocolVersion;
             PairingCode = $"{prompt.ShortAuthenticationString[..3]} {prompt.ShortAuthenticationString[3..]}";
-            PairingExpiresAt = prompt.ExpiresAt
-                .ToLocalTime()
-                .ToString("g", CultureInfo.CurrentCulture);
+            PairingExpiresAt = DesktopText.Format(
+                "PairingPrompt_ExpiresAt",
+                prompt.ExpiresAt.ToLocalTime());
             if (changedPeer)
             {
                 IsCodeConfirmed = false;
@@ -217,8 +219,7 @@ public sealed class PairingPromptViewModel : INotifyPropertyChanged, IDisposable
             }
 
             HasPendingPrompt = true;
-            Status =
-                "Compare the code on both devices. Pairing alone does not share an Activity.";
+            Status = DesktopText.Get("PairingPrompt_CompareCode");
             return;
         }
 
@@ -227,23 +228,23 @@ public sealed class PairingPromptViewModel : INotifyPropertyChanged, IDisposable
         IsCodeConfirmed = false;
         GrantActivityOffer = false;
         GrantActivityReceive = false;
-        PeerDisplayName = "No peer";
-        PeerDeviceId = "Unavailable";
-        PeerFingerprint = "Unavailable";
-        PairingProtocol = "Not negotiated";
-        PairingCode = "No code";
-        PairingExpiresAt = "Not pending";
+        PeerDisplayName = DesktopText.Get("PairingPrompt_NoPeer");
+        PeerDeviceId = DesktopText.Get("PairingPrompt_Unavailable");
+        PeerFingerprint = DesktopText.Get("PairingPrompt_Unavailable");
+        PairingProtocol = DesktopText.Get("PairingPrompt_NotNegotiated");
+        PairingCode = DesktopText.Get("PairingPrompt_NoCode");
+        PairingExpiresAt = DesktopText.Get("PairingPrompt_NotPending");
         Status = eventArgs.Kind switch
         {
             DesktopPairingPromptChangeKind.Accepted =>
-                "Pairing confirmation sent. Waiting for the peer and secure completion.",
+                DesktopText.Get("PairingPrompt_Accepted"),
             DesktopPairingPromptChangeKind.Rejected =>
-                "Pairing rejected. No capabilities were granted.",
+                DesktopText.Get("PairingPrompt_Rejected"),
             DesktopPairingPromptChangeKind.Canceled =>
-                "Pairing ended before confirmation. No capabilities were granted.",
+                DesktopText.Get("PairingPrompt_Canceled"),
             DesktopPairingPromptChangeKind.Disposed =>
-                "Pairing closed locally. No capabilities were granted.",
-            _ => "No pairing confirmation is pending.",
+                DesktopText.Get("PairingPrompt_Disposed"),
+            _ => DesktopText.Get("PairingPrompt_NonePending"),
         };
     }
 
@@ -259,7 +260,7 @@ public sealed class PairingPromptViewModel : INotifyPropertyChanged, IDisposable
     {
         if (pairingPromptId is { } promptId && !source.TryReject(promptId))
         {
-            Status = "The pairing request is no longer active. No capabilities were granted.";
+            Status = DesktopText.Get("PairingPrompt_RequestNoLongerActive");
         }
     }
 
@@ -282,10 +283,10 @@ public sealed class PairingPromptViewModel : INotifyPropertyChanged, IDisposable
     {
         CapabilitySummary = (GrantActivityOffer, GrantActivityReceive) switch
         {
-            (true, true) => "Allow Activity offers and Activity receives.",
-            (true, false) => "Allow this peer to offer Activities.",
-            (false, true) => "Allow this peer to receive Activities.",
-            _ => "No capabilities selected.",
+            (true, true) => DesktopText.Get("PairingPrompt_AllowOfferAndReceive"),
+            (true, false) => DesktopText.Get("PairingPrompt_AllowOffer"),
+            (false, true) => DesktopText.Get("PairingPrompt_AllowReceive"),
+            _ => DesktopText.Get("PairingPrompt_NoCapabilities"),
         };
     }
 }

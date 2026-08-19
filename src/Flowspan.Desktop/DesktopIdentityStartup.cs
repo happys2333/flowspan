@@ -54,8 +54,8 @@ public sealed class DesktopIdentityStartup : IDesktopIdentityStartup
                 current.DeviceId.ToString(),
                 current.PublicIdentity.Fingerprint,
                 isTestMode
-                    ? "TEST MODE — identity is not persisted"
-                    : "Operating-system protected",
+                    ? DesktopText.Get("IdentityStartup_TestModeProtection")
+                    : DesktopText.Get("IdentityStartup_Protected"),
                 isTestMode);
         }
         finally
@@ -115,25 +115,33 @@ public sealed class DesktopIdentityStartup : IDesktopIdentityStartup
         {
             LinuxSecretServiceException linuxFailure => new DesktopStartupFailure(
                 "identity.linux_secret_service_unavailable",
-                "The local identity could not be opened from Secret Service.",
-                linuxFailure.RecoveryAction),
+                DesktopText.Get("IdentityStartup_LinuxSecretServiceSummary"),
+                linuxFailure.Operation switch
+                {
+                    "start" => DesktopText.Get(
+                        "IdentityStartup_LinuxSecretServiceInstallRecovery"),
+                    "timeout" => DesktopText.Get(
+                        "IdentityStartup_LinuxSecretServiceTimeoutRecovery"),
+                    _ => DesktopText.Get(
+                        "IdentityStartup_LinuxSecretServiceRecovery"),
+                }),
             PlatformNotSupportedException => new DesktopStartupFailure(
                 "identity.platform_unsupported",
-                "This operating system is outside the Flowspan v1 desktop scope.",
-                "Run Flowspan on Windows, macOS, or Linux."),
+                DesktopText.Get("IdentityStartup_PlatformUnsupportedSummary"),
+                DesktopText.Get("IdentityStartup_PlatformUnsupportedRecovery")),
             UnauthorizedAccessException => CredentialStoreFailure(),
             IOException => CredentialStoreFailure(),
             System.Security.Cryptography.CryptographicException =>
                 CredentialStoreFailure(),
             _ => new DesktopStartupFailure(
                 "identity.initialization_failed",
-                "The local identity could not be initialized safely.",
-                "Check the operating-system credential store and restart Flowspan."),
+                DesktopText.Get("IdentityStartup_FailedSummary"),
+                DesktopText.Get("IdentityStartup_FailedRecovery")),
         };
 
         static DesktopStartupFailure CredentialStoreFailure() => new(
             "identity.credential_store_unavailable",
-            "The operating-system credential store is unavailable.",
-            "Unlock the credential store, verify this user can access it, and retry.");
+            DesktopText.Get("IdentityStartup_CredentialStoreSummary"),
+            DesktopText.Get("IdentityStartup_CredentialStoreRecovery"));
     }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Flowspan.Application;
@@ -290,10 +291,11 @@ public sealed class ActivityWorkspaceViewModel :
     private string receiptStatus = string.Empty;
     private string receiptSummary = string.Empty;
     private string replaceInventoryDescription =
-        "Select an incoming Activity and authenticated target, then load purpose-scoped Replace targets.";
+        DesktopText.Get("Activity_ReplaceInventory_NotLoadedDescription");
     private string replaceInventoryCapturedAt = string.Empty;
     private string replaceInventoryCoverage = string.Empty;
-    private string replaceInventoryStatus = "REPLACE TARGETS NOT LOADED";
+    private string replaceInventoryStatus =
+        DesktopText.Get("Activity_ReplaceInventory_NotLoadedStatus");
     private int replaceInventoryContextVersion;
     private string replaceOperationCapsule = string.Empty;
     private string replaceOperationCorrelationId = string.Empty;
@@ -306,16 +308,17 @@ public sealed class ActivityWorkspaceViewModel :
     private string replaceRecoveryCapturedAt = string.Empty;
     private string replaceRecoveryCoverage = string.Empty;
     private string replaceRecoveryDescription =
-        "Protected target-local Replace state has not been loaded.";
-    private string replaceRecoveryStatus = "REPLACE RECOVERY STATE NOT LOADED";
+        DesktopText.Get("Activity_ReplaceRecovery_NotLoadedDescription");
+    private string replaceRecoveryStatus =
+        DesktopText.Get("Activity_ReplaceRecovery_NotLoadedStatus");
     private bool hasAcknowledgedTargetLocalUndo;
     private DesktopReplaceRecoveryItem? selectedReplaceRecoveryItem;
     private string targetLocalUndoDescription =
-        "Select an available committed Replace record and review its exact capsule binding.";
+        DesktopText.Get("Activity_TargetLocalUndo_SelectCapsuleDescription");
     private string targetLocalUndoOccurredAt = string.Empty;
     private string targetLocalUndoReason = string.Empty;
     private string targetLocalUndoStatus =
-        "TARGET-LOCAL UNDO — SELECT AN AVAILABLE CAPSULE";
+        DesktopText.Get("Activity_TargetLocalUndo_SelectCapsuleStatus");
     private string undoDescription = string.Empty;
     private DesktopActivitySnapshot? selectedActivity;
     private DesktopActivityTargetSnapshot? selectedRemoteWindowTarget;
@@ -389,13 +392,15 @@ public sealed class ActivityWorkspaceViewModel :
     }
 
     public string DataDisclosure { get; } =
-        "Sends the note title, sensitivity, and bounded plain-text note over the end-to-end encrypted control channel.";
+        DesktopText.Get("Activity_DataDisclosure");
 
     public string DegradationDescription { get; } =
-        "Only workspace.note/v1 resumes semantically here. Flowspan does not transfer process memory, unsaved application internals, credentials, or unsupported app state.";
+        DesktopText.Format(
+            "Activity_DegradationDescription",
+            "workspace.note/v1");
 
     public string DegradationStatus { get; } =
-        "REMOTE WINDOW NOT AVAILABLE IN THIS BUILD";
+        DesktopText.Get("Activity_DegradationStatus");
 
     public string DraftText
     {
@@ -532,13 +537,21 @@ public sealed class ActivityWorkspaceViewModel :
 
     public string TargetLocalUndoConfirmationDescription =>
         SelectedReplaceRecoveryItem is { } item
-            ? $"Undo capsule {item.Capsule}. {item.Activities}. Exact expiry: {item.UndoExpiresAt:O}. Restore is allowed only while the incoming Activity is still the exact current replacement."
-            : "Select one exact available target-local Replace record before confirming undo.";
+            ? DesktopText.Format(
+                "Activity_TargetLocalUndo_ConfirmationDescriptionSelected",
+                item.Capsule,
+                item.Activities,
+                ToInvariantRoundTrip(item.UndoExpiresAt))
+            : DesktopText.Get(
+                "Activity_TargetLocalUndo_ConfirmationDescriptionEmpty");
 
     public string TargetLocalUndoConfirmationAutomationName =>
         SelectedReplaceRecoveryItem is { } item
-            ? $"Confirm target-local undo for capsule {item.Capsule}"
-            : "Confirm the selected target-local undo capsule";
+            ? DesktopText.Format(
+                "Activity_TargetLocalUndo_ConfirmationAutomationNameSelected",
+                item.Capsule)
+            : DesktopText.Get(
+                "Activity_TargetLocalUndo_ConfirmationAutomationNameEmpty");
 
     public string TargetLocalUndoDescription
     {
@@ -567,48 +580,76 @@ public sealed class ActivityWorkspaceViewModel :
     public bool IsReceiptVisible => ReceiptStatus.Length > 0;
 
     public string PreviewDescription => IsPreviewVisible
-        ? $"Create a native {SelectedActivity!.Kind} copy on {SelectedTarget!.DisplayName}. The source Activity remains active on this device. Sensitivity: {SelectedActivity.Sensitivity}."
-        : "Select one local Activity and one authenticated target to review a handoff.";
+        ? DesktopText.Format(
+            "Activity_HandoffPreview_ReadyDescription",
+            SelectedActivity!.Kind,
+            SelectedTarget!.DisplayName,
+            SelectedActivity.Sensitivity)
+        : DesktopText.Get("Activity_HandoffPreview_NotReadyDescription");
 
     public string PreviewStatus => IsPreviewVisible
-        ? "SEMANTIC HANDOFF — SOURCE STAYS OPEN"
-        : "HANDOFF PREVIEW NOT READY";
+        ? DesktopText.Get("Activity_HandoffPreview_ReadyStatus")
+        : DesktopText.Get("Activity_HandoffPreview_NotReadyStatus");
 
     public string MovePreviewDescription => IsMovePreviewVisible
-        ? $"The target {SelectedTarget!.DisplayName} resumes {SelectedActivity!.Kind} first. Flowspan closes the source only after a verified target acknowledgement; it remains active after rejection, failure, or an uncertain outcome. Sensitivity: {SelectedActivity.Sensitivity}."
-        : "Select one local Activity and one authenticated target to review a move.";
+        ? DesktopText.Format(
+            "Activity_MovePreview_ReadyDescription",
+            SelectedTarget!.DisplayName,
+            SelectedActivity!.Kind,
+            SelectedActivity.Sensitivity)
+        : DesktopText.Get("Activity_MovePreview_NotReadyDescription");
 
     public string MovePreviewStatus => IsMovePreviewVisible
-        ? "SEMANTIC MOVE — SOURCE CLOSES AFTER TARGET ACKNOWLEDGEMENT"
-        : "MOVE PREVIEW NOT READY";
+        ? DesktopText.Get("Activity_MovePreview_ReadyStatus")
+        : DesktopText.Get("Activity_MovePreview_NotReadyStatus");
 
     public string ReplaceIncomingDescription => IsReplacePreviewVisible
-        ? $"Incoming: {SelectedActivity!.Title} ({SelectedActivity.Kind}). The source Activity remains active on this device."
-        : "Select an incoming local Activity, an authenticated device, and one Replace target.";
+        ? DesktopText.Format(
+            "Activity_ReplacePreview_IncomingDescription",
+            SelectedActivity!.Title,
+            SelectedActivity.Kind)
+        : DesktopText.Get("Activity_ReplacePreview_IncomingNotReadyDescription");
 
     public string ReplaceConfirmationAutomationName => IsReplacePreviewVisible
-        ? $"Confirm replacing {SelectedReplaceTarget!.Title} on {SelectedTarget!.DisplayName} with {SelectedActivity!.Title}"
-        : "Confirm the exact Replace preview";
+        ? DesktopText.Format(
+            "Activity_ReplacePreview_ConfirmationAutomationName",
+            SelectedReplaceTarget!.Title,
+            SelectedTarget!.DisplayName,
+            SelectedActivity!.Title)
+        : DesktopText.Get(
+            "Activity_ReplacePreview_ConfirmationAutomationNameNotReady");
 
     public string ReplaceConfirmationDescription => IsReplacePreviewVisible
-        ? $"I understand that {SelectedReplaceTarget!.Title} on {SelectedTarget!.DisplayName} would be replaced by {SelectedActivity!.Title}, and that activation must remain blocked unless the target first stores a 15-minute undo capsule."
-        : "Load and select an exact target snapshot before confirming.";
+        ? DesktopText.Format(
+            "Activity_ReplacePreview_ConfirmationDescription",
+            SelectedReplaceTarget!.Title,
+            SelectedTarget!.DisplayName,
+            SelectedActivity!.Title)
+        : DesktopText.Get(
+            "Activity_ReplacePreview_ConfirmationDescriptionNotReady");
 
     public string ReplacePreviewStatus => IsReplacePreviewVisible
-        ? "REPLACE PREVIEW — CONFIRMATION REQUIRED"
-        : "REPLACE PREVIEW NOT READY";
+        ? DesktopText.Get("Activity_ReplacePreview_ReadyStatus")
+        : DesktopText.Get("Activity_ReplacePreview_NotReadyStatus");
 
     public string ReplaceActivationStatus => !IsReplacePreviewVisible
-        ? "REPLACE ACTIVATION LOCKED — LOAD AND SELECT AN EXACT TARGET SNAPSHOT"
+        ? DesktopText.Get("Activity_ReplaceActivation_PreviewLockedStatus")
         : HasAcknowledgedReplace
             ? IsDestructiveReplaceAvailable
-                ? "PREVIEW CONFIRMED — DESTRUCTIVE REPLACE READY"
-                : "PREVIEW CONFIRMED — DESTRUCTIVE REPLACE NOT ACTIVATED"
-            : "CONFIRMATION REQUIRED — REVIEW THE EXACT TARGET SNAPSHOT";
+                ? DesktopText.Get("Activity_ReplaceActivation_ReadyStatus")
+                : DesktopText.Get("Activity_ReplaceActivation_NotActivatedStatus")
+            : DesktopText.Get("Activity_ReplaceActivation_ConfirmationRequiredStatus");
 
     public string ReplaceTargetDescription => IsReplacePreviewVisible
-        ? $"Replaced target: {SelectedReplaceTarget!.Title} ({SelectedReplaceTarget.Kind}) on {SelectedTarget!.DisplayName}, placement {SelectedReplaceTarget.PlacementSlot}, revision {SelectedReplaceTarget.Revision}, descriptor digest {SelectedReplaceTarget.DescriptorDigest}."
-        : "No exact target snapshot is selected.";
+        ? DesktopText.Format(
+            "Activity_ReplacePreview_TargetDescription",
+            SelectedReplaceTarget!.Title,
+            SelectedReplaceTarget.Kind,
+            SelectedTarget!.DisplayName,
+            SelectedReplaceTarget.PlacementSlot,
+            SelectedReplaceTarget.Revision,
+            SelectedReplaceTarget.DescriptorDigest)
+        : DesktopText.Get("Activity_ReplacePreview_TargetNotSelectedDescription");
 
     public bool HasAcknowledgedReplace
     {
@@ -864,11 +905,11 @@ public sealed class ActivityWorkspaceViewModel :
                 item => item.ActivityId == created.ActivityId);
             DraftTitle = string.Empty;
             DraftText = string.Empty;
-            CreationStatus = "PORTABLE NOTE READY";
+            CreationStatus = DesktopText.Get("Activity_Note_ReadyStatus");
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            CreationStatus = "NOTE COULD NOT BE CREATED — check the title and the 16 KiB plain-text limit.";
+            CreationStatus = DesktopText.Get("Activity_Note_CreateFailedStatus");
         }
     }
 
@@ -886,7 +927,7 @@ public sealed class ActivityWorkspaceViewModel :
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             CreationStatus =
-                "ACTIVITY WORKSPACE UNAVAILABLE — protected identity or Trust is not ready.";
+                DesktopText.Get("Activity_WorkspaceUnavailableStatus");
         }
 
         Refresh();
@@ -925,14 +966,16 @@ public sealed class ActivityWorkspaceViewModel :
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            ReceiptStatus = "HANDOFF UNAVAILABLE";
+            ReceiptStatus = DesktopText.Get("Activity_Handoff_UnavailableStatus");
             ReceiptSummary =
-                $"{target.DisplayName} did not return a verified receipt. The source remains available; retry after the authenticated local connection recovers.";
+                DesktopText.Format(
+                    "Activity_Handoff_UnavailableDescription",
+                    target.DisplayName);
             ReceiptReason = "peer-unavailable";
             ReceiptCorrelationId = string.Empty;
             ReceiptOccurredAt = string.Empty;
             UndoDescription =
-                "NO UNDO REQUIRED — the handoff did not change the source Activity.";
+                DesktopText.Get("Activity_Handoff_UnavailableUndoDescription");
         }
         finally
         {
@@ -964,14 +1007,16 @@ public sealed class ActivityWorkspaceViewModel :
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            ReceiptStatus = "MOVE UNAVAILABLE";
+            ReceiptStatus = DesktopText.Get("Activity_Move_UnavailableStatus");
             ReceiptSummary =
-                $"{target.DisplayName} did not return a verified receipt. The source remains active; retry after the authenticated local connection recovers.";
+                DesktopText.Format(
+                    "Activity_Move_UnavailableDescription",
+                    target.DisplayName);
             ReceiptReason = "peer-unavailable";
             ReceiptCorrelationId = string.Empty;
             ReceiptOccurredAt = string.Empty;
             UndoDescription =
-                "NO UNDO REQUIRED — the move did not close the source Activity.";
+                DesktopText.Get("Activity_Move_UnavailableUndoDescription");
         }
         finally
         {
@@ -991,9 +1036,13 @@ public sealed class ActivityWorkspaceViewModel :
         int contextVersion = Volatile.Read(ref replaceInventoryContextVersion);
         DesktopReplaceTargetSnapshot? previousTarget = SelectedReplaceTarget;
         ClearReplaceInventorySnapshot();
-        ReplaceInventoryStatus = "LOADING REPLACE TARGETS";
+        ReplaceInventoryStatus = DesktopText.Get(
+            "Activity_ReplaceInventory_LoadingStatus");
         ReplaceInventoryDescription =
-            $"Requesting payload-free {activity.Kind} choices from {target.DisplayName}. No Replace request is being sent.";
+            DesktopText.Format(
+                "Activity_ReplaceInventory_LoadingDescription",
+                activity.Kind,
+                target.DisplayName);
         IsBusy = true;
         try
         {
@@ -1017,9 +1066,11 @@ public sealed class ActivityWorkspaceViewModel :
             if (contextVersion == Volatile.Read(ref replaceInventoryContextVersion))
             {
                 ClearReplaceInventorySnapshot();
-                ReplaceInventoryStatus = "REPLACE TARGETS UNAVAILABLE — RETRY";
+                ReplaceInventoryStatus = DesktopText.Get(
+                    "Activity_ReplaceInventory_UnavailableRetryStatus");
                 ReplaceInventoryDescription =
-                    "The authenticated local connection did not return a verified target inventory. Reconnect and retry. No Replace request was sent.";
+                    DesktopText.Get(
+                        "Activity_ReplaceInventory_VerifiedInventoryUnavailableDescription");
             }
         }
         finally
@@ -1039,9 +1090,13 @@ public sealed class ActivityWorkspaceViewModel :
         DesktopActivityTargetSnapshot device = SelectedTarget!;
         DesktopReplaceTargetSnapshot target = SelectedReplaceTarget!;
         IsBusy = true;
-        ReplaceOperationStatus = "REPLACE PENDING — DUPLICATE DISABLED";
+        ReplaceOperationStatus = DesktopText.Get(
+            "Activity_ReplaceOperation_PendingStatus");
         ReplaceOperationDescription =
-            $"Revalidating the exact snapshot for {target.Title} on {device.DisplayName}, then waiting for one authenticated receipt and undo capsule. The source remains active.";
+            DesktopText.Format(
+                "Activity_ReplaceOperation_PendingDescription",
+                target.Title,
+                device.DisplayName);
         ReplaceOperationReason = "operation-in-progress";
         ReplaceOperationId = string.Empty;
         ReplaceOperationCorrelationId = string.Empty;
@@ -1058,16 +1113,20 @@ public sealed class ActivityWorkspaceViewModel :
             if (result.IsSuccess)
             {
                 ClearReplaceInventorySnapshot();
-                ReplaceInventoryStatus = "REPLACE COMMITTED — REFRESH REQUIRED";
+                ReplaceInventoryStatus = DesktopText.Get(
+                    "Activity_ReplaceInventory_CommittedRefreshRequiredStatus");
                 ReplaceInventoryDescription =
-                    "The selected target was replaced. Load a fresh payload-free inventory before preparing another Replace.";
+                    DesktopText.Get(
+                        "Activity_ReplaceInventory_CommittedRefreshRequiredDescription");
             }
             else if (result.FailureCode == FailureCode.RevisionConflict)
             {
                 ClearReplaceInventorySnapshot();
-                ReplaceInventoryStatus = "TARGET CHANGED — REFRESH REQUIRED";
+                ReplaceInventoryStatus = DesktopText.Get(
+                    "Activity_ReplaceInventory_TargetChangedRefreshRequiredStatus");
                 ReplaceInventoryDescription =
-                    "The exact target ID, revision, descriptor digest, kind, or placement changed at send time. Load fresh inventory, select again, and confirm again. No destructive request was sent.";
+                    DesktopText.Get(
+                        "Activity_ReplaceInventory_TargetChangedRefreshRequiredDescription");
             }
         }
         catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
@@ -1076,9 +1135,11 @@ public sealed class ActivityWorkspaceViewModel :
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             ReplaceOperationStatus =
-                "REPLACE OUTCOME UNAVAILABLE — INSPECT TARGET RECOVERY";
+                DesktopText.Get(
+                    "Activity_ReplaceOperation_OutcomeUnavailableStatus");
             ReplaceOperationDescription =
-                "The destructive application port did not return a verified outcome. The target may have crossed the commit boundary; the source remains active. Inspect target recovery before any new operation. Flowspan will not guess or automatically retry.";
+                DesktopText.Get(
+                    "Activity_ReplaceOperation_OutcomeUnavailableDescription");
             ReplaceOperationReason = "internal-failure";
             ReplaceOperationId = string.Empty;
             ReplaceOperationCorrelationId = string.Empty;
@@ -1102,9 +1163,12 @@ public sealed class ActivityWorkspaceViewModel :
 
         UndoCapsuleId capsuleId = SelectedReplaceRecoveryItem!.UndoCapsuleId!;
         IsBusy = true;
-        TargetLocalUndoStatus = "TARGET-LOCAL UNDO PENDING — DO NOT RETRY";
+        TargetLocalUndoStatus = DesktopText.Get(
+            "Activity_TargetLocalUndo_PendingStatus");
         TargetLocalUndoDescription =
-            $"The protected journal reserved capsule {capsuleId}. Waiting for one exact local restore outcome; duplicate action is disabled.";
+            DesktopText.Format(
+                "Activity_TargetLocalUndo_PendingDescription",
+                capsuleId);
         TargetLocalUndoReason = "operation-in-progress";
         TargetLocalUndoOccurredAt = string.Empty;
         try
@@ -1122,9 +1186,11 @@ public sealed class ActivityWorkspaceViewModel :
         {
             RefreshReplaceRecovery();
             TargetLocalUndoStatus =
-                "TARGET-LOCAL UNDO OUTCOME UNAVAILABLE — INSPECT RECOVERY";
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_OutcomeUnavailableStatus");
             TargetLocalUndoDescription =
-                "The application port did not return a verified outcome. Inspect the protected pending/terminal recovery record before any further action; Flowspan will not guess or repeat Adapter work.";
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_OutcomeUnavailableDescription");
             TargetLocalUndoReason = "undo-unavailable";
             TargetLocalUndoOccurredAt = string.Empty;
         }
@@ -1149,23 +1215,30 @@ public sealed class ActivityWorkspaceViewModel :
         ReplaceInventoryCapturedAt = result.CapturedAt?.ToString("O")
             ?? string.Empty;
         ReplaceInventoryCoverage = result.IsTruncated
-            ? "SHOWING FIRST 64 ELIGIBLE TARGETS — INVENTORY TRUNCATED"
-            : $"{ReplaceTargets.Count} ELIGIBLE REPLACE TARGETS";
+            ? DesktopText.Format(
+                "Activity_ReplaceInventory_TruncatedCoverage",
+                64)
+            : DesktopText.Format(
+                "Activity_ReplaceInventory_TargetCountCoverage",
+                ReplaceTargets.Count);
         if (previousTarget is not null)
         {
             ReconcileRefreshedReplaceTarget(previousTarget);
         }
         else if (ReplaceTargets.Count == 0)
         {
-            ReplaceInventoryStatus = "NO ELIGIBLE REPLACE TARGETS";
+            ReplaceInventoryStatus = DesktopText.Get(
+                "Activity_ReplaceInventory_NoEligibleTargetsStatus");
             ReplaceInventoryDescription =
-                "The peer returned no active same-kind target that can be preserved for undo. No Replace request was sent.";
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_NoEligibleTargetsDescription");
         }
         else
         {
-            ReplaceInventoryStatus = "REPLACE TARGETS READY — SELECT ONE";
+            ReplaceInventoryStatus = DesktopText.Get(
+                "Activity_ReplaceInventory_ReadyStatus");
             ReplaceInventoryDescription =
-                "Choose one exact target snapshot to build the destructive preview. No Replace request has been sent.";
+                DesktopText.Get("Activity_ReplaceInventory_ReadyDescription");
         }
     }
 
@@ -1183,9 +1256,12 @@ public sealed class ActivityWorkspaceViewModel :
             ?? string.Empty;
         if (result.DeliveryStatus == ActivityDeliveryStatus.AcknowledgementLost)
         {
-            ReplaceOperationStatus = "REPLACE OUTCOME UNCERTAIN — DO NOT RETRY";
+            ReplaceOperationStatus = DesktopText.Get(
+                "Activity_ReplaceOperation_AcknowledgementLostStatus");
             ReplaceOperationDescription =
-                $"{targetDisplayName} may have committed Replace and stored an undo capsule, but its authenticated acknowledgement was lost. The source remains active. Inspect target recovery before any new operation; Flowspan will not invent a new Operation ID or automatically retry.";
+                DesktopText.Format(
+                    "Activity_ReplaceOperation_AcknowledgementLostDescription",
+                    targetDisplayName);
             return;
         }
 
@@ -1195,20 +1271,33 @@ public sealed class ActivityWorkspaceViewModel :
                 result.FailureCode switch
                 {
                     FailureCode.RevisionConflict => (
-                        "REPLACE NOT SENT — TARGET CHANGED",
-                        "Send-time revalidation did not match the confirmed target snapshot. The source remains active and the target was not mutated. Load fresh inventory, select again, and confirm again."),
+                        DesktopText.Get(
+                            "Activity_ReplaceOperation_NotSentTargetChangedStatus"),
+                        DesktopText.Get(
+                            "Activity_ReplaceOperation_NotSentTargetChangedDescription")),
                     FailureCode.CapabilityDenied => (
-                        "REPLACE NOT SENT — REVIEW TRUST",
-                        "The current activity.receive or activity.replace grant is unavailable. The source remains active and no destructive request was sent. Review Trust on both devices, then refresh."),
+                        DesktopText.Get(
+                            "Activity_ReplaceOperation_NotSentReviewTrustStatus"),
+                        DesktopText.Format(
+                            "Activity_ReplaceOperation_NotSentReviewTrustDescription",
+                            "activity.receive",
+                            "activity.replace")),
                     FailureCode.ActivityNotFound => (
-                        "REPLACE NOT SENT — INCOMING ACTIVITY CHANGED",
-                        "The incoming Activity is no longer the exact active source. No destructive request was sent; select an active Activity and load fresh inventory."),
+                        DesktopText.Get(
+                            "Activity_ReplaceOperation_NotSentActivityChangedStatus"),
+                        DesktopText.Get(
+                            "Activity_ReplaceOperation_NotSentActivityChangedDescription")),
                     FailureCode.UndoUnavailable => (
-                        "REPLACE LOCKED — PROTECTED RECOVERY UNAVAILABLE",
-                        "Protected Replace recovery is unavailable or unresolved on this device. The source remains active and no destructive request was sent."),
+                        DesktopText.Get(
+                            "Activity_ReplaceOperation_RecoveryUnavailableStatus"),
+                        DesktopText.Get(
+                            "Activity_ReplaceOperation_RecoveryUnavailableDescription")),
                     _ => (
-                        "REPLACE NOT DELIVERED — REFRESH AND RETRY",
-                        $"No destructive Replace request was delivered to {targetDisplayName}. The source remains active. Recover the authenticated connection and load fresh inventory before trying again."),
+                        DesktopText.Get(
+                            "Activity_ReplaceOperation_NotDeliveredStatus"),
+                        DesktopText.Format(
+                            "Activity_ReplaceOperation_NotDeliveredDescription",
+                            targetDisplayName)),
                 };
             return;
         }
@@ -1217,18 +1306,22 @@ public sealed class ActivityWorkspaceViewModel :
         if (receipt is null)
         {
             ReplaceOperationStatus =
-                "REPLACE RESULT INVALID — INSPECT TARGET RECOVERY";
+                DesktopText.Get("Activity_ReplaceOperation_ResultInvalidStatus");
             ReplaceOperationDescription =
-                "The acknowledged response contained no verified receipt. The source remains active; inspect target recovery and do not retry.";
+                DesktopText.Get(
+                    "Activity_ReplaceOperation_MissingReceiptDescription");
             return;
         }
 
         if (receipt.FailureCode == FailureCode.OperationInProgress)
         {
             ReplaceOperationStatus =
-                "REPLACE BLOCKED BY TARGET RECOVERY — DO NOT RETRY";
+                DesktopText.Get(
+                    "Activity_ReplaceOperation_BlockedByRecoveryStatus");
             ReplaceOperationDescription =
-                $"{targetDisplayName} already has an unresolved protected Replace or undo boundary. This request did not mutate the target. Inspect target recovery and resolve the existing boundary before any new operation.";
+                DesktopText.Format(
+                    "Activity_ReplaceOperation_BlockedByRecoveryDescription",
+                    targetDisplayName);
             return;
         }
 
@@ -1236,26 +1329,36 @@ public sealed class ActivityWorkspaceViewModel :
             && result.UndoCapsule is null)
         {
             ReplaceOperationStatus =
-                "REPLACE RESULT INVALID — INSPECT TARGET RECOVERY";
+                DesktopText.Get("Activity_ReplaceOperation_ResultInvalidStatus");
             ReplaceOperationDescription =
-                "The acknowledged committed response contained no verified undo capsule. The source remains active; inspect target recovery and do not retry.";
+                DesktopText.Get(
+                    "Activity_ReplaceOperation_MissingUndoCapsuleDescription");
             return;
         }
 
         (ReplaceOperationStatus, ReplaceOperationDescription) = receipt.Status switch
         {
             OperationStatus.Committed => (
-                "REPLACE COMMITTED",
-                $"{targetDisplayName} stored the exact undo capsule before installing the incoming Activity. The source remains active. The capsule and expiry below are also visible in target recovery."),
+                DesktopText.Get("Activity_ReplaceOperation_CommittedStatus"),
+                DesktopText.Format(
+                    "Activity_ReplaceOperation_CommittedDescription",
+                    targetDisplayName)),
             OperationStatus.Recovering => (
-                "REPLACE OUTCOME REQUIRES TARGET RECOVERY — DO NOT RETRY",
-                $"{targetDisplayName} returned a recovery-required receipt. The source remains active. Inspect target recovery before any new operation; Flowspan will not retry Adapter work."),
+                DesktopText.Get(
+                    "Activity_ReplaceOperation_RecoveryRequiredStatus"),
+                DesktopText.Format(
+                    "Activity_ReplaceOperation_RecoveryRequiredDescription",
+                    targetDisplayName)),
             OperationStatus.Rejected => (
-                "REPLACE REJECTED",
-                $"{targetDisplayName} returned a verified rejection before commit. The source remains active; review the named reason and refresh the exact preview."),
+                DesktopText.Get("Activity_ReplaceOperation_RejectedStatus"),
+                DesktopText.Format(
+                    "Activity_ReplaceOperation_RejectedDescription",
+                    targetDisplayName)),
             _ => (
-                "REPLACE FAILED",
-                $"{targetDisplayName} returned a verified failure. The source remains active; inspect target recovery when indicated and refresh before another attempt."),
+                DesktopText.Get("Activity_ReplaceOperation_FailedStatus"),
+                DesktopText.Format(
+                    "Activity_ReplaceOperation_FailedDescription",
+                    targetDisplayName)),
         };
     }
 
@@ -1276,11 +1379,12 @@ public sealed class ActivityWorkspaceViewModel :
             SelectedReplaceRecoveryItem = null;
             ReplaceRecoveryItems.Clear();
             ReplaceRecoveryCapturedAt = string.Empty;
-            ReplaceRecoveryCoverage = "RECOVERY RECORD COUNT UNAVAILABLE";
+            ReplaceRecoveryCoverage = DesktopText.Get(
+                "Activity_ReplaceRecovery_CountUnavailableCoverage");
             ReplaceRecoveryStatus =
-                "REPLACE RECOVERY STATE UNAVAILABLE — REPLACE LOCKED";
+                DesktopText.Get("Activity_ReplaceRecovery_UnavailableStatus");
             ReplaceRecoveryDescription =
-                "The protected target-local Replace store could not be opened. Handoff and Move remain available, but do not activate Replace. Check the current-user credential store and local Flowspan data permissions, then restart.";
+                DesktopText.Get("Activity_ReplaceRecovery_UnavailableDescription");
             return;
         }
 
@@ -1297,37 +1401,48 @@ public sealed class ActivityWorkspaceViewModel :
         ReplaceRecoveryCapturedAt = result.CapturedAt?.ToString("O")
             ?? string.Empty;
         ReplaceRecoveryCoverage = result.IsTruncated
-            ? "SHOWING FIRST 64 RECORDS — UNRESOLVED STATE PRIORITIZED — HISTORY TRUNCATED"
-            : $"{ReplaceRecoveryItems.Count} TARGET-LOCAL REPLACE / UNDO RECORDS";
+            ? DesktopText.Format(
+                "Activity_ReplaceRecovery_TruncatedCoverage",
+                64)
+            : DesktopText.Format(
+                "Activity_ReplaceRecovery_RecordCountCoverage",
+                ReplaceRecoveryItems.Count);
         int recoveryRequired = result.Records.Count(
             static record => record.IsRecoveryRequired);
         if (recoveryRequired > 0)
         {
             ReplaceRecoveryStatus =
-                $"REPLACE RECOVERY REQUIRED — {recoveryRequired} UNRESOLVED";
+                DesktopText.Format(
+                    "Activity_ReplaceRecovery_RequiredStatus",
+                    recoveryRequired);
             ReplaceRecoveryDescription =
-                "Inspect the opaque IDs and both devices before retrying. This read-only surface does not repeat Replace or undo Adapter work.";
+                DesktopText.Get("Activity_ReplaceRecovery_RequiredDescription");
         }
         else if (result.Records.IsEmpty)
         {
-            ReplaceRecoveryStatus = "NO TARGET-LOCAL REPLACE HISTORY";
+            ReplaceRecoveryStatus = DesktopText.Get(
+                "Activity_ReplaceRecovery_NoHistoryStatus");
             ReplaceRecoveryDescription =
-                "No protected Replace or undo records are stored on this device. Replace still requires an exact peer inventory, explicit confirmation, send-time revalidation, and current Trust on both devices.";
+                DesktopText.Get("Activity_ReplaceRecovery_NoHistoryDescription");
         }
         else if (ReplaceRecoveryItems.Any(static item => item.CanUndo))
         {
             int available = ReplaceRecoveryItems.Count(static item => item.CanUndo);
             ReplaceRecoveryStatus =
-                $"TARGET-LOCAL UNDO AVAILABLE — {available} EXACT CAPSULES";
+                DesktopText.Format(
+                    "Activity_ReplaceRecovery_UndoAvailableStatus",
+                    available);
             ReplaceRecoveryDescription =
-                "Select one exact committed Replace record, review both opaque Activity IDs and its expiry, then confirm one target-local semantic restore. A new Replace remains independently gated by fresh inventory and Trust.";
+                DesktopText.Get(
+                    "Activity_ReplaceRecovery_UndoAvailableDescription");
         }
         else
         {
             ReplaceRecoveryStatus =
-                "TARGET-LOCAL REPLACE HISTORY — NO UNDO ACTION";
+                DesktopText.Get("Activity_ReplaceRecovery_NoUndoActionStatus");
             ReplaceRecoveryDescription =
-                "Recorded outcomes and capsule state are shown without Activity content. No record is both unattempted and the exact current unexpired replacement; a new Replace still requires a fresh exact preview.";
+                DesktopText.Get(
+                    "Activity_ReplaceRecovery_NoUndoActionDescription");
         }
     }
 
@@ -1337,63 +1452,97 @@ public sealed class ActivityWorkspaceViewModel :
     {
         string kind = record.Kind switch
         {
-            ReplaceRecoveryOperationKind.Replace => "TARGET-LOCAL REPLACE",
-            ReplaceRecoveryOperationKind.Undo => "TARGET-LOCAL UNDO",
-            _ => "TARGET-LOCAL OPERATION",
+            ReplaceRecoveryOperationKind.Replace => DesktopText.Get(
+                "Activity_RecoveryItem_ReplaceKind"),
+            ReplaceRecoveryOperationKind.Undo => DesktopText.Get(
+                "Activity_RecoveryItem_UndoKind"),
+            _ => DesktopText.Get("Activity_RecoveryItem_OperationKind"),
         };
         string state = record.JournalState switch
         {
             ReplaceRecoveryJournalState.Pending =>
-                "PENDING — RECOVERY REQUIRED",
+                DesktopText.Get("Activity_RecoveryItem_PendingState"),
             _ when record.Status == OperationStatus.Recovering =>
-                "RECORDED RECOVERING — OUTCOME UNCERTAIN",
+                DesktopText.Get("Activity_RecoveryItem_RecoveringState"),
             _ => record.Status switch
             {
-                OperationStatus.Committed => "COMMITTED",
-                OperationStatus.CommittedWithWarning => "COMMITTED WITH WARNING",
-                OperationStatus.Rejected => "REJECTED",
-                OperationStatus.Failed => "FAILED",
-                _ => "OUTCOME UNAVAILABLE",
+                OperationStatus.Committed => DesktopText.Get(
+                    "Activity_RecoveryItem_CommittedState"),
+                OperationStatus.CommittedWithWarning => DesktopText.Get(
+                    "Activity_RecoveryItem_CommittedWithWarningState"),
+                OperationStatus.Rejected => DesktopText.Get(
+                    "Activity_RecoveryItem_RejectedState"),
+                OperationStatus.Failed => DesktopText.Get(
+                    "Activity_RecoveryItem_FailedState"),
+                _ => DesktopText.Get("Activity_RecoveryItem_OutcomeUnavailableState"),
             },
         };
         string participants = string.Join(
-            " → ",
+            DesktopText.Get("Activity_RecoveryItem_ParticipantsSeparator"),
             record.ReplaceSourceDeviceId is not null
-                ? $"Replace source device {record.ReplaceSourceDeviceId}"
-                : "SOURCE DEVICE NOT RECORDED",
+                ? DesktopText.Format(
+                    "Activity_RecoveryItem_SourceDevice",
+                    record.ReplaceSourceDeviceId)
+                : DesktopText.Get(
+                    "Activity_RecoveryItem_SourceDeviceNotRecorded"),
             record.ReplaceTargetDeviceId is not null
-                ? $"target device {record.ReplaceTargetDeviceId}"
-                : "TARGET DEVICE NOT RECORDED");
+                ? DesktopText.Format(
+                    "Activity_RecoveryItem_TargetDevice",
+                    record.ReplaceTargetDeviceId)
+                : DesktopText.Get(
+                    "Activity_RecoveryItem_TargetDeviceNotRecorded"));
         string activities = string.Join(
-            " ← ",
+            DesktopText.Get("Activity_RecoveryItem_ActivitiesSeparator"),
             record.TargetActivityId is not null
-                ? $"Target Activity {record.TargetActivityId}"
-                : "TARGET ACTIVITY NOT RECORDED",
+                ? DesktopText.Format(
+                    "Activity_RecoveryItem_TargetActivity",
+                    record.TargetActivityId)
+                : DesktopText.Get(
+                    "Activity_RecoveryItem_TargetActivityNotRecorded"),
             record.IncomingActivityId is not null
-                ? $"incoming Activity {record.IncomingActivityId}"
-                : "INCOMING ACTIVITY NOT RECORDED");
+                ? DesktopText.Format(
+                    "Activity_RecoveryItem_IncomingActivity",
+                    record.IncomingActivityId)
+                : DesktopText.Get(
+                    "Activity_RecoveryItem_IncomingActivityNotRecorded"));
         string timestamp = record.TimestampKind switch
         {
             ReplaceRecoveryTimestampKind.Outcome =>
-                $"Outcome recorded: {record.RecordedAt:O}",
+                DesktopText.Format(
+                    "Activity_RecoveryItem_OutcomeRecordedTimestamp",
+                    ToInvariantRoundTrip(record.RecordedAt)),
             ReplaceRecoveryTimestampKind.CapsuleCaptured =>
-                $"Undo capsule captured: {record.RecordedAt:O}",
-            _ => "TIME NOT RECORDED — pre-capture pending boundary.",
+                DesktopText.Format(
+                    "Activity_RecoveryItem_CapsuleCapturedTimestamp",
+                    ToInvariantRoundTrip(record.RecordedAt)),
+            _ => DesktopText.Get(
+                "Activity_RecoveryItem_TimeNotRecordedTimestamp"),
         };
         string undo = record.UndoAvailability switch
         {
             ReplaceUndoAvailability.Available when canUndo =>
-                $"UNDO AVAILABLE — EXPIRES {record.UndoExpiresAt:O} — SELECT AND CONFIRM THIS EXACT CAPSULE",
+                DesktopText.Format(
+                    "Activity_RecoveryItem_UndoAvailable",
+                    ToInvariantRoundTrip(record.UndoExpiresAt)),
             ReplaceUndoAvailability.Available =>
-                $"CAPSULE UNCONSUMED AT SNAPSHOT — EXPIRES {record.UndoExpiresAt:O} — LOCAL UNDO LOCKED: EXACT CURRENT REPLACEMENT NOT PROVEN",
+                DesktopText.Format(
+                    "Activity_RecoveryItem_UndoLocked",
+                    ToInvariantRoundTrip(record.UndoExpiresAt)),
             ReplaceUndoAvailability.Expired =>
-                $"UNDO EXPIRED AT {record.UndoExpiresAt:O}",
+                DesktopText.Format(
+                    "Activity_RecoveryItem_UndoExpired",
+                    ToInvariantRoundTrip(record.UndoExpiresAt)),
             ReplaceUndoAvailability.PendingOperation =>
-                $"UNDO / REPLACE OUTCOME PENDING — EXPIRY {record.UndoExpiresAt:O}",
-            ReplaceUndoAvailability.Consumed => "UNDO ALREADY CONSUMED",
+                DesktopText.Format(
+                    "Activity_RecoveryItem_UndoPending",
+                    ToInvariantRoundTrip(record.UndoExpiresAt)),
+            ReplaceUndoAvailability.Consumed => DesktopText.Get(
+                "Activity_RecoveryItem_UndoConsumed"),
             _ when record.UndoExpiresAt is not null =>
-                $"UNDO NOT AVAILABLE FOR THIS RECORD — CAPSULE EXPIRY {record.UndoExpiresAt:O}",
-            _ => "UNDO NOT AVAILABLE FOR THIS RECORD",
+                DesktopText.Format(
+                    "Activity_RecoveryItem_UndoUnavailableWithExpiry",
+                    ToInvariantRoundTrip(record.UndoExpiresAt)),
+            _ => DesktopText.Get("Activity_RecoveryItem_UndoUnavailable"),
         };
         return new DesktopReplaceRecoveryItem(
             kind,
@@ -1401,11 +1550,12 @@ public sealed class ActivityWorkspaceViewModel :
             ToReasonCode(record.FailureCode),
             record.OperationId.ToString(),
             record.CorrelationId?.ToString()
-                ?? "NOT RECORDED — NO VALUE IN PROTECTED STATE",
+                ?? DesktopText.Get(
+                    "Activity_RecoveryItem_CorrelationNotRecorded"),
             participants,
             activities,
             record.CapsuleId?.ToString()
-                ?? "NO CAPSULE ID RECORDED",
+                ?? DesktopText.Get("Activity_RecoveryItem_CapsuleNotRecorded"),
             timestamp,
             undo,
             record.IsRecoveryRequired,
@@ -1428,17 +1578,22 @@ public sealed class ActivityWorkspaceViewModel :
                 previousTarget.DescriptorDigest))
         {
             ReplaceInventoryStatus =
-                "TARGET CHANGED — REVIEW REFRESHED INVENTORY";
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_TargetChangedReviewStatus");
             ReplaceInventoryDescription = refreshedTarget is null
-                ? "The previously selected target is no longer eligible. Select a fresh target snapshot and confirm again. No Replace request was sent."
-                : "The selected target revision or descriptor digest changed. Select the refreshed snapshot and confirm again. No Replace request was sent.";
+                ? DesktopText.Get(
+                    "Activity_ReplaceInventory_TargetNoLongerEligibleDescription")
+                : DesktopText.Get(
+                    "Activity_ReplaceInventory_TargetSnapshotChangedDescription");
             return;
         }
 
         SelectedReplaceTarget = refreshedTarget;
-        ReplaceInventoryStatus = "TARGETS REFRESHED — CONFIRM AGAIN";
+        ReplaceInventoryStatus = DesktopText.Get(
+            "Activity_ReplaceInventory_RefreshedConfirmAgainStatus");
         ReplaceInventoryDescription =
-            "The exact target snapshot is still present. Review it and confirm again; no Replace request was sent.";
+            DesktopText.Get(
+                "Activity_ReplaceInventory_RefreshedConfirmAgainDescription");
     }
 
     private void ClearReplaceInventorySnapshot()
@@ -1474,36 +1629,58 @@ public sealed class ActivityWorkspaceViewModel :
     {
         string operation = receipt.Kind switch
         {
-            OperationKind.Handoff => "HANDOFF",
-            OperationKind.Move => "MOVE",
-            _ => "OPERATION",
+            OperationKind.Handoff => DesktopText.Get(
+                "Activity_Receipt_HandoffOperation"),
+            OperationKind.Move => DesktopText.Get("Activity_Receipt_MoveOperation"),
+            _ => DesktopText.Get("Activity_Receipt_GenericOperation"),
         };
         string outcome = receipt.Status switch
         {
-            OperationStatus.Committed => "COMMITTED",
-            OperationStatus.CommittedWithWarning => "COMMITTED WITH WARNING",
-            OperationStatus.Rejected => "REJECTED",
-            OperationStatus.Failed => "FAILED",
-            OperationStatus.Recovering => "OUTCOME UNCERTAIN",
-            _ => "RESULT UNAVAILABLE",
+            OperationStatus.Committed => DesktopText.Get(
+                "Activity_Receipt_CommittedOutcome"),
+            OperationStatus.CommittedWithWarning => DesktopText.Get(
+                "Activity_Receipt_CommittedWithWarningOutcome"),
+            OperationStatus.Rejected => DesktopText.Get(
+                "Activity_Receipt_RejectedOutcome"),
+            OperationStatus.Failed => DesktopText.Get(
+                "Activity_Receipt_FailedOutcome"),
+            OperationStatus.Recovering => DesktopText.Get(
+                "Activity_Receipt_UncertainOutcome"),
+            _ => DesktopText.Get("Activity_Receipt_UnavailableOutcome"),
         };
-        ReceiptStatus = $"{operation} {outcome}";
+        ReceiptStatus = DesktopText.Format(
+            "Activity_Receipt_Status",
+            operation,
+            outcome);
         ReceiptSummary = (receipt.Kind, receipt.Status) switch
         {
             (OperationKind.Move, OperationStatus.Committed) =>
-                $"{targetDisplayName} acknowledged the semantic resume; the source closed only after that verified receipt.",
+                DesktopText.Format(
+                    "Activity_Receipt_MoveCommittedSummary",
+                    targetDisplayName),
             (OperationKind.Move, OperationStatus.CommittedWithWarning) =>
-                $"The target committed the semantic resume, but source cleanup failed. The source remains active, so two active copies may exist.",
+                DesktopText.Get(
+                    "Activity_Receipt_MoveCommittedWithWarningSummary"),
             (OperationKind.Handoff, OperationStatus.Committed or OperationStatus.CommittedWithWarning) =>
-                $"{targetDisplayName} acknowledged a semantic copy; the source remains available on this device.",
+                DesktopText.Format(
+                    "Activity_Receipt_HandoffCommittedSummary",
+                    targetDisplayName),
             (OperationKind.Move, OperationStatus.Recovering) =>
-                $"{targetDisplayName} may have accepted the semantic resume, but the verified acknowledgement is unavailable. The source remains available and unchanged; inspect both devices before retrying.",
+                DesktopText.Format(
+                    "Activity_Receipt_MoveRecoveringSummary",
+                    targetDisplayName),
             (_, OperationStatus.Recovering) =>
-                $"{targetDisplayName} may have accepted a semantic copy, but the verified outcome is unavailable. The source remains available and unchanged.",
+                DesktopText.Format(
+                    "Activity_Receipt_HandoffRecoveringSummary",
+                    targetDisplayName),
             (OperationKind.Move, _) =>
-                $"{targetDisplayName} did not accept the semantic resume; the source remains available and unchanged.",
+                DesktopText.Format(
+                    "Activity_Receipt_MoveNotAcceptedSummary",
+                    targetDisplayName),
             _ =>
-                $"{targetDisplayName} did not accept a semantic copy; the source remains available and unchanged.",
+                DesktopText.Format(
+                    "Activity_Receipt_HandoffNotAcceptedSummary",
+                    targetDisplayName),
         };
         ReceiptCorrelationId = receipt.CorrelationId.ToString();
         ReceiptOccurredAt = receipt.OccurredAt.ToString("O");
@@ -1516,23 +1693,37 @@ public sealed class ActivityWorkspaceViewModel :
         (ReplaceInventoryStatus, ReplaceInventoryDescription) = failureCode switch
         {
             FailureCode.CapabilityDenied => (
-                "REPLACE TARGETS BLOCKED — REVIEW TRUST",
-                "The current activity.receive or activity.replace permission is unavailable. Review Trust on both devices and retry. No Replace request was sent."),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_BlockedReviewTrustStatus"),
+                DesktopText.Format(
+                    "Activity_ReplaceInventory_BlockedReviewTrustDescription",
+                    "activity.receive",
+                    "activity.replace")),
             FailureCode.ActivityNotFound => (
-                "INCOMING ACTIVITY CHANGED — SELECT AGAIN",
-                "The incoming Activity is no longer active. Select it again or choose another source. No Replace request was sent."),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_IncomingActivityChangedStatus"),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_IncomingActivityChangedDescription")),
             FailureCode.AdapterUnavailable => (
-                "REPLACE UNSUPPORTED FOR THIS ACTIVITY",
-                "No Replace-capable semantic adapter is available for this Activity kind. No Replace request was sent."),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_UnsupportedActivityStatus"),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_UnsupportedActivityDescription")),
             FailureCode.DeadlineExpired => (
-                "REPLACE TARGET QUERY EXPIRED — RETRY",
-                "The bounded inventory query expired. Refresh the target list. No Replace request was sent."),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_QueryExpiredStatus"),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_QueryExpiredDescription")),
             FailureCode.AcknowledgementLost => (
-                "REPLACE TARGETS UNCONFIRMED — RETRY",
-                "The inventory acknowledgement was lost. Refresh after the authenticated connection recovers. No Replace request was sent."),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_UnconfirmedStatus"),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_UnconfirmedDescription")),
             _ => (
-                "REPLACE TARGETS UNAVAILABLE — RETRY",
-                "The authenticated local connection did not return an eligible inventory. Reconnect and retry. No Replace request was sent."),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_UnavailableRetryStatus"),
+                DesktopText.Get(
+                    "Activity_ReplaceInventory_EligibleInventoryUnavailableDescription")),
         };
     }
 
@@ -1635,29 +1826,36 @@ public sealed class ActivityWorkspaceViewModel :
         if (SelectedReplaceRecoveryItem is null)
         {
             TargetLocalUndoStatus =
-                "TARGET-LOCAL UNDO — SELECT AN AVAILABLE CAPSULE";
+                DesktopText.Get("Activity_TargetLocalUndo_SelectCapsuleStatus");
             TargetLocalUndoDescription =
-                "Select an available committed Replace record and review its exact capsule binding.";
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_SelectCapsuleDescription");
         }
         else if (!SelectedReplaceRecoveryItem.CanUndo)
         {
             TargetLocalUndoStatus =
-                "TARGET-LOCAL UNDO NOT AVAILABLE FOR THIS RECORD";
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_RecordUnavailableStatus");
             TargetLocalUndoDescription =
-                "This record is pending, expired, consumed, already attempted, unsupported, or no longer the exact current replacement. No action is available.";
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_RecordUnavailableDescription");
         }
         else if (HasAcknowledgedTargetLocalUndo)
         {
-            TargetLocalUndoStatus = "TARGET-LOCAL UNDO CONFIRMED — READY";
+            TargetLocalUndoStatus = DesktopText.Get(
+                "Activity_TargetLocalUndo_ConfirmedReadyStatus");
             TargetLocalUndoDescription =
-                "The exact capsule binding is confirmed. Activating undo will reserve one durable operation before Adapter restore.";
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_ConfirmedReadyDescription");
         }
         else
         {
             TargetLocalUndoStatus =
-                "TARGET-LOCAL UNDO — EXACT CONFIRMATION REQUIRED";
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_ConfirmationRequiredStatus");
             TargetLocalUndoDescription =
-                "Review the capsule, both opaque Activity IDs, and exact expiry, then confirm this one target-local action.";
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_ConfirmationRequiredDescription");
         }
     }
 
@@ -1665,31 +1863,42 @@ public sealed class ActivityWorkspaceViewModel :
     {
         TargetLocalUndoStatus = result.Status switch
         {
-            OperationStatus.Committed => "TARGET-LOCAL UNDO COMMITTED",
-            OperationStatus.Rejected => "TARGET-LOCAL UNDO REJECTED",
-            OperationStatus.Failed => "TARGET-LOCAL UNDO FAILED",
+            OperationStatus.Committed => DesktopText.Get(
+                "Activity_TargetLocalUndo_CommittedStatus"),
+            OperationStatus.Rejected => DesktopText.Get(
+                "Activity_TargetLocalUndo_RejectedStatus"),
+            OperationStatus.Failed => DesktopText.Get(
+                "Activity_TargetLocalUndo_FailedStatus"),
             OperationStatus.Recovering =>
-                "TARGET-LOCAL UNDO OUTCOME UNCERTAIN — DUPLICATE DISABLED",
-            _ => "TARGET-LOCAL UNDO OUTCOME UNAVAILABLE",
+                DesktopText.Get("Activity_TargetLocalUndo_UncertainStatus"),
+            _ => DesktopText.Get("Activity_TargetLocalUndo_UnavailableStatus"),
         };
         TargetLocalUndoDescription = (result.Status, result.FailureCode) switch
         {
             (OperationStatus.Committed, _) =>
-                "The preserved semantic Activity was restored at a new revision and the protected capsule is recorded as consumed.",
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_CommittedDescription"),
             (_, FailureCode.UndoCapsuleExpired) =>
-                "The exact capsule expired before restore began. No Adapter restore was performed.",
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_CapsuleExpiredDescription"),
             (_, FailureCode.UndoCapsuleConsumed) =>
-                "The exact capsule was already consumed. No duplicate Adapter restore was performed.",
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_CapsuleConsumedDescription"),
             (_, FailureCode.RevisionConflict) =>
-                "The replacement is no longer the exact current Activity revision. Flowspan did not overwrite newer state.",
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_RevisionConflictDescription"),
             (_, FailureCode.OperationInProgress) =>
-                "A protected pending boundary already owns this capsule. Inspect recovery; Adapter work was not repeated.",
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_OperationInProgressDescription"),
             (OperationStatus.Recovering, _) =>
-                "The durable terminal write or destructive boundary is uncertain. The pending record blocks duplicate restore until explicit recovery exists.",
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_RecoveringDescription"),
             (OperationStatus.Failed, _) =>
-                "The Adapter did not complete the semantic restore. The terminal failure is recorded and this UI does not silently retry it.",
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_FailedDescription"),
             _ =>
-                "The protected undo request was not committed. The recorded reason is shown; no outcome is inferred.",
+                DesktopText.Get(
+                    "Activity_TargetLocalUndo_NotCommittedDescription"),
         };
         TargetLocalUndoReason = ToReasonCode(result.FailureCode);
         TargetLocalUndoOccurredAt = result.OccurredAt.ToString("O");
@@ -1699,9 +1908,10 @@ public sealed class ActivityWorkspaceViewModel :
     {
         Interlocked.Increment(ref replaceInventoryContextVersion);
         ClearReplaceInventorySnapshot();
-        ReplaceInventoryStatus = "REPLACE TARGETS NOT LOADED";
+        ReplaceInventoryStatus = DesktopText.Get(
+            "Activity_ReplaceInventory_NotLoadedStatus");
         ReplaceInventoryDescription =
-            "Select an incoming Activity and authenticated target, then load purpose-scoped Replace targets.";
+            DesktopText.Get("Activity_ReplaceInventory_NotLoadedDescription");
     }
 
     private void OnServiceChanged()
@@ -1792,6 +2002,9 @@ public sealed class ActivityWorkspaceViewModel :
         }
     }
 
+    private static string ToInvariantRoundTrip(DateTimeOffset? value) =>
+        value?.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty;
+
     private static string ToReasonCode(FailureCode code)
     {
         if (code == FailureCode.None)
@@ -1818,15 +2031,16 @@ public sealed class ActivityWorkspaceViewModel :
         OperationStatus status) => (kind, status) switch
         {
             (OperationKind.Handoff, _) =>
-                "NO UNDO REQUIRED — handoff preserves the source. Each device owns its resulting copy and can delete it locally.",
+                DesktopText.Get("Activity_Undo_HandoffPreservesSourceDescription"),
             (OperationKind.Move, OperationStatus.Committed) =>
-                "NO AUTOMATIC UNDO — the source closed after verified target acknowledgement. Start a new move to move it back.",
+                DesktopText.Get("Activity_Undo_MoveCommittedDescription"),
             (OperationKind.Move, OperationStatus.CommittedWithWarning) =>
-                "NO AUTOMATIC UNDO — target resume is committed and source cleanup failed. Resolve the two active copies explicitly.",
+                DesktopText.Get(
+                    "Activity_Undo_MoveCommittedWithWarningDescription"),
             (OperationKind.Move, OperationStatus.Recovering) =>
-                "NO AUTOMATIC UNDO — the source remains active, but target acceptance is uncertain. Inspect both devices before retrying.",
+                DesktopText.Get("Activity_Undo_MoveRecoveringDescription"),
             (OperationKind.Move, _) =>
-                "NO UNDO REQUIRED — the move did not close the source Activity.",
+                DesktopText.Get("Activity_Undo_MoveNotCommittedDescription"),
             _ => string.Empty,
         };
 

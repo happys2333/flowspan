@@ -17,9 +17,9 @@ public sealed class TrustedDeviceItemViewModel
         Fingerprint = snapshot.Fingerprint;
         VerifiedAt = snapshot.VerifiedAt.ToString("u");
         CapabilitySummary = snapshot.GrantedCapabilities.Capabilities.Count == 0
-            ? "No capabilities granted"
+            ? DesktopText.Get("TrustedDevices_NoCapabilities")
             : string.Join(
-                " · ",
+                DesktopText.Get("TrustedDevices_CapabilitySeparator"),
                 snapshot.GrantedCapabilities.Capabilities
                     .Order()
                     .Select(FormatCapability));
@@ -81,15 +81,17 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
     private bool isTrustAvailable;
     private string mutationDescription = string.Empty;
     private string mutationStatus = string.Empty;
-    private string trustExportPath = "No Trust export has been written.";
-    private string trustExportPreview =
-        "Exports omit peer names, Device IDs, fingerprints, and keys.";
-    private string protection = "Trust Store not loaded";
+    private string trustExportPath = DesktopText.Get(
+        "TrustedDevices_NoExportPath");
+    private string trustExportPreview = DesktopText.Get(
+        "TrustedDevices_ExportPrivacyDescription");
+    private string protection = DesktopText.Get(
+        "TrustedDevices_StoreNotLoaded");
     private string recoveryAction = string.Empty;
     private string revokeConfirmation = string.Empty;
-    private string status = "LOADING TRUST STORE";
-    private string statusDescription =
-        "Flowspan is loading paired devices from protected local storage.";
+    private string status = DesktopText.Get("TrustedDevices_LoadingStatus");
+    private string statusDescription = DesktopText.Get(
+        "TrustedDevices_LoadingDescription");
     private int disposed;
 
     public TrustedDevicesViewModel(
@@ -376,16 +378,16 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
                 .ConfigureAwait(true);
             TrustExportPath = exported.FullPath;
             TrustExportPreview = exported.RedactedContent;
-            MutationStatus = "REDACTED TRUST EXPORT WRITTEN";
-            MutationDescription =
-                "The export contains protection state, verification times, and Capability grants only.";
+            MutationStatus = DesktopText.Get("TrustedDevices_ExportWrittenStatus");
+            MutationDescription = DesktopText.Get(
+                "TrustedDevices_ExportWrittenDescription");
         }
         catch (Exception exception)
             when (exception is not OperationCanceledException)
         {
-            MutationStatus = "TRUST EXPORT FAILED";
-            MutationDescription =
-                "No export was reported. Exception content is hidden.";
+            MutationStatus = DesktopText.Get("TrustedDevices_ExportFailedStatus");
+            MutationDescription = DesktopText.Get(
+                "TrustedDevices_ExportFailedDescription");
         }
     }
 
@@ -422,10 +424,9 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
                 refreshed,
                 selected.Snapshot.DeviceId,
                 selected.Snapshot.Fingerprint);
-            MutationStatus = "TRUST UPDATE FAILED";
-            MutationDescription =
-                "The protected Trust Store kept its previous Capability grant. "
-                + "Unlock the credential store and retry.";
+            MutationStatus = DesktopText.Get("TrustedDevices_UpdateFailedStatus");
+            MutationDescription = DesktopText.Get(
+                "TrustedDevices_UpdateFailedDescription");
             return;
         }
 
@@ -435,25 +436,27 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
             selected.Snapshot.Fingerprint);
         MutationStatus = outcome.Status switch
         {
-            DesktopTrustMutationStatus.Applied => "CAPABILITIES SAVED",
+            DesktopTrustMutationStatus.Applied => DesktopText.Get(
+                "TrustedDevices_CapabilitiesSavedStatus"),
             DesktopTrustMutationStatus.AppliedWithSessionStopFailure =>
-                "CAPABILITIES SAVED — SESSION STOP UNCONFIRMED",
+                DesktopText.Get("TrustedDevices_CapabilitiesSavedStopUnconfirmed"),
             DesktopTrustMutationStatus.IdentityChanged =>
-                "IDENTITY CHANGED — REVIEW REQUIRED",
-            DesktopTrustMutationStatus.PeerNotFound => "DEVICE NO LONGER PAIRED",
+                DesktopText.Get("TrustedDevices_IdentityChangedStatus"),
+            DesktopTrustMutationStatus.PeerNotFound => DesktopText.Get(
+                "TrustedDevices_NoLongerPairedStatus"),
             _ => throw new InvalidOperationException(
                 "The desktop Trust mutation status is not supported."),
         };
         MutationDescription = outcome.Status switch
         {
             DesktopTrustMutationStatus.Applied =>
-                "The complete Capability grant is committed.",
+                DesktopText.Get("TrustedDevices_UpdateAppliedDescription"),
             DesktopTrustMutationStatus.AppliedWithSessionStopFailure =>
-                "Authorization is removed, but one or more active sessions did not confirm shutdown.",
+                DesktopText.Get("TrustedDevices_StopUnconfirmedDescription"),
             DesktopTrustMutationStatus.IdentityChanged =>
-                "No change was applied. Review the replacement identity before continuing.",
+                DesktopText.Get("TrustedDevices_UpdateIdentityChangedDescription"),
             DesktopTrustMutationStatus.PeerNotFound =>
-                "No change was applied because the Trust Record no longer exists.",
+                DesktopText.Get("TrustedDevices_UpdatePeerMissingDescription"),
             _ => string.Empty,
         };
         await ReconcileConnectionsAsync(cancellationToken).ConfigureAwait(true);
@@ -470,10 +473,10 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
             return;
         }
 
-        RevokeConfirmation =
-            $"Revoke {selected.DisplayName} ({selected.DeviceId})? "
-            + "New operations will be rejected immediately and active sharing "
-            + "will be asked to stop. This action has no undo.";
+        RevokeConfirmation = DesktopText.Format(
+            "TrustedDevices_RevokeConfirmation",
+            selected.DisplayName,
+            selected.DeviceId);
         IsRevokeConfirmationVisible = true;
     }
 
@@ -520,10 +523,9 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
                 selected.Snapshot.DeviceId,
                 selected.Snapshot.Fingerprint);
             CancelRevoke();
-            MutationStatus = "TRUST REVOKE FAILED";
-            MutationDescription =
-                "The protected Trust Store kept the existing Trust Record. "
-                + "Unlock the credential store and retry.";
+            MutationStatus = DesktopText.Get("TrustedDevices_RevokeFailedStatus");
+            MutationDescription = DesktopText.Get(
+                "TrustedDevices_RevokeFailedDescription");
             return;
         }
 
@@ -531,25 +533,27 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         CancelRevoke();
         MutationStatus = outcome.Status switch
         {
-            DesktopTrustMutationStatus.Applied => "DEVICE REVOKED",
+            DesktopTrustMutationStatus.Applied => DesktopText.Get(
+                "TrustedDevices_RevokedStatus"),
             DesktopTrustMutationStatus.AppliedWithSessionStopFailure =>
-                "DEVICE REVOKED — SESSION STOP UNCONFIRMED",
+                DesktopText.Get("TrustedDevices_RevokedStopUnconfirmed"),
             DesktopTrustMutationStatus.IdentityChanged =>
-                "IDENTITY CHANGED — REVIEW REQUIRED",
-            DesktopTrustMutationStatus.PeerNotFound => "DEVICE NO LONGER PAIRED",
+                DesktopText.Get("TrustedDevices_IdentityChangedStatus"),
+            DesktopTrustMutationStatus.PeerNotFound => DesktopText.Get(
+                "TrustedDevices_NoLongerPairedStatus"),
             _ => throw new InvalidOperationException(
                 "The desktop Trust mutation status is not supported."),
         };
         MutationDescription = outcome.Status switch
         {
             DesktopTrustMutationStatus.Applied =>
-                "The Trust Record is removed and new operations are blocked.",
+                DesktopText.Get("TrustedDevices_RevokeAppliedDescription"),
             DesktopTrustMutationStatus.AppliedWithSessionStopFailure =>
-                "Authorization is removed, but one or more active sessions did not confirm shutdown.",
+                DesktopText.Get("TrustedDevices_StopUnconfirmedDescription"),
             DesktopTrustMutationStatus.IdentityChanged =>
-                "No Trust Record was removed. Review the replacement identity.",
+                DesktopText.Get("TrustedDevices_RevokeIdentityChangedDescription"),
             DesktopTrustMutationStatus.PeerNotFound =>
-                "The Trust Record had already been removed.",
+                DesktopText.Get("TrustedDevices_RevokePeerMissingDescription"),
             _ => string.Empty,
         };
         await ReconcileConnectionsAsync(cancellationToken).ConfigureAwait(true);
@@ -644,9 +648,10 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         catch (Exception)
         {
             MutationDescription = string.IsNullOrEmpty(MutationDescription)
-                ? "Trust is authoritative, but local reconnect status could not refresh. Disable and retry local networking."
-                : MutationDescription
-                    + " Local reconnect status could not refresh; disable and retry local networking.";
+                ? DesktopText.Get("TrustedDevices_ReconnectRefreshFailedDescription")
+                : DesktopText.Format(
+                    "TrustedDevices_ReconnectRefreshFailedAppend",
+                    MutationDescription);
         }
     }
 
@@ -665,17 +670,17 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         IsEmpty = Devices.Count == 0;
         Status = Devices.Count switch
         {
-            0 => "NO PAIRED DEVICES",
-            1 => "1 PAIRED DEVICE",
-            _ => $"{Devices.Count} PAIRED DEVICES",
+            0 => DesktopText.Get("TrustedDevices_EmptyStatus"),
+            1 => DesktopText.Get("TrustedDevices_OneStatus"),
+            _ => DesktopText.Format("TrustedDevices_ManyStatus", Devices.Count),
         };
         StatusDescription = Devices.Count == 0
-            ? "No device has a persisted Trust Record. Pairing and discovery are separate."
-            : "Select a paired device to inspect or edit its local Capability grants.";
+            ? DesktopText.Get("TrustedDevices_EmptyDescription")
+            : DesktopText.Get("TrustedDevices_AvailableDescription");
         Protection = snapshot.Protection ==
             SecretStoreProtection.OperatingSystemProtected
-            ? "Operating-system protected"
-            : "TEST MODE — trust is not persisted";
+            ? DesktopText.Get("TrustedDevices_Protected")
+            : DesktopText.Get("TrustedDevices_TestModeProtection");
         RecoveryAction = string.Empty;
         SelectedDevice = Devices.FirstOrDefault(device =>
                 device.Snapshot.DeviceId == preferredDeviceId
@@ -691,12 +696,11 @@ public sealed class TrustedDevicesViewModel : INotifyPropertyChanged, IAsyncDisp
         SelectedDevice = null;
         IsTrustAvailable = false;
         IsEmpty = true;
-        Status = "TRUST STORE UNAVAILABLE";
-        StatusDescription =
-            "Paired devices cannot be loaded safely, so Trust editing is disabled.";
-        Protection = "Protection unavailable";
-        RecoveryAction =
-            "Unlock the operating-system credential store, verify this user can access it, and retry.";
+        Status = DesktopText.Get("TrustedDevices_UnavailableStatus");
+        StatusDescription = DesktopText.Get(
+            "TrustedDevices_UnavailableDescription");
+        Protection = DesktopText.Get("TrustedDevices_ProtectionUnavailable");
+        RecoveryAction = DesktopText.Get("TrustedDevices_RecoveryAction");
         MutationStatus = string.Empty;
         MutationDescription = string.Empty;
     }
