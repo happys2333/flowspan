@@ -1,7 +1,8 @@
 # Remote Window and Mirror Control Design
 
-Status: approved portable control plane and protocol 1.5; Desktop workflow local
-candidate under concurrency hardening; hosted evidence pending
+Status: approved portable control plane and protocol 1.5; portable/headless
+Desktop workflow complete with exact-commit hosted evidence; native adapters
+and physical evidence pending
 
 ## Design summary
 

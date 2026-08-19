@@ -196,13 +196,15 @@ implementation convenience.
   representative native protected-store/application recovery, native
   accessibility, and crash/power-loss evidence remain open, so the Replace
   product criterion is still unchecked.
-- [2026-08-10 Desktop Remote Window workflow candidate](../evidence/2026-08-10-desktop-remote-window-workflow.md):
-  local headless tests cover purpose-scoped target selection, preview-role
-  refiltering, fail-closed selection clearing, Mirror-only production profile
-  loopback, post-Trust-mutation refresh, fallback keyboard operation, and
-  portable lifecycle/concurrency boundaries. Exact-commit hosted and every
-  native/physical release gate remain open; no release criterion is closed by
-  this candidate record.
+- [2026-08-10 Desktop Remote Window workflow](../evidence/2026-08-10-desktop-remote-window-workflow.md):
+  local and exact-commit hosted tests cover purpose-scoped target selection,
+  preview-role refiltering, fail-closed selection clearing, Mirror-only
+  production profile loopback, post-Trust-mutation refresh, fallback keyboard
+  operation, and portable lifecycle/concurrency boundaries. Each hosted OS
+  passed all 1542 tests, and Secret Scan, CodeQL, parsed artifacts, and
+  reproducible unsigned packages also passed for the exact final commit. Every
+  native/physical release gate remains open; no release criterion is closed by
+  this portable/headless record.
 
 This is portable, headless Desktop, and hosted unsigned-package evidence only.
 It does not satisfy physical-device, native permission/hardware, signed or

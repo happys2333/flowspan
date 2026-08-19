@@ -1,7 +1,8 @@
 # Remote Window and Mirror Control Requirements
 
-Status: approved v1 baseline; portable control plane and authenticated bounded
-media complete; Desktop workflow in progress
+Status: approved v1 baseline; portable control plane, authenticated bounded
+media, and portable/headless Desktop workflow complete; native adapters and
+physical evidence pending
 
 ## Problem and scope
 
@@ -13,8 +14,8 @@ moved.
 
 This specification covers the v1 portable control plane, authenticated bounded
 media, authorization, Driver Lease, protection, Emergency Stop, bounded
-resource, Desktop candidate, and evidence contracts. It also defines the still
-open boundary for native Windows, macOS, and Linux adapters.
+resource, portable/headless Desktop workflow, and evidence contracts. It also
+defines the still open boundary for native Windows, macOS, and Linux adapters.
 
 ## User outcomes
 

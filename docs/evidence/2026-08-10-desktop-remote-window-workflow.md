@@ -1,17 +1,20 @@
-# Desktop Remote Window Workflow Candidate Evidence - 2026-08-10
+# Desktop Remote Window Workflow Evidence - 2026-08-10
 
 ## Evidence status and boundary
 
-Classification: **Local**, **portable contract**, and **headless Desktop**.
+Classification: **Local**, **hosted portable contract**, **headless Desktop**,
+and **unsigned package**.
 
 Branch: `codex/v1-foundation`
 
-Implementation commit:
+Feature implementation commit:
 `a92c0bff6c5d4624ca4d57a352aac9c05c61d1c5`, based on
-`3390667830531a9ada2b9a834a912cc85216870f`. The exact-commit local gate below
-ran at that implementation commit with only this evidence record untracked. An
-exact-commit hosted workflow result does not yet exist; the hosted section below
-therefore remains intentionally open.
+`3390667830531a9ada2b9a834a912cc85216870f`. Final verified commit:
+`e34e73339dbb1c1ccf9de0b047653ddc5d7fbb59`. The final commit adds the
+post-semaphore cancellation check needed when pairing admission races disposal
+and removes single-core thread-pool scheduling as a timing-test confounder
+without relaxing the one-second Emergency Stop assertions. The final local gate
+and hosted workflows below both ran against that exact final commit.
 
 This record covers the Desktop Remote Window workflow and the portable safety
 boundaries it composes. It does not prove a native screen was captured, native
@@ -19,7 +22,7 @@ input was injected or stopped, a protected surface was detected, an operating-
 system permission prompt behaved correctly, a physical emergency action ran, or
 two physical Devices communicated over a LAN.
 
-## Implemented candidate contract
+## Implemented workflow contract
 
 - The persistent sharing header, detail state, progressive capture/input review,
   local Emergency Stop, local retry-reset, and fallback start surface consume
@@ -86,9 +89,10 @@ Host: macOS 26.6.1 (build 25G76), Apple Silicon, Asia/Shanghai
 Branch: codex/v1-foundation
 Base commit: 3390667830531a9ada2b9a834a912cc85216870f
 Verification date: 2026-08-10
+Final verified commit: e34e73339dbb1c1ccf9de0b047653ddc5d7fbb59
 ```
 
-Commands already executed against this candidate worktree:
+Commands executed against the exact final verified commit:
 
 ```sh
 dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
@@ -100,7 +104,7 @@ dotnet build Flowspan.slnx --configuration Release --no-restore
 dotnet test Flowspan.slnx --configuration Release --no-build --no-restore \
   --logger "trx;LogFilePrefix=macOS-local" \
   --results-directory \
-  artifacts/test-results/2026-08-10-remote-window-candidate-5
+  artifacts/test-results/2026-08-10-remote-window-candidate-6
 dotnet run --project src/Flowspan.Desktop/Flowspan.Desktop.csproj \
   --configuration Release --no-build --no-restore -- \
   --validate-composition
@@ -139,7 +143,7 @@ Observed results:
 
 ## Final local gate
 
-Passed for the candidate worktree:
+Passed for exact commit `e34e73339dbb1c1ccf9de0b047653ddc5d7fbb59`:
 
 - Locked restore and format verification passed.
 - All 26 projects built in Release with 0 warnings and 0 errors.
@@ -156,18 +160,73 @@ Passed for the candidate worktree:
 - NuGet reported no known vulnerable direct or transitive package in any of the
   26 projects. `git diff --check` passed.
 - Fresh TRX files remain in
-  `artifacts/test-results/2026-08-10-remote-window-candidate-5`. This ignored
+  `artifacts/test-results/2026-08-10-remote-window-candidate-6`. This ignored
   local path is diagnostic evidence, not a committed release artifact.
 
-This proves the named portable/headless implementation commit on the local
-macOS host. It does not provide hosted or matching native-platform evidence.
+This proves the named portable/headless implementation on the local macOS host.
+It does not provide matching native-platform evidence.
 
 ## Hosted exact-commit evidence
 
-Pending. Windows, macOS, and Ubuntu CI, Secret Scan, CodeQL, and reproducible
-unsigned package jobs must pass for the implementation commit. Hosted runner
-results remain portable evidence unless a job invokes and verifies the matching
-native API.
+Final commit `e34e73339dbb1c1ccf9de0b047653ddc5d7fbb59` passed
+[CI run `31346175920`](https://github.com/happys2333/flowspan/actions/runs/31346175920):
+
+- Ubuntu test job [`93328435900`](https://github.com/happys2333/flowspan/actions/runs/31346175920/job/93328435900);
+- macOS test job [`93328435916`](https://github.com/happys2333/flowspan/actions/runs/31346175920/job/93328435916);
+- Windows test job [`93328435918`](https://github.com/happys2333/flowspan/actions/runs/31346175920/job/93328435918);
+- Secret Scan job [`93328435891`](https://github.com/happys2333/flowspan/actions/runs/31346175920/job/93328435891);
+- `linux-x64` package job [`93328815637`](https://github.com/happys2333/flowspan/actions/runs/31346175920/job/93328815637);
+- `osx-arm64` package job [`93328815645`](https://github.com/happys2333/flowspan/actions/runs/31346175920/job/93328815645);
+- `win-x64` package job [`93328815635`](https://github.com/happys2333/flowspan/actions/runs/31346175920/job/93328815635).
+
+Every test job restored locked dependencies, verified formatting, built with
+warnings as errors, ran all tests, validated Desktop composition in explicit
+TEST MODE, ran the protocol-1.5 deterministic simulator, and uploaded TRX
+evidence. Every package job verified content-locked tooling, published and
+smoke-tested its self-contained target, sealed and verified two reproducible
+unsigned outputs, compared them recursively, audited direct/transitive
+dependencies, and uploaded the resulting test package.
+
+Downloaded test and Secret Scan artifacts were parsed with XML and JSON
+parsers. `Artifact digest` is GitHub's service-computed SHA-256. `Tree SHA-256`
+independently hashes every extracted relative path and file digest in sorted
+order.
+
+| Artifact | ID | Artifact digest | Tree SHA-256 | Parsed result |
+| --- | ---: | --- | --- | --- |
+| Windows TRX | `9047432733` | `c25b28e29fd01e9bb4e6ff47f56f3237d553319284567f92df970ff36457444c` | `1784fbfe504a04c289c50bc3a26566e5df1e5c1e6c43c87b05ae416271a907b8` | 12 files, 1542/1542 passed |
+| macOS TRX | `9047424561` | `c34b7cdebfff1dce88b2dfd78efea92a86db41356be6d202a2604a18d768bd83` | `62365cb3528785c6bbbfeda2da8a9b729a51e506443e3b7c7e92d837dfa3e297` | 12 files, 1542/1542 passed |
+| Ubuntu TRX | `9047429439` | `6b0e36529d3a7d8b0e67192735a1806cf285ebc6d979343cda6234992f376c5c` | `a9cbcd4d7a4ee65f1fbc085f70e8b109191271d96a730289c70e691722e2213a` | 12 files, 1542/1542 passed |
+| Gitleaks SARIF | `9047394755` | `976f538c38f5a869f539ab6e9b7d7f5a74ba5834502b70229ec8c11a7a67d416` | `49424e51411d8baac254af99c5d621befe644dd8291e9d20e52346d7c0ba7f83` | 208 rules, 0 results |
+
+All three TRX aggregates also reported 0 failed, error, timeout, aborted,
+inconclusive, passed-but-aborted, not-runnable, not-executed, disconnected,
+warning, completed, in-progress, or pending tests. The 36 files total 4626/4626
+passes.
+
+The three downloaded package directories independently passed the repository's
+`Flowspan.Release verify` command and all 15 `SHA256SUMS` entries. Their SLSA
+provenance binds version `0.1.126`, the exact final commit, CI run attempt 1,
+and the named builder. Each SBOM contains 38 packages and 38 relationships.
+
+| Package | ID | Artifact digest | Tree SHA-256 | Inner archive bytes / SHA-256 |
+| --- | ---: | --- | --- | --- |
+| `win-x64` | `9047459439` | `bd8f95cdc3e191a4106eb5ae2ba16e3ba158b9bee94379ecf98cba2c9d3729b8` | `ee81a4a2fc6e21140dcfcf7259d60c05d1f16978f6d25d48dc3b5cc90803e992` | 43,820,048 / `c840da7a2943f57c80aec77483cbbe80366b1454d81f572965369e8abd2bef37` |
+| `linux-x64` | `9047451443` | `b1461d7f94ccf62e6ca7f8a1e155db912d611f2a430089c1aeffd446fbe25f55` | `18b0a9260653deb9d5b063dbd2b99484ad34bbca8fd9f952524c068e9dd685ce` | 41,834,599 / `fab2f074f8815d19e4d1ddf2d76f019ad86ebb8c69bb94a5d626668f7a61a540` |
+| `osx-arm64` | `9047459750` | `c217725c0fb8c3425b82bc1de43662eda4d4bf5c5c09eabd8d21754481da6df0` | `07a5a7233aac6fe72ae121da20f0c6b27adc11c15ed82366d17b3545ab96ba55` | 42,654,863 / `52f943d70bcd1e4b9eb7475296081b3a922724dd196a063cbbc1224ced29706f` |
+
+All packages are explicitly `unsigned-test-artifact`; their license reports
+remain `reviewRequired=true`. They are not release-signed installers.
+
+[CodeQL run `31346175815`](https://github.com/happys2333/flowspan/actions/runs/31346175815),
+job [`93328435496`](https://github.com/happys2333/flowspan/actions/runs/31346175815/job/93328435496),
+also passed for the exact final commit. CodeQL 2.26.2 analysis `1593081849`
+evaluated 52 rules, reported 0 results, and the branch had 0 open alerts.
+
+These hosted results prove portable build and contract behavior plus
+reproducible unsigned packaging on the named runner images. Platform-named
+contract suites and hosted smoke tests do not prove native capture, input,
+protection, permission prompts, or physical-device behavior.
 
 ## Open evidence
 
@@ -182,4 +241,5 @@ native API.
   install/upgrade/uninstall, and the complete real-machine acceptance matrix.
 
 Tasks 6-9 in the Remote Window plan, parent native/physical tasks, and the v1
-release criteria remain open where they require this evidence.
+release criteria remain open where they require native, physical, load,
+accessibility, signed-package, or real-machine evidence.

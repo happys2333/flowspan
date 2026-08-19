@@ -572,7 +572,8 @@ means its linked evidence exists; it does not imply the entire product works.
         are linked above. This status becomes effective only after the commit
         carrying this evidence also passes the same final-HEAD workflows.
       - _Requirements: R4.4-R4.12, R9, R10, R11_
-  - 7.3d local candidate: bind the selected active Activity and an independently
+  - 7.3d portable/headless Desktop scope complete: bind the selected active
+    Activity and an independently
     role-filtered Remote Window target into an explicitly labelled fallback only
     when semantic resume is unavailable. Semantic `activity.receive` targets do
     not qualify: view-only requires `mirror.view`, driving requires
@@ -591,8 +592,12 @@ means its linked evidence exists; it does not imply the entire product works.
     retry reset, stale/new-session and last-known reduction, ordered hostile
     observer/disposal, purpose-scoped target negatives, role-upgrade fail-closed
     selection, focus, scaling, contrast, and redaction have deterministic Desktop
-    coverage. Exact-commit hosted evidence
-    and all native/physical capture, input, protection, permission, hotkey,
+    coverage. Final commit `e34e73339dbb1c1ccf9de0b047653ddc5d7fbb59`
+    passes 1542 tests on local macOS and each hosted OS, Secret Scan, CodeQL,
+    and the three-RID reproducible unsigned package matrix; downloaded evidence
+    is independently parsed and verified in
+    `docs/evidence/2026-08-10-desktop-remote-window-workflow.md`. All
+    native/physical capture, input, protection, permission, hotkey,
     screen-reader, and two-device gates remain open under tasks 6.3-6.5 and 9.3.
     - _Requirements: R3.3-R3.5, R6, R9.3-R9.4, R10_
   - _Requirements: R3, R4, R5, R6, R10, R11_
