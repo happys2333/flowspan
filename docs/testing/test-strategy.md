@@ -429,6 +429,23 @@ expiry, protection, and disconnect transitions each; after every event all
 retired Device/epoch pairs are attempted through the public input API and must
 not reach the input boundary.
 
+Native Remote Window task 3 tests compose one connection-owned dispatcher over
+the production authenticated TCP registration. Protocol 1.0-1.4 cases retain
+their Activity routes without exposing a Remote Window channel or picker;
+protocol 1.5 carries Activity and Remote Window traffic through the same strict
+read loop. Real loopback tests cover coexistence, current Trust/Capability
+refiltering, malformed cross-routing, reconnect, revoke, disposal, and complete
+route-change notification drain. A raw authenticated peer receives concurrent
+Replace, Swap snapshot, Scene source lookup, and Remote Window admission
+requests, then responds in reverse order to prove cross-family correlation
+without adding a competing reader. Deterministic session tests additionally
+cover the 16-command pending bound, send/stop admission and in-flight drain,
+throwing observer isolation, cancellation callback aggregation, re-entrant
+disposal, stale copied execution context, and no pre-read past a blocked route.
+These tests prove portable authenticated control composition on loopback only;
+they do not route Remote Window media or prove native windows, physical Devices,
+operating-system permissions, input injection, or protected-surface detection.
+
 Headless Desktop tests additionally block and reorder permission, service, and
 observer callbacks. A permission busy-state observer may synchronously request
 disposal without waiting on its own callback lease; external callers still join

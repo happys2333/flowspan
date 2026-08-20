@@ -559,12 +559,13 @@ multicast behavior.
 The desktop 7.2d composition owns trusted reconnect only while the owner has
 explicitly enabled the same local-network lifetime used for pairing. For each
 trusted peer with at least one local `activity.offer`, `activity.receive`,
-`activity.replace`, `activity.swap`, `mirror.view`, or `mirror.drive` grant, the
-lexicographically smaller Device ID is the sole active connector and the other
-endpoint waits on the shared authenticated listener. The any-of profile grants
-only an authenticated idle channel; each Activity or Remote Window boundary
-still rechecks its exact current purpose and direction, and `mirror.drive`
-without `mirror.view` never qualifies a Mirror target or participant.
+`activity.replace`, `activity.swap`, `scene.apply`, `mirror.view`, or
+`mirror.drive` grant, the lexicographically smaller Device ID is the sole active
+connector and the other endpoint waits on the shared authenticated listener.
+The any-of profile grants only an authenticated idle channel; each Activity,
+Scene, or Remote Window boundary still rechecks its exact current purpose and
+direction, and `mirror.drive` without `mirror.view` never qualifies a Mirror
+target or participant.
 This deterministic ownership prevents two healthy peers from maintaining
 duplicate symmetric idle connections. Discovery changes wake a waiting retry
 loop but do not tear down an already authenticated session merely because an
@@ -598,6 +599,16 @@ reusable channel when the local Trust Record has `activity.offer` **or**
 `TrustSessionCoordinator` records the match mode so a partial downgrade of an
 any-of session keeps it alive while removal of the final alternative drains it.
 Duplicate authenticated Activity sessions for one Device ID are rejected.
+
+Native Remote Window Task 3 extends that production registration with one
+connection-owned, strict-order dispatcher for version-gated Activity, Replace,
+Swap, Scene, and Remote Window messages. A negotiated protocol 1.5 registration
+exposes its Remote Window channel from the same handler; protocol 1.0-1.4
+registrations continue to expose only their supported Activity/Scene families.
+This slice composes authenticated control only. Task 4 media-route and codec
+decisions, the Task 5 production Remote Window host/participant runtime, and
+native platform capture, input, protection, and real-machine evidence remain
+pending.
 
 An outbound `workspace.note/v1` Handoff is separately authorized immediately
 before disclosure: the source's local Trust Record must grant its target

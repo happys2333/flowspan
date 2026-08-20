@@ -419,7 +419,7 @@ public sealed class DesktopActivityRuntimeTests
                     sourceIdentity.PublicIdentity,
                     Now,
                     CapabilityGrant.None),
-                [new ProtocolVersion(1, 0)]).AsTask();
+                [ProtocolFeatures.RemoteWindowMinimumVersion]).AsTask();
         await using AuthenticatedTcpControlConnection sourceConnection =
             await AuthenticatedTcpControlConnection.ConnectAsync(
                 endpoint,
@@ -428,7 +428,7 @@ public sealed class DesktopActivityRuntimeTests
                     targetIdentity.PublicIdentity,
                     Now,
                     CapabilityGrant.None),
-                [new ProtocolVersion(1, 0)]);
+                [ProtocolFeatures.RemoteWindowMinimumVersion]);
         await using AuthenticatedTcpControlConnection targetConnection = await accepting;
         using var stop = new CancellationTokenSource();
         Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();

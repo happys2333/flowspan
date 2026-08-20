@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using Flowspan.Application;
 using Flowspan.Domain;
 using Flowspan.Protocol;
@@ -175,6 +176,9 @@ internal sealed partial class ActivityControlSession :
 
     public DeviceId TargetDeviceId => connection.PeerDeviceId;
 
+    internal CancellationToken LifetimeCancellationToken =>
+        lifetimeCancellation.Token;
+
     public bool SupportsSwap =>
         Volatile.Read(ref disposed) == 0
         && Volatile.Read(ref stopped) == 0
@@ -188,20 +192,20 @@ internal sealed partial class ActivityControlSession :
     public void Cancel()
     {
         Interlocked.Exchange(ref stopped, 1);
-        RequestLifetimeStop();
-        CompletePendingAsUncertain();
+        try
+        {
+            RequestLifetimeStop();
+        }
+        finally
+        {
+            CompletePendingAsUncertain();
+        }
     }
 
     public async ValueTask RunAsync(
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
-        if (Interlocked.CompareExchange(ref running, 1, 0) != 0)
-        {
-            throw new InvalidOperationException(
-                "An Activity control session can run only once.");
-        }
-
+        StartDispatch();
         using CancellationTokenSource linked =
             CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
@@ -213,82 +217,7 @@ internal sealed partial class ActivityControlSession :
                 ControlMessage message = await connection
                     .ReadAsync(linked.Token)
                     .ConfigureAwait(false);
-                switch (message.Type)
-                {
-                    case ControlMessageType.ActivityTransfer:
-                        await HandleTransferAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.ActivityReplaceInventory:
-                        await HandleReplaceInventoryAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.ActivityReplace:
-                        await HandleReplaceAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.ActivityReplaceInventoryResult:
-                        HandleReplaceInventoryResult(message);
-                        break;
-                    case ControlMessageType.ActivityReplaceResult:
-                        HandleReplaceResult(message);
-                        break;
-                    case ControlMessageType.ActivitySwapSnapshot:
-                        await HandleSwapSnapshotAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.ActivitySwapSnapshotResult:
-                        HandleSwapSnapshotResult(message);
-                        break;
-                    case ControlMessageType.ActivitySwapPrepare:
-                        await HandleSwapPrepareAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.ActivitySwapPrepareResult:
-                        HandleSwapPrepareResult(message);
-                        break;
-                    case ControlMessageType.ActivitySwapDecision:
-                        await HandleSwapDecisionAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.ActivitySwapDecisionResult:
-                        HandleSwapDecisionResult(message);
-                        break;
-                    case ControlMessageType.OperationReceipt:
-                        HandleReceipt(message);
-                        break;
-                    case ControlMessageType.SceneSourceLookup:
-                        await HandleSceneSourceLookupAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.SceneSourceLookupResult:
-                        HandleSceneSourceLookupResult(message);
-                        break;
-                    case ControlMessageType.SceneSlotInspection:
-                        await HandleSceneExactSlotAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.SceneSlotInspectionResult:
-                        HandleSceneExactSlotResult(message);
-                        break;
-                    case ControlMessageType.SceneChildOperation:
-                        await HandleSceneChildAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.SceneChildOperationResult:
-                        HandleSceneChildResult(message);
-                        break;
-                    case ControlMessageType.SceneUndoReplace:
-                        await HandleSceneUndoReplaceAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.SceneUndoReplaceResult:
-                        HandleSceneUndoReplaceResult(message);
-                        break;
-                    default:
-                        throw new InvalidDataException(
-                            "The Activity session received an unsupported control message.");
-                }
+                await DispatchAsync(message, linked.Token).ConfigureAwait(false);
             }
         }
         catch (IOException exception) when (linked.IsCancellationRequested)
@@ -300,9 +229,107 @@ internal sealed partial class ActivityControlSession :
         }
         finally
         {
-            Volatile.Write(ref stopped, 1);
-            CompletePendingAsUncertain();
+            StopDispatch();
         }
+    }
+
+    internal async ValueTask DispatchAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        switch (message.Type)
+        {
+            case ControlMessageType.ActivityTransfer:
+                await HandleTransferAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.ActivityReplaceInventory:
+                await HandleReplaceInventoryAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.ActivityReplace:
+                await HandleReplaceAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.ActivityReplaceInventoryResult:
+                HandleReplaceInventoryResult(message);
+                break;
+            case ControlMessageType.ActivityReplaceResult:
+                HandleReplaceResult(message);
+                break;
+            case ControlMessageType.ActivitySwapSnapshot:
+                await HandleSwapSnapshotAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.ActivitySwapSnapshotResult:
+                HandleSwapSnapshotResult(message);
+                break;
+            case ControlMessageType.ActivitySwapPrepare:
+                await HandleSwapPrepareAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.ActivitySwapPrepareResult:
+                HandleSwapPrepareResult(message);
+                break;
+            case ControlMessageType.ActivitySwapDecision:
+                await HandleSwapDecisionAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.ActivitySwapDecisionResult:
+                HandleSwapDecisionResult(message);
+                break;
+            case ControlMessageType.OperationReceipt:
+                HandleReceipt(message);
+                break;
+            case ControlMessageType.SceneSourceLookup:
+                await HandleSceneSourceLookupAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.SceneSourceLookupResult:
+                HandleSceneSourceLookupResult(message);
+                break;
+            case ControlMessageType.SceneSlotInspection:
+                await HandleSceneExactSlotAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.SceneSlotInspectionResult:
+                HandleSceneExactSlotResult(message);
+                break;
+            case ControlMessageType.SceneChildOperation:
+                await HandleSceneChildAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.SceneChildOperationResult:
+                HandleSceneChildResult(message);
+                break;
+            case ControlMessageType.SceneUndoReplace:
+                await HandleSceneUndoReplaceAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.SceneUndoReplaceResult:
+                HandleSceneUndoReplaceResult(message);
+                break;
+            default:
+                throw new InvalidDataException(
+                    "The Activity session received an unsupported control message.");
+        }
+    }
+
+    internal void StartDispatch()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (Interlocked.CompareExchange(ref running, 1, 0) != 0)
+        {
+            throw new InvalidOperationException(
+                "An Activity control session can run only once.");
+        }
+    }
+
+    internal void StopDispatch()
+    {
+        Volatile.Write(ref stopped, 1);
+        CompletePendingAsUncertain();
     }
 
     public async ValueTask<ActivityDeliveryResult> SendAsync(
@@ -910,8 +937,14 @@ internal sealed partial class ActivityControlSession :
         if (Interlocked.Exchange(ref disposed, 1) == 0)
         {
             Interlocked.Exchange(ref stopped, 1);
-            RequestLifetimeStop();
-            CompletePendingAsUncertain();
+            try
+            {
+                RequestLifetimeStop();
+            }
+            finally
+            {
+                CompletePendingAsUncertain();
+            }
         }
 
         return ValueTask.CompletedTask;
@@ -1581,24 +1614,33 @@ public sealed class AuthenticatedActivitySessionHandler :
     ISceneOperationRouteDirectory,
     IAsyncDisposable
 {
+    private readonly HashSet<Registration> activeRegistrations = [];
+    private readonly AsyncLocal<SessionCallScope?> activeSessionCall = new();
     private readonly ConcurrentDictionary<DeviceId, Registration> sessions = new();
+    private readonly TaskCompletionSource disposalCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly object lifecycleGate = new();
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly IActivityPeer localPeer;
     private readonly IReplaceTargetInventoryPeer? replaceInventoryPeer;
     private readonly IReplacePeer? replacePeer;
+    private readonly IRemoteWindowControlPeer? remoteWindowPeer;
     private readonly ISceneControlPeer? scenePeer;
     private readonly ISwapEndpointPeer? swapPeer;
     private readonly TimeProvider timeProvider;
+    private int disposalCleanupStarted;
     private int disposed;
 
     public AuthenticatedActivitySessionHandler(
         IActivityPeer localPeer,
-        TimeProvider? timeProvider = null) : this(
+        TimeProvider? timeProvider = null,
+        IRemoteWindowControlPeer? remoteWindowPeer = null) : this(
             localPeer,
             null,
             null,
             null,
-            timeProvider)
+            timeProvider,
+            remoteWindowPeer: remoteWindowPeer)
     {
     }
 
@@ -1646,7 +1688,8 @@ public sealed class AuthenticatedActivitySessionHandler :
         IReplaceTargetInventoryPeer? replaceInventoryPeer,
         ISwapEndpointPeer? swapPeer,
         TimeProvider? timeProvider = null,
-        ISceneControlPeer? scenePeer = null)
+        ISceneControlPeer? scenePeer = null,
+        IRemoteWindowControlPeer? remoteWindowPeer = null)
     {
         ArgumentNullException.ThrowIfNull(localPeer);
         if (replacePeer is not null && replacePeer.DeviceId != localPeer.DeviceId)
@@ -1679,11 +1722,20 @@ public sealed class AuthenticatedActivitySessionHandler :
                 nameof(scenePeer));
         }
 
+        if (remoteWindowPeer is not null
+            && remoteWindowPeer.HostDeviceId != localPeer.DeviceId)
+        {
+            throw new ArgumentException(
+                "The Activity and Remote Window peers must represent the same local device.",
+                nameof(remoteWindowPeer));
+        }
+
         this.localPeer = localPeer;
         this.replacePeer = replacePeer;
         this.replaceInventoryPeer = replaceInventoryPeer;
         this.swapPeer = swapPeer;
         this.scenePeer = scenePeer;
+        this.remoteWindowPeer = remoteWindowPeer;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -1758,6 +1810,23 @@ public sealed class AuthenticatedActivitySessionHandler :
         return false;
     }
 
+    public bool TryGetRemoteWindowChannel(
+        DeviceId peerDeviceId,
+        out IRemoteWindowControlChannel? channel)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.RemoteWindowSession is not null)
+        {
+            channel = registration.RemoteWindowSession;
+            return true;
+        }
+
+        channel = null;
+        return false;
+    }
+
     public bool TryGetSwapChannel(
         DeviceId peerDeviceId,
         out ISwapEndpointChannel? channel)
@@ -1775,12 +1844,22 @@ public sealed class AuthenticatedActivitySessionHandler :
         return false;
     }
 
-    public IReadOnlyList<DeviceId> GetSceneParticipantDeviceIds() =>
-        sessions
-            .Where(static pair => pair.Value.Session.SupportsSceneApply)
-            .Select(static pair => pair.Key)
-            .OrderBy(static deviceId => deviceId.Value)
-            .ToArray();
+    public IReadOnlyList<DeviceId> GetSceneParticipantDeviceIds()
+    {
+        lock (lifecycleGate)
+        {
+            if (disposed != 0)
+            {
+                return [];
+            }
+
+            return sessions
+                .Where(static pair => pair.Value.Session.SupportsSceneApply)
+                .Select(static pair => pair.Key)
+                .OrderBy(static deviceId => deviceId.Value)
+                .ToArray();
+        }
+    }
 
     public bool TryGetSceneSourceLookupChannel(
         DeviceId peerDeviceId,
@@ -1838,62 +1917,325 @@ public sealed class AuthenticatedActivitySessionHandler :
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(connection);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
-        var adapter = new AuthenticatedConnectionAdapter(connection);
+        var dispatcher = new AuthenticatedControlSessionDispatcher(connection);
+        await RunWithOwnedDispatcherAsync(
+            dispatcher,
+            () => RunRegisteredSessionAsync(
+                connection.PeerIdentity.DeviceId,
+                dispatcher,
+                cancellationToken)).ConfigureAwait(false);
+    }
+
+    private async ValueTask RunRegisteredSessionAsync(
+        DeviceId peerDeviceId,
+        AuthenticatedControlSessionDispatcher dispatcher,
+        CancellationToken cancellationToken)
+    {
         var session = new ActivityControlSession(
-            adapter,
+            dispatcher.ActivityConnection,
             localPeer,
             replacePeer,
             replaceInventoryPeer,
             swapPeer,
             timeProvider,
             scenePeer);
-        var registration = new Registration(session);
-        if (!sessions.TryAdd(connection.PeerIdentity.DeviceId, registration))
+        RemoteWindowControlSession? remoteWindowSession =
+            dispatcher.RemoteWindowConnection is null
+                ? null
+                : new RemoteWindowControlSession(
+                    dispatcher.RemoteWindowConnection,
+                    remoteWindowPeer,
+                    timeProvider);
+        var registration = new Registration(session, remoteWindowSession);
+        bool handlerDisposed;
+        bool registered;
+        lock (lifecycleGate)
         {
-            await session.DisposeAsync().ConfigureAwait(false);
+            handlerDisposed = disposed != 0;
+            registered = !handlerDisposed
+                && sessions.TryAdd(
+                    peerDeviceId,
+                    registration);
+            if (registered)
+            {
+                activeRegistrations.Add(registration);
+            }
+        }
+
+        if (!registered)
+        {
+            Exception? rejectionCleanupFailure = await DisposeSessionsAsync(
+                session,
+                remoteWindowSession).ConfigureAwait(false);
+            if (rejectionCleanupFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(rejectionCleanupFailure).Throw();
+            }
+
+            ObjectDisposedException.ThrowIf(handlerDisposed, this);
             throw new InvalidDataException(
                 "A second authenticated Activity session for this peer was rejected.");
         }
 
-        PublishChanged();
-        using CancellationTokenSource linked =
-            CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                lifetimeCancellation.Token);
+        Exception? runFailure = null;
         try
         {
-            await session.RunAsync(linked.Token).ConfigureAwait(false);
+            using (EnterSessionCall())
+            {
+                PublishChanged();
+            }
+
+            using CancellationTokenSource linked =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    lifetimeCancellation.Token);
+            await dispatcher.RunAsync(
+                session,
+                remoteWindowSession,
+                EnterSessionCall,
+                linked.Token).ConfigureAwait(false);
         }
-        finally
+        catch (Exception exception)
         {
-            sessions.TryRemove(
-                new KeyValuePair<DeviceId, Registration>(
-                    connection.PeerIdentity.DeviceId,
-                    registration));
-            await session.DisposeAsync().ConfigureAwait(false);
-            registration.Completion.TrySetResult();
+            runFailure = exception;
+        }
+
+        sessions.TryRemove(
+            new KeyValuePair<DeviceId, Registration>(
+                peerDeviceId,
+                registration));
+        Exception? cleanupFailure = await DisposeSessionsAsync(
+            session,
+            remoteWindowSession).ConfigureAwait(false);
+        using (EnterSessionCall())
+        {
             PublishChanged();
+        }
+
+        lock (lifecycleGate)
+        {
+            activeRegistrations.Remove(registration);
+        }
+
+        if (cleanupFailure is null)
+        {
+            registration.Completion.TrySetResult();
+        }
+        else
+        {
+            registration.Completion.TrySetException(cleanupFailure);
+        }
+
+        Exception? failure = CombineFailures(runFailure, cleanupFailure);
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
         }
     }
 
-    public async ValueTask DisposeAsync()
+    internal static async ValueTask RunWithOwnedDispatcherAsync(
+        AuthenticatedControlSessionDispatcher dispatcher,
+        Func<ValueTask> run)
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        ArgumentNullException.ThrowIfNull(dispatcher);
+        ArgumentNullException.ThrowIfNull(run);
+        Exception? failure = null;
+        try
         {
-            return;
+            await run().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
         }
 
-        lifetimeCancellation.Cancel();
-        Registration[] active = sessions.Values.ToArray();
-        foreach (Registration registration in active)
+        if (!dispatcher.HasStartedStopping)
         {
-            registration.Session.Cancel();
+            try
+            {
+                await dispatcher.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure = CombineFailures(failure, exception);
+            }
         }
 
-        await Task.WhenAll(active.Select(static item => item.Completion.Task))
-            .ConfigureAwait(false);
-        lifetimeCancellation.Dispose();
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        bool calledFromActiveSession = IsActiveSessionCall();
+        if (Interlocked.CompareExchange(ref disposalCleanupStarted, 1, 0) == 0)
+        {
+            Registration[] active;
+            lock (lifecycleGate)
+            {
+                Volatile.Write(ref disposed, 1);
+                active = [.. activeRegistrations];
+            }
+
+            _ = CompleteDisposalAsync(active);
+        }
+
+        return calledFromActiveSession
+            ? ValueTask.CompletedTask
+            : new ValueTask(disposalCompletion.Task);
+    }
+
+    private async Task CompleteDisposalAsync(Registration[] active)
+    {
+        var failures = new List<Exception>();
+        try
+        {
+            CaptureFailure(failures, lifetimeCancellation.Cancel);
+            foreach (Registration registration in active)
+            {
+                CaptureFailure(failures, registration.Session.Cancel);
+                if (registration.RemoteWindowSession is not null)
+                {
+                    CaptureFailure(
+                        failures,
+                        registration.RemoteWindowSession.Cancel);
+                }
+            }
+
+            failures.AddRange(await CollectCompletionFailuresAsync(
+                active.Select(static item => item.Completion.Task))
+                .ConfigureAwait(false));
+
+            CaptureFailure(failures, lifetimeCancellation.Dispose);
+            if (failures.Count == 0)
+            {
+                disposalCompletion.TrySetResult();
+            }
+            else
+            {
+                disposalCompletion.TrySetException(failures.Count == 1
+                    ? failures[0]
+                    : new AggregateException(
+                        "Authenticated control session disposal failed.",
+                        failures));
+            }
+        }
+        catch (Exception exception)
+        {
+            disposalCompletion.TrySetException(exception);
+        }
+    }
+
+    private static void CaptureFailure(
+        List<Exception> failures,
+        Action operation)
+    {
+        try
+        {
+            operation();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private static Exception? CombineFailures(
+        Exception? primary,
+        Exception? secondary) => (primary, secondary) switch
+        {
+            (null, null) => null,
+            (not null, null) => primary,
+            (null, not null) => secondary,
+            _ => new AggregateException(
+                "The authenticated control session and its cleanup failed.",
+                primary!,
+                secondary!),
+        };
+
+    internal static async ValueTask<Exception[]> CollectCompletionFailuresAsync(
+        IEnumerable<Task> completions)
+    {
+        Task all = Task.WhenAll(completions);
+        try
+        {
+            await all.ConfigureAwait(false);
+            return [];
+        }
+        catch (Exception exception)
+        {
+            return all.Exception?.Flatten().InnerExceptions.ToArray()
+                ?? [exception];
+        }
+    }
+
+    internal static async ValueTask<Exception?> DisposeSessionsAsync(
+        ActivityControlSession session,
+        RemoteWindowControlSession? remoteWindowSession)
+    {
+        var failures = new List<Exception>();
+        if (remoteWindowSession is not null)
+        {
+            try
+            {
+                await remoteWindowSession.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+        }
+
+        try
+        {
+            await session.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        return failures.Count switch
+        {
+            0 => null,
+            1 => failures[0],
+            _ => new AggregateException(
+                "Authenticated child session cleanup failed.",
+                failures),
+        };
+    }
+
+    private IDisposable EnterSessionCall()
+    {
+        SessionCallScope? inheritedScope = activeSessionCall.Value;
+        var currentScope = new SessionCallScope(this, inheritedScope);
+        activeSessionCall.Value = currentScope;
+        return new SessionCallLease(this, currentScope, inheritedScope);
+    }
+
+    private void ExitSessionCall(
+        SessionCallScope currentScope,
+        SessionCallScope? inheritedScope)
+    {
+        currentScope.Deactivate();
+        activeSessionCall.Value = inheritedScope;
+    }
+
+    private bool IsActiveSessionCall()
+    {
+        for (SessionCallScope? scope = activeSessionCall.Value;
+            scope is not null;
+            scope = scope.Previous)
+        {
+            if (scope.IsActive && ReferenceEquals(scope.Owner, this))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void PublishChanged()
@@ -1911,30 +2253,47 @@ public sealed class AuthenticatedActivitySessionHandler :
         }
     }
 
-    private sealed class Registration(ActivityControlSession session)
+    private sealed class Registration(
+        ActivityControlSession session,
+        RemoteWindowControlSession? remoteWindowSession)
     {
         public TaskCompletionSource Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public ActivityControlSession Session { get; } = session;
+
+        public RemoteWindowControlSession? RemoteWindowSession { get; } =
+            remoteWindowSession;
     }
 
-    private sealed class AuthenticatedConnectionAdapter(
-        AuthenticatedTcpControlConnection connection) : IActivityControlConnection
+    private sealed class SessionCallLease(
+        AuthenticatedActivitySessionHandler owner,
+        SessionCallScope currentScope,
+        SessionCallScope? inheritedScope) : IDisposable
     {
-        public DeviceId LocalDeviceId => connection.LocalDeviceId;
+        private int disposed;
 
-        public DeviceId PeerDeviceId => connection.PeerIdentity.DeviceId;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                owner.ExitSessionCall(currentScope, inheritedScope);
+            }
+        }
+    }
 
-        public ProtocolVersion ProtocolVersion => connection.ProtocolVersion;
+    private sealed class SessionCallScope(
+        AuthenticatedActivitySessionHandler owner,
+        SessionCallScope? previous)
+    {
+        private int active = 1;
 
-        public ValueTask<ControlMessage> ReadAsync(
-            CancellationToken cancellationToken = default) =>
-            connection.ReceiveAsync(cancellationToken);
+        public bool IsActive => Volatile.Read(ref active) != 0;
 
-        public ValueTask SendAsync(
-            ControlMessage message,
-            CancellationToken cancellationToken = default) =>
-            connection.SendAsync(message, cancellationToken);
+        public AuthenticatedActivitySessionHandler Owner { get; } = owner;
+
+        public SessionCallScope? Previous { get; } = previous;
+
+        public void Deactivate() => Volatile.Write(ref active, 0);
     }
 }

@@ -129,6 +129,30 @@ public sealed class DesktopTrustedPeerConnectionsTests
         Assert.Single(loops.Created);
     }
 
+    [Fact]
+    public async Task SceneOnlyGrantStillAdmitsElectedControlChannelConnector()
+    {
+        using DeviceIdentity local = CreateIdentity("11111111", "Local");
+        using DeviceIdentity remote = CreateIdentity("22222222", "Remote");
+        await using var trust = new TrustSessionCoordinator(
+            CreateTrustStore(remote, Capability.SceneApply));
+        var loops = new FakeReconnectLoopFactory();
+        await using var connections = new DesktopTrustedPeerConnectionCoordinator(
+            local.DeviceId,
+            trust,
+            static () => [],
+            loops);
+
+        connections.Start();
+
+        DesktopTrustedPeerConnectionSnapshot snapshot =
+            Assert.Single(connections.GetSnapshot());
+        Assert.Equal(
+            DesktopTrustedPeerConnectionState.WaitingForPeer,
+            snapshot.State);
+        Assert.Single(loops.Created);
+    }
+
     [Theory]
     [InlineData(Capability.MirrorView)]
     [InlineData(Capability.MirrorDrive)]
@@ -181,7 +205,7 @@ public sealed class DesktopTrustedPeerConnectionsTests
             "IDLE — CONTROL CHANNEL CAPABILITY NOT GRANTED",
             snapshot.StatusLabel);
         Assert.Contains(
-            "activity.offer, activity.receive, activity.replace, activity.swap, mirror.view, or mirror.drive",
+            "activity.offer, activity.receive, activity.replace, activity.swap, scene.apply, mirror.view, or mirror.drive",
             snapshot.StatusDescription,
             StringComparison.Ordinal);
         Assert.Empty(loops.Created);
@@ -523,6 +547,7 @@ public sealed class DesktopTrustedPeerConnectionsTests
     [InlineData(Capability.ActivityOffer, Capability.ActivityReceive)]
     [InlineData(Capability.MirrorView, Capability.MirrorView)]
     [InlineData(Capability.MirrorDrive, Capability.MirrorDrive)]
+    [InlineData(Capability.SceneApply, Capability.SceneApply)]
     public async Task ProductionLoopAuthenticatesAnyControlCapabilityCombination(
         Capability connectorCapability,
         Capability listenerCapability)

@@ -663,6 +663,7 @@ internal sealed class DesktopTrustedPeerConnectionCoordinator : IAsyncDisposable
         || peer.GrantedCapabilities.Allows(Capability.ActivityReceive)
         || peer.GrantedCapabilities.Allows(Capability.ActivityReplace)
         || peer.GrantedCapabilities.Allows(Capability.ActivitySwap)
+        || peer.GrantedCapabilities.Allows(Capability.SceneApply)
         || peer.GrantedCapabilities.Allows(Capability.MirrorView)
         || peer.GrantedCapabilities.Allows(Capability.MirrorDrive);
 
@@ -1028,6 +1029,7 @@ internal sealed class SystemDesktopPeerReconnectLoopFactory :
                     Capability.ActivityReceive,
                     Capability.ActivityReplace,
                     Capability.ActivitySwap,
+                    Capability.SceneApply,
                     Capability.MirrorView,
                     Capability.MirrorDrive),
                 ProtocolFeatures.ProductionSupportedVersions,

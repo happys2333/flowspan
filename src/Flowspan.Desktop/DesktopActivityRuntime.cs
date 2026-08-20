@@ -271,7 +271,8 @@ internal sealed class DesktopActivityRuntime :
         var targets = ImmutableArray.CreateBuilder<DesktopActivityTargetSnapshot>();
         foreach (DeviceId peerDeviceId in currentHandler.GetConnectedPeers())
         {
-            if (currentTrust.TryGetCurrentTrust(
+            if (currentHandler.TryGetRemoteWindowChannel(peerDeviceId, out _)
+                && currentTrust.TryGetCurrentTrust(
                     peerDeviceId,
                     out TrustRecord? record)
                 && record.GrantedCapabilities.Allows(Capability.MirrorView)
@@ -285,6 +286,22 @@ internal sealed class DesktopActivityRuntime :
         }
 
         return targets.ToImmutable();
+    }
+
+    internal bool TryGetRemoteWindowChannel(
+        DeviceId peerDeviceId,
+        out IRemoteWindowControlChannel? channel)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        AuthenticatedActivitySessionHandler? current = handler;
+        if (Volatile.Read(ref disposed) == 0
+            && current is not null)
+        {
+            return current.TryGetRemoteWindowChannel(peerDeviceId, out channel);
+        }
+
+        channel = null;
+        return false;
     }
 
     public DesktopReplaceRecoveryResult GetReplaceRecoveryState()

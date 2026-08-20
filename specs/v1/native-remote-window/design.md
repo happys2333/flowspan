@@ -1,6 +1,7 @@
 # Native Remote Window Design
 
-Status: portable contract slice implemented; production native adapters pending
+Status: portable contracts and shared authenticated control composition
+implemented; production media, runtime, and native adapters pending
 
 Requirements: NR1-NR10
 
@@ -16,10 +17,11 @@ The implementation proceeds in vertical slices:
 
 1. freeze the native source, permission, protection, capture, input, and local
    Emergency Stop contracts with deterministic fakes;
-2. compose one production control path over the existing authenticated peer
-   connection and one bounded media path;
-3. deliver macOS, then Windows, then Linux platform adapters;
-4. add participant rendering and packaged real-machine evidence per platform.
+2. compose Remote Window control over the existing authenticated peer connection;
+3. freeze the authenticated media-route and codec decisions and fixtures;
+4. compose those decisions in the production Desktop host and participant runtime;
+5. deliver macOS, then Windows, then Linux platform adapters and packaged
+   real-machine evidence.
 
 No platform becomes generally available because another platform's adapter is
 complete. Readiness is computed per operation and per current machine.
@@ -203,7 +205,8 @@ must dispose them only after controller quiescence during task 5.
 
 ## 5. Production Desktop runtime
 
-`ProductionDesktopRemoteWindowService` owns one runtime generation containing:
+Task 5's `ProductionDesktopRemoteWindowService` will own one runtime generation
+containing:
 
 - the exact selected native source lease;
 - `RemoteWindowSessionController` and unpredictable Session ID;
@@ -225,13 +228,21 @@ participant component for the selected role reports ready.
 
 ## 6. Authenticated control and media routing
 
-The current Activity control session and Remote Window tracer each own a read
-loop, so they cannot independently consume one authenticated TCP connection.
-Production composition introduces one connection-owned dispatcher that routes
-strict, version-gated message types to Activity/Replace/Swap/Scene or Remote
-Window peers and exposes their outbound channels from the same registration.
-Unknown types remain fatal. Capability alternatives admit a connection but do
-not authorize an operation.
+Task 3 replaces the competing Activity and Remote Window read loops with one
+connection-owned dispatcher. It routes strict, version-gated message types to
+Activity/Replace/Swap/Scene or Remote Window peers and exposes their outbound
+channels from the same authenticated registration. Protocol 1.0-1.4 registrations
+do not expose a Remote Window channel; protocol 1.5 does. The production any-of
+admission profile treats `activity.offer`, `activity.receive`,
+`activity.replace`, `activity.swap`, `scene.apply`, `mirror.view`, and
+`mirror.drive` as connection alternatives. Admission establishes only an idle
+authenticated control channel; every operation rechecks its exact current grant,
+and unknown or cross-routed message types remain fatal.
+
+Task 3 composes only that authenticated control channel. It does not instantiate
+the production Remote Window host/participant runtime or route media. Task 4 must
+freeze the media-route and codec decisions below, and Task 5 must compose them in
+the complete production Desktop runtime described above.
 
 The media stream stays distinct from control keys, framing, counters, queues, and
 rekey state as required by ADR 0022. Before physical media routing is implemented,

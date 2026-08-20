@@ -141,6 +141,10 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
             Assert.Equal(
                 ProtocolFeatures.RemoteWindowMinimumVersion,
                 connection.ProtocolVersion);
+            Assert.True(activityRuntime.TryGetRemoteWindowChannel(
+                peerIdentity.DeviceId,
+                out IRemoteWindowControlChannel? remoteWindowChannel));
+            Assert.NotNull(remoteWindowChannel);
             if (expectsViewTarget)
             {
                 DesktopActivityTargetSnapshot target = Assert.Single(
@@ -182,6 +186,85 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
                     .Any(target => target.DeviceId == peerIdentity.DeviceId))
             {
                 runtimeObserved.TrySetResult();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProductionProtocol14PeerIsExcludedFromRemoteWindowPicker()
+    {
+        using DeviceIdentity identity = CreateIdentity(
+            "99999999-9999-9999-9999-999999999999",
+            "Desk");
+        using DeviceIdentity peerIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Peer");
+        var store = new InMemoryTrustStore();
+        store.Register(new TrustRecord(
+            peerIdentity.PublicIdentity,
+            DateTimeOffset.UtcNow,
+            CapabilityGrant.Of(Capability.MirrorView)));
+        await using var trust = new TrustSessionCoordinator(store);
+        await using var activityRuntime = new DesktopActivityRuntime(
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(identity);
+            },
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(trust);
+            });
+        AuthenticatedActivitySessionHandler handler =
+            await activityRuntime.GetSessionHandlerAsync();
+        using var decisions = new DesktopPairingDecisionSource();
+        var dns = new RecordingDnsSdTransport();
+        var factory = new SystemDesktopLocalPairingNetworkFactory(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust),
+            decisions,
+            () => new TcpListener(IPAddress.Loopback, 0),
+            () => new DesktopDnsSdTransport(dns, dns),
+            () => new BlockingAdvertisementDelay(),
+            activityRuntime);
+        await using IDesktopLocalPairingNetworkSession session =
+            await factory.StartAsync();
+        var routeObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        activityRuntime.Changed += OnRuntimeChanged;
+
+        try
+        {
+            await using AuthenticatedTcpControlConnection connection =
+                await AuthenticatedTcpControlConnection.ConnectAsync(
+                    new IPEndPoint(IPAddress.Loopback, session.ListeningPort),
+                    peerIdentity,
+                    new TrustRecord(
+                        identity.PublicIdentity,
+                        DateTimeOffset.UtcNow,
+                        CapabilityGrant.Of(Capability.MirrorView)),
+                    [new ProtocolVersion(1, 4)]);
+
+            await routeObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(new ProtocolVersion(1, 4), connection.ProtocolVersion);
+            Assert.True(handler.TryGetChannel(peerIdentity.DeviceId, out _));
+            Assert.False(activityRuntime.TryGetRemoteWindowChannel(
+                peerIdentity.DeviceId,
+                out _));
+            Assert.Empty(activityRuntime.GetRemoteWindowTargets(
+                MirrorParticipantRole.ViewOnly));
+        }
+        finally
+        {
+            activityRuntime.Changed -= OnRuntimeChanged;
+        }
+
+        void OnRuntimeChanged()
+        {
+            if (handler.TryGetChannel(peerIdentity.DeviceId, out _))
+            {
+                routeObserved.TrySetResult();
             }
         }
     }

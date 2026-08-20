@@ -2,7 +2,7 @@
 
 - Status: Accepted for the desktop v1 local-network composition
 - Date: 2026-07-14
-- Amended: 2026-08-10 for Activity and Mirror any-of control admission
+- Amended: 2026-08-20 for Activity, Scene, and Mirror any-of control admission
 - Decision owners: Flowspan maintainers
 
 ## Context
@@ -30,8 +30,8 @@ The election grants no authority. Before TCP opens, the connector still:
 
 - loads the current Trust Record;
 - requires at least one locally granted control direction: `activity.offer`,
-  `activity.receive`, `activity.replace`, `activity.swap`, `mirror.view`, or
-  `mirror.drive`;
+  `activity.receive`, `activity.replace`, `activity.swap`, `scene.apply`,
+  `mirror.view`, or `mirror.drive`;
 - reconstructs the peer public key only from Trust;
 - verifies the signed, unexpired discovery offer with that key; and
 - completes the authenticated transcript and post-handshake Trust registration.
@@ -43,9 +43,13 @@ Operation: an outbound Semantic Handoff separately requires local
 `activity.receive`, and its target separately requires local `activity.offer`
 before accepting payload. Remote Window similarly requires `mirror.view` to
 select or join a viewer and both `mirror.view` and `mirror.drive` for Driver
-authority or input. A drive-only grant may retain an idle channel but grants no
-viewer, Driver, or input authority. A conflicting discovery fingerprint is
-blocked and warned about, never used to change the election or replace Trust.
+authority or input. Scene operations reload the current peer-relative
+`scene.apply` grant at each operation boundary, and every child independently
+rechecks its Activity authorization before protected state or Adapter use. A
+channel admitted from a Scene-only or drive-only grant may remain idle;
+connection admission itself grants no Scene, viewer, Driver, or input authority.
+A conflicting discovery fingerprint is blocked and warned about, never used to
+change the election or replace Trust.
 
 Discovery change wakes a waiting/retrying elected connector. It does not cancel
 an already authenticated current-key channel, which prevents periodic offer
@@ -83,15 +87,15 @@ restarts. None is a stable authenticated ownership key.
 - A healthy pair maintains at most one Flowspan-owned outgoing/incoming idle
   channel for this composition.
 - Both peers must have local networking explicitly enabled, and at least one
-  eligible Activity or Mirror control grant must remain valid on each side.
+  eligible Activity, Scene, or Mirror control grant must remain valid on each side.
   Removing one alternative keeps an any-of session; removing the final
   alternative drains it.
 - Device ID ordering is protocol-visible behavior and must stay canonical and
   covered by deterministic tests.
 - A Device ID collision is not repaired by ownership logic; identity
   authentication and Trust binding still reject the wrong key.
-- The channel may carry the bounded Activity control messages implemented by a
-  later slice. When no live Mirror/driver session exists it remains labelled
+- The channel may carry bounded Activity, Scene, and Remote Window control
+  messages. When no live Remote Window session exists it remains labelled
   `AUTHENTICATED — IDLE / NOT SHARING`; a one-shot source-preserving Handoff is
   not represented as continuous sharing.
 
@@ -101,12 +105,13 @@ Deterministic coordinator tests cover both election sides, all-of versus any-of
 admission, Activity-to-Mirror alternative changes, final grant removal,
 identity-warning latching, retry progress, revoke, and drain. Same-process
 loopback cases run the production authenticated connector and listener with
-Activity and Mirror-only grants and observe idle status on both peers. A factory
-loopback further proves that `mirror.view` reaches the purpose-scoped view-only
-inventory while `mirror.drive` alone does not. Hosted matrix results can prove
-these contracts execute on Windows, macOS, and Linux runners; they do not prove
-physical multicast, firewall, sleep/wake, interface churn, or dual-machine
-behavior.
+Activity, Scene, and Mirror-only grants and observe idle status on both peers.
+A factory loopback further proves that `mirror.view` reaches the purpose-scoped
+view-only inventory while `mirror.drive` alone does not. These connection tests
+grant no Scene operation authority; Scene tests separately prove current-grant
+and child-authorization checks. Hosted matrix results can prove these contracts
+execute on Windows, macOS, and Linux runners; they do not prove physical
+multicast, firewall, sleep/wake, interface churn, or dual-machine behavior.
 
 ## Revisit triggers
 

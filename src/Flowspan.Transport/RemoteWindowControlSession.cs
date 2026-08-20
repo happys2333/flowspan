@@ -332,16 +332,39 @@ internal sealed class RemoteWindowControlSession :
     IRemoteWindowControlChannel,
     IAsyncDisposable
 {
+    [ThreadStatic]
+    private static RemoteWindowControlSession? activeLifetimeCancellationOwner;
+
     public const int MaximumPendingCommands = 16;
 
+    private readonly AsyncLocal<SessionCallScope?> activeLifetimeCancellationCall =
+        new();
+    private readonly AsyncLocal<SessionCallScope?> activeSendCall = new();
+    private readonly AsyncLocal<SessionCallScope?> activeStopDispatchCall = new();
     private readonly IRemoteWindowControlConnection connection;
+    private readonly TaskCompletionSource disposalCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ConcurrentDictionary<SessionBinding, long> knownBindings = new();
     private readonly CancellationTokenSource lifetimeCancellation = new();
+    private readonly TaskCompletionSource lifetimeCancellationDisposalCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly object lifetimeCancellationGate = new();
     private readonly ConcurrentDictionary<CorrelationId, PendingState> pending = new();
     private readonly IRemoteWindowControlPeer? peer;
+    private readonly object sendAdmissionGate = new();
     private readonly TimeProvider timeProvider;
+    private readonly TaskCompletionSource stopDispatchCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int activeSends;
     private int disposed;
+    private bool lifetimeCancellationDisposalRequested;
+    private bool lifetimeCancellationDisposed;
+    private int lifetimeCancellationUsers;
+    private int lifetimeStopRequested;
+    private int pendingCommandCount;
     private int running;
+    private TaskCompletionSource? sendDrainCompletion;
+    private int stopDispatchStarted;
     private int stopped;
 
     public RemoteWindowControlSession(
@@ -363,16 +386,116 @@ internal sealed class RemoteWindowControlSession :
 
     public DeviceId HostDeviceId => connection.PeerDeviceId;
 
+    internal CancellationToken LifetimeCancellationToken
+    {
+        get
+        {
+            lock (lifetimeCancellationGate)
+            {
+                ObjectDisposedException.ThrowIf(
+                    lifetimeCancellationDisposed,
+                    this);
+                return lifetimeCancellation.Token;
+            }
+        }
+    }
+
+    internal CancellationTokenRegistration RegisterLifetimeCancellationCallback(
+        Action callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        CancellationToken token = LifetimeCancellationToken;
+        return token.UnsafeRegister(
+            static state =>
+            {
+                var registration =
+                    (LifetimeCancellationCallbackRegistration)state!;
+                using SessionCallLease callbackCall =
+                    registration.Owner.EnterSessionCall(
+                        registration.Owner.activeLifetimeCancellationCall);
+                registration.Callback();
+            },
+            new LifetimeCancellationCallbackRegistration(this, callback));
+    }
+
     public event Action<RemoteWindowParticipantState>? StateChanged;
 
     public void Cancel()
     {
-        Interlocked.Exchange(ref stopped, 1);
-        lifetimeCancellation.Cancel();
-        CompletePendingAsLost();
+        _ = CloseSendAdmission();
+
+        try
+        {
+            RequestLifetimeStop();
+        }
+        finally
+        {
+            CompletePendingAsLost();
+        }
     }
 
     public async ValueTask RunAsync(CancellationToken cancellationToken = default)
+    {
+        StartDispatch();
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+        try
+        {
+            while (true)
+            {
+                ControlMessage message = await connection.ReadAsync(linked.Token)
+                    .ConfigureAwait(false);
+                await DispatchAsync(message, linked.Token).ConfigureAwait(false);
+            }
+        }
+        catch (IOException exception) when (linked.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                "The Remote Window control session was stopped.",
+                exception,
+                linked.Token);
+        }
+        finally
+        {
+            await StopDispatchAsync().ConfigureAwait(false);
+        }
+    }
+
+    internal async ValueTask DispatchAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        switch (message.Type)
+        {
+            case ControlMessageType.RemoteWindowAdmission:
+                await HandleAdmissionAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.RemoteWindowDriver:
+                await HandleDriverAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.RemoteWindowInput:
+                await HandleInputAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.RemoteWindowDisconnect:
+                await HandleDisconnectAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.RemoteWindowState:
+                HandleState(message);
+                break;
+            default:
+                throw new InvalidDataException(
+                    "The Remote Window session received an unsupported control message.");
+        }
+    }
+
+    internal void StartDispatch()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         if (!ProtocolFeatures.SupportsRemoteWindow(connection.ProtocolVersion))
@@ -386,61 +509,84 @@ internal sealed class RemoteWindowControlSession :
             throw new InvalidOperationException(
                 "A Remote Window control session can run only once.");
         }
+    }
 
-        using CancellationTokenSource linked =
-            CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                lifetimeCancellation.Token);
+    internal ValueTask StopDispatchAsync()
+    {
+        bool calledFromActiveSessionCall = IsActiveSessionCall(activeSendCall)
+            || IsActiveSessionCall(activeStopDispatchCall)
+            || IsActiveSessionCall(activeLifetimeCancellationCall)
+            || ReferenceEquals(activeLifetimeCancellationOwner, this);
+        if (Interlocked.CompareExchange(ref stopDispatchStarted, 1, 0) == 0)
+        {
+            _ = CompleteStopDispatchAsync();
+        }
+
+        return calledFromActiveSessionCall
+            ? ValueTask.CompletedTask
+            : new ValueTask(stopDispatchCompletion.Task);
+    }
+
+    private async Task CompleteStopDispatchAsync()
+    {
         try
         {
-            while (true)
+            await StopDispatchCoreAsync().ConfigureAwait(false);
+            stopDispatchCompletion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            stopDispatchCompletion.TrySetException(exception);
+        }
+    }
+
+    private async ValueTask StopDispatchCoreAsync()
+    {
+        Task? sendDrain = CloseSendAdmission();
+        Exception? failure = null;
+        try
+        {
+            RequestLifetimeStop();
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+
+        CompletePendingAsLost();
+        if (sendDrain is not null)
+        {
+            try
             {
-                ControlMessage message = await connection.ReadAsync(linked.Token)
-                    .ConfigureAwait(false);
-                switch (message.Type)
-                {
-                    case ControlMessageType.RemoteWindowAdmission:
-                        await HandleAdmissionAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.RemoteWindowDriver:
-                        await HandleDriverAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.RemoteWindowInput:
-                        await HandleInputAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.RemoteWindowDisconnect:
-                        await HandleDisconnectAsync(message, linked.Token)
-                            .ConfigureAwait(false);
-                        break;
-                    case ControlMessageType.RemoteWindowState:
-                        HandleState(message);
-                        break;
-                    default:
-                        throw new InvalidDataException(
-                            "The Remote Window session received an unsupported control message.");
-                }
+                await sendDrain.ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure = CombineFailures(failure, exception);
             }
         }
-        catch (IOException exception) when (linked.IsCancellationRequested)
+
+        if (peer is not null)
         {
-            throw new OperationCanceledException(
-                "The Remote Window control session was stopped.",
-                exception,
-                linked.Token);
-        }
-        finally
-        {
-            Volatile.Write(ref stopped, 1);
-            CompletePendingAsLost();
-            if (peer is not null)
+            try
             {
+                using SessionCallLease sessionCall = EnterSessionCall(
+                    activeStopDispatchCall);
                 await peer.PeerDisconnectedAsync(
                     connection.PeerDeviceId,
                     CancellationToken.None).ConfigureAwait(false);
             }
+            catch (Exception exception)
+            {
+                failure = CombineFailures(failure, exception);
+            }
+        }
+
+        if (failure is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                .Capture(failure)
+                .Throw();
         }
     }
 
@@ -524,13 +670,66 @@ internal sealed class RemoteWindowControlSession :
 
     public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposed, 1) == 0)
+        bool calledFromActiveSessionCall = IsActiveSessionCall(activeSendCall)
+            || IsActiveSessionCall(activeStopDispatchCall)
+            || IsActiveSessionCall(activeLifetimeCancellationCall)
+            || ReferenceEquals(activeLifetimeCancellationOwner, this);
+        if (Interlocked.CompareExchange(ref disposed, 1, 0) == 0)
         {
-            Cancel();
-            lifetimeCancellation.Dispose();
+            _ = CompleteDisposalAsync();
         }
 
-        return ValueTask.CompletedTask;
+        return calledFromActiveSessionCall
+            ? ValueTask.CompletedTask
+            : new ValueTask(disposalCompletion.Task);
+    }
+
+    private async Task CompleteDisposalAsync()
+    {
+        Exception? failure = null;
+        Task? sendDrain = CloseSendAdmission();
+        try
+        {
+            RequestLifetimeStop();
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+        finally
+        {
+            CompletePendingAsLost();
+        }
+
+        if (sendDrain is not null)
+        {
+            try
+            {
+                await sendDrain.ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure = CombineFailures(failure, exception);
+            }
+        }
+
+        try
+        {
+            await RequestLifetimeCancellationDisposalAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = CombineFailures(failure, exception);
+        }
+
+        if (failure is null)
+        {
+            disposalCompletion.TrySetResult();
+        }
+        else
+        {
+            disposalCompletion.TrySetException(failure);
+        }
     }
 
     private async ValueTask<RemoteWindowControlDeliveryResult> SendAsync<TRequest>(
@@ -559,7 +758,7 @@ internal sealed class RemoteWindowControlSession :
                 "A Remote Window request must match the authenticated connection participants.");
         }
 
-        if (pending.Count >= MaximumPendingCommands)
+        if (!TryReservePendingSlot())
         {
             return RemoteWindowControlDeliveryResult.NotDelivered;
         }
@@ -570,6 +769,7 @@ internal sealed class RemoteWindowControlSession :
             action);
         if (!pending.TryAdd(binding.CorrelationId, pendingState))
         {
+            ReleasePendingSlot();
             throw new InvalidOperationException(
                 "A Remote Window command with this correlation ID is already pending.");
         }
@@ -583,7 +783,12 @@ internal sealed class RemoteWindowControlSession :
                 connection.LocalDeviceId,
                 request,
                 now);
-            await connection.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            if (!await TrySendMessageAsync(message, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                return RemoteWindowControlDeliveryResult.NotDelivered;
+            }
+
             sent = true;
             TimeSpan remaining = binding.Deadline - timeProvider.GetUtcNow();
             if (remaining <= TimeSpan.Zero)
@@ -622,6 +827,7 @@ internal sealed class RemoteWindowControlSession :
                 new KeyValuePair<CorrelationId, PendingState>(
                     binding.CorrelationId,
                     pendingState));
+            ReleasePendingSlot();
         }
     }
 
@@ -725,7 +931,7 @@ internal sealed class RemoteWindowControlSession :
                     "An unsolicited Remote Window state did not advance its live-session revision.");
             }
 
-            StateChanged?.Invoke(published);
+            PublishStateChanged(published);
             return;
         }
 
@@ -764,8 +970,132 @@ internal sealed class RemoteWindowControlSession :
             connection.LocalDeviceId,
             state,
             timeProvider.GetUtcNow());
-        await connection.SendAsync(response, cancellationToken).ConfigureAwait(false);
+        if (!await TrySendMessageAsync(response, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            throw new OperationCanceledException(
+                "The Remote Window control session was stopped.");
+        }
     }
+
+    private Task? CloseSendAdmission()
+    {
+        lock (sendAdmissionGate)
+        {
+            Volatile.Write(ref stopped, 1);
+            if (activeSends == 0)
+            {
+                return null;
+            }
+
+            sendDrainCompletion ??= new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            return sendDrainCompletion.Task;
+        }
+    }
+
+    private async ValueTask<bool> TrySendMessageAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        CancellationTokenSource linked;
+        SessionCallScope? inheritedScope = activeSendCall.Value;
+        var currentScope = new SessionCallScope(this, inheritedScope);
+        lock (sendAdmissionGate)
+        {
+            if (Volatile.Read(ref stopped) != 0)
+            {
+                return false;
+            }
+
+            linked = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token);
+            activeSends++;
+        }
+
+        activeSendCall.Value = currentScope;
+        try
+        {
+            await connection.SendAsync(message, linked.Token).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            ExitSessionCall(activeSendCall, currentScope, inheritedScope);
+            linked.Dispose();
+            CompleteSend();
+        }
+    }
+
+    private void CompleteSend()
+    {
+        TaskCompletionSource? completed = null;
+        lock (sendAdmissionGate)
+        {
+            activeSends--;
+            if (activeSends == 0)
+            {
+                completed = sendDrainCompletion;
+            }
+        }
+
+        completed?.TrySetResult();
+    }
+
+    private bool TryReservePendingSlot()
+    {
+        while (true)
+        {
+            int current = Volatile.Read(ref pendingCommandCount);
+            if (current >= MaximumPendingCommands)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(
+                    ref pendingCommandCount,
+                    current + 1,
+                    current) == current)
+            {
+                return true;
+            }
+        }
+    }
+
+    private void ReleasePendingSlot() =>
+        Interlocked.Decrement(ref pendingCommandCount);
+
+    private void PublishStateChanged(RemoteWindowParticipantState state)
+    {
+        Action<RemoteWindowParticipantState>? observers = StateChanged;
+        if (observers is null)
+        {
+            return;
+        }
+
+        foreach (Action<RemoteWindowParticipantState> observer in
+                 observers.GetInvocationList())
+        {
+            try
+            {
+                observer(state);
+            }
+            catch
+            {
+                // Presentation observers cannot determine protocol validity.
+            }
+        }
+    }
+
+    private static Exception CombineFailures(
+        Exception? first,
+        Exception second) => first is null
+            ? second
+            : new AggregateException(
+                "Remote Window session shutdown failed.",
+                first,
+                second);
 
     private IRemoteWindowControlPeer RequirePeer() => peer
         ?? throw new InvalidDataException(
@@ -792,6 +1122,137 @@ internal sealed class RemoteWindowControlSession :
                 pendingState.Completion.TrySetCanceled();
             }
         }
+    }
+
+    private void RequestLifetimeStop()
+    {
+        bool entered;
+        lock (lifetimeCancellationGate)
+        {
+            entered = lifetimeStopRequested == 0
+                && !lifetimeCancellationDisposalRequested;
+            if (!entered)
+            {
+                return;
+            }
+
+            lifetimeStopRequested = 1;
+            lifetimeCancellationUsers++;
+        }
+
+        try
+        {
+            RemoteWindowControlSession? inheritedOwner =
+                activeLifetimeCancellationOwner;
+            activeLifetimeCancellationOwner = this;
+            try
+            {
+                lifetimeCancellation.Cancel();
+            }
+            finally
+            {
+                activeLifetimeCancellationOwner = inheritedOwner;
+            }
+        }
+        finally
+        {
+            ReleaseLifetimeCancellationUser();
+        }
+    }
+
+    private void ReleaseLifetimeCancellationUser()
+    {
+        bool disposeCancellation;
+        lock (lifetimeCancellationGate)
+        {
+            lifetimeCancellationUsers--;
+            disposeCancellation = TryClaimLifetimeCancellationDisposal();
+        }
+
+        if (disposeCancellation)
+        {
+            DisposeLifetimeCancellation();
+        }
+    }
+
+    private Task RequestLifetimeCancellationDisposalAsync()
+    {
+        bool disposeCancellation;
+        lock (lifetimeCancellationGate)
+        {
+            lifetimeCancellationDisposalRequested = true;
+            disposeCancellation = TryClaimLifetimeCancellationDisposal();
+        }
+
+        if (disposeCancellation)
+        {
+            DisposeLifetimeCancellation();
+        }
+
+        return lifetimeCancellationDisposalCompletion.Task;
+    }
+
+    private void DisposeLifetimeCancellation()
+    {
+        try
+        {
+            lifetimeCancellation.Dispose();
+            lifetimeCancellationDisposalCompletion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            lifetimeCancellationDisposalCompletion.TrySetException(exception);
+        }
+    }
+
+    private bool TryClaimLifetimeCancellationDisposal()
+    {
+        if (!lifetimeCancellationDisposalRequested
+            || lifetimeCancellationDisposed
+            || lifetimeCancellationUsers != 0)
+        {
+            return false;
+        }
+
+        lifetimeCancellationDisposed = true;
+        return true;
+    }
+
+    private SessionCallLease EnterSessionCall(
+        AsyncLocal<SessionCallScope?> activeCall)
+    {
+        SessionCallScope? inheritedScope = activeCall.Value;
+        var currentScope = new SessionCallScope(this, inheritedScope);
+        activeCall.Value = currentScope;
+        return new SessionCallLease(
+            activeCall,
+            currentScope,
+            inheritedScope);
+    }
+
+    private static void ExitSessionCall(
+        AsyncLocal<SessionCallScope?> activeCall,
+        SessionCallScope currentScope,
+        SessionCallScope? inheritedScope)
+    {
+        currentScope.Deactivate();
+        activeCall.Value = inheritedScope;
+    }
+
+    private bool IsActiveSessionCall(
+        AsyncLocal<SessionCallScope?> activeCall)
+    {
+        for (SessionCallScope? scope = activeCall.Value;
+            scope is not null;
+            scope = scope.Previous)
+        {
+            if (scope.IsActive && ReferenceEquals(scope.Owner, this))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void RecordAcknowledgedState(RemoteWindowParticipantState state)
@@ -878,6 +1339,10 @@ internal sealed class RemoteWindowControlSession :
         public RemoteWindowSessionId SessionId { get; } = sessionId;
     }
 
+    private sealed record LifetimeCancellationCallbackRegistration(
+        RemoteWindowControlSession Owner,
+        Action Callback);
+
     private sealed record RequestBinding(
         CorrelationId CorrelationId,
         RemoteWindowSessionId SessionId,
@@ -889,133 +1354,35 @@ internal sealed class RemoteWindowControlSession :
     private readonly record struct SessionBinding(
         RemoteWindowSessionId SessionId,
         ActivityId ActivityId);
-}
 
-public sealed class AuthenticatedRemoteWindowSessionHandler :
-    IAuthenticatedControlSessionHandler,
-    IAsyncDisposable
-{
-    private readonly CancellationTokenSource lifetimeCancellation = new();
-    private readonly IRemoteWindowControlPeer? peer;
-    private readonly ConcurrentDictionary<DeviceId, Registration> sessions = new();
-    private readonly TimeProvider timeProvider;
-    private int disposed;
-
-    public AuthenticatedRemoteWindowSessionHandler(
-        TimeProvider? timeProvider = null) : this(null, timeProvider)
+    private sealed class SessionCallLease(
+        AsyncLocal<SessionCallScope?> activeCall,
+        SessionCallScope currentScope,
+        SessionCallScope? inheritedScope) : IDisposable
     {
-    }
+        private int disposed;
 
-    public AuthenticatedRemoteWindowSessionHandler(
-        IRemoteWindowControlPeer? peer,
-        TimeProvider? timeProvider = null)
-    {
-        this.peer = peer;
-        this.timeProvider = timeProvider ?? TimeProvider.System;
-    }
-
-    public bool TryGetChannel(
-        DeviceId peerDeviceId,
-        out IRemoteWindowControlChannel? channel)
-    {
-        ArgumentNullException.ThrowIfNull(peerDeviceId);
-        if (Volatile.Read(ref disposed) == 0
-            && sessions.TryGetValue(peerDeviceId, out Registration? registration))
+        public void Dispose()
         {
-            channel = registration.Session;
-            return true;
-        }
-
-        channel = null;
-        return false;
-    }
-
-    public async ValueTask RunAsync(
-        AuthenticatedTcpControlConnection connection,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(connection);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
-        if (!ProtocolFeatures.SupportsRemoteWindow(connection.ProtocolVersion))
-        {
-            throw new InvalidDataException(
-                "The authenticated connection did not negotiate Remote Window protocol support.");
-        }
-
-        var session = new RemoteWindowControlSession(
-            new AuthenticatedConnectionAdapter(connection),
-            peer,
-            timeProvider);
-        var registration = new Registration(session);
-        if (!sessions.TryAdd(connection.PeerIdentity.DeviceId, registration))
-        {
-            await session.DisposeAsync().ConfigureAwait(false);
-            throw new InvalidDataException(
-                "A second authenticated Remote Window session for this peer was rejected.");
-        }
-
-        using CancellationTokenSource linked =
-            CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                lifetimeCancellation.Token);
-        try
-        {
-            await session.RunAsync(linked.Token).ConfigureAwait(false);
-        }
-        finally
-        {
-            sessions.TryRemove(
-                new KeyValuePair<DeviceId, Registration>(
-                    connection.PeerIdentity.DeviceId,
-                    registration));
-            await session.DisposeAsync().ConfigureAwait(false);
-            registration.Completion.TrySetResult();
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                ExitSessionCall(activeCall, currentScope, inheritedScope);
+            }
         }
     }
 
-    public async ValueTask DisposeAsync()
+    private sealed class SessionCallScope(
+        RemoteWindowControlSession owner,
+        SessionCallScope? previous)
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
-        {
-            return;
-        }
+        private int active = 1;
 
-        lifetimeCancellation.Cancel();
-        Registration[] active = sessions.Values.ToArray();
-        foreach (Registration registration in active)
-        {
-            registration.Session.Cancel();
-        }
+        public bool IsActive => Volatile.Read(ref active) != 0;
 
-        await Task.WhenAll(active.Select(static item => item.Completion.Task))
-            .ConfigureAwait(false);
-        lifetimeCancellation.Dispose();
-    }
+        public RemoteWindowControlSession Owner { get; } = owner;
 
-    private sealed class Registration(RemoteWindowControlSession session)
-    {
-        public TaskCompletionSource Completion { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public SessionCallScope? Previous { get; } = previous;
 
-        public RemoteWindowControlSession Session { get; } = session;
-    }
-
-    private sealed class AuthenticatedConnectionAdapter(
-        AuthenticatedTcpControlConnection connection) : IRemoteWindowControlConnection
-    {
-        public DeviceId LocalDeviceId => connection.LocalDeviceId;
-
-        public DeviceId PeerDeviceId => connection.PeerIdentity.DeviceId;
-
-        public ProtocolVersion ProtocolVersion => connection.ProtocolVersion;
-
-        public ValueTask<ControlMessage> ReadAsync(
-            CancellationToken cancellationToken = default) =>
-            connection.ReceiveAsync(cancellationToken);
-
-        public ValueTask SendAsync(
-            ControlMessage message,
-            CancellationToken cancellationToken = default) =>
-            connection.SendAsync(message, cancellationToken);
+        public void Deactivate() => Volatile.Write(ref active, 0);
     }
 }

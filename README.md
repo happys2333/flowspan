@@ -46,8 +46,8 @@ includes:
 - an explicitly enabled desktop local-network lifetime that composes one
   listener, minimized DNS-SD browse/advertise, transcript-bound outgoing
   pairing, persistent Trust editing, and truthful per-peer trusted-reconnect
-  status while remaining `NOT SHARING`; Activity and Mirror control grants are
-  any-of connection admission only and every operation rechecks its exact
+  status while remaining `NOT SHARING`; Activity, Scene, and Mirror control grants
+  are any-of connection admission only and every operation rechecks its exact
   purpose; starting that lifetime requires an acknowledged
   Windows/macOS/Linux-specific privacy preflight;
 - one bounded `workspace.note/v1` desktop Semantic Handoff over the encrypted
@@ -71,12 +71,14 @@ includes:
   timeout, and cleanup tests;
 - a local Desktop Remote Window candidate with an explicitly labelled
   source-hosted fallback, purpose-scoped mirror target selection independent of
-  semantic receive targets, production Mirror-only control-channel admission,
+  semantic receive targets, one protocol-gated dispatcher shared with Activity
+  and Scene traffic on the production authenticated control registration,
   post-Trust-change refiltering, progressive permission review, persistent
   sharing and Driver/protection state, accessible Emergency Stop,
-  generation-bound stale result rejection, and fail-closed teardown; production
-  composition still uses an unsupported adapter until native
-  capture/input/protection work is delivered;
+  generation-bound stale result rejection, and fail-closed teardown; this is
+  control-channel composition only, and production sharing remains unavailable
+  until Task 4 freezes the media route/codec decisions and Task 5 composes the
+  complete host/participant runtime;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
@@ -152,13 +154,16 @@ mutation. Rejection, failure, or uncertainty preserves the source. Flowspan does
 not transfer process memory, unsaved application internals, or credentials. The
 portable protocol can authenticate bounded screen-media bytes and remote input,
 and the Desktop has a headless presentation and progressive-permission candidate.
-The production local-network control profiles admit `mirror.view` and
-`mirror.drive` only to establish an authenticated idle channel; viewing still
-requires `mirror.view`, and driving still requires both grants at each use
-boundary. Production composition intentionally reports unsupported because it has no native
-capture, production codec/rendering, protected-surface probe, or input-injection
-adapter. The in-memory simulator and same-host loopback evidence do not substitute
-for physical-device, native-permission, or independent security review gates.
+The production local-network control profile treats the Activity grants,
+`scene.apply`, `mirror.view`, and `mirror.drive` as alternatives only for
+establishing an authenticated idle channel; every Activity, Scene, and Remote
+Window operation rechecks its exact current grants. Viewing still requires
+`mirror.view`, and driving still requires both Mirror grants at each use boundary.
+Production Remote Window sharing intentionally reports unsupported because it has
+no composed media route, native capture, production codec/rendering,
+protected-surface probe, or input-injection adapter. The in-memory simulator and
+same-host loopback evidence do not substitute for physical-device,
+native-permission, or independent security review gates.
 
 Flowspan is a clean-room rewrite. See
 [clean-room engineering and provenance](docs/engineering/clean-room.md).
