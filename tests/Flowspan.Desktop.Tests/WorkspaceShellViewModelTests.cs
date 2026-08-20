@@ -9,6 +9,20 @@ namespace Flowspan.Desktop.Tests;
 
 public sealed class WorkspaceShellViewModelTests
 {
+    private static Task RunOnDedicatedThread(Action action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private static Task RunOnDedicatedThread(Func<Task> action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default).Unwrap();
+
     [Fact]
     public async Task InitializeAsyncExposesTruthfulSafeState()
     {
@@ -183,7 +197,8 @@ public sealed class WorkspaceShellViewModelTests
             remoteWindowService: remoteWindowService);
         await runtime.EnableAsync();
 
-        Task disposing = Task.Run(async () => await viewModel.DisposeAsync());
+        Task disposing = RunOnDedicatedThread(
+            () => viewModel.DisposeAsync().AsTask());
         await remoteWindowService.DisposeEntered.Task
             .WaitAsync(TimeSpan.FromSeconds(2));
 
@@ -307,13 +322,14 @@ public sealed class WorkspaceShellViewModelTests
             remoteWindowService: remoteWindowService);
         Task? reentrantDisposing = null;
         startup.CancellationCallbackAction = () =>
-            reentrantDisposing = Task.Run(
-                async () => await viewModel.DisposeAsync());
+            reentrantDisposing = RunOnDedicatedThread(
+                () => viewModel.DisposeAsync().AsTask());
         await runtime.EnableAsync();
         Task initialization = viewModel.InitializeAsync();
         await startup.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        Task disposing = Task.Run(async () => await viewModel.DisposeAsync());
+        Task disposing = RunOnDedicatedThread(
+            () => viewModel.DisposeAsync().AsTask());
         await startup.CancellationCallbackEntered.Task
             .WaitAsync(TimeSpan.FromSeconds(2));
         await startup.CancellationCallbackActionCompleted.Task
@@ -651,7 +667,7 @@ public sealed class WorkspaceShellViewModelTests
             Assert.Single(viewModel.Activities.RemoteWindowTargets);
         activityService.BlockSemanticResumeProbe();
 
-        Task publishing = Task.Run(activityService.PublishChanged);
+        Task publishing = RunOnDedicatedThread(activityService.PublishChanged);
         await activityService.SemanticResumeProbeEntered.Task
             .WaitAsync(TimeSpan.FromSeconds(2));
         Task disposing = viewModel.DisposeAsync().AsTask();
@@ -693,11 +709,11 @@ public sealed class WorkspaceShellViewModelTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         viewModel.RemoteWindow.PropertyChanged += OnRemoteWindowPropertyChanged;
 
-        Task projecting = Task.Run(() =>
+        Task projecting = RunOnDedicatedThread(() =>
             viewModel.Activities.SelectedActivity =
                 Assert.Single(viewModel.Activities.Activities));
         await observerEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        Task disposing = Task.Run(async () =>
+        Task disposing = RunOnDedicatedThread(async () =>
         {
             ValueTask pending = viewModel.DisposeAsync();
             disposeCallReturned.TrySetResult();
@@ -751,7 +767,7 @@ public sealed class WorkspaceShellViewModelTests
         int observerInvocations = 0;
         viewModel.RemoteWindow.PropertyChanged += OnRemoteWindowPropertyChanged;
 
-        Task projecting = Task.Run(() =>
+        Task projecting = RunOnDedicatedThread(() =>
             viewModel.Activities.SelectedActivity =
                 Assert.Single(viewModel.Activities.Activities));
         await projecting.WaitAsync(TimeSpan.FromSeconds(2));
