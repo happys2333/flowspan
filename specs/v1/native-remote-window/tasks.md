@@ -29,13 +29,18 @@
     open.
   - _Requirements: NR1-NR6, NR8, NR10_
 
-- [ ] 3. Compose Remote Window into the production authenticated control session
+- [x] 3. Compose Remote Window into the production authenticated control session
   - Replace competing Activity and Remote Window read loops with one strict
     connection-owned dispatcher while preserving every frozen protocol fixture.
   - Expose current Remote Window channels from the same peer registration and
     re-check Trust/Capability at each host operation.
   - Add two-node loopback tests for Activity plus Remote Window coexistence,
     revoke/drain, malformed cross-routing, reconnect, and disposal.
+  - Evidence: implementation `2f52ae4` and
+    `docs/evidence/2026-08-20-native-remote-window-authenticated-control-session.md`.
+    Evidence commit `ee371b8` passed exact-commit CI `32361806421` and CodeQL
+    `32361806437`; media routing, codec, native API, physical-device, and tasks
+    4-10 evidence remain open.
   - _Requirements: NR2, NR4, NR8, NR10_
 
 - [ ] 4. Freeze production media routing and codec ADRs
