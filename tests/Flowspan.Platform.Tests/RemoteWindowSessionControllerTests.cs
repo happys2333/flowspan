@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json;
 using Flowspan.Application;
 using Flowspan.Domain;
@@ -18,6 +19,1358 @@ public sealed class RemoteWindowSessionControllerTests
 
     private static readonly DeviceId Peer =
         DeviceId.Parse("22222222-2222-2222-2222-222222222222");
+
+    [Fact]
+    public async Task GenericNativeSourceStartsWithoutSyntheticActivityKind()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(
+            registry.GetSnapshot());
+        Assert.True(
+            registry.TryAcquire(
+                snapshot.Token,
+                snapshot.Source.SourceGeneration,
+                out NativeRemoteWindowSourceLease? acquiredLease));
+        using NativeRemoteWindowSourceLease lease = Assert.IsType<
+            NativeRemoteWindowSourceLease>(acquiredLease);
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var frameSink = new DisposingNativeFrameSink();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            input,
+            frameSink,
+            sessions,
+            TimeSpan.FromSeconds(10));
+
+        RemoteWindowCommandResult result = await controller.StartAsync(SafeAt(Now));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(snapshot.Source.ActivityId, result.Snapshot.ActivityId);
+        Assert.Equal(Host, result.Snapshot.HostDeviceId);
+        Assert.Equal("Generic window", result.Snapshot.ActivityTitle);
+        Assert.Null(result.Snapshot.ActivityKind);
+        Assert.DoesNotContain("Generic window", result.Snapshot.ToString());
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        Assert.Equal(11, sourceUse.OwnerGeneration);
+        Assert.Equal(1, sourceUse.SessionGeneration);
+        Assert.Equal(snapshot.Source.SourceGeneration, sourceUse.SourceGeneration);
+        Assert.Equal(snapshot.GeometryRevision, sourceUse.GeometryRevision);
+        string serializedUse = JsonSerializer.Serialize(sourceUse);
+        Assert.DoesNotContain("\"Token\"", serializedUse);
+        Assert.DoesNotContain("Generic window", serializedUse);
+    }
+
+    [Fact]
+    public async Task ClosedNativeSourceCannotCrossCaptureBoundary()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(
+            registry.GetSnapshot());
+        Assert.True(
+            registry.TryAcquire(
+                snapshot.Token,
+                snapshot.Source.SourceGeneration,
+                out NativeRemoteWindowSourceLease? acquiredLease));
+        using NativeRemoteWindowSourceLease lease = Assert.IsType<
+            NativeRemoteWindowSourceLease>(acquiredLease);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        registration.Dispose();
+
+        RemoteWindowCommandResult result = await controller.StartAsync(SafeAt(Now));
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, result.Status);
+        Assert.Equal("native_source_stale", result.ReasonCode);
+        Assert.Empty(capture.SourceUses);
+    }
+
+    [Fact]
+    public async Task NativeSourceClosedDuringAdmissionIsStoppedAndRejected()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(
+            registry.GetSnapshot());
+        Assert.True(
+            registry.TryAcquire(
+                snapshot.Token,
+                snapshot.Source.SourceGeneration,
+                out NativeRemoteWindowSourceLease? acquiredLease));
+        using NativeRemoteWindowSourceLease lease = Assert.IsType<
+            NativeRemoteWindowSourceLease>(acquiredLease);
+        var capture = new RecordingNativeCaptureBoundary
+        {
+            OnStart = registration.Dispose,
+        };
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+
+        RemoteWindowCommandResult result = await controller.StartAsync(SafeAt(Now));
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, result.Status);
+        Assert.Equal("native_source_stale", result.ReasonCode);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, result.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task NativeGeometryChangeInvalidatesCaptureAndInputTogether()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(
+            registry.GetSnapshot());
+        Assert.True(
+            registry.TryAcquire(
+                snapshot.Token,
+                snapshot.Source.SourceGeneration,
+                out NativeRemoteWindowSourceLease? acquiredLease));
+        using NativeRemoteWindowSourceLease lease = Assert.IsType<
+            NativeRemoteWindowSourceLease>(acquiredLease);
+        var authorization = new MutableMirrorAuthorizationSource();
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            authorization,
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        authorization.SetGrant(
+            Peer,
+            CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive));
+        _ = await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.DriverEligible);
+        RemoteWindowCommandResult transferred = await controller.TransferDriverAsync(
+            Peer,
+            TimeSpan.FromSeconds(10));
+        Assert.False(
+            registration.TryUpdate(
+                NativeMetadata(
+                    NativeRemoteWindowGeometry.Create(10, 20, 1440, 900, 2))));
+
+        RemoteInputAttemptResult result = await controller.InjectInputAsync(
+            Peer,
+            transferred.Snapshot.DriverLeaseEpoch!.Value,
+            RemoteInputBatch.Create([RemoteInputEvent.PointerMove(0.25, 0.75)]));
+
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.Equal(RemoteInputDecision.SessionInactive, result.Decision);
+        Assert.Empty(input.SourceUses);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(1, input.StopCallCount);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, reset.Status);
+        Assert.Equal("native_source_stale", reset.ReasonCode);
+    }
+
+    [Fact]
+    public async Task ActiveNativeSourceCloseFailsClosedBeforeDisposeReturns()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var authorization = new MutableMirrorAuthorizationSource();
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            authorization,
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        capture.Snapshot = () => controller.Snapshot;
+        input.Snapshot = () => controller.Snapshot;
+        sessions.Snapshot = () => controller.Snapshot;
+        _ = await controller.StartAsync(SafeAt(Now));
+        authorization.SetGrant(
+            Peer,
+            CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive));
+        _ = await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.DriverEligible);
+        RemoteWindowCommandResult transferred = await controller.TransferDriverAsync(
+            Peer,
+            TimeSpan.FromSeconds(10));
+
+        registration.Dispose();
+
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(1, input.StopCallCount);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+        Assert.Equal(
+            RemoteWindowLifecycle.Unavailable,
+            capture.LifecycleObservedAtStop);
+        Assert.Equal(
+            RemoteWindowLifecycle.Unavailable,
+            input.LifecycleObservedAtStop);
+        Assert.Equal(
+            RemoteWindowLifecycle.Unavailable,
+            sessions.SnapshotObservedAtDisconnectAll?.Lifecycle);
+        int inputCallsBeforeLateAttempt = input.SourceUses.Count;
+
+        RemoteInputAttemptResult lateAttempt = await controller.InjectInputAsync(
+            Peer,
+            transferred.Snapshot.DriverLeaseEpoch!.Value,
+            RemoteInputBatch.Create([RemoteInputEvent.PointerMove(0.5, 0.5)]));
+
+        Assert.Equal(RemoteInputDecision.SessionInactive, lateAttempt.Decision);
+        Assert.Equal(inputCallsBeforeLateAttempt, input.SourceUses.Count);
+    }
+
+    [Fact]
+    public async Task NativeSourceCloseDrainsBlockedInputUseBeforeFailClose()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var authorization = new MutableMirrorAuthorizationSource();
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        input.BlockInjection();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            authorization,
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        authorization.SetGrant(
+            Peer,
+            CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive));
+        _ = await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.DriverEligible);
+        RemoteWindowCommandResult transferred = await controller.TransferDriverAsync(
+            Peer,
+            TimeSpan.FromSeconds(10));
+        Task<RemoteInputAttemptResult> injecting = RunOnDedicatedThread(() =>
+            controller.InjectInputAsync(
+                    Peer,
+                    transferred.Snapshot.DriverLeaseEpoch!.Value,
+                    RemoteInputBatch.Create(
+                        [RemoteInputEvent.PointerMove(0.25, 0.75)]))
+                .AsTask()
+                .GetAwaiter()
+                .GetResult());
+        Assert.True(input.InjectionEntered.Wait(TimeSpan.FromSeconds(5)));
+        using var closeStarted = new ManualResetEventSlim(false);
+        using var closeReturned = new ManualResetEventSlim(false);
+        Task closing = RunOnDedicatedThread(() =>
+        {
+            closeStarted.Set();
+            registration.Dispose();
+            closeReturned.Set();
+        });
+
+        try
+        {
+            Assert.True(closeStarted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => !lease.IsCurrent,
+                    TimeSpan.FromSeconds(5)));
+            Assert.False(closeReturned.IsSet);
+            Assert.Equal(0, capture.StopCallCount);
+            Assert.Equal(0, input.StopCallCount);
+            Assert.Equal(0, sessions.DisconnectAllCallCount);
+        }
+        finally
+        {
+            input.ReleaseInjection();
+        }
+
+        RemoteInputAttemptResult result =
+            await injecting.WaitAsync(TimeSpan.FromSeconds(5));
+        await closing.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(closeReturned.IsSet);
+        Assert.Equal(RemoteInputDecision.BoundaryFailed, result.Decision);
+        Assert.Equal("native_source_stale", result.Boundary?.ReasonCode);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(1, input.StopCallCount);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task ExternalDisposeCannotCircularlyWaitOnSourceInvalidationFinalizer()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        capture.BlockStopCall(1);
+        var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        Task closing = RunOnDedicatedThread(registration.Dispose);
+        await capture.StopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task disposal = RunOnDedicatedThread(controller.Dispose);
+
+        try
+        {
+            Assert.True(SpinWait.SpinUntil(
+                () => capture.StopCallCount == 2,
+                TimeSpan.FromSeconds(5)));
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.LifetimeDrainWaiterCount == 1,
+                TimeSpan.FromSeconds(5)));
+            Assert.False(closing.IsCompleted);
+            Assert.False(disposal.IsCompleted);
+        }
+        finally
+        {
+            capture.ReleaseStop();
+        }
+
+        await Task.WhenAll(closing, disposal).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(controller.LifetimeFinalizationCompleted);
+        controller.Dispose();
+    }
+
+    [Fact]
+    public async Task NativeCaptureSinkRejectsPreviousSessionAndLateFrameAfterStop()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        var destination = new DisposingNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse previousUse = capture.SourceUses[0];
+
+        Assert.True(controller.EmergencyStop().FullyStopped);
+        Assert.True((await controller.ResetAfterLocalConfirmationAsync()).Succeeded);
+        Assert.True((await controller.StartAsync(SafeAt(Now))).Succeeded);
+        NativeRemoteWindowSourceUse currentUse = capture.SourceUses[1];
+        INativeRemoteWindowFrameSink currentSink = capture.FrameSinks[1];
+        Assert.NotSame(destination, currentSink);
+        Assert.NotEqual(previousUse.SessionGeneration, currentUse.SessionGeneration);
+        (NativeRemoteWindowFrame staleFrame, RecordingMemoryOwner staleOwner) =
+            CreateNativeFrame(previousUse, sequence: 1);
+
+        currentSink.TakeOwnership(previousUse, staleFrame);
+
+        Assert.Equal(1, staleOwner.DisposeCount);
+        Assert.Empty(destination.Sequences);
+        (NativeRemoteWindowFrame currentFrame, RecordingMemoryOwner currentOwner) =
+            CreateNativeFrame(currentUse, sequence: 1);
+        currentSink.TakeOwnership(currentUse, currentFrame);
+        Assert.Equal([1L], destination.Sequences);
+        Assert.Equal(1, currentOwner.DisposeCount);
+
+        Assert.True((await controller.StopAsync()).FullyStopped);
+        (NativeRemoteWindowFrame lateFrame, RecordingMemoryOwner lateOwner) =
+            CreateNativeFrame(currentUse, sequence: 2);
+        currentSink.TakeOwnership(currentUse, lateFrame);
+
+        Assert.Equal([1L], destination.Sequences);
+        Assert.Equal(1, lateOwner.DisposeCount);
+    }
+
+    [Fact]
+    public async Task NativeCaptureSinkRejectsDifferentSourceAndLateFrameAfterLoss()
+    {
+        using var firstRegistry = new NativeRemoteWindowSourceRegistry(Host);
+        using var secondRegistry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration firstRegistration =
+            firstRegistry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceRegistration secondRegistration =
+            secondRegistry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease firstLease = AcquireNativeLease(
+            firstRegistry,
+            firstRegistration.Snapshot);
+        using NativeRemoteWindowSourceLease secondLease = AcquireNativeLease(
+            secondRegistry,
+            secondRegistration.Snapshot);
+        var firstCapture = new RecordingNativeCaptureBoundary();
+        var secondCapture = new RecordingNativeCaptureBoundary();
+        var firstDestination = new DisposingNativeFrameSink();
+        using var firstController = new RemoteWindowSessionController(
+            firstLease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            firstCapture,
+            new RecordingNativeInputBoundary(),
+            firstDestination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        using var secondController = new RemoteWindowSessionController(
+            secondLease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            secondCapture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await firstController.StartAsync(SafeAt(Now));
+        _ = await secondController.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse firstUse = Assert.Single(firstCapture.SourceUses);
+        NativeRemoteWindowSourceUse secondUse = Assert.Single(secondCapture.SourceUses);
+        INativeRemoteWindowFrameSink firstSink = Assert.Single(
+            firstCapture.FrameSinks);
+        Assert.Equal(firstUse.OwnerGeneration, secondUse.OwnerGeneration);
+        Assert.Equal(firstUse.SessionGeneration, secondUse.SessionGeneration);
+        Assert.Equal(firstUse.SourceGeneration, secondUse.SourceGeneration);
+        Assert.Equal(firstUse.GeometryRevision, secondUse.GeometryRevision);
+        Assert.NotEqual(firstUse.Token, secondUse.Token);
+        (NativeRemoteWindowFrame otherFrame, RecordingMemoryOwner otherOwner) =
+            CreateNativeFrame(secondUse, sequence: 1);
+
+        firstSink.TakeOwnership(secondUse, otherFrame);
+
+        Assert.Equal(1, otherOwner.DisposeCount);
+        Assert.Empty(firstDestination.Sequences);
+        (NativeRemoteWindowFrame currentFrame, RecordingMemoryOwner currentOwner) =
+            CreateNativeFrame(firstUse, sequence: 1);
+        firstSink.TakeOwnership(firstUse, currentFrame);
+        Assert.Equal([1L], firstDestination.Sequences);
+        Assert.Equal(1, currentOwner.DisposeCount);
+
+        firstRegistration.Dispose();
+        Assert.Equal(
+            RemoteWindowLifecycle.Unavailable,
+            firstController.Snapshot.Lifecycle);
+        (NativeRemoteWindowFrame lateFrame, RecordingMemoryOwner lateOwner) =
+            CreateNativeFrame(firstUse, sequence: 2);
+        firstSink.TakeOwnership(firstUse, lateFrame);
+
+        Assert.Equal([1L], firstDestination.Sequences);
+        Assert.Equal(1, lateOwner.DisposeCount);
+    }
+
+    [Fact]
+    public async Task EmergencyStopDoesNotWaitForBlockedFrameDestination()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var destination = new BlockingNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+        Task delivery = RunOnDedicatedThread(
+            () => frameSink.TakeOwnership(sourceUse, frame));
+        Assert.True(destination.FrameEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        try
+        {
+            Task<RemoteWindowEmergencyStopResult> stopping =
+                RunOnDedicatedThread(controller.EmergencyStop);
+            RemoteWindowEmergencyStopResult result =
+                await stopping.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(result.FullyStopped);
+            Assert.Equal(0, owner.DisposeCount);
+        }
+        finally
+        {
+            destination.ReleaseFrame();
+        }
+
+        await delivery.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, owner.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ExternalControllerDisposeDrainsBlockedFrameBeforeReturning()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var destination = new BlockingNativeFrameSink();
+        var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+        Task delivery = RunOnDedicatedThread(
+            () => frameSink.TakeOwnership(sourceUse, frame));
+        Assert.True(destination.FrameEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task disposal = RunOnDedicatedThread(controller.Dispose);
+
+        try
+        {
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => controller.LifetimeDrainWaiterCount == 1,
+                    TimeSpan.FromSeconds(5)));
+            Assert.False(disposal.IsCompleted);
+            Assert.Equal(0, owner.DisposeCount);
+        }
+        finally
+        {
+            destination.ReleaseFrame();
+        }
+
+        await delivery.WaitAsync(TimeSpan.FromSeconds(5));
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, owner.DisposeCount);
+        controller.Dispose();
+    }
+
+    [Fact]
+    public async Task ConcurrentExternalDisposeWaitsForInitialFailClose()
+    {
+        var capture = new RecordingCaptureBoundary();
+        capture.BlockEmergencyStopCall(1);
+        RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        Task firstDisposal = RunOnDedicatedThread(controller.Dispose);
+        await capture.EmergencyStopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task secondDisposal = RunOnDedicatedThread(controller.Dispose);
+
+        try
+        {
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.LifetimeDrainWaiterCount == 1,
+                TimeSpan.FromSeconds(5)));
+            Assert.False(firstDisposal.IsCompleted);
+            Assert.False(secondDisposal.IsCompleted);
+            Assert.False(controller.LifetimeFinalizationCompleted);
+        }
+        finally
+        {
+            capture.ReleaseEmergencyStop();
+        }
+
+        await Task.WhenAll(firstDisposal, secondDisposal)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(controller.LifetimeFinalizationCompleted);
+    }
+
+    [Fact]
+    public async Task ConcurrentExternalDisposeWaitsForFinalizationCleanup()
+    {
+        var capture = new RecordingCaptureBoundary
+        {
+            EmergencyFailure = new IOException("capture stop failed"),
+        };
+        capture.BlockEmergencyStopCall(2);
+        RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        Task firstDisposal = RunOnDedicatedThread(controller.Dispose);
+        Assert.True(SpinWait.SpinUntil(
+            () => capture.EmergencyStopCallCount == 2,
+            TimeSpan.FromSeconds(5)));
+        Task secondDisposal = RunOnDedicatedThread(controller.Dispose);
+
+        try
+        {
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.LifetimeFinalizationWaiterCount == 1,
+                TimeSpan.FromSeconds(5)));
+            Assert.False(firstDisposal.IsCompleted);
+            Assert.False(secondDisposal.IsCompleted);
+            Assert.False(controller.LifetimeFinalizationCompleted);
+        }
+        finally
+        {
+            capture.ReleaseEmergencyStop();
+        }
+
+        await Task.WhenAll(firstDisposal, secondDisposal)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(controller.LifetimeFinalizationCompleted);
+    }
+
+    [Fact]
+    public async Task DisposalBoundaryChildDisposeCannotFinalizeItsParent()
+    {
+        var capture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        bool finalizedInsideBoundary = true;
+        capture.OnEmergencyStop = () =>
+        {
+            Task.Run(controller.Dispose).GetAwaiter().GetResult();
+            finalizedInsideBoundary = controller.LifetimeFinalizationCompleted;
+        };
+
+        await RunOnDedicatedThread(controller.Dispose)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(finalizedInsideBoundary);
+        Assert.True(controller.LifetimeFinalizationCompleted);
+    }
+
+    [Fact]
+    public async Task NestedOperationChildDisposeRecognizesActiveAncestor()
+    {
+        var capture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController controller = CreateController(capture);
+        var releaseDelayedDisposal = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var nestedStopReturned = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseStartBoundary = new ManualResetEventSlim(false);
+        Task<RemoteWindowEmergencyStopResult>? delayedDisposal = null;
+        capture.OnEmergencyStop = () =>
+        {
+            capture.OnEmergencyStop = null;
+            delayedDisposal = Task.Run(async () =>
+            {
+                await releaseDelayedDisposal.Task;
+                controller.Dispose();
+                return controller.EmergencyStop();
+            });
+        };
+        capture.OnStartReturning = () =>
+        {
+            Assert.True(controller.EmergencyStop().FullyStopped);
+            nestedStopReturned.TrySetResult();
+            releaseStartBoundary.Wait();
+        };
+        Task<RemoteWindowCommandResult> starting = RunOnDedicatedThread(() =>
+            controller.StartAsync(SafeAt(Now))
+                .AsTask()
+                .GetAwaiter()
+                .GetResult());
+        await nestedStopReturned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.NotNull(delayedDisposal);
+        releaseDelayedDisposal.TrySetResult();
+
+        try
+        {
+            RemoteWindowEmergencyStopResult nestedRetry =
+                await delayedDisposal.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(nestedRetry.FullyStopped);
+        }
+        finally
+        {
+            releaseStartBoundary.Set();
+        }
+
+        RemoteWindowCommandResult result =
+            await starting.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(RemoteWindowCommandStatus.EmergencyStopped, result.Status);
+        Assert.True(controller.LifetimeFinalizationCompleted);
+    }
+
+    [Fact]
+    public async Task StaleDisposalContextStillJoinsLaterOperationDrain()
+    {
+        var authorization = new MutableMirrorAuthorizationSource();
+        authorization.BlockReads();
+        var capture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController controller = CreateController(
+            capture,
+            authorization: authorization);
+        _ = await controller.StartAsync(SafeAt(Now));
+        var releaseDelayedDisposal = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? delayedDisposal = null;
+        capture.OnEmergencyStop = () =>
+        {
+            capture.OnEmergencyStop = null;
+            delayedDisposal = Task.Run(async () =>
+            {
+                await releaseDelayedDisposal.Task;
+                controller.Dispose();
+            });
+        };
+        Task<RemoteWindowCommandResult> admittedOperation =
+            RunOnDedicatedThread(() => controller
+                .AddParticipantAsync(Peer, MirrorParticipantRole.ViewOnly)
+                .AsTask()
+                .GetAwaiter()
+                .GetResult());
+        await authorization.ReadEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task firstDisposal = RunOnDedicatedThread(controller.Dispose);
+
+        try
+        {
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.LifetimeDrainWaiterCount == 1,
+                TimeSpan.FromSeconds(5)));
+            Assert.NotNull(delayedDisposal);
+            releaseDelayedDisposal.TrySetResult();
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.LifetimeDrainWaiterCount == 2,
+                TimeSpan.FromSeconds(5)));
+            Assert.False(delayedDisposal.IsCompleted);
+        }
+        finally
+        {
+            authorization.ReleaseReads();
+            releaseDelayedDisposal.TrySetResult();
+        }
+
+        _ = await admittedOperation.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(firstDisposal, delayedDisposal!)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(controller.LifetimeFinalizationCompleted);
+    }
+
+    [Fact]
+    public async Task OrdinaryStopClosesCaptureBeforeWaitingForFrameDrain()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var destination = new BlockingNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+        Task delivery = RunOnDedicatedThread(
+            () => frameSink.TakeOwnership(sourceUse, frame));
+        Assert.True(destination.FrameEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task<RemoteWindowStopResult> stopping = RunOnDedicatedThread(() =>
+            controller.StopAsync().AsTask().GetAwaiter().GetResult());
+
+        try
+        {
+            await capture.StopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(stopping.IsCompleted);
+            Assert.Equal(0, owner.DisposeCount);
+        }
+        finally
+        {
+            destination.ReleaseFrame();
+        }
+
+        RemoteWindowStopResult result =
+            await stopping.WaitAsync(TimeSpan.FromSeconds(5));
+        await delivery.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result.FullyStopped);
+        Assert.Equal(1, owner.DisposeCount);
+    }
+
+    [Fact]
+    public async Task NativeProtectionBlocksFramesBeforeFailedPauseReturnsAndUntilResume()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary
+        {
+            PauseResult = LocalBoundaryResult.Failed("native_pause_failed"),
+        };
+        capture.BlockPause();
+        var destination = new DisposingNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        Task<RemoteWindowProtectionResult> pausing = RunOnDedicatedThread(() =>
+            controller.ApplyProtectionSnapshot(new ProtectionSnapshot(
+                ProtectionKind.SecureInput,
+                Now,
+                "test-probe")));
+        Assert.True(capture.PauseEntered.Wait(TimeSpan.FromSeconds(5)));
+        (NativeRemoteWindowFrame blocked, RecordingMemoryOwner blockedOwner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+
+        frameSink.TakeOwnership(sourceUse, blocked);
+
+        Assert.Equal(1, blockedOwner.DisposeCount);
+        Assert.Empty(destination.Sequences);
+        capture.ReleasePause();
+        RemoteWindowProtectionResult failedPause =
+            await pausing.WaitAsync(TimeSpan.FromSeconds(5));
+        (NativeRemoteWindowFrame late, RecordingMemoryOwner lateOwner) =
+            CreateNativeFrame(sourceUse, sequence: 2);
+        frameSink.TakeOwnership(sourceUse, late);
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failedPause.Status);
+        Assert.Equal(1, lateOwner.DisposeCount);
+        Assert.Empty(destination.Sequences);
+        RemoteWindowProtectionResult resumed =
+            controller.ApplyProtectionSnapshot(SafeAt(Now));
+        (NativeRemoteWindowFrame current, RecordingMemoryOwner currentOwner) =
+            CreateNativeFrame(sourceUse, sequence: 3);
+        frameSink.TakeOwnership(sourceUse, current);
+
+        Assert.Equal(RemoteWindowCommandStatus.Applied, resumed.Status);
+        Assert.Equal([3L], destination.Sequences);
+        Assert.Equal(1, currentOwner.DisposeCount);
+    }
+
+    [Fact]
+    public async Task EmergencyResetRequiresBlockedFrameDeliveryToDrainBeforeRestart()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var destination = new BlockingNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+        Task delivery = RunOnDedicatedThread(
+            () => frameSink.TakeOwnership(sourceUse, frame));
+        Assert.True(destination.FrameEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(controller.EmergencyStop().FullyStopped);
+
+        RemoteWindowCommandResult pendingReset =
+            await controller.ResetAfterLocalConfirmationAsync();
+        RemoteWindowCommandResult prematureStart =
+            await controller.StartAsync(SafeAt(Now));
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, pendingReset.Status);
+        Assert.Equal(
+            "native_frame_delivery_drain_pending",
+            pendingReset.ReasonCode);
+        Assert.Equal(RemoteWindowCommandStatus.InvalidState, prematureStart.Status);
+        destination.ReleaseFrame();
+        await delivery.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, owner.DisposeCount);
+
+        Assert.True((await controller.ResetAfterLocalConfirmationAsync()).Succeeded);
+        Assert.True((await controller.StartAsync(SafeAt(Now))).Succeeded);
+    }
+
+    [Fact]
+    public async Task SourceLossRetriesFailedEmergencyGatesAndCannotBeReset()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary
+        {
+            EmergencyStopResult = LocalBoundaryResult.Failed(
+                "capture_emergency_failed"),
+        };
+        var input = new RecordingNativeInputBoundary
+        {
+            EmergencyStopResult = LocalBoundaryResult.Failed(
+                "input_emergency_failed"),
+        };
+        var sessions = new RecordingSharingSessionBoundary
+        {
+            DisconnectAllResult = LocalBoundaryResult.Failed(
+                "sessions_emergency_failed"),
+        };
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        Assert.False(controller.EmergencyStop().FullyStopped);
+        sessions.DisconnectAllResult =
+            LocalBoundaryResult.Confirmed("sessions_disconnected");
+
+        registration.Dispose();
+        RemoteWindowCommandResult reset =
+            await controller.ResetAfterLocalConfirmationAsync();
+
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(1, input.StopCallCount);
+        Assert.Equal(2, sessions.DisconnectAllCallCount);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, reset.Status);
+        Assert.Equal("native_source_stale", reset.ReasonCode);
+    }
+
+    [Fact]
+    public async Task SourceLossDrainsEmergencyClosedFrameBeforeReturning()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var destination = new BlockingNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+        Task delivery = RunOnDedicatedThread(
+            () => frameSink.TakeOwnership(sourceUse, frame));
+        Assert.True(destination.FrameEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(controller.EmergencyStop().FullyStopped);
+        Task closing = RunOnDedicatedThread(registration.Dispose);
+        await capture.StopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(closing.IsCompleted);
+        destination.ReleaseFrame();
+        await delivery.WaitAsync(TimeSpan.FromSeconds(5));
+        await closing.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, owner.DisposeCount);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task SourceLossAndFrameDestinationDisposeDoNotWaitOnEachOther()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var destination = new CoordinatedCallbackNativeFrameSink();
+        var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        destination.Callback = controller.Dispose;
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+        Task delivery = RunOnDedicatedThread(
+            () => frameSink.TakeOwnership(sourceUse, frame));
+        Assert.True(destination.FrameEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task closing = RunOnDedicatedThread(registration.Dispose);
+        await capture.StopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        destination.InvokeCallback();
+
+        Assert.True(destination.CallbackReturned.Wait(TimeSpan.FromSeconds(5)));
+        await delivery.WaitAsync(TimeSpan.FromSeconds(5));
+        await closing.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, owner.DisposeCount);
+        controller.Dispose();
+    }
+
+    [Fact]
+    public async Task FrameDestinationFailurePublishesUnavailableAndStopsGates()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            input,
+            new ThrowingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+
+        frameSink.TakeOwnership(sourceUse, frame);
+
+        Assert.Equal(1, owner.DisposeCount);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(1, input.StopCallCount);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task FrameDeliveryPolicyClockFailurePublishesUnavailableAndStopsGates()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var clock = new MutableClock(Now);
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            clock,
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        clock.ReadFailure = new InvalidOperationException(
+            "FLOWSPAN_NATIVE_CLOCK_CANARY");
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+
+        frameSink.TakeOwnership(sourceUse, frame);
+
+        Assert.Equal(1, owner.DisposeCount);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(ProtectionKind.Unknown, controller.Snapshot.ProtectionKind);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(1, input.StopCallCount);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task SourceInvalidationClockFailurePublishesUnavailableAndStopsGates()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var clock = new MutableClock(Now);
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            clock,
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        clock.ReadFailure = new InvalidOperationException(
+            "FLOWSPAN_NATIVE_CLOCK_CANARY");
+
+        registration.Dispose();
+
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(ProtectionKind.Unknown, controller.Snapshot.ProtectionKind);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(1, input.StopCallCount);
+        Assert.Equal(1, sessions.DisconnectAllCallCount);
+    }
+
+    [Fact]
+    public async Task FrameDestinationCanSynchronouslyStopThroughTaskRun()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var destination = new CoordinatedCallbackNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        RemoteWindowStopResult? stopped = null;
+        destination.Callback = () => stopped = Task.Run(() =>
+                controller.StopAsync().AsTask().GetAwaiter().GetResult())
+            .GetAwaiter()
+            .GetResult();
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, RecordingMemoryOwner owner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+        destination.InvokeCallback();
+
+        Task delivery = RunOnDedicatedThread(
+            () => frameSink.TakeOwnership(sourceUse, frame));
+
+        await delivery.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(destination.CallbackReturned.IsSet);
+        Assert.NotNull(stopped);
+        Assert.True(stopped.FullyStopped);
+        Assert.Equal(RemoteWindowLifecycle.Ended, stopped.Snapshot.Lifecycle);
+        Assert.Equal(1, owner.DisposeCount);
+    }
+
+    [Fact]
+    public async Task UnavailableRemainsStickyAcrossStopAndEmergencyRetries()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            input,
+            new ThrowingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame frame, _) = CreateNativeFrame(sourceUse, sequence: 1);
+        frameSink.TakeOwnership(sourceUse, frame);
+
+        RemoteWindowStopResult stopped = await controller.StopAsync();
+        RemoteWindowEmergencyStopResult emergencyStopped = controller.EmergencyStop();
+
+        Assert.True(stopped.FullyStopped);
+        Assert.True(emergencyStopped.FullyStopped);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, stopped.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowLifecycle.Unavailable,
+            emergencyStopped.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(2, capture.StopCallCount);
+        Assert.Equal(1, capture.EmergencyStopCallCount);
+        Assert.Equal(2, input.StopCallCount);
+        Assert.Equal(1, input.EmergencyStopCallCount);
+        Assert.Equal(3, sessions.DisconnectAllCallCount);
+        Assert.True((await controller.ResetAfterLocalConfirmationAsync()).Succeeded);
+        Assert.Equal(RemoteWindowLifecycle.Idle, controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task ConcurrentSourceLossAndStopKeepUnavailableSticky()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        capture.BlockStop();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        _ = await controller.StartAsync(SafeAt(Now));
+        Task closing = RunOnDedicatedThread(registration.Dispose);
+        await capture.StopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task<RemoteWindowStopResult> stopping = RunOnDedicatedThread(() =>
+            controller.StopAsync().AsTask().GetAwaiter().GetResult());
+
+        try
+        {
+            Assert.True(SpinWait.SpinUntil(
+                () => capture.StopCallCount >= 2,
+                TimeSpan.FromSeconds(5)));
+            Assert.Equal(
+                RemoteWindowLifecycle.Unavailable,
+                controller.Snapshot.Lifecycle);
+        }
+        finally
+        {
+            capture.ReleaseStop();
+        }
+
+        RemoteWindowStopResult stopped =
+            await stopping.WaitAsync(TimeSpan.FromSeconds(5));
+        await closing.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(stopped.FullyStopped);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, stopped.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+    }
 
     [Fact]
     public async Task FreshSafeCaptureStartsBeforeActiveSharingIsPublished()
@@ -1342,6 +2695,160 @@ public sealed class RemoteWindowSessionControllerTests
     }
 
     [Fact]
+    public async Task ConcurrentAdmittedOperationsCanDisposeOppositeControllers()
+    {
+        using var operationsAdmitted = new Barrier(participantCount: 2);
+        var firstCapture = new RecordingCaptureBoundary();
+        var secondCapture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController first = CreateController(firstCapture);
+        RemoteWindowSessionController second = CreateController(secondCapture);
+        firstCapture.OnStartReturning = () =>
+        {
+            Assert.True(operationsAdmitted.SignalAndWait(TimeSpan.FromSeconds(5)));
+            second.Dispose();
+        };
+        secondCapture.OnStartReturning = () =>
+        {
+            Assert.True(operationsAdmitted.SignalAndWait(TimeSpan.FromSeconds(5)));
+            first.Dispose();
+        };
+
+        Task<RemoteWindowCommandResult> firstOperation =
+            RunOnDedicatedThread(() => first
+                .StartAsync(SafeAt(Now))
+                .AsTask()
+                .GetAwaiter()
+                .GetResult());
+        Task<RemoteWindowCommandResult> secondOperation =
+            RunOnDedicatedThread(() => second
+                .StartAsync(SafeAt(Now))
+                .AsTask()
+                .GetAwaiter()
+                .GetResult());
+
+        _ = await Task
+            .WhenAll(firstOperation, secondOperation)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            first.Snapshot.Lifecycle);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            second.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task EmergencyOperationAndProtectionObserverCanDisposeEachOther()
+    {
+        using var observerEntered = new ManualResetEventSlim(false);
+        using var emergencyBoundaryEntered = new ManualResetEventSlim(false);
+        var callbackFailures = new CallbackFailureRelay();
+        var protectionSource = new InMemoryNativeProtectionSource(
+            ownerGeneration: 1,
+            sessionGeneration: 1,
+            sourceGeneration: 1);
+        var capture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        protectionSource.Changed += _ => callbackFailures.Capture(() =>
+        {
+            observerEntered.Set();
+            if (!emergencyBoundaryEntered.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException(
+                    "The Emergency Stop boundary was not entered.");
+            }
+
+            controller.Dispose();
+        });
+        capture.OnEmergencyStop = () => callbackFailures.Capture(() =>
+        {
+            capture.OnEmergencyStop = null;
+            emergencyBoundaryEntered.Set();
+            protectionSource.Dispose();
+        });
+
+        Task<bool> publishing = RunOnDedicatedThread(() =>
+            protectionSource.TryPublish(SafeAt(Now)));
+        Assert.True(observerEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task<RemoteWindowEmergencyStopResult> stopping =
+            RunOnDedicatedThread(controller.EmergencyStop);
+
+        await Task.WhenAll(publishing, stopping)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        callbackFailures.ThrowIfCaptured();
+
+        Assert.True(await publishing);
+        Assert.True((await stopping).FullyStopped);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task FirstDisposeBoundaryAndProtectionObserverCanDisposeEachOther()
+    {
+        var observerEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposeBoundaryEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposeBoundaryReturned = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var nestedDisposeReturned = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackFailures = new CallbackFailureRelay();
+        var protectionSource = new InMemoryNativeProtectionSource(
+            ownerGeneration: 1,
+            sessionGeneration: 1,
+            sourceGeneration: 1);
+        var capture = new RecordingCaptureBoundary();
+        RemoteWindowSessionController controller = CreateController(capture);
+        _ = await controller.StartAsync(SafeAt(Now));
+        protectionSource.Changed += _ => callbackFailures.Capture(() =>
+        {
+            observerEntered.TrySetResult();
+            if (!disposeBoundaryEntered.Task.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException(
+                    "The first disposal boundary was not entered.");
+            }
+
+            controller.Dispose();
+            nestedDisposeReturned.TrySetResult();
+            disposeBoundaryReturned.Task.GetAwaiter().GetResult();
+        });
+        capture.OnEmergencyStop = () => callbackFailures.Capture(() =>
+        {
+            capture.OnEmergencyStop = null;
+            disposeBoundaryEntered.TrySetResult();
+            try
+            {
+                protectionSource.Dispose();
+            }
+            finally
+            {
+                disposeBoundaryReturned.TrySetResult();
+            }
+        });
+
+        Task<bool> publishing = RunOnDedicatedThread(() =>
+            protectionSource.TryPublish(SafeAt(Now)));
+        await observerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task firstDisposal = RunOnDedicatedThread(controller.Dispose);
+
+        await Task.WhenAll(publishing, firstDisposal)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        callbackFailures.ThrowIfCaptured();
+
+        Assert.True(nestedDisposeReturned.Task.IsCompletedSuccessfully);
+        Assert.True(await publishing);
+        Assert.Equal(
+            RemoteWindowLifecycle.EmergencyStopped,
+            controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
     public async Task DisposeDrainsAdmittedProtectionReconciliation()
     {
         var capture = new RecordingCaptureBoundary();
@@ -2485,7 +3992,7 @@ public sealed class RemoteWindowSessionControllerTests
     }
 
     [Fact]
-    public async Task EmergencyStopDuringFailedStartCleanupRemainsTerminal()
+    public async Task EmergencyStopDuringFailedStartCleanupKeepsUnavailableTerminal()
     {
         var capture = new RecordingCaptureBoundary
         {
@@ -2504,11 +4011,11 @@ public sealed class RemoteWindowSessionControllerTests
         RemoteWindowCommandResult failedStart =
             await controller.StartAsync(SafeAt(Now));
 
-        Assert.Equal(RemoteWindowCommandStatus.EmergencyStopped, failedStart.Status);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, failedStart.Status);
         Assert.Equal("capture_start_failed", failedStart.Boundary?.ReasonCode);
         Assert.True(failedStart.CleanupBoundary?.Succeeded);
         Assert.Equal(
-            RemoteWindowLifecycle.EmergencyStopped,
+            RemoteWindowLifecycle.Unavailable,
             failedStart.Snapshot.Lifecycle);
         Assert.Equal(
             RemoteWindowCaptureState.Stopped,
@@ -2516,6 +4023,8 @@ public sealed class RemoteWindowSessionControllerTests
         Assert.Null(failedStart.Snapshot.CurrentDriverDeviceId);
         Assert.False(capture.IsCapturing);
         Assert.False(input.IsAcceptingInput);
+        Assert.Equal(1, capture.EmergencyStopCallCount);
+        Assert.Equal(1, input.EmergencyStopCallCount);
     }
 
     [Fact]
@@ -2711,11 +4220,99 @@ public sealed class RemoteWindowSessionControllerTests
         observedAt,
         "test-probe");
 
+    private static NativeRemoteWindowSourceMetadata NativeMetadata(
+        NativeRemoteWindowGeometry? geometry = null) =>
+        NativeRemoteWindowSourceMetadata.Create(
+            "Generic window",
+            "Test application",
+            geometry ?? NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2),
+            supportsCapture: true,
+            supportsInput: true,
+            SafeAt(Now));
+
+    private static NativeRemoteWindowSourceLease AcquireNativeLease(
+        NativeRemoteWindowSourceRegistry registry,
+        NativeRemoteWindowSourceSnapshot snapshot)
+    {
+        Assert.True(
+            registry.TryAcquire(
+                snapshot.Token,
+                snapshot.Source.SourceGeneration,
+                out NativeRemoteWindowSourceLease? acquiredLease));
+        return Assert.IsType<NativeRemoteWindowSourceLease>(acquiredLease);
+    }
+
+    private static (NativeRemoteWindowFrame Frame, RecordingMemoryOwner Owner)
+        CreateNativeFrame(NativeRemoteWindowSourceUse sourceUse, long sequence)
+    {
+        var owner = new RecordingMemoryOwner(length: 4);
+        NativeRemoteWindowFrame frame = NativeRemoteWindowFrame.TakeOwnership(
+            owner,
+            payloadLength: 4,
+            width: 1,
+            height: 1,
+            stride: 4,
+            NativeRemoteWindowPixelFormat.Bgra8888,
+            sourceUse.OwnerGeneration,
+            sourceUse.SessionGeneration,
+            sourceUse.SourceGeneration,
+            sourceUse.GeometryRevision,
+            sequence);
+        return (frame, owner);
+    }
+
+    private static Task RunOnDedicatedThread(Action action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private static Task<T> RunOnDedicatedThread<T>(Func<T> action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private sealed class CallbackFailureRelay
+    {
+        private Exception? captured;
+
+        public void Capture(Action callback)
+        {
+            try
+            {
+                callback();
+            }
+            catch (Exception exception)
+            {
+                _ = Interlocked.CompareExchange(
+                    ref captured,
+                    exception,
+                    comparand: null);
+                throw;
+            }
+        }
+
+        public void ThrowIfCaptured()
+        {
+            if (Volatile.Read(ref captured) is { } exception)
+            {
+                throw new AggregateException(
+                    "A swallowed callback exception was captured.",
+                    exception);
+            }
+        }
+    }
+
     private sealed class MutableClock(DateTimeOffset utcNow) : IClock
     {
         private DateTimeOffset utcNow = utcNow;
 
         public Action? OnRead { get; set; }
+
+        public Exception? ReadFailure { get; set; }
 
         public DateTimeOffset UtcNow
         {
@@ -2724,6 +4321,11 @@ public sealed class RemoteWindowSessionControllerTests
                 Action? callback = OnRead;
                 OnRead = null;
                 callback?.Invoke();
+                if (ReadFailure is { } failure)
+                {
+                    throw failure;
+                }
+
                 return utcNow;
             }
 
@@ -2931,6 +4533,295 @@ public sealed class RemoteWindowSessionControllerTests
         }
     }
 
+    private sealed class RecordingNativeCaptureBoundary :
+        INativeRemoteWindowCaptureBoundary
+    {
+        private readonly ManualResetEventSlim pauseEntered = new(false);
+        private int? blockedStopCall;
+        private ManualResetEventSlim? releasePause;
+        private ManualResetEventSlim? releaseStop;
+        private int emergencyStopCallCount;
+        private int stopCallCount;
+
+        public List<INativeRemoteWindowFrameSink> FrameSinks { get; } = [];
+
+        public List<NativeRemoteWindowSourceUse> SourceUses { get; } = [];
+
+        public Action? OnStart { get; init; }
+
+        public Func<RemoteWindowSharingSnapshot>? Snapshot { get; set; }
+
+        public RemoteWindowLifecycle? LifecycleObservedAtStop { get; private set; }
+
+        public TaskCompletionSource StopEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ManualResetEventSlim PauseEntered => pauseEntered;
+
+        public LocalBoundaryResult PauseResult { get; set; } =
+            LocalBoundaryResult.Confirmed("native_capture_paused");
+
+        public LocalBoundaryResult EmergencyStopResult { get; set; } =
+            LocalBoundaryResult.Confirmed("native_capture_emergency_stopped");
+
+        public LocalBoundaryResult StopResult { get; set; } =
+            LocalBoundaryResult.Confirmed("native_capture_stopped");
+
+        public int StopCallCount => Volatile.Read(ref stopCallCount);
+
+        public int EmergencyStopCallCount =>
+            Volatile.Read(ref emergencyStopCallCount);
+
+        public ValueTask<LocalBoundaryResult> StartAsync(
+            NativeRemoteWindowSourceUse sourceUse,
+            INativeRemoteWindowFrameSink frameSink,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SourceUses.Add(sourceUse);
+            FrameSinks.Add(frameSink);
+            OnStart?.Invoke();
+            return ValueTask.FromResult(
+                LocalBoundaryResult.Confirmed("native_capture_started"));
+        }
+
+        public void BlockPause() => releasePause = new ManualResetEventSlim(false);
+
+        public void ReleasePause() => releasePause?.Set();
+
+        public void BlockStop()
+        {
+            blockedStopCall = null;
+            releaseStop = new ManualResetEventSlim(false);
+        }
+
+        public void BlockStopCall(int call)
+        {
+            blockedStopCall = call;
+            releaseStop = new ManualResetEventSlim(false);
+        }
+
+        public void ReleaseStop() => releaseStop?.Set();
+
+        public LocalBoundaryResult PauseNow(MirrorPauseReason reason)
+        {
+            pauseEntered.Set();
+            releasePause?.Wait();
+            return PauseResult;
+        }
+
+        public LocalBoundaryResult ResumeNow() =>
+            LocalBoundaryResult.Confirmed("native_capture_resumed");
+
+        public LocalBoundaryResult EmergencyStopNow()
+        {
+            Interlocked.Increment(ref emergencyStopCallCount);
+            return EmergencyStopResult;
+        }
+
+        public LocalBoundaryResult StopNow()
+        {
+            int currentStopCall = Interlocked.Increment(ref stopCallCount);
+            StopEntered.TrySetResult();
+            if (blockedStopCall is null || blockedStopCall == currentStopCall)
+            {
+                releaseStop?.Wait();
+            }
+
+            LifecycleObservedAtStop = Snapshot?.Invoke().Lifecycle;
+            return StopResult;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class RecordingNativeInputBoundary :
+        INativeRemoteInputBoundary
+    {
+        private readonly ManualResetEventSlim injectionEntered = new(false);
+        private ManualResetEventSlim? releaseInjection;
+        private int emergencyStopCallCount;
+        private int stopCallCount;
+
+        public List<NativeRemoteWindowSourceUse> SourceUses { get; } = [];
+
+        public List<RemoteInputBatch> Batches { get; } = [];
+
+        public ManualResetEventSlim InjectionEntered => injectionEntered;
+
+        public Func<RemoteWindowSharingSnapshot>? Snapshot { get; set; }
+
+        public RemoteWindowLifecycle? LifecycleObservedAtStop { get; private set; }
+
+        public int StopCallCount => Volatile.Read(ref stopCallCount);
+
+        public int EmergencyStopCallCount =>
+            Volatile.Read(ref emergencyStopCallCount);
+
+        public LocalBoundaryResult EmergencyStopResult { get; set; } =
+            LocalBoundaryResult.Confirmed("native_input_emergency_stopped");
+
+        public LocalBoundaryResult StopResult { get; set; } =
+            LocalBoundaryResult.Confirmed("native_input_stopped");
+
+        public ValueTask<LocalBoundaryResult> InjectAsync(
+            NativeRemoteWindowSourceUse sourceUse,
+            RemoteInputBatch batch,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SourceUses.Add(sourceUse);
+            Batches.Add(batch);
+            injectionEntered.Set();
+            releaseInjection?.Wait(cancellationToken);
+            return ValueTask.FromResult(
+                LocalBoundaryResult.Confirmed("native_input_injected"));
+        }
+
+        public void BlockInjection() => releaseInjection =
+            new ManualResetEventSlim(false);
+
+        public void ReleaseInjection() => releaseInjection?.Set();
+
+        public LocalBoundaryResult PauseNow(MirrorPauseReason reason) =>
+            LocalBoundaryResult.Confirmed("native_input_paused");
+
+        public LocalBoundaryResult ResumeNow() =>
+            LocalBoundaryResult.Confirmed("native_input_resumed");
+
+        public LocalBoundaryResult EmergencyStopNow()
+        {
+            Interlocked.Increment(ref emergencyStopCallCount);
+            return EmergencyStopResult;
+        }
+
+        public LocalBoundaryResult StopNow()
+        {
+            Interlocked.Increment(ref stopCallCount);
+            LifecycleObservedAtStop = Snapshot?.Invoke().Lifecycle;
+            return StopResult;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class DisposingNativeFrameSink : INativeRemoteWindowFrameSink
+    {
+        private readonly object gate = new();
+        private readonly List<long> sequences = [];
+
+        public IReadOnlyList<long> Sequences
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return sequences.ToArray();
+                }
+            }
+        }
+
+        public void TakeOwnership(
+            NativeRemoteWindowSourceUse sourceUse,
+            NativeRemoteWindowFrame frame)
+        {
+            ArgumentNullException.ThrowIfNull(sourceUse);
+            ArgumentNullException.ThrowIfNull(frame);
+            lock (gate)
+            {
+                sequences.Add(frame.Sequence);
+            }
+
+            frame.Dispose();
+        }
+    }
+
+    private sealed class BlockingNativeFrameSink :
+        INativeRemoteWindowFrameSink,
+        IDisposable
+    {
+        private readonly ManualResetEventSlim releaseFrame = new(false);
+
+        public ManualResetEventSlim FrameEntered { get; } = new(false);
+
+        public void TakeOwnership(
+            NativeRemoteWindowSourceUse sourceUse,
+            NativeRemoteWindowFrame frame)
+        {
+            ArgumentNullException.ThrowIfNull(sourceUse);
+            ArgumentNullException.ThrowIfNull(frame);
+            FrameEntered.Set();
+            releaseFrame.Wait();
+            frame.Dispose();
+        }
+
+        public void ReleaseFrame() => releaseFrame.Set();
+
+        public void Dispose()
+        {
+            releaseFrame.Set();
+            releaseFrame.Dispose();
+            FrameEntered.Dispose();
+        }
+    }
+
+    private sealed class CoordinatedCallbackNativeFrameSink :
+        INativeRemoteWindowFrameSink,
+        IDisposable
+    {
+        private readonly ManualResetEventSlim invokeCallback = new(false);
+
+        public Action? Callback { get; set; }
+
+        public ManualResetEventSlim CallbackReturned { get; } = new(false);
+
+        public ManualResetEventSlim FrameEntered { get; } = new(false);
+
+        public void TakeOwnership(
+            NativeRemoteWindowSourceUse sourceUse,
+            NativeRemoteWindowFrame frame)
+        {
+            ArgumentNullException.ThrowIfNull(sourceUse);
+            ArgumentNullException.ThrowIfNull(frame);
+            FrameEntered.Set();
+            invokeCallback.Wait();
+            Callback?.Invoke();
+            CallbackReturned.Set();
+            frame.Dispose();
+        }
+
+        public void InvokeCallback() => invokeCallback.Set();
+
+        public void Dispose()
+        {
+            invokeCallback.Set();
+            invokeCallback.Dispose();
+            CallbackReturned.Dispose();
+            FrameEntered.Dispose();
+        }
+    }
+
+    private sealed class ThrowingNativeFrameSink : INativeRemoteWindowFrameSink
+    {
+        public void TakeOwnership(
+            NativeRemoteWindowSourceUse sourceUse,
+            NativeRemoteWindowFrame frame) =>
+            throw new InvalidOperationException(
+                "FLOWSPAN_NATIVE_FRAME_DESTINATION_CANARY");
+    }
+
+    private sealed class RecordingMemoryOwner(int length) : IMemoryOwner<byte>
+    {
+        private readonly byte[] buffer = new byte[length];
+        private int disposeCount;
+
+        public int DisposeCount => Volatile.Read(ref disposeCount);
+
+        public Memory<byte> Memory => buffer;
+
+        public void Dispose() => Interlocked.Increment(ref disposeCount);
+    }
+
     private sealed class ReenteringEmergencyStopCaptureBoundary :
         IRemoteWindowCaptureBoundary
     {
@@ -3003,6 +4894,8 @@ public sealed class RemoteWindowSessionControllerTests
         public LocalBoundaryResult EmergencyStopResult { get; set; } =
             LocalBoundaryResult.Confirmed("input_emergency_stopped");
 
+        public int EmergencyStopCallCount { get; private set; }
+
         public int StopCallCount { get; private set; }
 
         public LocalBoundaryResult StopResult { get; set; } =
@@ -3056,6 +4949,7 @@ public sealed class RemoteWindowSessionControllerTests
 
         public LocalBoundaryResult EmergencyStopNow()
         {
+            EmergencyStopCallCount++;
             OnEmergencyStop?.Invoke();
             IsAcceptingInput = false;
             return EmergencyStopResult;
@@ -3078,6 +4972,8 @@ public sealed class RemoteWindowSessionControllerTests
 
         public RemoteWindowSharingSnapshot? SnapshotObservedAtPeerDisconnect { get; private set; }
 
+        public RemoteWindowSharingSnapshot? SnapshotObservedAtDisconnectAll { get; private set; }
+
         public Action? OnDisconnectAll { get; set; }
 
         public int DisconnectAllCallCount { get; private set; }
@@ -3098,6 +4994,7 @@ public sealed class RemoteWindowSessionControllerTests
         public LocalBoundaryResult DisconnectAllNow()
         {
             DisconnectAllCallCount++;
+            SnapshotObservedAtDisconnectAll = Snapshot?.Invoke();
             LocalBoundaryResult result = DisconnectAllResult;
             OnDisconnectAll?.Invoke();
             return result;

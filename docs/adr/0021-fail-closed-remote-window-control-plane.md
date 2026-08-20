@@ -67,6 +67,22 @@ cleanup for the current stop/session generation can authorize reset. Every
 normal-operation waiter registers before it can queue, rechecks disposal after
 acquiring the gate, and drains before synchronization is disposed.
 
+Drain-sensitive activity ancestry is one process-wide `ExecutionContext` chain,
+with an owner and active token for every controller operation, controller
+fail-close/finalization boundary sequence, frame delivery, protection or
+Emergency callback, source-use scope, and source-invalidation callback. A wait
+point first proves that its target really has work to drain. Controller,
+protection, Emergency, and source-registry drains then defer under active shared
+ancestry. A frame sink defers under active frame-delivery ancestry; the other
+component observes that frame scope and yields in a cross-component cycle, while
+ordinary controller Stop still joins its owned frame delivery. This directed
+rule also breaks same-kind symmetric cycles without weakening a genuine
+top-level external caller, which has no active ancestry and joins fail-close,
+operation drain, and final cleanup. The final target operation completes any
+deferred cleanup. Deactivating every token on scope exit prevents a copied stale
+context from bypassing a later drain. Cross-source display updates return false
+instead of waiting while an active foreign source use could form a cycle.
+
 Reset fails closed with `emergency_stop_in_progress` while any attempt in the
 current stop generation remains. After all attempts finish, a later reset retry
 requires all three accumulated confirmations for that same session generation;

@@ -21,6 +21,9 @@
     fakes without native handles crossing the public boundary.
   - Add invariant, stale-generation, callback-after-stop, disposal, and hostile
     bound tests.
+  - Progress: implementation and local contract gates are complete; exact-commit
+    Windows/macOS/Linux CI, CodeQL, Secret Scan, and package evidence remain
+    required before this task is checked.
   - _Requirements: NR1-NR6, NR8, NR10_
 
 - [ ] 3. Compose Remote Window into the production authenticated control session

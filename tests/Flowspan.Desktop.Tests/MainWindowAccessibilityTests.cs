@@ -2332,7 +2332,7 @@ public sealed class MainWindowAccessibilityTests
         public LocalBoundaryResult ResumeNow() =>
             LocalBoundaryResult.Confirmed("boundary_resumed");
 
-        LocalBoundaryResult IRemoteWindowCaptureBoundary.EmergencyStopNow() =>
+        LocalBoundaryResult IRemoteWindowCaptureGate.EmergencyStopNow() =>
             captureStop;
 
         public LocalBoundaryResult EmergencyStopNow() => inputStop;

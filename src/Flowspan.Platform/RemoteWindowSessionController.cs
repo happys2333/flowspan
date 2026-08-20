@@ -9,12 +9,8 @@ public interface IMirrorAuthorizationSource
     public CapabilityGrant GetCurrentGrant(DeviceId peerDeviceId);
 }
 
-public interface IRemoteWindowCaptureBoundary
+public interface IRemoteWindowCaptureGate
 {
-    public ValueTask<LocalBoundaryResult> StartAsync(
-        ActivityId activityId,
-        CancellationToken cancellationToken);
-
     public LocalBoundaryResult PauseNow(MirrorPauseReason reason);
 
     public LocalBoundaryResult ResumeNow();
@@ -24,12 +20,15 @@ public interface IRemoteWindowCaptureBoundary
     public LocalBoundaryResult StopNow();
 }
 
-public interface IRemoteInputBoundary
+public interface IRemoteWindowCaptureBoundary : IRemoteWindowCaptureGate
 {
-    public ValueTask<LocalBoundaryResult> InjectAsync(
-        RemoteInputBatch batch,
+    public ValueTask<LocalBoundaryResult> StartAsync(
+        ActivityId activityId,
         CancellationToken cancellationToken);
+}
 
+public interface IRemoteInputGate
+{
     public LocalBoundaryResult PauseNow(MirrorPauseReason reason);
 
     public LocalBoundaryResult ResumeNow();
@@ -37,6 +36,13 @@ public interface IRemoteInputBoundary
     public LocalBoundaryResult EmergencyStopNow();
 
     public LocalBoundaryResult StopNow();
+}
+
+public interface IRemoteInputBoundary : IRemoteInputGate
+{
+    public ValueTask<LocalBoundaryResult> InjectAsync(
+        RemoteInputBatch batch,
+        CancellationToken cancellationToken);
 }
 
 public interface ILocalSharingSessionBoundary
@@ -140,7 +146,7 @@ public sealed record RemoteWindowSharingSnapshot
 {
     internal RemoteWindowSharingSnapshot(
         ActivityId activityId,
-        ActivityKind activityKind,
+        ActivityKind? activityKind,
         string activityTitle,
         DeviceId hostDeviceId,
         RemoteWindowLifecycle lifecycle,
@@ -168,7 +174,7 @@ public sealed record RemoteWindowSharingSnapshot
 
     public ActivityId ActivityId { get; }
 
-    public ActivityKind ActivityKind { get; }
+    public ActivityKind? ActivityKind { get; }
 
     public string ActivityTitle { get; }
 
@@ -193,8 +199,11 @@ public sealed record RemoteWindowSharingSnapshot
     public bool IsSharing => Lifecycle is RemoteWindowLifecycle.Active
         or RemoteWindowLifecycle.ProtectionPaused;
 
-    public override string ToString() =>
-        $"Remote Window {ActivityId} ({ActivityKind}, {Lifecycle}, {CaptureState}, driver {CurrentDriverDeviceId}, epoch {DriverLeaseEpoch}, revision {Revision})";
+    public override string ToString()
+    {
+        string sourceKind = ActivityKind?.Value ?? "generic";
+        return $"Remote Window {ActivityId} ({sourceKind}, {Lifecycle}, {CaptureState}, driver {CurrentDriverDeviceId}, epoch {DriverLeaseEpoch}, revision {Revision})";
+    }
 }
 
 public sealed record RemoteWindowCommandResult
@@ -560,14 +569,15 @@ public sealed class RemoteWindowSessionController : IDisposable
 
     private const int MaximumProtectionConvergenceAttempts = 8;
 
-    private readonly ActivityInstance activity;
     private readonly IMirrorAuthorizationSource authorization;
-    private readonly IRemoteWindowCaptureBoundary capture;
+    private readonly IRemoteWindowCaptureGate capture;
     private readonly IClock clock;
+    private readonly object disposalActivityToken = new();
+    private readonly AsyncLocal<DisposalCallScope?> disposalCallScope = new();
     private readonly AsyncLocal<EmergencyStopCallScope?> emergencyStopCallScope = new();
     private readonly EmergencyStopLatch emergencyStop = new();
     private readonly DeviceId hostDeviceId;
-    private readonly AsyncLocal<LifetimeOperationScope?> lifetimeOperationScope = new();
+    private readonly object lifetimeActivityToken = new();
     private readonly SemaphoreSlim normalOperationGate = new(1, 1);
     private readonly object operationLifetimeLock = new();
     private readonly Dictionary<long, int> emergencyStopAttemptsByGeneration = [];
@@ -575,15 +585,26 @@ public sealed class RemoteWindowSessionController : IDisposable
     private readonly HashSet<int> protectionBoundaryThreads = [];
     private readonly object stateLock = new();
     private readonly TimeSpan ownerLeaseDuration;
-    private readonly IRemoteInputBoundary input;
+    private readonly IRemoteInputGate input;
+    private readonly INativeRemoteWindowCaptureBoundary? nativeCapture;
+    private readonly INativeRemoteWindowFrameSink? nativeFrameSink;
+    private readonly INativeRemoteInputBoundary? nativeInput;
+    private readonly long nativeOwnerGeneration;
+    private readonly NativeRemoteWindowSourceInvalidationRegistration?
+        nativeSourceInvalidationRegistration;
+    private readonly NativeRemoteWindowSourceLease? nativeSourceLease;
     private readonly RemoteInputPolicy remoteInputPolicy;
     private readonly ILocalSharingSessionBoundary sessions;
+    private readonly IRemoteWindowCaptureBoundary? semanticCapture;
+    private readonly IRemoteInputBoundary? semanticInput;
+    private readonly RemoteWindowSourceReference source;
 
     private RemoteWindowCaptureState captureState = RemoteWindowCaptureState.Stopped;
     private bool captureAdmissionConfirmed;
     private bool captureAdmissionInFlight;
     private long captureAdmissionSessionGeneration;
     private bool captureEmergencyConfirmed;
+    private bool disposalFailCloseCompleted;
     private int disposed;
     private long emergencyConfirmationGeneration;
     private long emergencyStopGeneration;
@@ -591,10 +612,14 @@ public sealed class RemoteWindowSessionController : IDisposable
     private bool inputEmergencyConfirmed;
     private RemoteWindowLifecycle lifecycle = RemoteWindowLifecycle.Idle;
     private MirrorSession? mirrorSession;
+    private BoundedNativeRemoteWindowFrameSink? nativeBoundFrameSink;
+    private bool nativeSourceInvalidated;
     private ProtectionSnapshot protection;
     private long protectionRevision;
     private long revision;
-    private int lifetimeFinalized;
+    private int lifetimeDrainWaiters;
+    private int lifetimeFinalizationState;
+    private int lifetimeFinalizationWaiters;
     private int registeredOperations;
     private long sessionGeneration;
     private bool sessionEmergencyConfirmed;
@@ -608,12 +633,70 @@ public sealed class RemoteWindowSessionController : IDisposable
         IRemoteWindowCaptureBoundary capture,
         IRemoteInputBoundary input,
         ILocalSharingSessionBoundary sessions,
-        TimeSpan ownerLeaseDuration)
+        TimeSpan ownerLeaseDuration) : this(
+            CreateSemanticSource(hostDeviceId, activity),
+            clock,
+            authorization,
+            capture,
+            input,
+            sessions,
+            ownerLeaseDuration,
+            capture,
+            input,
+            nativeCapture: null,
+            nativeInput: null,
+            nativeSourceLease: null,
+            nativeOwnerGeneration: 0,
+            nativeFrameSink: null)
     {
-        this.hostDeviceId = hostDeviceId
-            ?? throw new ArgumentNullException(nameof(hostDeviceId));
-        this.activity = activity
-            ?? throw new ArgumentNullException(nameof(activity));
+    }
+
+    public RemoteWindowSessionController(
+        NativeRemoteWindowSourceLease sourceLease,
+        long ownerGeneration,
+        IClock clock,
+        IMirrorAuthorizationSource authorization,
+        INativeRemoteWindowCaptureBoundary capture,
+        INativeRemoteInputBoundary input,
+        INativeRemoteWindowFrameSink frameSink,
+        ILocalSharingSessionBoundary sessions,
+        TimeSpan ownerLeaseDuration) : this(
+            GetCurrentNativeSource(sourceLease),
+            clock,
+            authorization,
+            capture,
+            input,
+            sessions,
+            ownerLeaseDuration,
+            semanticCapture: null,
+            semanticInput: null,
+            capture,
+            input,
+            sourceLease,
+            ownerGeneration,
+            frameSink)
+    {
+    }
+
+    private RemoteWindowSessionController(
+        RemoteWindowSourceReference source,
+        IClock clock,
+        IMirrorAuthorizationSource authorization,
+        IRemoteWindowCaptureGate capture,
+        IRemoteInputGate input,
+        ILocalSharingSessionBoundary sessions,
+        TimeSpan ownerLeaseDuration,
+        IRemoteWindowCaptureBoundary? semanticCapture,
+        IRemoteInputBoundary? semanticInput,
+        INativeRemoteWindowCaptureBoundary? nativeCapture,
+        INativeRemoteInputBoundary? nativeInput,
+        NativeRemoteWindowSourceLease? nativeSourceLease,
+        long nativeOwnerGeneration,
+        INativeRemoteWindowFrameSink? nativeFrameSink)
+    {
+        this.source = source
+            ?? throw new ArgumentNullException(nameof(source));
+        hostDeviceId = source.HostDeviceId;
         this.clock = clock
             ?? throw new ArgumentNullException(nameof(clock));
         this.authorization = authorization
@@ -622,18 +705,46 @@ public sealed class RemoteWindowSessionController : IDisposable
             ?? throw new ArgumentNullException(nameof(capture));
         this.input = input
             ?? throw new ArgumentNullException(nameof(input));
+        this.semanticCapture = semanticCapture;
+        this.semanticInput = semanticInput;
+        this.nativeCapture = nativeCapture;
+        this.nativeInput = nativeInput;
+        this.nativeOwnerGeneration = nativeOwnerGeneration;
+        this.nativeFrameSink = nativeFrameSink;
         this.sessions = sessions
             ?? throw new ArgumentNullException(nameof(sessions));
-        if (activity.Placement.DeviceId != hostDeviceId
-            || activity.Lifecycle != ActivityLifecycle.Active)
+        bool semanticPath = semanticCapture is not null && semanticInput is not null;
+        bool nativePath = nativeCapture is not null
+            && nativeInput is not null
+            && nativeSourceLease is not null
+            && nativeFrameSink is not null;
+        if (semanticPath == nativePath)
         {
             throw new ArgumentException(
-                "A Remote Window controller requires an active Activity on its host Device.",
-                nameof(activity));
+                "A Remote Window controller requires exactly one complete semantic or native boundary path.");
+        }
+
+        if (nativePath)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(nativeOwnerGeneration, 1);
+            if (!nativeSourceLease!.TryRetain(
+                    out NativeRemoteWindowSourceLease? retainedSourceLease)
+                || retainedSourceLease is null)
+            {
+                throw new ArgumentException(
+                    "A native Remote Window controller requires a current source lease.",
+                    nameof(nativeSourceLease));
+            }
+
+            this.nativeSourceLease = retainedSourceLease;
+        }
+        else
+        {
+            this.nativeSourceLease = null;
         }
 
         _ = DriverLease.IssueToOwner(
-            activity.Descriptor.Id,
+            source.ActivityId,
             hostDeviceId,
             clock.UtcNow,
             ownerLeaseDuration);
@@ -643,6 +754,17 @@ public sealed class RemoteWindowSessionController : IDisposable
             ProtectionKind.Unknown,
             clock.UtcNow,
             "not_observed");
+        if (this.nativeSourceLease is not null
+            && (!this.nativeSourceLease.TryRegisterInvalidationCallback(
+                    OnNativeSourceInvalidated,
+                    out nativeSourceInvalidationRegistration)
+                || nativeSourceInvalidationRegistration is null))
+        {
+            this.nativeSourceLease.Dispose();
+            throw new ArgumentException(
+                "A native Remote Window controller requires a current source lease.",
+                nameof(nativeSourceLease));
+        }
     }
 
     public RemoteWindowSharingSnapshot Snapshot
@@ -652,6 +774,32 @@ public sealed class RemoteWindowSessionController : IDisposable
             lock (stateLock)
             {
                 return CreateSnapshot();
+            }
+        }
+    }
+
+    internal int LifetimeDrainWaiterCount
+    {
+        get
+        {
+            lock (operationLifetimeLock)
+            {
+                return lifetimeDrainWaiters;
+            }
+        }
+    }
+
+    internal bool LifetimeFinalizationCompleted =>
+        Volatile.Read(ref lifetimeFinalizationState)
+            == (int)LifetimeFinalizationState.Completed;
+
+    internal int LifetimeFinalizationWaiterCount
+    {
+        get
+        {
+            lock (operationLifetimeLock)
+            {
+                return lifetimeFinalizationWaiters;
             }
         }
     }
@@ -679,11 +827,36 @@ public sealed class RemoteWindowSessionController : IDisposable
                 }
             }
 
+            if (nativeSourceLease is not null
+                && !nativeSourceLease.TryGetCurrentSnapshot(out _))
+            {
+                LocalBoundaryResult staleSource =
+                    LocalBoundaryResult.Failed("native_source_stale");
+                lock (stateLock)
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        staleSource.ReasonCode,
+                        staleSource);
+                }
+            }
+
             long admittedSessionGeneration;
             lock (stateLock)
             {
                 if (lifecycle != RemoteWindowLifecycle.Idle)
                 {
+                    if (nativeSourceLease is not null
+                        && !nativeSourceLease.IsCurrent)
+                    {
+                        LocalBoundaryResult staleSource =
+                            LocalBoundaryResult.Failed("native_source_stale");
+                        return Result(
+                            RemoteWindowCommandStatus.BoundaryFailed,
+                            staleSource.ReasonCode,
+                            staleSource);
+                    }
+
                     return Result(
                         RemoteWindowCommandStatus.InvalidState,
                         "session_not_idle");
@@ -699,7 +872,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                 captureAdmissionSessionGeneration = admittedSessionGeneration;
                 pendingPeerDisconnects.Clear();
                 mirrorSession = MirrorSession.Start(
-                    activity.Descriptor.Id,
+                    source.ActivityId,
                     hostDeviceId,
                     now,
                     ownerLeaseDuration);
@@ -709,34 +882,59 @@ public sealed class RemoteWindowSessionController : IDisposable
             }
 
             LocalBoundaryResult boundary;
+            NativeRemoteWindowSourceUse? sourceUse = null;
             bool admissionConfirmed = false;
-            try
+            if (nativeSourceLease is not null
+                && !TryCreateNativeSourceUse(
+                    admittedSessionGeneration,
+                    out sourceUse))
+            {
+                boundary = LocalBoundaryResult.Failed("native_source_stale");
+                CompleteCaptureAdmission(
+                    admittedSessionGeneration,
+                    admissionConfirmed: false);
+            }
+            else
             {
                 try
                 {
-                    boundary = await capture
-                        .StartAsync(activity.Descriptor.Id, cancellationToken)
-                        .ConfigureAwait(false);
-                    admissionConfirmed = boundary.Succeeded;
-                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        boundary = await StartCaptureAsync(
+                                sourceUse,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        admissionConfirmed = boundary.Succeeded;
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+                    finally
+                    {
+                        CompleteCaptureAdmission(
+                            admittedSessionGeneration,
+                            admissionConfirmed);
+                    }
                 }
-                finally
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    CompleteCaptureAdmission(
-                        admittedSessionGeneration,
-                        admissionConfirmed);
+                    _ = CleanupFailedStart(
+                        RemoteWindowLifecycle.Ended,
+                        admittedSessionGeneration);
+                    throw;
+                }
+                catch (Exception)
+                {
+                    boundary = LocalBoundaryResult.Failed("local_boundary_exception");
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+
+            if (boundary.Succeeded
+                && sourceUse is not null
+                && !IsNativeSourceUseCurrent(
+                    sourceUse,
+                    requireGeometryRevision: true,
+                    out string staleReasonCode))
             {
-                _ = CleanupFailedStart(
-                    RemoteWindowLifecycle.Ended,
-                    admittedSessionGeneration);
-                throw;
-            }
-            catch (Exception)
-            {
-                boundary = LocalBoundaryResult.Failed("local_boundary_exception");
+                boundary = LocalBoundaryResult.Failed(staleReasonCode);
             }
 
             bool stoppedDuringStart;
@@ -748,6 +946,7 @@ public sealed class RemoteWindowSessionController : IDisposable
 
             if (stoppedDuringStart)
             {
+                CloseNativeFrameSinkNow();
                 LocalBoundaryResult lateStop =
                     CallBoundary(capture.EmergencyStopNow);
                 lock (stateLock)
@@ -771,10 +970,23 @@ public sealed class RemoteWindowSessionController : IDisposable
 
             if (!boundary.Succeeded)
             {
-                LocalBoundaryResult cleanupBoundary =
-                    CleanupFailedStart(
-                        RemoteWindowLifecycle.Unavailable,
-                        admittedSessionGeneration);
+                LocalBoundaryResult? cleanupBoundary = null;
+                lock (stateLock)
+                {
+                    if (nativeSourceLease is not null
+                        && !nativeSourceLease.IsCurrent
+                        && sessionGeneration == admittedSessionGeneration
+                        && lifecycle == RemoteWindowLifecycle.Unavailable
+                        && terminalStopConfirmed)
+                    {
+                        cleanupBoundary = LocalBoundaryResult.Confirmed(
+                            "native_source_invalidated_stopped");
+                    }
+                }
+
+                cleanupBoundary ??= CleanupFailedStart(
+                    RemoteWindowLifecycle.Unavailable,
+                    admittedSessionGeneration);
                 lock (stateLock)
                 {
                     if (lifecycle == RemoteWindowLifecycle.EmergencyStopped)
@@ -1053,6 +1265,7 @@ public sealed class RemoteWindowSessionController : IDisposable
             }
 
             DateTimeOffset authorizationNow = clock.UtcNow;
+            long inputSessionGeneration;
             lock (stateLock)
             {
                 if (!authorized)
@@ -1081,22 +1294,45 @@ public sealed class RemoteWindowSessionController : IDisposable
                 {
                     return new RemoteInputAttemptResult(decision, CreateSnapshot());
                 }
+
+                inputSessionGeneration = sessionGeneration;
             }
 
             LocalBoundaryResult boundary;
-            try
+            NativeRemoteWindowSourceUse? sourceUse = null;
+            if (nativeSourceLease is not null
+                && !TryCreateNativeSourceUse(inputSessionGeneration, out sourceUse))
             {
-                boundary = await input
-                    .InjectAsync(batch, cancellationToken)
-                    .ConfigureAwait(false);
+                boundary = LocalBoundaryResult.Failed("native_source_stale");
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            else
             {
-                throw;
+                try
+                {
+                    boundary = await InjectInputBoundaryAsync(
+                            sourceUse,
+                            batch,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    boundary = LocalBoundaryResult.Failed("local_boundary_exception");
+                }
             }
-            catch (Exception)
+
+            if (boundary.Succeeded
+                && sourceUse is not null
+                && !IsNativeSourceUseCurrent(
+                    sourceUse,
+                    requireGeometryRevision: true,
+                    out string staleReasonCode))
             {
-                boundary = LocalBoundaryResult.Failed("local_boundary_exception");
+                boundary = LocalBoundaryResult.Failed(staleReasonCode);
             }
 
             DateTimeOffset postBoundaryNow = clock.UtcNow;
@@ -1868,9 +2104,11 @@ public sealed class RemoteWindowSessionController : IDisposable
                 expectedSessionGeneration);
         }
 
+        CloseNativeFrameSinkNow();
         LocalBoundaryResult captureStop = CallBoundary(capture.StopNow);
         LocalBoundaryResult inputStop = CallBoundary(input.StopNow);
         LocalBoundaryResult sessionStop = CallBoundary(sessions.DisconnectAllNow);
+        DisposeNativeFrameSink();
         lock (stateLock)
         {
             _ = protectionBoundaryThreads.Remove(
@@ -2024,13 +2262,28 @@ public sealed class RemoteWindowSessionController : IDisposable
 
     private RemoteWindowEmergencyStopResult EmergencyStopCore()
     {
-        DateTimeOffset now = clock.UtcNow;
+        DateTimeOffset now = ReadClockOrFailCloseTimestamp();
         long attemptSessionGeneration;
         long attemptStopGeneration;
+        bool attemptingUnavailable;
         lock (stateLock)
         {
             emergencyStop.Activate();
-            if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
+            attemptingUnavailable = lifecycle == RemoteWindowLifecycle.Unavailable;
+            if (attemptingUnavailable)
+            {
+                if (emergencyStopAttemptsByGeneration.GetValueOrDefault(
+                        emergencyStopGeneration) == 0)
+                {
+                    emergencyStopGeneration = checked(emergencyStopGeneration + 1);
+                    emergencyStopSessionGeneration = sessionGeneration;
+                    emergencyConfirmationGeneration = emergencyStopGeneration;
+                    captureEmergencyConfirmed = false;
+                    inputEmergencyConfirmed = false;
+                    sessionEmergencyConfirmed = false;
+                }
+            }
+            else if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
             {
                 emergencyStopGeneration = checked(emergencyStopGeneration + 1);
                 emergencyStopSessionGeneration = sessionGeneration;
@@ -2049,13 +2302,14 @@ public sealed class RemoteWindowSessionController : IDisposable
                 revision = checked(revision + 1);
             }
 
-            attemptSessionGeneration = emergencyStopSessionGeneration;
+            attemptSessionGeneration = sessionGeneration;
             attemptStopGeneration = emergencyStopGeneration;
             emergencyStopAttemptsByGeneration[attemptStopGeneration] =
                 emergencyStopAttemptsByGeneration.GetValueOrDefault(
                     attemptStopGeneration) + 1;
         }
 
+        CloseNativeFrameSinkNow();
         LocalBoundaryResult captureBoundary =
             CallBoundary(capture.EmergencyStopNow);
         LocalBoundaryResult inputBoundary =
@@ -2109,6 +2363,41 @@ public sealed class RemoteWindowSessionController : IDisposable
                     : RemoteWindowCaptureState.Unconfirmed;
                 revision = checked(revision + 1);
             }
+            else if (attemptingUnavailable
+                && lifecycle == RemoteWindowLifecycle.Unavailable
+                && sessionGeneration == attemptSessionGeneration
+                && emergencyStopSessionGeneration == attemptSessionGeneration
+                && emergencyStopGeneration == attemptStopGeneration
+                && emergencyConfirmationGeneration == attemptStopGeneration)
+            {
+                captureEmergencyConfirmed |= captureBoundary.Succeeded;
+                inputEmergencyConfirmed |= inputBoundary.Succeeded;
+                sessionEmergencyConfirmed |= sessionBoundary.Succeeded;
+                resultCaptureBoundary = ProjectEmergencyConfirmation(
+                    captureBoundary,
+                    captureEmergencyConfirmed,
+                    "capture_emergency_already_confirmed");
+                resultInputBoundary = ProjectEmergencyConfirmation(
+                    inputBoundary,
+                    inputEmergencyConfirmed,
+                    "input_emergency_already_confirmed");
+                resultSessionBoundary = ProjectEmergencyConfirmation(
+                    sessionBoundary,
+                    sessionEmergencyConfirmed,
+                    "sessions_emergency_already_confirmed");
+                terminalStopConfirmed = captureEmergencyConfirmed
+                    && inputEmergencyConfirmed
+                    && sessionEmergencyConfirmed;
+                captureState = captureEmergencyConfirmed
+                    ? RemoteWindowCaptureState.Stopped
+                    : RemoteWindowCaptureState.Unconfirmed;
+                if (terminalStopConfirmed)
+                {
+                    mirrorSession = null;
+                }
+
+                revision = checked(revision + 1);
+            }
 
             return new RemoteWindowEmergencyStopResult(
                 CreateSnapshot(),
@@ -2126,9 +2415,19 @@ public sealed class RemoteWindowSessionController : IDisposable
         await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            DateTimeOffset now = clock.UtcNow;
+            bool resettingUnavailable;
+            long expectedEmergencyStopGeneration;
+            long expectedSessionGeneration;
             lock (stateLock)
             {
+                if (nativeSourceLease is not null
+                    && (nativeSourceInvalidated || !nativeSourceLease.IsCurrent))
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        "native_source_stale");
+                }
+
                 if ((lifecycle is RemoteWindowLifecycle.Unavailable
                     or RemoteWindowLifecycle.EmergencyStopped)
                     && protectionBoundaryThreads.Count > 0)
@@ -2140,6 +2439,14 @@ public sealed class RemoteWindowSessionController : IDisposable
 
                 if (lifecycle == RemoteWindowLifecycle.Unavailable)
                 {
+                    if (emergencyStopAttemptsByGeneration.GetValueOrDefault(
+                            emergencyStopGeneration) > 0)
+                    {
+                        return Result(
+                            RemoteWindowCommandStatus.BoundaryFailed,
+                            "emergency_stop_in_progress");
+                    }
+
                     if (captureState != RemoteWindowCaptureState.Stopped
                         || mirrorSession?.Participants.Count > 0
                         || mirrorSession?.DriverLease.HolderDeviceId is not null)
@@ -2149,40 +2456,22 @@ public sealed class RemoteWindowSessionController : IDisposable
                             "unavailable_stop_unconfirmed");
                     }
 
-                    mirrorSession = null;
-                    lifecycle = RemoteWindowLifecycle.Idle;
-                    captureState = RemoteWindowCaptureState.Stopped;
-                    protection = new ProtectionSnapshot(
-                        ProtectionKind.Unknown,
-                        now,
-                        "not_observed");
-                    captureEmergencyConfirmed = false;
-                    inputEmergencyConfirmed = false;
-                    sessionEmergencyConfirmed = false;
-                    terminalStopConfirmed = true;
-                    protectionRevision = checked(protectionRevision + 1);
-                    revision = checked(revision + 1);
-                    return Result(
-                        RemoteWindowCommandStatus.Applied,
-                        "unavailable_reset_locally");
+                    resettingUnavailable = true;
                 }
-
-                if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
+                else if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
                 {
                     return Result(
                         RemoteWindowCommandStatus.InvalidState,
                         "session_not_emergency_stopped");
                 }
-
-                if (emergencyStopAttemptsByGeneration.GetValueOrDefault(
-                        emergencyStopGeneration) > 0)
+                else if (emergencyStopAttemptsByGeneration.GetValueOrDefault(
+                             emergencyStopGeneration) > 0)
                 {
                     return Result(
                         RemoteWindowCommandStatus.BoundaryFailed,
                         "emergency_stop_in_progress");
                 }
-
-                if (emergencyConfirmationGeneration != emergencyStopGeneration
+                else if (emergencyConfirmationGeneration != emergencyStopGeneration
                     || emergencyStopSessionGeneration != sessionGeneration
                     || !captureEmergencyConfirmed
                     || !inputEmergencyConfirmed
@@ -2193,7 +2482,73 @@ public sealed class RemoteWindowSessionController : IDisposable
                         "emergency_boundaries_unconfirmed");
                 }
 
-                emergencyStop.ResetAfterLocalConfirmation();
+                resettingUnavailable = lifecycle ==
+                    RemoteWindowLifecycle.Unavailable;
+                expectedSessionGeneration = sessionGeneration;
+                expectedEmergencyStopGeneration = emergencyStopGeneration;
+            }
+
+            if (!TryDisposeNativeFrameSinkWithoutWaiting())
+            {
+                lock (stateLock)
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        "native_frame_delivery_drain_pending");
+                }
+            }
+
+            DateTimeOffset now = ReadClockOrFailCloseTimestamp();
+            lock (stateLock)
+            {
+                if (nativeSourceLease is not null
+                    && (nativeSourceInvalidated || !nativeSourceLease.IsCurrent))
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        "native_source_stale");
+                }
+
+                if (sessionGeneration != expectedSessionGeneration
+                    || protectionBoundaryThreads.Count > 0)
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        "reset_state_changed");
+                }
+
+                if (resettingUnavailable)
+                {
+                    if (lifecycle != RemoteWindowLifecycle.Unavailable
+                        || captureState != RemoteWindowCaptureState.Stopped
+                        || mirrorSession?.Participants.Count > 0
+                        || mirrorSession?.DriverLease.HolderDeviceId is not null)
+                    {
+                        return Result(
+                            RemoteWindowCommandStatus.BoundaryFailed,
+                            "unavailable_stop_unconfirmed");
+                    }
+                }
+                else if (lifecycle != RemoteWindowLifecycle.EmergencyStopped
+                    || emergencyStopGeneration != expectedEmergencyStopGeneration
+                    || emergencyStopAttemptsByGeneration.GetValueOrDefault(
+                        emergencyStopGeneration) > 0
+                    || emergencyConfirmationGeneration != emergencyStopGeneration
+                    || emergencyStopSessionGeneration != sessionGeneration
+                    || !captureEmergencyConfirmed
+                    || !inputEmergencyConfirmed
+                    || !sessionEmergencyConfirmed)
+                {
+                    return Result(
+                        RemoteWindowCommandStatus.BoundaryFailed,
+                        "emergency_boundaries_unconfirmed");
+                }
+
+                if (emergencyStop.IsActive)
+                {
+                    emergencyStop.ResetAfterLocalConfirmation();
+                }
+
                 mirrorSession = null;
                 lifecycle = RemoteWindowLifecycle.Idle;
                 captureState = RemoteWindowCaptureState.Stopped;
@@ -2209,7 +2564,9 @@ public sealed class RemoteWindowSessionController : IDisposable
                 revision = checked(revision + 1);
                 return Result(
                     RemoteWindowCommandStatus.Applied,
-                    "emergency_stop_reset_locally");
+                    resettingUnavailable
+                        ? "unavailable_reset_locally"
+                        : "emergency_stop_reset_locally");
             }
         }
         finally
@@ -2226,14 +2583,20 @@ public sealed class RemoteWindowSessionController : IDisposable
         await AcquireNormalOperationAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            DateTimeOffset now = clock.UtcNow;
+            DateTimeOffset now = ReadClockOrFailCloseTimestamp();
             bool wasAlreadyStopped;
             lock (stateLock)
             {
                 wasAlreadyStopped = lifecycle is RemoteWindowLifecycle.Idle
                     or RemoteWindowLifecycle.Ended
                     or RemoteWindowLifecycle.Unavailable;
-                if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
+                if (lifecycle == RemoteWindowLifecycle.Unavailable)
+                {
+                    captureState = RemoteWindowCaptureState.Unconfirmed;
+                    terminalStopConfirmed = false;
+                    revision = checked(revision + 1);
+                }
+                else if (lifecycle != RemoteWindowLifecycle.EmergencyStopped)
                 {
                     if (mirrorSession?.Status == MirrorSessionStatus.Active)
                     {
@@ -2247,12 +2610,14 @@ public sealed class RemoteWindowSessionController : IDisposable
                 }
             }
 
+            CloseNativeFrameSinkNow();
             LocalBoundaryResult captureBoundary =
                 CallBoundary(capture.StopNow);
             LocalBoundaryResult inputBoundary =
                 CallBoundary(input.StopNow);
             LocalBoundaryResult sessionBoundary =
                 CallBoundary(sessions.DisconnectAllNow);
+            DisposeNativeFrameSink();
 
             lock (stateLock)
             {
@@ -2271,6 +2636,12 @@ public sealed class RemoteWindowSessionController : IDisposable
                 terminalStopConfirmed = captureBoundary.Succeeded
                     && inputBoundary.Succeeded
                     && sessionBoundary.Succeeded;
+                if (lifecycle == RemoteWindowLifecycle.Unavailable
+                    && terminalStopConfirmed)
+                {
+                    mirrorSession = null;
+                }
+
                 return new RemoteWindowStopResult(
                     status,
                     CreateSnapshot(),
@@ -2291,25 +2662,76 @@ public sealed class RemoteWindowSessionController : IDisposable
         bool startedDisposal = Interlocked.Exchange(ref disposed, 1) == 0;
         if (startedDisposal)
         {
-            FailCloseForDisposal();
+            RunInitialFailCloseForDisposal();
         }
 
-        if (lifetimeOperationScope.Value is
-            { IsActive: true, Owner: var owner }
-            && ReferenceEquals(owner, this))
+        if (IsInLifetimeOperationAncestry()
+            || IsInDisposalCallAncestry())
         {
             return;
         }
 
-        lock (operationLifetimeLock)
+        if (!WaitForLifetimeDrain())
         {
-            while (registeredOperations > 0)
-            {
-                Monitor.Wait(operationLifetimeLock);
-            }
+            return;
         }
 
         FinalizeLifetime();
+    }
+
+    private void RunInitialFailCloseForDisposal()
+    {
+        DisposalCallScope? inheritedScope = disposalCallScope.Value;
+        var currentScope = new DisposalCallScope(this);
+        disposalCallScope.Value = currentScope;
+        using NativeRemoteWindowDrainActivityScope activityScope =
+            NativeRemoteWindowDrainActivityScope.Enter(
+                this,
+                disposalActivityToken);
+        try
+        {
+            FailCloseForDisposal();
+        }
+        finally
+        {
+            currentScope.Deactivate();
+            disposalCallScope.Value = inheritedScope;
+            lock (operationLifetimeLock)
+            {
+                disposalFailCloseCompleted = true;
+                Monitor.PulseAll(operationLifetimeLock);
+            }
+        }
+    }
+
+    private bool WaitForLifetimeDrain()
+    {
+        lock (operationLifetimeLock)
+        {
+            if (!disposalFailCloseCompleted || registeredOperations > 0)
+            {
+                if (NativeRemoteWindowDrainActivityScope.HasActiveAncestry())
+                {
+                    return false;
+                }
+
+                lifetimeDrainWaiters++;
+                try
+                {
+                    while (!disposalFailCloseCompleted
+                        || registeredOperations > 0)
+                    {
+                        Monitor.Wait(operationLifetimeLock);
+                    }
+                }
+                finally
+                {
+                    lifetimeDrainWaiters--;
+                }
+            }
+
+            return true;
+        }
     }
 
     private void FailCloseForDisposal()
@@ -2362,6 +2784,7 @@ public sealed class RemoteWindowSessionController : IDisposable
             }
         }
 
+        CloseNativeFrameSinkNow();
         LocalBoundaryResult captureBoundary = CallBoundary(capture.StopNow);
         LocalBoundaryResult inputBoundary = CallBoundary(input.StopNow);
         LocalBoundaryResult sessionBoundary =
@@ -2392,13 +2815,215 @@ public sealed class RemoteWindowSessionController : IDisposable
 
     private void FinalizeLifetime()
     {
-        if (Interlocked.CompareExchange(ref lifetimeFinalized, 1, 0) != 0)
+        bool ownsFinalization;
+        lock (operationLifetimeLock)
+        {
+            while (lifetimeFinalizationState
+                == (int)LifetimeFinalizationState.InProgress)
+            {
+                if (IsInDisposalCallAncestry()
+                    || NativeRemoteWindowDrainActivityScope.HasActiveAncestry())
+                {
+                    return;
+                }
+
+                lifetimeFinalizationWaiters++;
+                try
+                {
+                    while (lifetimeFinalizationState
+                        == (int)LifetimeFinalizationState.InProgress)
+                    {
+                        Monitor.Wait(operationLifetimeLock);
+                    }
+                }
+                finally
+                {
+                    lifetimeFinalizationWaiters--;
+                }
+            }
+
+            if (lifetimeFinalizationState
+                == (int)LifetimeFinalizationState.Completed)
+            {
+                return;
+            }
+
+            ownsFinalization = TryClaimLifetimeFinalizationUnderLock();
+        }
+
+        if (!ownsFinalization)
         {
             return;
         }
 
-        FailCloseForDisposal();
-        normalOperationGate.Dispose();
+        RunLifetimeFinalization();
+    }
+
+    private bool TryClaimLifetimeFinalizationUnderLock()
+    {
+        if (lifetimeFinalizationState
+                != (int)LifetimeFinalizationState.NotStarted
+            || Volatile.Read(ref disposed) == 0
+            || !disposalFailCloseCompleted
+            || registeredOperations > 0)
+        {
+            return false;
+        }
+
+        lifetimeFinalizationState =
+            (int)LifetimeFinalizationState.InProgress;
+        return true;
+    }
+
+    private void RunLifetimeFinalization()
+    {
+        DisposalCallScope? inheritedScope = disposalCallScope.Value;
+        var currentScope = new DisposalCallScope(this);
+        disposalCallScope.Value = currentScope;
+        using NativeRemoteWindowDrainActivityScope activityScope =
+            NativeRemoteWindowDrainActivityScope.Enter(
+                this,
+                disposalActivityToken);
+        try
+        {
+            FailCloseForDisposal();
+            nativeSourceInvalidationRegistration?.Dispose();
+            DisposeNativeFrameSink();
+            nativeSourceLease?.Dispose();
+            normalOperationGate.Dispose();
+        }
+        finally
+        {
+            currentScope.Deactivate();
+            disposalCallScope.Value = inheritedScope;
+            lock (operationLifetimeLock)
+            {
+                lifetimeFinalizationState =
+                    (int)LifetimeFinalizationState.Completed;
+                Monitor.PulseAll(operationLifetimeLock);
+            }
+        }
+    }
+
+    private void OnNativeSourceInvalidated()
+    {
+        using LifetimeOperationLease? callbackOperation =
+            TryEnterRegisteredCallbackOperation();
+        if (callbackOperation is null)
+        {
+            return;
+        }
+
+        OnNativeSourceInvalidatedCore();
+    }
+
+    private void OnNativeSourceInvalidatedCore()
+    {
+        long invalidatedSessionGeneration;
+        bool stopBoundaries;
+        lock (stateLock)
+        {
+            DateTimeOffset now = GetFailCloseTimestampUnsafe();
+            nativeSourceInvalidated = true;
+            invalidatedSessionGeneration = sessionGeneration;
+            stopBoundaries = lifecycle is RemoteWindowLifecycle.Starting
+                or RemoteWindowLifecycle.Active
+                or RemoteWindowLifecycle.ProtectionPaused
+                or RemoteWindowLifecycle.EmergencyStopped
+                || lifecycle is RemoteWindowLifecycle.Unavailable
+                    or RemoteWindowLifecycle.Ended
+                    && !terminalStopConfirmed;
+            protection = new ProtectionSnapshot(
+                ProtectionKind.Unknown,
+                now,
+                "native_source_invalidated");
+            protectionRevision = checked(protectionRevision + 1);
+            if (mirrorSession?.Status == MirrorSessionStatus.Active)
+            {
+                mirrorSession = mirrorSession.End(now);
+            }
+
+            lifecycle = RemoteWindowLifecycle.Unavailable;
+            captureState = stopBoundaries
+                ? RemoteWindowCaptureState.Unconfirmed
+                : RemoteWindowCaptureState.Stopped;
+            terminalStopConfirmed = !stopBoundaries;
+
+            revision = checked(revision + 1);
+        }
+
+        CloseNativeFrameSinkNow();
+        if (!stopBoundaries)
+        {
+            DisposeNativeFrameSink();
+            return;
+        }
+
+        LocalBoundaryResult captureBoundary = CallBoundary(capture.StopNow);
+        LocalBoundaryResult inputBoundary = CallBoundary(input.StopNow);
+        LocalBoundaryResult sessionBoundary =
+            CallBoundary(sessions.DisconnectAllNow);
+        DisposeNativeFrameSink();
+        lock (stateLock)
+        {
+            if (lifecycle != RemoteWindowLifecycle.Unavailable
+                || sessionGeneration != invalidatedSessionGeneration)
+            {
+                return;
+            }
+
+            bool fullyStopped = captureBoundary.Succeeded
+                && inputBoundary.Succeeded
+                && sessionBoundary.Succeeded;
+            captureState = captureBoundary.Succeeded
+                ? RemoteWindowCaptureState.Stopped
+                : RemoteWindowCaptureState.Unconfirmed;
+            terminalStopConfirmed = fullyStopped;
+            if (fullyStopped)
+            {
+                mirrorSession = null;
+            }
+
+            revision = checked(revision + 1);
+        }
+    }
+
+    private void CloseNativeFrameSinkNow() =>
+        Volatile.Read(ref nativeBoundFrameSink)?.CloseNow();
+
+    private void DisposeNativeFrameSink()
+    {
+        BoundedNativeRemoteWindowFrameSink? frameSink = Interlocked.Exchange(
+            ref nativeBoundFrameSink,
+            null);
+        frameSink?.Dispose();
+    }
+
+    private bool TryDisposeNativeFrameSinkWithoutWaiting()
+    {
+        BoundedNativeRemoteWindowFrameSink? frameSink = Volatile.Read(
+            ref nativeBoundFrameSink);
+        if (frameSink is null)
+        {
+            return true;
+        }
+
+        if (!frameSink.TryCloseAndConfirmDrained())
+        {
+            return false;
+        }
+
+        if (ReferenceEquals(
+                Interlocked.CompareExchange(
+                    ref nativeBoundFrameSink,
+                    null,
+                    frameSink),
+                frameSink))
+        {
+            frameSink.Dispose();
+        }
+
+        return Volatile.Read(ref nativeBoundFrameSink) is null;
     }
 
     private static bool IsFreshSafe(
@@ -2440,12 +3065,9 @@ public sealed class RemoteWindowSessionController : IDisposable
     private LifetimeOperationLease EnterLifetimeOperation(
         bool allowNestedAfterDisposal = false)
     {
-        LifetimeOperationScope? inheritedScope = lifetimeOperationScope.Value;
         lock (operationLifetimeLock)
         {
-            bool nestedAdmittedOperation = inheritedScope is
-            { IsActive: true, Owner: var owner }
-            && ReferenceEquals(owner, this);
+            bool nestedAdmittedOperation = IsInLifetimeOperationAncestry();
             ObjectDisposedException.ThrowIf(
                 Volatile.Read(ref disposed) != 0
                 && !(allowNestedAfterDisposal && nestedAdmittedOperation),
@@ -2453,38 +3075,88 @@ public sealed class RemoteWindowSessionController : IDisposable
             registeredOperations = checked(registeredOperations + 1);
         }
 
-        var currentScope = new LifetimeOperationScope(this);
-        lifetimeOperationScope.Value = currentScope;
+        NativeRemoteWindowDrainActivityScope activityScope =
+            NativeRemoteWindowDrainActivityScope.Enter(
+                this,
+                lifetimeActivityToken);
         return new LifetimeOperationLease(
             this,
-            currentScope,
-            inheritedScope);
+            activityScope);
+    }
+
+    private LifetimeOperationLease? TryEnterRegisteredCallbackOperation()
+    {
+        lock (operationLifetimeLock)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return null;
+            }
+
+            registeredOperations = checked(registeredOperations + 1);
+        }
+
+        NativeRemoteWindowDrainActivityScope activityScope =
+            NativeRemoteWindowDrainActivityScope.Enter(
+                this,
+                lifetimeActivityToken);
+        return new LifetimeOperationLease(
+            this,
+            activityScope);
+    }
+
+    private LifetimeOperationLease? TryEnterFrameDeliveryOperation()
+    {
+        lock (operationLifetimeLock)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return null;
+            }
+
+            registeredOperations = checked(registeredOperations + 1);
+        }
+
+        NativeRemoteWindowDrainActivityScope activityScope =
+            NativeRemoteWindowDrainActivityScope.Enter(
+                this,
+                lifetimeActivityToken);
+        return new LifetimeOperationLease(
+            this,
+            activityScope);
     }
 
     private void ExitLifetimeOperation(
-        LifetimeOperationScope currentScope,
-        LifetimeOperationScope? inheritedScope)
+        NativeRemoteWindowDrainActivityScope activityScope)
     {
-        currentScope.Deactivate();
-        lifetimeOperationScope.Value = inheritedScope;
+        activityScope.Dispose();
 
-        bool finalize;
+        bool ownsFinalization;
         lock (operationLifetimeLock)
         {
             registeredOperations--;
-            finalize = registeredOperations == 0
-                && Volatile.Read(ref disposed) != 0;
+            ownsFinalization = TryClaimLifetimeFinalizationUnderLock();
             if (registeredOperations == 0)
             {
                 Monitor.PulseAll(operationLifetimeLock);
             }
         }
 
-        if (finalize)
+        if (ownsFinalization)
         {
-            FinalizeLifetime();
+            RunLifetimeFinalization();
         }
     }
+
+    private bool IsInDisposalCallAncestry() =>
+        disposalCallScope.Value is
+        { IsActive: true, Owner: var owner }
+        && ReferenceEquals(owner, this);
+
+    private bool IsInLifetimeOperationAncestry() =>
+        NativeRemoteWindowDrainActivityScope.IsActiveFor(
+            this,
+            lifetimeActivityToken);
 
     private static bool AllowsViewAndDrive(CapabilityGrant grant) =>
         grant.Allows(Capability.MirrorView)
@@ -2532,6 +3204,33 @@ public sealed class RemoteWindowSessionController : IDisposable
         {
             return LocalBoundaryResult.Failed("local_boundary_exception");
         }
+    }
+
+    private DateTimeOffset ReadClockOrFailCloseTimestamp()
+    {
+        try
+        {
+            return clock.UtcNow;
+        }
+        catch (Exception)
+        {
+            lock (stateLock)
+            {
+                return GetFailCloseTimestampUnsafe();
+            }
+        }
+    }
+
+    private DateTimeOffset GetFailCloseTimestampUnsafe()
+    {
+        DateTimeOffset timestamp = protection.ObservedAt;
+        if (mirrorSession is not null
+            && mirrorSession.DriverLease.IssuedAt > timestamp)
+        {
+            timestamp = mirrorSession.DriverLease.IssuedAt;
+        }
+
+        return timestamp;
     }
 
     private static LocalBoundaryResult ProjectEmergencyConfirmation(
@@ -2600,7 +3299,9 @@ public sealed class RemoteWindowSessionController : IDisposable
             }
         }
 
+        CloseNativeFrameSinkNow();
         LocalBoundaryResult cleanup = CallBoundary(capture.StopNow);
+        DisposeNativeFrameSink();
         lock (stateLock)
         {
             if (lifecycle == terminalLifecycle)
@@ -2643,6 +3344,285 @@ public sealed class RemoteWindowSessionController : IDisposable
             boundary,
             cleanupBoundary);
 
+    private async ValueTask<LocalBoundaryResult> StartCaptureAsync(
+        NativeRemoteWindowSourceUse? sourceUse,
+        CancellationToken cancellationToken)
+    {
+        if (nativeCapture is not null)
+        {
+            NativeRemoteWindowSourceUse exactSourceUse = sourceUse
+                ?? throw new InvalidOperationException(
+                    "A native Remote Window capture requires an exact source use.");
+            if (!TryDisposeNativeFrameSinkWithoutWaiting())
+            {
+                return LocalBoundaryResult.Failed(
+                    "native_frame_delivery_drain_pending");
+            }
+
+            if (!TryAcquireNativeSourceUseScope(
+                    exactSourceUse,
+                    requireGeometryRevision: true,
+                    out NativeRemoteWindowSourceUseScope? sourceScope,
+                    out string reasonCode))
+            {
+                return LocalBoundaryResult.Failed(reasonCode);
+            }
+
+            using (sourceScope)
+            {
+                var boundFrameSink = new BoundedNativeRemoteWindowFrameSink(
+                    exactSourceUse,
+                    () => IsNativeFrameSourceUseCurrent(exactSourceUse),
+                    () => CanDeliverNativeFrame(exactSourceUse),
+                    nativeFrameSink
+                        ?? throw new InvalidOperationException(
+                            "A native Remote Window capture requires a frame destination."),
+                    TryEnterFrameDeliveryOperation,
+                    fault => OnNativeFrameSinkFault(exactSourceUse, fault));
+                BoundedNativeRemoteWindowFrameSink? previous =
+                    Interlocked.Exchange(
+                        ref nativeBoundFrameSink,
+                        boundFrameSink);
+                if (previous is not null)
+                {
+                    boundFrameSink.CloseNow();
+                    previous.Dispose();
+                    return LocalBoundaryResult.Failed(
+                        "native_frame_sink_conflict");
+                }
+
+                return await nativeCapture.StartAsync(
+                        exactSourceUse,
+                        boundFrameSink,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return await semanticCapture!
+            .StartAsync(source.ActivityId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask<LocalBoundaryResult> InjectInputBoundaryAsync(
+        NativeRemoteWindowSourceUse? sourceUse,
+        RemoteInputBatch batch,
+        CancellationToken cancellationToken)
+    {
+        if (nativeInput is not null)
+        {
+            NativeRemoteWindowSourceUse exactSourceUse = sourceUse
+                ?? throw new InvalidOperationException(
+                    "Native Remote Window input requires an exact source use.");
+            if (!TryAcquireNativeSourceUseScope(
+                    exactSourceUse,
+                    requireGeometryRevision: true,
+                    out NativeRemoteWindowSourceUseScope? sourceScope,
+                    out string reasonCode))
+            {
+                return LocalBoundaryResult.Failed(reasonCode);
+            }
+
+            using (sourceScope)
+            {
+                return await nativeInput.InjectAsync(
+                        exactSourceUse,
+                        batch,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return await semanticInput!
+            .InjectAsync(batch, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private bool TryAcquireNativeSourceUseScope(
+        NativeRemoteWindowSourceUse sourceUse,
+        bool requireGeometryRevision,
+        out NativeRemoteWindowSourceUseScope? sourceScope,
+        out string reasonCode)
+    {
+        if (nativeSourceLease is not null
+            && nativeSourceLease.TryAcquireUseScope(
+                sourceUse.SourceGeneration,
+                requireGeometryRevision
+                    ? sourceUse.GeometryRevision
+                    : null,
+                out sourceScope)
+            && sourceScope is not null)
+        {
+            reasonCode = "native_source_current";
+            return true;
+        }
+
+        sourceScope = null;
+        if (!IsNativeSourceUseCurrent(
+                sourceUse,
+                requireGeometryRevision,
+                out reasonCode))
+        {
+            return false;
+        }
+
+        reasonCode = "native_source_transition";
+        return false;
+    }
+
+    private bool IsNativeFrameSourceUseCurrent(
+        NativeRemoteWindowSourceUse sourceUse)
+    {
+        if (Volatile.Read(ref disposed) != 0
+            || !IsNativeSourceUseCurrent(
+                sourceUse,
+                requireGeometryRevision: true,
+                out _))
+        {
+            return false;
+        }
+
+        lock (stateLock)
+        {
+            return sessionGeneration == sourceUse.SessionGeneration
+                && lifecycle is RemoteWindowLifecycle.Starting
+                    or RemoteWindowLifecycle.Active
+                    or RemoteWindowLifecycle.ProtectionPaused;
+        }
+    }
+
+    private bool CanDeliverNativeFrame(
+        NativeRemoteWindowSourceUse sourceUse)
+    {
+        DateTimeOffset now = clock.UtcNow;
+        lock (stateLock)
+        {
+            return sessionGeneration == sourceUse.SessionGeneration
+                && lifecycle == RemoteWindowLifecycle.Active
+                && captureState == RemoteWindowCaptureState.Capturing
+                && IsFreshSafe(protection, now);
+        }
+    }
+
+    private void OnNativeFrameSinkFault(
+        NativeRemoteWindowSourceUse sourceUse,
+        NativeRemoteWindowFrameSinkFault fault)
+    {
+        lock (stateLock)
+        {
+            DateTimeOffset now = GetFailCloseTimestampUnsafe();
+            if (sessionGeneration != sourceUse.SessionGeneration
+                || lifecycle is not RemoteWindowLifecycle.Starting
+                    and not RemoteWindowLifecycle.Active
+                    and not RemoteWindowLifecycle.ProtectionPaused)
+            {
+                return;
+            }
+
+            if (mirrorSession?.Status == MirrorSessionStatus.Active)
+            {
+                mirrorSession = mirrorSession.End(now);
+            }
+
+            protection = new ProtectionSnapshot(
+                ProtectionKind.Unknown,
+                now,
+                fault switch
+                {
+                    NativeRemoteWindowFrameSinkFault.SourceBindingLost =>
+                        "native_frame_source_binding_lost",
+                    NativeRemoteWindowFrameSinkFault
+                        .DeliveryPolicyUnavailable =>
+                        "native_frame_delivery_policy_unavailable",
+                    NativeRemoteWindowFrameSinkFault.DestinationFailed =>
+                        "native_frame_destination_failed",
+                    _ => "native_frame_sink_failed",
+                });
+            protectionRevision = checked(protectionRevision + 1);
+            lifecycle = RemoteWindowLifecycle.Unavailable;
+            captureState = RemoteWindowCaptureState.Unconfirmed;
+            terminalStopConfirmed = false;
+            revision = checked(revision + 1);
+        }
+
+        CloseNativeFrameSinkNow();
+        LocalBoundaryResult captureBoundary = CallBoundary(capture.StopNow);
+        LocalBoundaryResult inputBoundary = CallBoundary(input.StopNow);
+        LocalBoundaryResult sessionBoundary =
+            CallBoundary(sessions.DisconnectAllNow);
+        DisposeNativeFrameSink();
+        lock (stateLock)
+        {
+            if (sessionGeneration != sourceUse.SessionGeneration
+                || lifecycle != RemoteWindowLifecycle.Unavailable)
+            {
+                return;
+            }
+
+            bool fullyStopped = captureBoundary.Succeeded
+                && inputBoundary.Succeeded
+                && sessionBoundary.Succeeded;
+            captureState = captureBoundary.Succeeded
+                ? RemoteWindowCaptureState.Stopped
+                : RemoteWindowCaptureState.Unconfirmed;
+            terminalStopConfirmed = fullyStopped;
+            if (fullyStopped)
+            {
+                mirrorSession = null;
+            }
+
+            revision = checked(revision + 1);
+        }
+    }
+
+    private bool TryCreateNativeSourceUse(
+        long admittedSessionGeneration,
+        out NativeRemoteWindowSourceUse? sourceUse)
+    {
+        if (nativeSourceLease is null
+            || !nativeSourceLease.TryGetCurrentSnapshot(
+                out NativeRemoteWindowSourceSnapshot? snapshot)
+            || snapshot is null
+            || snapshot.Source.ActivityId != source.ActivityId
+            || snapshot.Source.HostDeviceId != source.HostDeviceId
+            || snapshot.Source.SourceGeneration != source.SourceGeneration)
+        {
+            sourceUse = null;
+            return false;
+        }
+
+        sourceUse = NativeRemoteWindowSourceUse.Create(
+            snapshot,
+            nativeOwnerGeneration,
+            admittedSessionGeneration);
+        return true;
+    }
+
+    private bool IsNativeSourceUseCurrent(
+        NativeRemoteWindowSourceUse sourceUse,
+        bool requireGeometryRevision,
+        out string reasonCode)
+    {
+        if (nativeSourceLease is null
+            || !nativeSourceLease.TryGetCurrentSnapshot(
+                out NativeRemoteWindowSourceSnapshot? snapshot)
+            || snapshot is null
+            || !sourceUse.Matches(snapshot, requireGeometryRevision: false))
+        {
+            reasonCode = "native_source_stale";
+            return false;
+        }
+
+        if (requireGeometryRevision && !sourceUse.Matches(snapshot, true))
+        {
+            reasonCode = "native_geometry_stale";
+            return false;
+        }
+
+        reasonCode = "native_source_current";
+        return true;
+    }
+
     private RemoteWindowSharingSnapshot CreateSnapshot()
     {
         ImmutableDictionary<DeviceId, MirrorParticipantRole> participants =
@@ -2650,9 +3630,9 @@ public sealed class RemoteWindowSessionController : IDisposable
                 ? ImmutableDictionary<DeviceId, MirrorParticipantRole>.Empty
                 : mirrorSession.Participants.ToImmutableDictionary();
         return new RemoteWindowSharingSnapshot(
-            activity.Descriptor.Id,
-            activity.Descriptor.Kind,
-            activity.Descriptor.Title,
+            source.ActivityId,
+            source.SemanticActivityKind,
+            source.DisplayName,
             hostDeviceId,
             lifecycle,
             captureState,
@@ -2664,6 +3644,45 @@ public sealed class RemoteWindowSessionController : IDisposable
             revision);
     }
 
+    private static RemoteWindowSourceReference CreateSemanticSource(
+        DeviceId hostDeviceId,
+        ActivityInstance activity)
+    {
+        ArgumentNullException.ThrowIfNull(hostDeviceId);
+        ArgumentNullException.ThrowIfNull(activity);
+        if (activity.Placement.DeviceId != hostDeviceId)
+        {
+            throw new ArgumentException(
+                "A Remote Window controller requires an active Activity on its host Device.",
+                nameof(activity));
+        }
+
+        return RemoteWindowSourceReference.FromActiveActivity(activity);
+    }
+
+    private static RemoteWindowSourceReference GetCurrentNativeSource(
+        NativeRemoteWindowSourceLease sourceLease)
+    {
+        ArgumentNullException.ThrowIfNull(sourceLease);
+        if (!sourceLease.TryGetCurrentSnapshot(
+                out NativeRemoteWindowSourceSnapshot? snapshot)
+            || snapshot is null)
+        {
+            throw new ArgumentException(
+                "A native Remote Window controller requires a current source lease.",
+                nameof(sourceLease));
+        }
+
+        if (snapshot.Source.IsSemanticActivity)
+        {
+            throw new ArgumentException(
+                "The native Remote Window path requires a generic source without a semantic Activity kind.",
+                nameof(sourceLease));
+        }
+
+        return snapshot.Source;
+    }
+
     private sealed class EmergencyStopCallScope
     {
         private int active = 1;
@@ -2673,25 +3692,7 @@ public sealed class RemoteWindowSessionController : IDisposable
         public void Deactivate() => Volatile.Write(ref active, 0);
     }
 
-    private sealed class LifetimeOperationLease(
-        RemoteWindowSessionController owner,
-        LifetimeOperationScope currentScope,
-        LifetimeOperationScope? inheritedScope) : IDisposable
-    {
-        private int disposed;
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref disposed, 1) != 0)
-            {
-                return;
-            }
-
-            owner.ExitLifetimeOperation(currentScope, inheritedScope);
-        }
-    }
-
-    private sealed class LifetimeOperationScope(RemoteWindowSessionController owner)
+    private sealed class DisposalCallScope(RemoteWindowSessionController owner)
     {
         private int active = 1;
 
@@ -2702,10 +3703,34 @@ public sealed class RemoteWindowSessionController : IDisposable
         public void Deactivate() => Volatile.Write(ref active, 0);
     }
 
+    private sealed class LifetimeOperationLease(
+        RemoteWindowSessionController owner,
+        NativeRemoteWindowDrainActivityScope activityScope) : IDisposable
+    {
+        private int disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            {
+                return;
+            }
+
+            owner.ExitLifetimeOperation(activityScope);
+        }
+    }
+
     private enum DisposalBoundaryAction
     {
         None,
         EmergencyStop,
         Stop,
+    }
+
+    private enum LifetimeFinalizationState
+    {
+        NotStarted,
+        InProgress,
+        Completed,
     }
 }

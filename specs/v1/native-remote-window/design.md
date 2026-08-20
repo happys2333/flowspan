@@ -1,6 +1,6 @@
 # Native Remote Window Design
 
-Status: accepted architecture baseline, implementation pending
+Status: portable contract slice implemented; production native adapters pending
 
 Requirements: NR1-NR10
 
@@ -71,8 +71,31 @@ process. The wire continues to carry Activity ID, not the token or native handle
 
 The registry invalidates an entry when the window closes, its owning process
 instance changes, geometry identity becomes ambiguous, or policy excludes it.
-Start and every native callback revalidate the registry entry. Titles are never
-used as identity.
+Its 128-state process bound counts both visible entries and removed states whose
+use or callback drain is still pending; registration resumes only after retained
+state drain completes.
+The controller retains its own lease handle, so disposing a caller's selection
+handle cannot silently detach a live safety subscription. Invalidation first
+closes new use admission, then drains any generation-bound native use, publishes
+the controller's `Unavailable` state, closes frame admission, and stops capture,
+input, and participant sessions before an external source-close call returns.
+The registry retains removed states until their drain completes, so concurrent
+registration and registry disposal join the same invalidation. A re-entrant
+close from an active native use or invalidation callback ancestry defers only
+when the target already requires a wait; the original drainer or use-scope exit
+completes it. This prevents cross-source circular waits while every top-level
+external close still joins the drain. Per-invocation callback activity prevents
+a stale copied execution context from bypassing a later drain. The portable v1
+registry permits only a bounded display-name update in place. A change to owning
+application, geometry, capture/input support, or protection is a
+security-binding change: it closes new use admission under the registry lock,
+removes the old catalog entry, drains its exact use and invalidation callbacks,
+and returns a failed update so the platform enumerator must register a fresh
+source. This conservative retirement prevents capture on one geometry while
+input uses another; a future atomic native rebind requires a separate design.
+When a different active source-use ancestry could make two display-only updates
+wait on each other, `TryUpdate` returns false and restores use admission instead
+of blocking. Titles are never identity.
 
 ## 4. Portable native contracts
 
@@ -90,11 +113,80 @@ service:
 - `INativeProtectionSource` publishing timestamped typed observations;
 - `ILocalEmergencyStopRegistration` registering one independent local action.
 
+Generic-window capture and input cross the native boundary with a process-local
+`NativeRemoteWindowSourceUse`. It contains the opaque token, ephemeral Activity
+and host IDs, owner and Session generations, source generation, and geometry
+revision, but no title, application label, native handle, or process identity.
+The token is ignored by JSON and every diagnostic projection. Platform adapters
+must resolve the token and re-check every generation immediately before the OS
+capture call or first input event; a whole input batch fails before injection if
+the geometry revision no longer matches. The controller acquires a source- and
+geometry-bound use scope immediately before capture admission or input and holds
+it across the complete native boundary call. Source invalidation and any
+security-binding metadata change close new admission before waiting for an
+existing scope to drain. The controller re-checks after each boundary as cleanup
+evidence, not as permission to undo partial native work.
+
 Callbacks include an owner generation and never expose native exception text.
 Frame delivery uses an owned bounded buffer that must be disposed by the
-consumer. The contract permits at most one active capture source per local v1
-runtime. The portable controller remains the only authority for pause, resume,
-input, and stop decisions.
+consumer. The controller wraps the destination in a source-, owner-, Session-,
+geometry-, and sequence-bound sink with one in-flight delivery and one
+latest-frame pending slot. Wrong, stale, non-advancing, replaced, late, or
+downstream-failed frames are disposed exactly once. Delivery crosses the
+destination only while the exact Session is Active, capture is confirmed, and
+the current protection observation is fresh Safe. A blocked or failed protection
+pause therefore drops late frames without closing the exact binding; a confirmed
+Safe resume can admit a later advancing sequence. Predicate failure or a
+destination exception emits one typed terminal fault, moves the controller to
+`Unavailable`, and stops capture, input, and participant gates. `CloseNow`
+rejects new and pending frames without waiting for a blocked destination;
+ordinary Stop drains an in-flight delivery after closing producers. Controller
+disposal invoked from any frame callback closes immediately and defers final
+resource release until the registered delivery exits. Top-level external
+controller disposal joins every registered operation, including a blocked frame
+delivery, before it returns. Concurrent external disposers first join the one
+initial fail-close attempt and then a `NotStarted` / `InProgress` / `Completed`
+finalization barrier, so no caller can observe final cleanup merely started and
+release a borrowed boundary early. Fail-close and final cleanup retain
+controller-local recursion tokens while also entering the shared drain-activity
+chain. Controller operations, frame deliveries, protection and Emergency
+callbacks, source uses, and source-invalidation callbacks all use that one
+process-wide chain; every invocation becomes inactive when it exits.
+Synchronous or `Task.Run` child disposal can therefore identify its active
+parent activity. When a controller target actually has work that would require
+waiting, any active shared ancestry defers the wait after fail-close. This
+breaks same-kind and cross-component disposal cycles without weakening a
+top-level external caller's drain guarantee. A copied context loses the
+exemption when its original invocation exits and must join any later drain. The
+last registered operation claims finalizer ownership under the same lock before
+waking external waiters; this prevents an external finalizer from waiting on a
+source callback that is itself trying to exit. New
+source-invalidation callback admission closes with disposal before that final
+zero-operation observation. The contract permits at most one active capture
+source per local v1 runtime. The portable controller remains the only authority
+for pause, resume, input, and stop decisions.
+
+Frames and protection observations carry owner, Session, source, and applicable
+geometry generations. Protection state commits before observer delivery.
+Observer delivery is revision ordered, externally drained on disposal, and
+bounded to eight queued notifications; overflow coalesces to `Unknown` rather
+than allowing a newer Safe observation to erase an undelivered unsafe state.
+Emergency Stop registration is one-shot and carries exact owner/Session
+generations. Registration loss is a named fail-closed activation, a callback
+cannot be replaced while it is running, and callback references are cleared on
+trigger, loss, unregister, or disposal. Protection, Emergency Stop, source
+invalidation, and frame-delivery drain checks track complete callback ancestry
+through `ExecutionContext`. Each invocation uses a unique active token, so a
+synchronous child worker can dispose an ancestor without waiting on its own
+logical call stack, while a delayed worker from an older callback cannot bypass
+a later callback's drain. Frame delivery uses a shared family owner plus a
+per-delivery token. A sink defers only under active frame-delivery ancestry,
+which prevents symmetric destinations from deadlocking. In a cycle with a
+controller, protection source, Emergency registrar, or source registry, that
+other component sees the frame activity and yields; the sink can then finish its
+delivery. This direction preserves ordinary controller Stop, which must still
+join its owned delivery. A top-level external sink or boundary disposer has no
+active scope and waits for completion.
 
 The existing controller currently accepts a semantic `ActivityInstance`. This
 slice replaces that dependency with a bounded `RemoteWindowSourceReference`
@@ -103,6 +195,11 @@ source generation. A compatibility factory may adapt an active semantic Activity
 but a generic native source has no descriptor or synthetic `remote.window/v1`
 kind. Protocol 1.5 continues to bind the existing Activity ID field, so this
 refactor changes no frozen wire fixture.
+
+The controller owns its retained source lease, invalidation registration, and
+bounded frame-sink lifetime. It borrows native capture/input implementations;
+the production Desktop runtime owns those asynchronous native resources and
+must dispose them only after controller quiescence during task 5.
 
 ## 5. Production Desktop runtime
 
@@ -210,9 +307,16 @@ Only a newer Safe observation may attempt both native gate resumes.
 
 The local Emergency Stop registration is established before capture admission.
 Its callback performs only bounded synchronous gate closure and signals deferred
-cleanup. It does not allocate frames, await, invoke the UI dispatcher, or contact
-the peer. Registration conflict or loss blocks or stops sharing. Disposal drains
-the callback owner before releasing native handles.
+cleanup. Frame admission closes without waiting for encoder, transport, or
+renderer work; capture, input, and participant gates then close immediately.
+Ordinary stop and disposal close those producers before draining an in-flight
+frame delivery. Emergency Reset never waits on a blocked destination: it returns
+`native_frame_delivery_drain_pending` and remains stopped until a later retry can
+confirm the old delivery drained. A stale native lease is terminal for that
+controller and cannot be reset to Idle. The Emergency callback does not allocate
+frames, await, invoke the UI dispatcher, or contact the peer. Registration
+conflict or loss blocks or stops sharing. Disposal drains the callback owner
+before releasing native handles.
 
 ## 10. Testing and evidence
 
