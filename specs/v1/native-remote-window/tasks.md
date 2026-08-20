@@ -9,7 +9,7 @@
     packaged real-machine proof.
   - _Requirements: NR1-NR10_
 
-- [ ] 2. Freeze portable native contracts and source registry
+- [x] 2. Freeze portable native contracts and source registry
   - Add bounded permission, source catalog, source lease, frame owner,
     protection-source, geometry, and Emergency Stop registration types to
     `Flowspan.Platform`.
@@ -21,9 +21,12 @@
     fakes without native handles crossing the public boundary.
   - Add invariant, stale-generation, callback-after-stop, disposal, and hostile
     bound tests.
-  - Progress: implementation and local contract gates are complete; exact-commit
-    Windows/macOS/Linux CI, CodeQL, Secret Scan, and package evidence remain
-    required before this task is checked.
+  - Evidence: implementation `ff8b7e4`, final lifecycle regression commit
+    `5cf76ff`, and
+    `docs/evidence/2026-08-20-native-remote-window-portable-contracts.md`.
+    Evidence commit `75d1147` passed exact-commit CI `32319985939` and CodeQL
+    `32319985831`; native API, physical-device, and tasks 3-10 evidence remain
+    open.
   - _Requirements: NR1-NR6, NR8, NR10_
 
 - [ ] 3. Compose Remote Window into the production authenticated control session
