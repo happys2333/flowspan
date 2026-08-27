@@ -241,6 +241,8 @@ public sealed class SecureSessionTests
             Assert.Equal("second"u8.ToArray(), responder.Decrypt(second));
             Assert.Throws<CryptographicException>(() =>
                 initiator.Encrypt("over-limit"u8));
+            Assert.Equal<uint>(1, initiator.SendEpoch);
+            Assert.Equal<ulong>(2, initiator.NextSendSequence);
 
             initiator.AdvanceSendEpoch(nextEpoch: 2);
             responder.AdvanceReceiveEpoch(nextEpoch: 2);
@@ -262,6 +264,8 @@ public sealed class SecureSessionTests
         {
             Assert.Throws<CryptographicException>(() =>
                 initiator.Encrypt("12345678901"u8));
+            Assert.Equal<uint>(1, initiator.SendEpoch);
+            Assert.Equal<ulong>(0, initiator.NextSendSequence);
             Assert.Equal<ulong>(0, initiator.SendPlaintextBytes);
 
             byte[] first = initiator.Encrypt("123456"u8);
@@ -269,6 +273,8 @@ public sealed class SecureSessionTests
             Assert.Equal("123456"u8.ToArray(), responder.Decrypt(first));
             Assert.Equal("7890"u8.ToArray(), responder.Decrypt(second));
             Assert.Throws<CryptographicException>(() => initiator.Encrypt("x"u8));
+            Assert.Equal<uint>(1, initiator.SendEpoch);
+            Assert.Equal<ulong>(2, initiator.NextSendSequence);
             Assert.Equal<ulong>(10, initiator.SendPlaintextBytes);
 
             initiator.AdvanceSendEpoch(nextEpoch: 2);
@@ -277,6 +283,27 @@ public sealed class SecureSessionTests
             byte[] after = initiator.Encrypt("after"u8);
             Assert.Equal("after"u8.ToArray(), responder.Decrypt(after));
         }
+    }
+
+    [Fact]
+    public void InjectedUsageLimitsCannotRaiseOrDisableFrozenBounds()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SecureFrameSessionUsageLimits(
+                maximumFramesPerEpoch: 0,
+                SecureFrameSession.MaximumPlaintextBytesPerEpoch));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SecureFrameSessionUsageLimits(
+                SecureFrameSession.MaximumFramesPerEpoch + 1,
+                SecureFrameSession.MaximumPlaintextBytesPerEpoch));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SecureFrameSessionUsageLimits(
+                SecureFrameSession.MaximumFramesPerEpoch,
+                maximumPlaintextBytesPerEpoch: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SecureFrameSessionUsageLimits(
+                SecureFrameSession.MaximumFramesPerEpoch,
+                SecureFrameSession.MaximumPlaintextBytesPerEpoch + 1));
     }
 
     [Fact]

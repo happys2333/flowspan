@@ -151,6 +151,50 @@ public sealed class AuthenticatedSessionHandshakeTests
     }
 
     [Fact]
+    public void FreshAuthenticatedHandshakeRejectsPriorMediaCiphertext()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Laptop");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        using AuthenticatedSessionPair first = CompleteSessionPair(
+            initiatorIdentity,
+            responderIdentity,
+            initiatorNonceByte: 0x11,
+            responderNonceByte: 0x22);
+        using AuthenticatedSessionPair second = CompleteSessionPair(
+            initiatorIdentity,
+            responderIdentity,
+            initiatorNonceByte: 0x33,
+            responderNonceByte: 0x44);
+        SecureFrameSession firstInitiatorMedia =
+            Assert.IsType<SecureFrameSession>(
+                first.Initiator.RemoteWindowMediaFrames);
+        SecureFrameSession secondInitiatorMedia =
+            Assert.IsType<SecureFrameSession>(
+                second.Initiator.RemoteWindowMediaFrames);
+        SecureFrameSession secondResponderMedia =
+            Assert.IsType<SecureFrameSession>(
+                second.Responder.RemoteWindowMediaFrames);
+        byte[] priorCiphertext = firstInitiatorMedia.Encrypt("prior-media"u8);
+
+        Assert.NotEqual(
+            firstInitiatorMedia.SessionIdentifier,
+            secondInitiatorMedia.SessionIdentifier);
+        Assert.ThrowsAny<CryptographicException>(() =>
+            secondResponderMedia.Decrypt(priorCiphertext));
+        Assert.Equal<uint>(1, secondResponderMedia.ReceiveEpoch);
+        Assert.Equal<ulong>(0, secondResponderMedia.NextReceiveSequence);
+
+        byte[] freshCiphertext = secondInitiatorMedia.Encrypt("fresh-media"u8);
+        Assert.Equal(
+            "fresh-media"u8.ToArray(),
+            secondResponderMedia.Decrypt(freshCiphertext));
+    }
+
+    [Fact]
     public void ProtocolOnePointFiveRetainsMediaSessionOwnership()
     {
         using DeviceIdentity peer = DeviceIdentity.Generate(
@@ -606,6 +650,58 @@ public sealed class AuthenticatedSessionHandshakeTests
                 .Select(static value => (byte)value)
                 .ToArray());
 
+    private static AuthenticatedSessionPair CompleteSessionPair(
+        DeviceIdentity initiatorIdentity,
+        DeviceIdentity responderIdentity,
+        byte initiatorNonceByte,
+        byte responderNonceByte)
+    {
+        using EphemeralKeyAgreement initiatorAgreement =
+            EphemeralKeyAgreement.Generate();
+        using EphemeralKeyAgreement responderAgreement =
+            EphemeralKeyAgreement.Generate();
+        SessionHandshakeTranscript transcript = SessionHandshakeTranscript.Create(
+            CreateHello(
+                initiatorIdentity,
+                initiatorAgreement,
+                SecureSessionRole.Initiator,
+                initiatorNonceByte,
+                [ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion]),
+            CreateHello(
+                responderIdentity,
+                responderAgreement,
+                SecureSessionRole.Responder,
+                responderNonceByte,
+                [ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion]));
+        SessionHandshakeAuthentication initiatorAuthentication =
+            SessionHandshakeAuthentication.Create(transcript, initiatorIdentity);
+        SessionHandshakeAuthentication responderAuthentication =
+            SessionHandshakeAuthentication.Create(transcript, responderIdentity);
+        AuthenticatedSession initiator = AuthenticatedSessionHandshake.Complete(
+            transcript,
+            SecureSessionRole.Initiator,
+            initiatorIdentity.PublicIdentity,
+            responderIdentity.PublicIdentity,
+            initiatorAgreement,
+            responderAuthentication);
+        try
+        {
+            AuthenticatedSession responder = AuthenticatedSessionHandshake.Complete(
+                transcript,
+                SecureSessionRole.Responder,
+                responderIdentity.PublicIdentity,
+                initiatorIdentity.PublicIdentity,
+                responderAgreement,
+                initiatorAuthentication);
+            return new AuthenticatedSessionPair(initiator, responder);
+        }
+        catch
+        {
+            initiator.Dispose();
+            throw;
+        }
+    }
+
     private static SecureFrameSession CreateSecureSession(byte seed)
     {
         byte[] secret = Enumerable.Repeat(seed, 32).ToArray();
@@ -616,5 +712,20 @@ public sealed class AuthenticatedSessionHandshakeTests
         CryptographicOperations.ZeroMemory(secret);
         CryptographicOperations.ZeroMemory(transcriptHash);
         return material.CreateSession(SecureSessionRole.Initiator);
+    }
+
+    private sealed class AuthenticatedSessionPair(
+        AuthenticatedSession initiator,
+        AuthenticatedSession responder) : IDisposable
+    {
+        public AuthenticatedSession Initiator { get; } = initiator;
+
+        public AuthenticatedSession Responder { get; } = responder;
+
+        public void Dispose()
+        {
+            Initiator.Dispose();
+            Responder.Dispose();
+        }
     }
 }

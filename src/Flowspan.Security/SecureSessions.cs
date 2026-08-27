@@ -121,6 +121,37 @@ public enum SecureSessionRole
     Responder,
 }
 
+internal sealed record SecureFrameSessionUsageLimits
+{
+    public SecureFrameSessionUsageLimits(
+        ulong maximumFramesPerEpoch,
+        ulong maximumPlaintextBytesPerEpoch)
+    {
+        if (maximumFramesPerEpoch is < 1
+            or > SecureFrameSession.MaximumFramesPerEpoch)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumFramesPerEpoch),
+                $"A secure-session epoch must permit 1 to {SecureFrameSession.MaximumFramesPerEpoch} frames.");
+        }
+
+        if (maximumPlaintextBytesPerEpoch is < 1
+            or > SecureFrameSession.MaximumPlaintextBytesPerEpoch)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumPlaintextBytesPerEpoch),
+                $"A secure-session epoch must permit 1 to {SecureFrameSession.MaximumPlaintextBytesPerEpoch} plaintext bytes.");
+        }
+
+        MaximumFramesPerEpoch = maximumFramesPerEpoch;
+        MaximumPlaintextBytesPerEpoch = maximumPlaintextBytesPerEpoch;
+    }
+
+    public ulong MaximumFramesPerEpoch { get; }
+
+    public ulong MaximumPlaintextBytesPerEpoch { get; }
+}
+
 public sealed class SecureSessionKeyMaterial : IDisposable
 {
     private static readonly byte[] Info = Encoding.ASCII.GetBytes("FLOWSPAN-SESSION-V1");
@@ -193,6 +224,26 @@ public sealed class SecureSessionKeyMaterial : IDisposable
     }
 
     public SecureFrameSession CreateSession(SecureSessionRole role)
+        => CreateSession(
+            role,
+            SecureFrameSession.MaximumFramesPerEpoch,
+            SecureFrameSession.MaximumPlaintextBytesPerEpoch);
+
+    internal SecureFrameSession CreateSession(
+        SecureSessionRole role,
+        SecureFrameSessionUsageLimits usageLimits)
+    {
+        ArgumentNullException.ThrowIfNull(usageLimits);
+        return CreateSession(
+            role,
+            usageLimits.MaximumFramesPerEpoch,
+            usageLimits.MaximumPlaintextBytesPerEpoch);
+    }
+
+    private SecureFrameSession CreateSession(
+        SecureSessionRole role,
+        ulong maximumFramesPerEpoch,
+        ulong maximumPlaintextBytesPerEpoch)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         return role switch
@@ -202,13 +253,17 @@ public sealed class SecureSessionKeyMaterial : IDisposable
                 SecureFrameDirection.InitiatorToResponder,
                 responderToInitiatorKey,
                 SecureFrameDirection.ResponderToInitiator,
-                sessionIdentifier),
+                sessionIdentifier,
+                maximumFramesPerEpoch,
+                maximumPlaintextBytesPerEpoch),
             SecureSessionRole.Responder => new SecureFrameSession(
                 responderToInitiatorKey,
                 SecureFrameDirection.ResponderToInitiator,
                 initiatorToResponderKey,
                 SecureFrameDirection.InitiatorToResponder,
-                sessionIdentifier),
+                sessionIdentifier,
+                maximumFramesPerEpoch,
+                maximumPlaintextBytesPerEpoch),
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown session role."),
         };
     }

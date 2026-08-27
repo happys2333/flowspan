@@ -116,6 +116,8 @@ public sealed class FlowspanTcpInboundListener
     private readonly RemoteWindowMediaRouteRegistry? mediaRoutes;
     private readonly PairingCeremony pairingCeremony;
     private readonly FlowspanTcpInboundProfile profile;
+    private readonly SecureFrameSessionUsageLimits?
+        remoteWindowMediaUsageLimits;
     private readonly TcpListener socket;
     private readonly TimeProvider timeProvider;
     private readonly TrustSessionCoordinator trustSessions;
@@ -141,8 +143,36 @@ public sealed class FlowspanTcpInboundListener
                 handler,
                 remoteWindowMediaSessions?.Routes,
                 remoteWindowMediaSessions,
-                timeProvider)
+                timeProvider,
+                remoteWindowMediaUsageLimits: null)
     {
+    }
+
+    internal FlowspanTcpInboundListener(
+        TcpListener socket,
+        DeviceIdentity localIdentity,
+        PairingCeremonyProfile pairingProfile,
+        IPairingDecisionSource pairingDecisions,
+        TrustSessionCoordinator trustSessions,
+        FlowspanTcpInboundProfile profile,
+        IAuthenticatedControlSessionHandler handler,
+        AuthenticatedRemoteWindowMediaSessionDirectory remoteWindowMediaSessions,
+        SecureFrameSessionUsageLimits remoteWindowMediaUsageLimits,
+        TimeProvider? timeProvider = null) : this(
+            socket,
+            localIdentity,
+            pairingProfile,
+            pairingDecisions,
+            trustSessions,
+            profile,
+            handler,
+            remoteWindowMediaSessions?.Routes,
+            remoteWindowMediaSessions,
+            timeProvider,
+            remoteWindowMediaUsageLimits)
+    {
+        ArgumentNullException.ThrowIfNull(remoteWindowMediaSessions);
+        ArgumentNullException.ThrowIfNull(remoteWindowMediaUsageLimits);
     }
 
     internal FlowspanTcpInboundListener(
@@ -155,7 +185,8 @@ public sealed class FlowspanTcpInboundListener
         IAuthenticatedControlSessionHandler handler,
         RemoteWindowMediaRouteRegistry? mediaRoutes,
         IRemoteWindowMediaAttachmentHandler? mediaHandler,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        SecureFrameSessionUsageLimits? remoteWindowMediaUsageLimits = null)
     {
         ArgumentNullException.ThrowIfNull(socket);
         ArgumentNullException.ThrowIfNull(localIdentity);
@@ -176,6 +207,7 @@ public sealed class FlowspanTcpInboundListener
         this.handler = handler;
         this.mediaRoutes = mediaRoutes;
         this.mediaHandler = mediaHandler;
+        this.remoteWindowMediaUsageLimits = remoteWindowMediaUsageLimits;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         pairingCeremony = new PairingCeremony(
             pairingProfile,
@@ -327,6 +359,7 @@ public sealed class FlowspanTcpInboundListener
                     trustSessions,
                     profile.SessionProfile.SupportedVersions,
                     profile.SessionProfile.HandshakeTimeout,
+                    remoteWindowMediaUsageLimits,
                     cancellationToken).ConfigureAwait(false);
             accepted = new AcceptedTcpControlSession(authenticated);
         }

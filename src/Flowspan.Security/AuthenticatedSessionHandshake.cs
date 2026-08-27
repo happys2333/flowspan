@@ -513,7 +513,23 @@ public static class AuthenticatedSessionHandshake
         PublicDeviceIdentity localIdentity,
         PublicDeviceIdentity trustedPeerIdentity,
         EphemeralKeyAgreement localKeyAgreement,
-        SessionHandshakeAuthentication peerAuthentication)
+        SessionHandshakeAuthentication peerAuthentication) => Complete(
+            transcript,
+            localRole,
+            localIdentity,
+            trustedPeerIdentity,
+            localKeyAgreement,
+            peerAuthentication,
+            remoteWindowMediaUsageLimits: null);
+
+    internal static AuthenticatedSession Complete(
+        SessionHandshakeTranscript transcript,
+        SecureSessionRole localRole,
+        PublicDeviceIdentity localIdentity,
+        PublicDeviceIdentity trustedPeerIdentity,
+        EphemeralKeyAgreement localKeyAgreement,
+        SessionHandshakeAuthentication peerAuthentication,
+        SecureFrameSessionUsageLimits? remoteWindowMediaUsageLimits)
     {
         ArgumentNullException.ThrowIfNull(peerAuthentication);
         ArgumentNullException.ThrowIfNull(transcript);
@@ -594,7 +610,11 @@ public static class AuthenticatedSessionHandshake
                         SecureSessionKeyMaterial.DeriveRemoteWindowMedia(
                             sharedSecret,
                             transcriptHash);
-                    remoteWindowMediaFrames = mediaMaterial.CreateSession(localRole);
+                    remoteWindowMediaFrames = remoteWindowMediaUsageLimits is null
+                        ? mediaMaterial.CreateSession(localRole)
+                        : mediaMaterial.CreateSession(
+                            localRole,
+                            remoteWindowMediaUsageLimits);
                 }
 
                 return new AuthenticatedSession(

@@ -110,13 +110,44 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             DefaultHandshakeTimeout,
             cancellationToken);
 
-    public static async ValueTask<AuthenticatedTcpControlConnection> ConnectAsync(
+    public static ValueTask<AuthenticatedTcpControlConnection> ConnectAsync(
         IPEndPoint remoteEndPoint,
         DeviceIdentity localIdentity,
         TrustRecord trustedPeer,
         IEnumerable<ProtocolVersion> supportedVersions,
         TimeSpan handshakeTimeout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => ConnectAsyncCore(
+            remoteEndPoint,
+            localIdentity,
+            trustedPeer,
+            supportedVersions,
+            handshakeTimeout,
+            remoteWindowMediaUsageLimits: null,
+            cancellationToken);
+
+    internal static ValueTask<AuthenticatedTcpControlConnection> ConnectAsync(
+        IPEndPoint remoteEndPoint,
+        DeviceIdentity localIdentity,
+        TrustRecord trustedPeer,
+        IEnumerable<ProtocolVersion> supportedVersions,
+        SecureFrameSessionUsageLimits remoteWindowMediaUsageLimits,
+        CancellationToken cancellationToken = default) => ConnectAsyncCore(
+            remoteEndPoint,
+            localIdentity,
+            trustedPeer,
+            supportedVersions,
+            DefaultHandshakeTimeout,
+            remoteWindowMediaUsageLimits,
+            cancellationToken);
+
+    private static async ValueTask<AuthenticatedTcpControlConnection> ConnectAsyncCore(
+        IPEndPoint remoteEndPoint,
+        DeviceIdentity localIdentity,
+        TrustRecord trustedPeer,
+        IEnumerable<ProtocolVersion> supportedVersions,
+        TimeSpan handshakeTimeout,
+        SecureFrameSessionUsageLimits? remoteWindowMediaUsageLimits,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(localIdentity);
         ArgumentNullException.ThrowIfNull(trustedPeer);
@@ -136,6 +167,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
                     localIdentity,
                     trustedPeer,
                     supportedVersions,
+                    remoteWindowMediaUsageLimits,
                     handshakeCancellation.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException exception) when (
@@ -235,6 +267,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             trustSessions,
             supportedVersions,
             handshakeTimeout,
+            remoteWindowMediaUsageLimits: null,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -246,6 +279,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             TrustSessionCoordinator trustSessions,
             IEnumerable<ProtocolVersion> supportedVersions,
             TimeSpan handshakeTimeout,
+            SecureFrameSessionUsageLimits? remoteWindowMediaUsageLimits,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(connection);
@@ -261,6 +295,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             trustSessions,
             supportedVersions,
             handshakeTimeout,
+            remoteWindowMediaUsageLimits,
             cancellationToken);
     }
 
@@ -272,6 +307,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             TrustSessionCoordinator trustSessions,
             IEnumerable<ProtocolVersion> supportedVersions,
             TimeSpan handshakeTimeout,
+            SecureFrameSessionUsageLimits? remoteWindowMediaUsageLimits,
             CancellationToken cancellationToken)
     {
         try
@@ -286,6 +322,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
                     localIdentity,
                     trustSessions,
                     supportedVersions,
+                    remoteWindowMediaUsageLimits,
                     handshakeCancellation.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException exception) when (
@@ -340,6 +377,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             DeviceIdentity localIdentity,
             TrustRecord trustedPeer,
             IEnumerable<ProtocolVersion> supportedVersions,
+            SecureFrameSessionUsageLimits? remoteWindowMediaUsageLimits,
             CancellationToken cancellationToken)
     {
         using EphemeralKeyAgreement agreement = EphemeralKeyAgreement.Generate();
@@ -372,7 +410,8 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             localIdentity.PublicIdentity,
             trustedPeer.PeerIdentity,
             agreement,
-            peerAuthentication);
+            peerAuthentication,
+            remoteWindowMediaUsageLimits);
         try
         {
             if (ProtocolFeatures.RequiresSecureSessionFinished(
@@ -461,6 +500,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             DeviceIdentity localIdentity,
             TrustSessionCoordinator trustSessions,
             IEnumerable<ProtocolVersion> supportedVersions,
+            SecureFrameSessionUsageLimits? remoteWindowMediaUsageLimits,
             CancellationToken cancellationToken)
     {
         using EphemeralKeyAgreement agreement = EphemeralKeyAgreement.Generate();
@@ -511,7 +551,8 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             localIdentity.PublicIdentity,
             trustedPeer.PeerIdentity,
             agreement,
-            peerAuthentication);
+            peerAuthentication,
+            remoteWindowMediaUsageLimits);
         try
         {
             SessionHandshakeAuthentication localAuthentication =
