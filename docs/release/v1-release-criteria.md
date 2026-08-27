@@ -205,6 +205,18 @@ implementation convenience.
   reproducible unsigned packages also passed for the exact final commit. Every
   native/physical release gate remains open; no release criterion is closed by
   this portable/headless record.
+- [2026-08-28 Native Remote Window Transport candidate](../evidence/2026-08-28-native-remote-window-transport-candidate.md):
+  implementation `a75afb142c335d8da71e511c29e51b14ad2b3cf7` composes the
+  production-listener `FSM1` path and proves frame-count/plaintext exhaustion in
+  both media directions closes attachment and authenticated control before any
+  over-limit wire frame, rejects the consumed route, and recovers through a fresh
+  authenticated media session and route. Exact-tree local macOS evidence passes
+  460 Transport and 131 Security tests in both Debug and Release plus all 1,878
+  Release tests with zero warnings. Exact-commit CI `33109385771` passes all 1,878
+  tests on Windows, macOS, and Linux plus Secret Scan and the three reproducible
+  unsigned package jobs; CodeQL `33109385769` also passes. Desktop/native
+  composition, physical Devices, accessibility, interactive quality, and signed
+  packages remain open; this candidate closes no release criterion.
 - [2026-08-20 Desktop quality and string externalization](../evidence/2026-08-20-desktop-quality-string-externalization.md):
   five neutral-English catalogs, the shared Desktop resource facade, XAML/C#
   presentation regression gates, culture-aware display formatting, and the

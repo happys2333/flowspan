@@ -68,12 +68,31 @@ rather than grant it.
 | T17 | Hidden or premature platform/network privilege | request no capture/input/network privilege at launch; require feature-scoped rationale, exposed-data disclosure, prompt expectation, revocation path, and affirmative acknowledgement before the privileged boundary; cancel remains side-effect free | platform-guide, command-gating, no-start review/cancel, disable-reset, and Headless keyboard tests plus native grant/deny/revoke evidence |
 | T18 | Destructive Replace without recoverable target state, or forged/stale target/undo metadata | purpose-scoped authenticated target inventory; distinct `activity.replace` capability and destructive message; exact target ID/revision/digest revalidation; Adapter capture plus application verification and target-owned store before resume; payload-free capsule reference; bounded expiry; exact-current replacement check; idempotent consume; bounded unresolved-first recovery snapshot; exact terminal-history reduction for the supported semantic tracer; global pending/`Recovering` fail-closed gate; private target-local endpoint plus service-level live eligibility preflight; destructive desktop activation blocked until target snapshot, confirmation, recovery, and undo are visible | inventory filtering/bounds/revocation, capture/store/revision/digest negatives, terminal-graph conflict/orphan/pending tests, recovery projection/truncation/startup-fault tests, direct-call preflight, retry/expiry/consume/stale reason tests, strict codec tamper tests, authenticated result binding, acknowledgement-loss and encrypted-loopback tests |
 
-The Task 5 Transport candidate covers T08/T13 with deterministic managed streams
-and same-host loopback only. It does not yet prove the small-budget media epoch
-exhaustion, simultaneous attachment/control close, complete fresh authenticated
-handshake, and new-route recovery sequence. It also cannot establish bounded
-cleanup if a synchronous third-party `Stream.Dispose` blocks forever. Native and
-physical-device threat evidence remains open.
+Task 5.4 commit `a75afb142c335d8da71e511c29e51b14ad2b3cf7` extends the
+T08/T11/T13 managed Transport boundary through media budget exhaustion. Its
+usage-limit type and accepting overloads are internal and permit only positive
+limits no greater than the frozen production values, so test injection can shrink
+but cannot raise or disable a production budget. A 2-by-2 same-host real-TCP
+matrix uses frame limit 2 or plaintext limit 220 bytes in both directions. It
+proves the last legal protected media operation, rejection before another wire
+write, attachment and owning-control closure, empty route/session directories,
+a fresh authenticated handshake with a different media session and route, and
+rejection of the old `FSM1` request without consuming the new route. A separate
+test rejects prior-session ciphertext without advancing fresh receive state and
+then accepts fresh ciphertext. Media remains at epoch one; recovery never raises
+a budget, rekeys in place, or republishes a consumed route.
+
+The exact tree has local macOS Transport 460/460 and Security 131/131 results in
+both Debug and Release, a full Release solution result of 1878/1878, and zero
+warning-as-error build warnings. Exact-commit CI `33109385771` also passes
+1878/1878 on Windows, macOS, and Linux, Secret Scan, and all three reproducible
+unsigned package jobs; CodeQL `33109385769` passes with zero results. This remains
+managed portable proof, not native/physical proof. Budget exhaustion combined
+with an injected cleanup failure in one end-to-end path remains a P2 residual;
+the two behaviors are covered separately. Bounded return still cannot be claimed
+when a synchronous third-party `Stream.Dispose` itself blocks forever. Desktop
+Task 5.5, native adapters, packaged accessibility, physical-device, and signed
+release gates remain open.
 
 ### 5.1 Task 7.2c local-pairing evidence
 
@@ -260,18 +279,20 @@ physical Device disconnected.
 | T05 | Protocol-1.5 admission, Driver, input, disconnect, and state messages bind the authenticated peer, live Session, exact Activity, correlation/deadline, and applicable epoch. The host adapter delegates to the existing controller so every use still reloads current Capabilities. | Persistent Trust/session revocation composition and physical same-session observation. |
 | T06 | Driver requests name the last-known epoch; input names the exact current epoch; state replies carry the resulting higher epoch without echoing input. Wrong/stale/unsolicited bindings fault the control session before authority reaches the controller. | Native input enforcement, sleep/wake, UI recovery, and physical replay/drop evidence. |
 | T07 | State replies publish protection lifecycle, capture confirmation, protection kind, and revision. Media Session/Activity binding and channel closure prevent a stale stream from silently continuing after a new live session. | Continuous native protected-surface probes and frame-by-frame blank/pause evidence. |
-| T08 | The protocol-1.6 `FSM1` request is exactly 200 bytes and its acknowledgement exactly 232 bytes. The clear prefix exposes only a versioned purpose and 16-byte route locator; it is not a credential and cannot authorize or decrypt. Exact protected bindings, 32-byte nonces, zero flags, no trailing bytes, and clear/protected agreement are mandatory. JPEG decoding admits only one complete TopLeft still image within the 1-MiB encoded, 16,384-per-dimension, 16,777,216-pixel, and 64-MiB BGRA limits before allocating pixels; malformed, truncated, animated, other-format, concatenated, or trailing input fails closed. | Production same-listener selector composition, cross-implementation readers, and sustained packaged hostile-input runs. |
+| T08 | The protocol-1.6 `FSM1` request is exactly 200 bytes and its acknowledgement exactly 232 bytes. The clear prefix exposes only a versioned purpose and 16-byte route locator; it is not a credential and cannot authorize or decrypt. Exact protected bindings, 32-byte nonces, zero flags, no trailing bytes, and clear/protected agreement are mandatory. JPEG decoding admits only one complete TopLeft still image within the 1-MiB encoded, 16,384-per-dimension, 16,777,216-pixel, and 64-MiB BGRA limits before allocating pixels; malformed, truncated, animated, other-format, concatenated, or trailing input fails closed. | Cross-implementation readers, sustained packaged hostile-input runs, and physical same-listener observation. |
 | T10 | Remote input remains strict control and is never echoed. Binary media is absent from canonical JSON and structured diagnostics; tests use canaries to inspect exception/result text. | Native pipeline/crash dump/export inspection and independent data-flow review. |
-| T11 | Media keys are HKDF purpose-separated from authenticated control keys; AEAD authenticates both the attachment bindings and a strict binary Session/Activity/kind/sequence/chunk header plus payload. Tamper, unknown fields/kinds, invalid lengths, duplicate control fields, and protocol-1.4 frame or protocol-1.5 attachment downgrade fail closed. The media `SecureFrameSession` has no live rekey: its attachment and owning authenticated control connection must close before a directional epoch budget or sequence/epoch boundary is exceeded, and only a fresh authenticated control handshake may derive the next media session and route. | Independent cryptographic review, cross-implementation reader, and production runtime proof that budget exhaustion reconnects without route/key reuse. |
-| T13 | Fixed frame/chunk, per-peer/session queue/byte/peer, receive-rate, and write-timeout limits reject before unbounded allocation. The process-local route registry defaults to 32 owned routes with a 128 hard cap, 30-second default/two-minute maximum TTL, separate 512-entry nonce and consumed-route histories, one claim per route, and a two-second default/ten-second maximum handshake timeout. History capacity fails closed and recovers only after bounded expiry; live attachments retain their route slot until cleanup. Registry expiry/revoke/dispose races close admission before draining ownership; primary and cleanup failures remain observable. JPEG structure and its equivalent 16,777,216-pixel/64-MiB BGRA limit are checked before pixel allocation; encoded/decoded owners zero managed buffers on disposal, codec-owned Skia spans/native data are cleared before release, and the bounded encode scratch is pooled and clear-on-return. Cancellation cannot release or zero an encrypted read/write buffer while non-cooperative I/O still borrows it. Every success/failure/cancel/dispose path releases its reservation when ownership truly ends. Neither direction may exceed `2^20` protected frames or 1 GiB plaintext in one media epoch; recovery requires a fresh authenticated control connection, media session, and route. | Production listener/runtime composition, sustained packaged load, budget-boundary reconnect tests, resource telemetry, and physical bandwidth/latency measurement. |
+| T11 | Media keys are HKDF purpose-separated from authenticated control keys; AEAD authenticates both the attachment bindings and a strict binary Session/Activity/kind/sequence/chunk header plus payload. Tamper, unknown fields/kinds, invalid lengths, duplicate control fields, and protocol-1.4 frame or protocol-1.5 attachment downgrade fail closed. The media `SecureFrameSession` has no live rekey: its attachment and owning authenticated control connection must close before a directional epoch budget or sequence/epoch boundary is exceeded, and only a fresh authenticated control handshake may derive the next media session and route. | Independent cryptographic review, cross-implementation reader, and physical/packaged reconnect observation. |
+| T13 | Fixed frame/chunk, per-peer/session queue/byte/peer, receive-rate, and write-timeout limits reject before unbounded allocation. The process-local route registry defaults to 32 owned routes with a 128 hard cap, 30-second default/two-minute maximum TTL, separate 512-entry nonce and consumed-route histories, one claim per route, and a two-second default/ten-second maximum handshake timeout. History capacity fails closed and recovers only after bounded expiry; live attachments retain their route slot until cleanup. Registry expiry/revoke/dispose races close admission before draining ownership; primary and cleanup failures remain observable. JPEG structure and its equivalent 16,777,216-pixel/64-MiB BGRA limit are checked before pixel allocation; encoded/decoded owners zero managed buffers on disposal, codec-owned Skia spans/native data are cleared before release, and the bounded encode scratch is pooled and clear-on-return. Cancellation cannot release or zero an encrypted read/write buffer while non-cooperative I/O still borrows it. Every success/failure/cancel/dispose path releases its reservation when ownership truly ends. Neither direction may exceed `2^20` protected frames or 1 GiB plaintext in one media epoch; recovery requires a fresh authenticated control connection, media session, and route. | Desktop runtime composition, sustained packaged load, combined budget-exhaustion/cleanup-fault injection, resource telemetry, and physical bandwidth/latency measurement. |
 | T14 | Control never waits for media drain or peer acknowledgement to enact local protection or Emergency Stop; media closure is a downstream consequence of local authority loss. | Desktop indicator/action and physical peer/network/UI failure observation. |
 | T15 | Protocol 1.6 alone advertises and accepts the media-route feature. Protocol 1.5 retains its frozen Remote Window control and encrypted-frame formats but cannot transfer media-session ownership, register a route, or attach a production stream; rejection never falls back to a clear or separately trusted media channel. | Packaged cross-version peers and production UI/runtime presentation of the control-only downgrade. |
 
-Task 4's implemented test boundary covers the route, attachment codec/registry,
-JPEG codec, fixtures, and an authenticated same-host loopback within portable
-bounds. Task 5 still owns production-listener and Desktop runtime composition.
-Neither slice alone proves capture, rendering, native input, interactive quality,
-physical network behavior, or a usable emergency action.
+Task 4's implemented boundary covers the route, attachment codec/registry, JPEG
+codec, fixtures, and an authenticated same-host loopback within portable bounds.
+Task 5.1-5.4 additionally cover production-listener selection, control-owned
+media lifetime, bounded logical-frame transport, and fresh-handshake recovery
+after media budget exhaustion. Task 5.5 still owns the complete Desktop runtime.
+These managed slices do not prove capture, rendering, native input, interactive
+quality, physical network behavior, or a usable emergency action.
 
 ### 5.14 Task 6 Desktop Remote Window workflow candidate evidence plan
 

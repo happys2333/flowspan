@@ -497,6 +497,23 @@ non-cooperative handshake cancellation, handler-plus-cleanup failure preservatio
 observer isolation, and listener shutdown without treating clear route possession
 as authorization.
 
+Task 5.4 adds internal shrink-only media usage limits. The injected limits must be
+positive and cannot exceed the frozen production bounds, while every public
+authenticated connection and listener path retains `2^20` protected frames and
+1 GiB of plaintext per direction and epoch. A 2-by-2 same-host managed real-TCP
+matrix uses frame limit 2 or plaintext limit 220 bytes in both initiator-to-
+responder and responder-to-initiator directions. Each case admits the protected
+attachment envelope and last legal media frame, rejects the next media send
+before another wire byte is written, closes both attachment and owning control
+registrations, empties both route registries and media directories, and removes
+both Activity and Remote Window channels. Recovery completes a new authenticated
+control handshake and derives a different media session and route. An old `FSM1`
+request is rejected while the new route remains live and usable. A separate
+handshake test rejects prior-session media ciphertext without advancing the fresh
+receive epoch or sequence, then accepts ciphertext created by the fresh session.
+The media epoch remains one throughout exhaustion; no test raises a production
+budget, rekeys media in place, or republishes the consumed route.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,
@@ -542,12 +559,19 @@ budgets or reuse the consumed route as a recovery path.
 
 Task 5 Transport candidate evidence is recorded separately in
 `docs/evidence/2026-08-28-native-remote-window-transport-candidate.md`.
-Implementation commit `f430705` has exact-tree local macOS evidence. Until the
-exact hosted tip containing that implementation passes Windows, macOS, Linux,
-Secret Scan, and CodeQL, it is not hosted portable evidence. Even after those
-hosted gates, it will not prove the still-open small-budget reconnect path,
-Desktop capture/encode/decode/render composition, native adapters, physical
-Devices, or interactive-quality requirements.
+Transport composition commit `f430705` and Task 5.4 implementation commit
+`a75afb142c335d8da71e511c29e51b14ad2b3cf7` have exact-tree local macOS evidence.
+On the latter tree, Transport passes 460/460 in Debug and Release, Security passes
+131/131 in Debug and Release, the full Release solution passes 1878/1878, and the
+warning-as-error build reports zero warnings. Exact-commit CI `33109385771`
+passes 1878/1878 tests on Windows, macOS, and Linux plus Secret Scan and all three
+reproducible unsigned package jobs; CodeQL `33109385769` also passes. These are
+managed contract and loopback results, not native or physical evidence. A single
+end-to-end case combining budget exhaustion with an injected cleanup failure
+remains a P2 residual; the suite currently proves budget recovery and cleanup-
+failure preservation separately. Desktop capture/encode/decode/render
+composition, native adapters, packaged accessibility, physical Devices, and
+interactive-quality requirements remain open regardless of these managed results.
 
 Headless Desktop tests additionally block and reorder permission, service, and
 observer callbacks. A permission busy-state observer may synchronously request

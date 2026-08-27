@@ -1,8 +1,8 @@
 # Native Remote Window Design
 
-Status: portable contracts, shared authenticated control composition, and Task 4
-media-route/codec contracts implemented; production runtime and native adapters
-pending
+Status: portable contracts, shared authenticated control composition, Task 4
+media-route/codec contracts, and Task 5.1-5.4 Transport composition implemented;
+production Desktop runtime and native adapters pending
 
 Requirements: NR1-NR10
 
@@ -325,10 +325,29 @@ session, and registers its new session-identifier route. It must not raise a
 budget, advance the media epoch without an authenticated transition, or reuse the
 consumed route.
 
-The current Transport slice proves failure coupling for normal attachment and
-media I/O faults, but it does not yet inject a small epoch budget and prove the
-complete close-control, fresh-handshake, new-route recovery path. That budget
-recovery contract remains an open Task 5 item and production availability gate.
+Implementation commit `a75afb142c335d8da71e511c29e51b14ad2b3cf7`
+proves the complete recovery path through the production listener at the
+same-host managed-loopback boundary, exercised again by the hosted OS matrix,
+with a 2-by-2 matrix: frame-count and plaintext exhaustion, each in the
+initiator-to-responder and
+responder-to-initiator direction. Shrink-only test
+limits apply only to the purpose-separated media session and are identical before
+and after recovery. Each case completes the attachment, exchanges exactly one
+media frame, rejects the next frame before any wire bytes are emitted, keeps the
+media epoch at one, closes both attachment and control, clears both session
+directories and the route registry, rejects the consumed `FSM1` request while a
+fresh route exists, then completes a new authenticated handshake and exchanges
+media through its distinct session-identifier route. A fresh authenticated
+transcript also rejects ciphertext from the prior media session.
+
+The exact implementation tree passes 460 Transport tests in both Debug and
+Release, 131 Security tests in both configurations, and all 1,878 Release tests
+locally on macOS with zero warnings. Exact-commit CI `33109385771` passes the same
+1,878 tests on Windows, macOS, and Linux plus Secret Scan and all three
+reproducible unsigned package jobs; CodeQL `33109385769` also passes. These are
+deterministic managed-loopback and portable hosted contracts. They do not prove
+the Desktop runtime, native capture/input/protection, a physical LAN,
+accessibility, interactive quality, or packaged real-machine behavior.
 
 This decision gate is intentional: native capture may be developed and tested
 behind the bounded frame sink, but production availability remains false until

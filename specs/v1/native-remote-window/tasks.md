@@ -85,17 +85,25 @@
     the peer/session-budgeted outbound queue, with one outstanding wire chunk,
     bounded outcomes, non-cooperative cancellation coverage, and complete
     teardown/failure aggregation.
-  - [ ] 5.4 Prove small epoch/frame/plaintext budget exhaustion closes both the
+  - [x] 5.4 Prove small epoch/frame/plaintext budget exhaustion closes both the
     attachment and owning control connection, then completes a fresh authenticated
     handshake with a new media session and route without rekey or reuse.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
     teardown. Keep `CreateProduction` unavailable until this path is complete.
-  - Candidate evidence for 5.1-5.3:
+  - Candidate evidence for 5.1-5.4:
     `docs/evidence/2026-08-28-native-remote-window-transport-candidate.md`.
-    Implementation commit `f430705` has exact-tree local macOS evidence; hosted
-    Windows/macOS/Linux CI, Secret Scan, and CodeQL remain required.
+    Task 5.1-5.3 implementation commit `f430705` and Task 5.4 implementation
+    commit `a75afb142c335d8da71e511c29e51b14ad2b3cf7` have exact-tree local macOS
+    evidence. The latter passes 460 Transport tests and 131 Security tests in
+    both Debug and Release plus all 1,878 Release tests with zero warnings. Its
+    four managed-loopback cases cover frame-count/plaintext exhaustion in both
+    media directions through the production listener. Exact-commit CI
+    `33109385771` passes 1,878/1,878 on Windows, macOS, and Linux plus Secret Scan
+    and all three reproducible unsigned package jobs; CodeQL `33109385769` also
+    passes. Task 5, Task 5.5, and every native, physical-device, accessibility, and
+    packaged-runtime gate remain open.
   - _Requirements: NR1-NR6, NR8-NR9_
 
 - [ ] 6. Deliver the macOS native vertical slice

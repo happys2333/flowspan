@@ -108,9 +108,40 @@ handler failure with a distinct cleanup failure instead of overwriting either.
 This contract does not claim bounded return from a synchronous stream `Dispose`
 implementation that itself blocks forever.
 
-The small-budget exhaustion and complete fresh-control-handshake recovery path is
-not yet composed. Until that testable epoch boundary exists, the Task 5 parent and
-production Remote Window availability remain open.
+Task 5.4 is implemented at commit
+`a75afb142c335d8da71e511c29e51b14ad2b3cf7`. The injectable usage-limit value and
+all overloads that accept it are internal. They admit only positive frame and
+plaintext limits at or below the frozen production limits, so tests may shrink a
+budget but no public or production path can raise or disable it. Public
+authenticated connection and listener construction continues to use exactly
+`2^20` frames and 1 GiB of plaintext per direction and epoch.
+
+A same-host managed real-TCP loopback exercises the two budget kinds in both
+directions: frame limit 2 and plaintext limit 220 bytes, each for initiator to
+responder and responder to initiator. In every case the protected attachment
+request or acknowledgement and the last legal media frame succeed, the next
+media send fails before another wire byte is written, and both attachment and
+owning control registrations close. Both media directories and route registries
+become empty, and neither side retains an Activity or Remote Window control
+channel. A complete second authenticated handshake derives a different media
+session and route. Replaying the old `FSM1` request while the new route is live is
+rejected without consuming that route, and the new attachment exchanges fresh
+media. A separate cryptographic test injects ciphertext from the first media
+session into the second, proves rejection without advancing the new receive
+epoch or sequence, and then accepts fresh ciphertext. No exhaustion path advances
+the media epoch in place.
+
+The exact implementation tree has local macOS Debug and Release evidence:
+Transport 460/460, Security 131/131, and the full Release solution 1878/1878,
+with a warning-as-error build reporting zero warnings. Exact-commit CI run
+`33109385771` independently passed 1878/1878 tests on Windows, macOS, and Linux,
+Secret Scan, and all three reproducible unsigned package jobs; CodeQL run
+`33109385769` also passed. These are managed portable results, not native or
+physical-device evidence. Combining budget exhaustion and an injected cleanup
+failure in the same end-to-end path remains a P2 residual; the current suite
+proves those axes separately. Task 5.5 Desktop composition, native capture/input/
+protection, packaged accessibility, interactive quality, physical-device, and
+signed release gates remain open.
 
 ## Alternatives considered
 

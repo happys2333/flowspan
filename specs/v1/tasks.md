@@ -304,6 +304,18 @@ means its linked evidence exists; it does not imply the entire product works.
     Windows, macOS, and Ubuntu runners at `fc39d6e`.
   - _Requirements: R8.2_
 - [ ] 5.4 Run physical two-device LAN tests and preserve evidence.
+  - The production listener and connection-owned media path now have portable
+    managed-loopback proof that frame-count or plaintext exhaustion in either
+    direction emits no over-limit frame, closes attachment and control, rejects
+    the consumed route, and recovers only through a fresh authenticated handshake
+    and distinct media session/route at
+    `a75afb142c335d8da71e511c29e51b14ad2b3cf7`. This does not exercise two
+    physical Devices, multicast/firewall behavior, interface changes, or LAN
+    loss/recovery, so this task remains open.
+  - Exact-commit CI `33109385771` passes all 1,878 portable tests on Windows,
+    macOS, and Linux plus Secret Scan and reproducible unsigned packaging; CodeQL
+    `33109385769` also passes. Hosted managed results do not close this physical
+    two-device task.
   - _Requirements: R2, R8, R12.5_
 
 ## 6. Mirror, driver, and protection
@@ -365,14 +377,16 @@ Detailed native contracts, platform slices, and evidence gates are tracked in
     fixture, a 1-MiB encoded ceiling, and dimension plus equivalent pixel/BGRA-byte
     checks before allocation; malformed, animated, oriented, truncated,
     concatenated, trailing, and bomb-shaped inputs fail closed.
-  - These are route, codec, and portable ordered-stream contracts. Task 5 still
-    owns `FSM1` classification in the production listener, control-close teardown
-    coupling, and composition into the Desktop Remote Window runtime. Production
+  - Task 5.1-5.4 now classify `FSM1` in the production listener, bind route and
+    attachment lifetime to authenticated control, compose bounded logical-frame
+    chunking and latest-pending backpressure, and prove the no-live-rekey recovery
+    rule. A portable 2-by-2 managed-loopback matrix at
+    `a75afb142c335d8da71e511c29e51b14ad2b3cf7` exhausts frame-count and plaintext
+    budgets in both directions, emits no over-limit wire frame, closes attachment
+    and control, rejects the consumed route, and recovers only through a fresh
+    authenticated handshake and distinct media session/route. Production Desktop
     rendering, physical-network quality, native capture/input/protection, and
-    matching-machine evidence remain open. Media has no live rekey: budget or
-    sequence/epoch exhaustion must close the attachment and authenticated control
-    connection, then derive a fresh media session and non-reused route through a
-    new authenticated handshake.
+    matching-machine evidence remain open, so this parent task stays partial.
   - Clipboard and file-content transfer remain open. They require a separate
     content policy, consent model, protocol, resource contract, and evidence;
     the Remote Window media implementation does not satisfy that scope.
