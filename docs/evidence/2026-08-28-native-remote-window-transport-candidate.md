@@ -106,12 +106,15 @@ cleanup to asynchronous failure-preserving disposal and unconditionally observes
 late prefix-write/read/flush faults after cancellation.
 
 Final independent ownership, security, and acceptance reviews of the complete
-candidate tree reported no remaining P0 or P1. One P2 diagnostic issue remains:
-normal control-session shutdown can observe the same media-registration cleanup
-failure through both dispatcher-owned cleanup and the joined registration
-completion, so a final aggregate may contain the same exception twice. The
-failure remains visible and cleanup is still joined; this does not leak authority,
-routes, frame owners, or budget.
+candidate tree reported no remaining P0 or P1. One P2 diagnostic-duplication
+class remains in two ownership wrappers. Normal control-session shutdown can
+observe the same media-registration cleanup failure through both dispatcher-owned
+cleanup and the joined registration completion. A responder attachment failure
+can likewise reach the listener first as its handler failure and then as the
+result of idempotently disposing that same attachment. A final aggregate may
+therefore contain the same exception twice. The failure remains visible and
+cleanup is still joined; this does not leak authority, routes, attachments, frame
+owners, or budget.
 
 ## Open evidence
 
