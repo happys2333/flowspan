@@ -272,30 +272,38 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
                     RemoteWindowMediaEnqueueStatus.Closed);
             }
 
+            int payloadBytes = frame.PayloadLength;
             RemoteWindowMediaEnqueueStatus reservation = budget.TryReserve(
                 peerId,
-                frame.PayloadLength);
+                payloadBytes);
             if (reservation != RemoteWindowMediaEnqueueStatus.Accepted)
             {
                 return RemoteWindowMediaEnqueueResult.CreateRejected(reservation);
             }
 
+            RemoteWindowMediaFrame? ownedFrame = null;
             try
             {
                 var completion = new TaskCompletionSource<RemoteWindowMediaDeliveryOutcome>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                var queued = new QueuedFrame(frame.Clone(), completion);
+                ownedFrame = frame.Clone();
+                var queued = new QueuedFrame(
+                    ownedFrame,
+                    payloadBytes,
+                    completion);
                 if (!entries.Writer.TryWrite(queued))
                 {
                     throw new InvalidOperationException(
                         "The reserved Remote Window media queue rejected an entry.");
                 }
 
+                ownedFrame = null;
                 return RemoteWindowMediaEnqueueResult.CreateAccepted(completion.Task);
             }
             catch
             {
-                budget.Release(peerId, frame.PayloadLength);
+                ownedFrame?.Dispose();
+                budget.Release(peerId, payloadBytes);
                 throw;
             }
         }
@@ -332,15 +340,23 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
             entries.Writer.TryComplete();
         }
 
-        shutdown.Cancel();
-        Exception? cleanupFailure = null;
+        List<Exception>? cleanupFailures = null;
+        try
+        {
+            await shutdown.CancelAsync().ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            cleanupFailures = [failure];
+        }
+
         try
         {
             await worker.ConfigureAwait(false);
         }
         catch (Exception failure)
         {
-            cleanupFailure = failure;
+            (cleanupFailures ??= []).Add(failure);
         }
 
         try
@@ -349,7 +365,7 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
         }
         catch (Exception failure)
         {
-            cleanupFailure ??= failure;
+            (cleanupFailures ??= []).Add(failure);
         }
 
         try
@@ -358,15 +374,30 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
         }
         catch (Exception failure)
         {
-            cleanupFailure ??= failure;
+            (cleanupFailures ??= []).Add(failure);
         }
 
-        shutdown.Dispose();
-        if (cleanupFailure is not null)
+        try
         {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo
-                .Capture(cleanupFailure)
+            shutdown.Dispose();
+        }
+        catch (Exception failure)
+        {
+            (cleanupFailures ??= []).Add(failure);
+        }
+
+        if (cleanupFailures is { Count: 1 })
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(
+                    cleanupFailures[0])
                 .Throw();
+        }
+
+        if (cleanupFailures is { Count: > 1 })
+        {
+            throw new AggregateException(
+                "Remote Window media queue cleanup failed.",
+                cleanupFailures);
         }
     }
 
@@ -392,8 +423,12 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
                 {
                     outcome = RemoteWindowMediaDeliveryOutcome.Failed;
                 }
+                finally
+                {
+                    queued.Frame.Dispose();
+                }
 
-                budget.Release(peerId, queued.Frame.PayloadLength);
+                budget.Release(peerId, queued.PayloadBytes);
                 queued.Completion.TrySetResult(outcome);
                 if (outcome != RemoteWindowMediaDeliveryOutcome.Sent)
                 {
@@ -416,7 +451,8 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
     {
         while (entries.Reader.TryRead(out QueuedFrame? queued))
         {
-            budget.Release(peerId, queued.Frame.PayloadLength);
+            queued.Frame.Dispose();
+            budget.Release(peerId, queued.PayloadBytes);
             queued.Completion.TrySetResult(outcome);
         }
     }
@@ -449,5 +485,6 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
 
     private sealed record QueuedFrame(
         RemoteWindowMediaFrame Frame,
+        int PayloadBytes,
         TaskCompletionSource<RemoteWindowMediaDeliveryOutcome> Completion);
 }

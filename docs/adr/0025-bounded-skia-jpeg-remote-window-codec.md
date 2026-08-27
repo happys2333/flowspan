@@ -54,6 +54,16 @@ source and scaled `SKBitmap` pixel spans and the native `SKData` encoded copy
 before disposing those Skia owners; failed managed decode buffers and pooled
 encode scratch are also cleared. Callers must dispose every successful owner.
 
+The Task 5 Transport handoff keeps that ownership explicit. One encoded owner of
+1 through 1,048,576 bytes becomes at most 16 owned media chunks of at most 65,536
+bytes with a continuous sequence range. The strict assembler consumes each chunk,
+clears rejected or partial state, and returns one disposable logical-frame owner.
+The sender owns every submitted logical frame, keeps only the latest pending frame,
+and sends one active chunk at a time through the bounded peer/session queue. A
+replacement, drop, send fault, cancellation, or teardown settles and clears every
+active, pending, queued, or partially assembled owner. This transport handoff does
+not yet compose capture-to-encoder or decoder-to-renderer production ownership.
+
 Commit one small fixed JPEG as the normative decoder fixture. The v1 fixture is
 397 bytes with SHA-256
 `f294e425eda6aea42373311b447ac5518eabe2a897304b5a90c9a25ae3c8095e`.

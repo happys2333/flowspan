@@ -240,10 +240,11 @@ admission profile treats `activity.offer`, `activity.receive`,
 authenticated control channel; every operation rechecks its exact current grant,
 and unknown or cross-routed message types remain fatal.
 
-Task 3 composes only that authenticated control channel. It does not instantiate
-the production Remote Window host/participant runtime or route media. Task 4
-freezes the media-route and codec decisions below, and Task 5 must compose them
-in the complete production Desktop runtime described above.
+Task 3 composes only that authenticated control channel. Task 4 freezes the
+media-route and codec decisions below. Task 5 is delivered as vertical slices:
+the current Transport slice composes the same-listener attachment, live
+control-owned media-session lifetime, logical-frame queue, and reassembly, while
+the complete production Desktop host/participant runtime remains open.
 
 The media stream stays distinct from control keys, framing, counters, queues, and
 rekey state as required by ADR 0022. ADR 0024 assigns this attachment contract to
@@ -251,7 +252,7 @@ protocol 1.6 and preserves every 1.5 control and media fixture byte-for-byte.
 Protocol 1.5 continues to expose Remote Window control; only 1.6 or later exposes
 the production media-route feature.
 
-Task 5's production listener will classify an independent `FSM1` attachment
+The production listener classifies an independent `FSM1` attachment
 envelope on the same published endpoint as pairing and authenticated control. Its
 bounded clear prefix contains only the versioned purpose and an unpredictable
 route ID needed to locate a current in-memory control route. It is not proof of
@@ -287,6 +288,33 @@ route; neither cleanup nor retry can republish that identifier inside the replay
 window. Long-running processes bound memory without weakening single-use
 semantics through arbitrary eviction.
 
+Each authenticated protocol-1.6 control registration transfers its
+purpose-separated media `SecureFrameSession` into exactly one connection-owned
+media session. The responder registers one route; the initiator connects one
+attachment. Route expiry, revoke, matched attachment failure, media send/receive
+fault, registration disposal, or listener shutdown requests stop of the owning
+control connection. Listener handler cleanup owns the accepted attachment and
+attempts disposal even after handler failure; one failure retains its identity and
+simultaneous handler and cleanup failures are aggregated.
+
+An encoded logical video frame owns 1 through 1,048,576 bytes and becomes 1
+through 16 `RemoteWindowMediaFrame` chunks of at most 65,536 bytes. Every chunk
+uses the same Session, Activity, kind, and count with zero-based indexes and a
+strictly continuous sequence range. The assembler consumes and clears each chunk,
+rejects any binding, kind, order, count, sequence, empty-payload, or aggregate-size
+violation, and returns one disposable completed owner. Partial and failed
+assemblies are cleared.
+
+The logical sender has one active frame and capacity for only the latest pending
+frame. A newer pending frame replaces and clears the older one. The active frame
+emits one chunk into the existing peer/session-budgeted capacity-one queue and
+waits for its terminal delivery before taking the next, so logical frames cannot
+interleave on the wire. Stop, replacement, backpressure, send failure,
+cancellation, and disposal settle every submission with a bounded outcome and
+clear all retained owners. Queue teardown attempts cancellation, worker join,
+sink disposal, budget unregister, and cancellation-source disposal even when an
+earlier stage fails.
+
 The attached media `SecureFrameSession` deliberately has no live rekey protocol.
 Its attachment envelopes and media frames consume the same directional epoch
 budgets. Before either direction would exceed `2^20` protected frames, 1 GiB of
@@ -297,9 +325,15 @@ session, and registers its new session-identifier route. It must not raise a
 budget, advance the media epoch without an authenticated transition, or reuse the
 consumed route.
 
+The current Transport slice proves failure coupling for normal attachment and
+media I/O faults, but it does not yet inject a small epoch budget and prove the
+complete close-control, fresh-handshake, new-route recovery path. That budget
+recovery contract remains an open Task 5 item and production availability gate.
+
 This decision gate is intentional: native capture may be developed and tested
 behind the bounded frame sink, but production availability remains false until
-the authenticated media route and participant renderer are composed.
+the Desktop runtime composes exact-source capture, encoder, authenticated media,
+decoder, participant renderer, native safety gates, and complete teardown.
 
 ## 7. Frame encoding and rendering
 

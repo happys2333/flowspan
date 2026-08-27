@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using Flowspan.Domain;
 
 namespace Flowspan.Transport;
@@ -10,11 +11,12 @@ public enum RemoteWindowMediaKind : byte
     Cursor = 3,
 }
 
-public sealed class RemoteWindowMediaFrame
+public sealed class RemoteWindowMediaFrame : IDisposable
 {
     public const int MaximumPayloadBytes = 64 * 1024;
     public const ushort MaximumVideoChunks = 16;
-    private readonly byte[] payload;
+    private readonly Lock gate = new();
+    private byte[]? payload;
 
     private RemoteWindowMediaFrame(
         RemoteWindowSessionId sessionId,
@@ -42,7 +44,16 @@ public sealed class RemoteWindowMediaFrame
 
     public RemoteWindowMediaKind Kind { get; }
 
-    public int PayloadLength => payload.Length;
+    public int PayloadLength
+    {
+        get
+        {
+            lock (gate)
+            {
+                return RequirePayload().Length;
+            }
+        }
+    }
 
     public ulong Sequence { get; }
 
@@ -57,6 +68,156 @@ public sealed class RemoteWindowMediaFrame
         ushort chunkCount,
         ReadOnlySpan<byte> payload)
     {
+        Validate(
+            sessionId,
+            activityId,
+            kind,
+            sequence,
+            chunkIndex,
+            chunkCount,
+            payload.Length,
+            nameof(payload));
+        byte[] ownedPayload = GC.AllocateUninitializedArray<byte>(payload.Length);
+        try
+        {
+            payload.CopyTo(ownedPayload);
+            return new RemoteWindowMediaFrame(
+                sessionId,
+                activityId,
+                kind,
+                sequence,
+                chunkIndex,
+                chunkCount,
+                ownedPayload);
+        }
+        catch
+        {
+            CryptographicOperations.ZeroMemory(ownedPayload);
+            throw;
+        }
+    }
+
+    public byte[] ExportPayload()
+    {
+        lock (gate)
+        {
+            byte[] current = RequirePayload();
+            byte[] exported = GC.AllocateUninitializedArray<byte>(current.Length);
+            try
+            {
+                current.CopyTo(exported, 0);
+                return exported;
+            }
+            catch
+            {
+                CryptographicOperations.ZeroMemory(exported);
+                throw;
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        byte[]? released;
+        lock (gate)
+        {
+            released = payload;
+            payload = null;
+        }
+
+        if (released is not null)
+        {
+            CryptographicOperations.ZeroMemory(released);
+        }
+    }
+
+    public override string ToString() =>
+        $"{nameof(RemoteWindowMediaFrame)} {{ Kind = {Kind}, "
+        + $"Sequence = {Sequence}, PayloadLength = {PayloadLength} }}";
+
+    internal void CopyPayloadTo(Span<byte> destination)
+    {
+        lock (gate)
+        {
+            RequirePayload().CopyTo(destination);
+        }
+    }
+
+    internal RemoteWindowMediaFrame Clone()
+    {
+        lock (gate)
+        {
+            byte[] current = RequirePayload();
+            byte[] cloned = GC.AllocateUninitializedArray<byte>(current.Length);
+            try
+            {
+                current.CopyTo(cloned, 0);
+                return new RemoteWindowMediaFrame(
+                    SessionId,
+                    ActivityId,
+                    Kind,
+                    Sequence,
+                    ChunkIndex,
+                    ChunkCount,
+                    cloned);
+            }
+            catch
+            {
+                CryptographicOperations.ZeroMemory(cloned);
+                throw;
+            }
+        }
+    }
+
+    internal static RemoteWindowMediaFrame TakeOwnership(
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        RemoteWindowMediaKind kind,
+        ulong sequence,
+        ushort chunkIndex,
+        ushort chunkCount,
+        byte[] ownedPayload)
+    {
+        ArgumentNullException.ThrowIfNull(ownedPayload);
+        Validate(
+            sessionId,
+            activityId,
+            kind,
+            sequence,
+            chunkIndex,
+            chunkCount,
+            ownedPayload.Length,
+            nameof(ownedPayload));
+        return new RemoteWindowMediaFrame(
+            sessionId,
+            activityId,
+            kind,
+            sequence,
+            chunkIndex,
+            chunkCount,
+            ownedPayload);
+    }
+
+    internal byte[] TakePayloadOwnership()
+    {
+        lock (gate)
+        {
+            byte[] ownedPayload = RequirePayload();
+            payload = null;
+            return ownedPayload;
+        }
+    }
+
+    private static void Validate(
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        RemoteWindowMediaKind kind,
+        ulong sequence,
+        ushort chunkIndex,
+        ushort chunkCount,
+        int payloadLength,
+        string payloadParameterName)
+    {
         ArgumentNullException.ThrowIfNull(sessionId);
         ArgumentNullException.ThrowIfNull(activityId);
         if (!Enum.IsDefined(kind))
@@ -65,40 +226,21 @@ public sealed class RemoteWindowMediaFrame
         }
 
         ArgumentOutOfRangeException.ThrowIfZero(sequence);
-        if (payload.Length > MaximumPayloadBytes)
+        if (payloadLength > MaximumPayloadBytes)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(payload),
+                payloadParameterName,
                 $"A Remote Window media payload cannot exceed {MaximumPayloadBytes} bytes.");
         }
 
         ValidateChunkShape(kind, chunkIndex, chunkCount);
-        return new RemoteWindowMediaFrame(
-            sessionId,
-            activityId,
-            kind,
-            sequence,
-            chunkIndex,
-            chunkCount,
-            payload.ToArray());
     }
 
-    public byte[] ExportPayload() => payload.ToArray();
-
-    public override string ToString() =>
-        $"{nameof(RemoteWindowMediaFrame)} {{ Kind = {Kind}, "
-        + $"Sequence = {Sequence}, PayloadLength = {PayloadLength} }}";
-
-    internal void CopyPayloadTo(Span<byte> destination) => payload.CopyTo(destination);
-
-    internal RemoteWindowMediaFrame Clone() => new(
-        SessionId,
-        ActivityId,
-        Kind,
-        Sequence,
-        ChunkIndex,
-        ChunkCount,
-        payload.ToArray());
+    private byte[] RequirePayload()
+    {
+        ObjectDisposedException.ThrowIf(payload is null, this);
+        return payload;
+    }
 
     private static void ValidateChunkShape(
         RemoteWindowMediaKind kind,
@@ -148,27 +290,35 @@ public static class RemoteWindowMediaFrameCodec
         ArgumentNullException.ThrowIfNull(frame);
         byte[] encoded = GC.AllocateUninitializedArray<byte>(
             checked(HeaderBytes + frame.PayloadLength));
-        Magic.CopyTo(encoded);
-        encoded[FormatOffset] = FormatVersion;
-        encoded[KindOffset] = (byte)frame.Kind;
-        encoded[FlagsOffset] = 0;
-        encoded[ReservedOffset] = 0;
-        WriteGuid(encoded.AsSpan(SessionIdOffset, IdentifierBytes), frame.SessionId.Value);
-        WriteGuid(encoded.AsSpan(ActivityIdOffset, IdentifierBytes), frame.ActivityId.Value);
-        BinaryPrimitives.WriteUInt64BigEndian(
-            encoded.AsSpan(SequenceOffset, sizeof(ulong)),
-            frame.Sequence);
-        BinaryPrimitives.WriteUInt16BigEndian(
-            encoded.AsSpan(ChunkIndexOffset, sizeof(ushort)),
-            frame.ChunkIndex);
-        BinaryPrimitives.WriteUInt16BigEndian(
-            encoded.AsSpan(ChunkCountOffset, sizeof(ushort)),
-            frame.ChunkCount);
-        BinaryPrimitives.WriteUInt32BigEndian(
-            encoded.AsSpan(PayloadLengthOffset, sizeof(uint)),
-            checked((uint)frame.PayloadLength));
-        frame.CopyPayloadTo(encoded.AsSpan(HeaderBytes));
-        return encoded;
+        try
+        {
+            Magic.CopyTo(encoded);
+            encoded[FormatOffset] = FormatVersion;
+            encoded[KindOffset] = (byte)frame.Kind;
+            encoded[FlagsOffset] = 0;
+            encoded[ReservedOffset] = 0;
+            WriteGuid(encoded.AsSpan(SessionIdOffset, IdentifierBytes), frame.SessionId.Value);
+            WriteGuid(encoded.AsSpan(ActivityIdOffset, IdentifierBytes), frame.ActivityId.Value);
+            BinaryPrimitives.WriteUInt64BigEndian(
+                encoded.AsSpan(SequenceOffset, sizeof(ulong)),
+                frame.Sequence);
+            BinaryPrimitives.WriteUInt16BigEndian(
+                encoded.AsSpan(ChunkIndexOffset, sizeof(ushort)),
+                frame.ChunkIndex);
+            BinaryPrimitives.WriteUInt16BigEndian(
+                encoded.AsSpan(ChunkCountOffset, sizeof(ushort)),
+                frame.ChunkCount);
+            BinaryPrimitives.WriteUInt32BigEndian(
+                encoded.AsSpan(PayloadLengthOffset, sizeof(uint)),
+                checked((uint)frame.PayloadLength));
+            frame.CopyPayloadTo(encoded.AsSpan(HeaderBytes));
+            return encoded;
+        }
+        catch
+        {
+            CryptographicOperations.ZeroMemory(encoded);
+            throw;
+        }
     }
 
     public static RemoteWindowMediaFrame Decode(

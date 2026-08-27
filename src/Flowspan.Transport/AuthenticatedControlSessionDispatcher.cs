@@ -57,6 +57,7 @@ internal sealed class AuthenticatedControlSessionDispatcher : IAsyncDisposable
         ActivityControlSession activitySession,
         RemoteWindowControlSession? remoteWindowSession,
         Func<IDisposable> enterSessionCall,
+        Func<ValueTask>? beginOwnedCleanup = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(activitySession);
@@ -132,13 +133,26 @@ internal sealed class AuthenticatedControlSessionDispatcher : IAsyncDisposable
         }
 
         Exception? cleanupFailure = null;
+        Task? ownedCleanup = null;
+        if (beginOwnedCleanup is not null)
+        {
+            try
+            {
+                ownedCleanup = beginOwnedCleanup().AsTask();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = exception;
+            }
+        }
+
         try
         {
             await routedConnection.StopAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {
-            cleanupFailure = exception;
+            cleanupFailure = CombineFailures(cleanupFailure, exception);
         }
 
         if (activityStarted)
@@ -152,6 +166,18 @@ internal sealed class AuthenticatedControlSessionDispatcher : IAsyncDisposable
             {
                 using IDisposable sessionCall = enterSessionCall();
                 await remoteWindowSession!.StopDispatchAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = CombineFailures(cleanupFailure, exception);
+            }
+        }
+
+        if (ownedCleanup is not null)
+        {
+            try
+            {
+                await ownedCleanup.ConfigureAwait(false);
             }
             catch (Exception exception)
             {

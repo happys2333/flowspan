@@ -50,7 +50,7 @@ public sealed class RemoteWindowMediaAttachmentTests
                 initiatorSession);
         await using RemoteWindowMediaAttachment responder =
             await acceptingAttachment;
-        RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Video,
@@ -61,7 +61,7 @@ public sealed class RemoteWindowMediaAttachmentTests
 
         Task<RemoteWindowMediaFrame> receiving = responder.ReceiveAsync().AsTask();
         await initiator.SendAsync(expected);
-        RemoteWindowMediaFrame actual = await receiving;
+        using RemoteWindowMediaFrame actual = await receiving;
 
         Assert.Equal(binding, initiator.Binding);
         Assert.Equal(binding, responder.Binding);

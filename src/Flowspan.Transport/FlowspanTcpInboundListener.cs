@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using Flowspan.Domain;
 using Flowspan.Security;
@@ -11,6 +12,7 @@ public enum InboundConnectionFailureStage
     ProtocolSelection,
     Capacity,
     Pairing,
+    MediaAttachment,
     Shutdown,
 }
 
@@ -23,10 +25,19 @@ public sealed record InboundPairingCompleted(
     IPEndPoint RemoteEndPoint,
     PairingCeremonyResult Result);
 
+public interface IRemoteWindowMediaAttachmentHandler
+{
+    public ValueTask HandleAsync(
+        RemoteWindowMediaAttachment attachment,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class FlowspanTcpInboundProfile
 {
     public const int DefaultMaximumConcurrentPairings = 1;
+    public const int DefaultMaximumConcurrentMediaAttachments = 32;
     public const int MaximumConcurrentConnectionsLimit = 128;
+    public const int MaximumConcurrentMediaAttachmentsLimit = 128;
     public const int MaximumConcurrentPairingsLimit = 8;
     public static readonly TimeSpan DefaultProtocolSelectionTimeout =
         TimeSpan.FromSeconds(10);
@@ -37,7 +48,9 @@ public sealed class FlowspanTcpInboundProfile
         AuthenticatedInboundSessionProfile sessionProfile,
         int? maximumConcurrentConnections = null,
         int maximumConcurrentPairings = DefaultMaximumConcurrentPairings,
-        TimeSpan? protocolSelectionTimeout = null)
+        TimeSpan? protocolSelectionTimeout = null,
+        int maximumConcurrentMediaAttachments =
+            DefaultMaximumConcurrentMediaAttachments)
     {
         ArgumentNullException.ThrowIfNull(sessionProfile);
         if (maximumConcurrentPairings is < 1
@@ -46,12 +59,22 @@ public sealed class FlowspanTcpInboundProfile
             throw new ArgumentOutOfRangeException(nameof(maximumConcurrentPairings));
         }
 
+        if (maximumConcurrentMediaAttachments is < 1
+            or > MaximumConcurrentMediaAttachmentsLimit)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumConcurrentMediaAttachments));
+        }
+
         int defaultConnections = Math.Min(
             MaximumConcurrentConnectionsLimit,
-            sessionProfile.MaximumConcurrentSessions + maximumConcurrentPairings);
+            sessionProfile.MaximumConcurrentSessions
+                + maximumConcurrentPairings
+                + maximumConcurrentMediaAttachments);
         int connections = maximumConcurrentConnections ?? defaultConnections;
         if (connections < sessionProfile.MaximumConcurrentSessions
             || connections < maximumConcurrentPairings
+            || connections < maximumConcurrentMediaAttachments
             || connections > MaximumConcurrentConnectionsLimit)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumConcurrentConnections));
@@ -66,6 +89,7 @@ public sealed class FlowspanTcpInboundProfile
         }
 
         MaximumConcurrentConnections = connections;
+        MaximumConcurrentMediaAttachments = maximumConcurrentMediaAttachments;
         MaximumConcurrentPairings = maximumConcurrentPairings;
         ProtocolSelectionTimeout = selectionTimeout;
         SessionProfile = sessionProfile;
@@ -74,6 +98,8 @@ public sealed class FlowspanTcpInboundProfile
     public int MaximumConcurrentConnections { get; }
 
     public int MaximumConcurrentPairings { get; }
+
+    public int MaximumConcurrentMediaAttachments { get; }
 
     public TimeSpan ProtocolSelectionTimeout { get; }
 
@@ -86,6 +112,8 @@ public sealed class FlowspanTcpInboundListener
     private readonly Lock gate = new();
     private readonly IAuthenticatedControlSessionHandler handler;
     private readonly DeviceIdentity localIdentity;
+    private readonly IRemoteWindowMediaAttachmentHandler? mediaHandler;
+    private readonly RemoteWindowMediaRouteRegistry? mediaRoutes;
     private readonly PairingCeremony pairingCeremony;
     private readonly FlowspanTcpInboundProfile profile;
     private readonly TcpListener socket;
@@ -101,6 +129,32 @@ public sealed class FlowspanTcpInboundListener
         TrustSessionCoordinator trustSessions,
         FlowspanTcpInboundProfile profile,
         IAuthenticatedControlSessionHandler handler,
+        TimeProvider? timeProvider = null,
+        AuthenticatedRemoteWindowMediaSessionDirectory?
+            remoteWindowMediaSessions = null) : this(
+                socket,
+                localIdentity,
+                pairingProfile,
+                pairingDecisions,
+                trustSessions,
+                profile,
+                handler,
+                remoteWindowMediaSessions?.Routes,
+                remoteWindowMediaSessions,
+                timeProvider)
+    {
+    }
+
+    internal FlowspanTcpInboundListener(
+        TcpListener socket,
+        DeviceIdentity localIdentity,
+        PairingCeremonyProfile pairingProfile,
+        IPairingDecisionSource pairingDecisions,
+        TrustSessionCoordinator trustSessions,
+        FlowspanTcpInboundProfile profile,
+        IAuthenticatedControlSessionHandler handler,
+        RemoteWindowMediaRouteRegistry? mediaRoutes,
+        IRemoteWindowMediaAttachmentHandler? mediaHandler,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(socket);
@@ -110,11 +164,18 @@ public sealed class FlowspanTcpInboundListener
         ArgumentNullException.ThrowIfNull(trustSessions);
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(handler);
+        if ((mediaRoutes is null) != (mediaHandler is null))
+        {
+            throw new ArgumentException(
+                "Remote Window media routes and their attachment handler must be configured together.");
+        }
         this.socket = socket;
         this.localIdentity = localIdentity;
         this.trustSessions = trustSessions;
         this.profile = profile;
         this.handler = handler;
+        this.mediaRoutes = mediaRoutes;
+        this.mediaHandler = mediaHandler;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         pairingCeremony = new PairingCeremony(
             pairingProfile,
@@ -145,6 +206,9 @@ public sealed class FlowspanTcpInboundListener
         using var pairingSlots = new SemaphoreSlim(
             profile.MaximumConcurrentPairings,
             profile.MaximumConcurrentPairings);
+        using var mediaSlots = new SemaphoreSlim(
+            profile.MaximumConcurrentMediaAttachments,
+            profile.MaximumConcurrentMediaAttachments);
         using var sessionSlots = new SemaphoreSlim(
             profile.SessionProfile.MaximumConcurrentSessions,
             profile.SessionProfile.MaximumConcurrentSessions);
@@ -175,6 +239,7 @@ public sealed class FlowspanTcpInboundListener
                     connection,
                     connectionSlots,
                     pairingSlots,
+                    mediaSlots,
                     sessionSlots,
                     stop.Token);
                 lock (gate)
@@ -295,9 +360,114 @@ public sealed class FlowspanTcpInboundListener
             cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task RunMediaAttachmentAsync(
+        DirectTcpPeerConnection connection,
+        byte[] initialEnvelope,
+        IPEndPoint remoteEndPoint,
+        CancellationToken cancellationToken)
+    {
+        Stream? stream = null;
+        try
+        {
+            if (mediaRoutes is null || mediaHandler is null)
+            {
+                throw new InvalidOperationException(
+                    "Remote Window media attachment is unavailable on this listener.");
+            }
+
+            stream = connection.TakeRemoteWindowMediaStream();
+            Stream transferredStream = stream;
+            stream = null;
+            RemoteWindowMediaAttachment attachment =
+                await mediaRoutes.AcceptAsync(
+                    transferredStream,
+                    initialEnvelope,
+                    RemoteWindowMediaAttachment.DefaultHandshakeTimeout,
+                    cancellationToken).ConfigureAwait(false);
+            CryptographicOperations.ZeroMemory(initialEnvelope);
+            await RunOwnedMediaAttachmentHandlerAsync(
+                    attachment,
+                    mediaHandler,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            PublishConnectionFailure(new InboundConnectionFailure(
+                InboundConnectionFailureStage.MediaAttachment,
+                remoteEndPoint,
+                exception));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(initialEnvelope);
+            if (stream is not null)
+            {
+                try
+                {
+                    await stream.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    PublishConnectionFailure(new InboundConnectionFailure(
+                        InboundConnectionFailureStage.Shutdown,
+                        remoteEndPoint,
+                        exception));
+                }
+            }
+        }
+    }
+
+    internal static async ValueTask RunOwnedMediaAttachmentHandlerAsync(
+        RemoteWindowMediaAttachment attachment,
+        IRemoteWindowMediaAttachmentHandler handler,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(attachment);
+        ArgumentNullException.ThrowIfNull(handler);
+        Exception? primaryFailure = null;
+        try
+        {
+            await handler.HandleAsync(attachment, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+        }
+
+        Exception? cleanupFailure = null;
+        try
+        {
+            await attachment.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            cleanupFailure = exception;
+        }
+
+        if (primaryFailure is not null && cleanupFailure is not null)
+        {
+            throw new AggregateException(
+                "The Remote Window media handler and attachment cleanup both failed.",
+                primaryFailure,
+                cleanupFailure);
+        }
+
+        Exception? failure = primaryFailure ?? cleanupFailure;
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
     private async Task RunConnectionAsync(
         DirectTcpPeerConnection connection,
         SemaphoreSlim pairingSlots,
+        SemaphoreSlim mediaSlots,
         SemaphoreSlim sessionSlots,
         CancellationToken cancellationToken)
     {
@@ -330,6 +500,48 @@ public sealed class FlowspanTcpInboundListener
                             exception)));
                     return;
                 }
+            }
+
+            bool isMediaAttachment = initialMessage.AsSpan().StartsWith("FSM1"u8);
+            if (isMediaAttachment)
+            {
+                if (initialMessage.Length
+                    != RemoteWindowMediaAttachmentCodec.RequestEnvelopeBytes)
+                {
+                    PublishConnectionFailure(new InboundConnectionFailure(
+                        InboundConnectionFailureStage.MediaAttachment,
+                        remoteEndPoint,
+                        new InvalidDataException(
+                            "The initial Remote Window media attachment envelope length is invalid.")));
+                    return;
+                }
+
+                if (!mediaSlots.Wait(0, cancellationToken))
+                {
+                    PublishConnectionFailure(new InboundConnectionFailure(
+                        InboundConnectionFailureStage.Capacity,
+                        remoteEndPoint,
+                        new InvalidOperationException(
+                            "The inbound Remote Window media-attachment capacity is exhausted.")));
+                    return;
+                }
+
+                try
+                {
+                    byte[] mediaEnvelope = initialMessage;
+                    initialMessage = null;
+                    await RunMediaAttachmentAsync(
+                        connection,
+                        mediaEnvelope,
+                        remoteEndPoint,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    mediaSlots.Release();
+                }
+
+                return;
             }
 
             InboundHandshakeProtocol protocol;
@@ -459,6 +671,7 @@ public sealed class FlowspanTcpInboundListener
         DirectTcpPeerConnection connection,
         SemaphoreSlim connectionSlots,
         SemaphoreSlim pairingSlots,
+        SemaphoreSlim mediaSlots,
         SemaphoreSlim sessionSlots,
         CancellationToken cancellationToken)
     {
@@ -467,6 +680,7 @@ public sealed class FlowspanTcpInboundListener
             await RunConnectionAsync(
                 connection,
                 pairingSlots,
+                mediaSlots,
                 sessionSlots,
                 cancellationToken).ConfigureAwait(false);
         }

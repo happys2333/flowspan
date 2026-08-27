@@ -29,14 +29,14 @@ public sealed class RemoteWindowMediaOutboundQueueTests
             sequence <= RemoteWindowMediaOutboundQueue.MaximumFrames;
             sequence++)
         {
-            RemoteWindowMediaFrame frame = CreateFrame(sequence);
+            using RemoteWindowMediaFrame frame = CreateFrame(sequence);
             firstSubmitted ??= frame;
             accepted.Add(queue.TryEnqueue(frame));
         }
 
         await sink.FirstSendStarted.WaitAsync(TimeSpan.FromSeconds(5));
         RemoteWindowMediaEnqueueResult backpressured =
-            queue.TryEnqueue(CreateFrame(sequence: 9));
+            EnqueueFrame(queue, sequence: 9);
         RemoteWindowMediaBudgetSnapshot saturated = budget.Snapshot;
 
         Assert.All(accepted, result =>
@@ -127,12 +127,12 @@ public sealed class RemoteWindowMediaOutboundQueueTests
             DeviceId.Parse("33333333-3333-3333-3333-333333333333"),
             secondSink);
         RemoteWindowMediaEnqueueResult first =
-            firstQueue.TryEnqueue(CreateFrame(sequence: 1));
+            EnqueueFrame(firstQueue, sequence: 1);
         RemoteWindowMediaEnqueueResult second =
-            secondQueue.TryEnqueue(CreateFrame(sequence: 2));
+            EnqueueFrame(secondQueue, sequence: 2);
 
         RemoteWindowMediaEnqueueResult rejected =
-            firstQueue.TryEnqueue(CreateFrame(sequence: 3));
+            EnqueueFrame(firstQueue, sequence: 3);
 
         Assert.True(first.Accepted);
         Assert.True(second.Accepted);
@@ -160,9 +160,9 @@ public sealed class RemoteWindowMediaOutboundQueueTests
         var queue = new RemoteWindowMediaOutboundQueue(budget, PeerId, sink);
         RemoteWindowMediaEnqueueResult[] accepted =
         [
-            queue.TryEnqueue(CreateFrame(sequence: 1)),
-            queue.TryEnqueue(CreateFrame(sequence: 2)),
-            queue.TryEnqueue(CreateFrame(sequence: 3)),
+            EnqueueFrame(queue, sequence: 1),
+            EnqueueFrame(queue, sequence: 2),
+            EnqueueFrame(queue, sequence: 3),
         ];
         await sink.SendStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -170,7 +170,7 @@ public sealed class RemoteWindowMediaOutboundQueueTests
         RemoteWindowMediaDeliveryOutcome[] outcomes = await Task.WhenAll(
             accepted.Select(result => result.Completion!));
         RemoteWindowMediaEnqueueResult rejected =
-            queue.TryEnqueue(CreateFrame(sequence: 4));
+            EnqueueFrame(queue, sequence: 4);
         RemoteWindowMediaBudgetSnapshot drained = budget.Snapshot;
 
         Assert.All(outcomes, outcome =>
@@ -196,9 +196,9 @@ public sealed class RemoteWindowMediaOutboundQueueTests
         var queue = new RemoteWindowMediaOutboundQueue(budget, PeerId, sink);
         RemoteWindowMediaEnqueueResult[] accepted =
         [
-            queue.TryEnqueue(CreateFrame(sequence: 1)),
-            queue.TryEnqueue(CreateFrame(sequence: 2)),
-            queue.TryEnqueue(CreateFrame(sequence: 3)),
+            EnqueueFrame(queue, sequence: 1),
+            EnqueueFrame(queue, sequence: 2),
+            EnqueueFrame(queue, sequence: 3),
         ];
         await sink.FirstSendStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -206,7 +206,7 @@ public sealed class RemoteWindowMediaOutboundQueueTests
         RemoteWindowMediaDeliveryOutcome[] outcomes = await Task.WhenAll(
             accepted.Select(result => result.Completion!));
         RemoteWindowMediaEnqueueResult rejected =
-            queue.TryEnqueue(CreateFrame(sequence: 4));
+            EnqueueFrame(queue, sequence: 4);
 
         Assert.All(outcomes, outcome =>
             Assert.Equal(RemoteWindowMediaDeliveryOutcome.Cancelled, outcome));
@@ -261,14 +261,71 @@ public sealed class RemoteWindowMediaOutboundQueueTests
     }
 
     [Fact]
+    public async Task CancellationCallbackFailureCannotSkipQueueCleanup()
+    {
+        var budget = new RemoteWindowMediaSessionBudget();
+        var sink = new ThrowingCancellationMediaSink();
+        var queue = new RemoteWindowMediaOutboundQueue(budget, PeerId, sink);
+        RemoteWindowMediaEnqueueResult[] accepted =
+        [
+            EnqueueFrame(queue, sequence: 1),
+            EnqueueFrame(queue, sequence: 2),
+            EnqueueFrame(queue, sequence: 3),
+        ];
+        await sink.SendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task<Task> invokingDisposal = Task.Factory.StartNew(
+            () => queue.DisposeAsync().AsTask(),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        await sink.CancellationStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        Task disposing;
+        try
+        {
+            disposing = await invokingDisposal.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.False(disposing.IsCompleted);
+        }
+        finally
+        {
+            sink.ReleaseCancellation();
+        }
+
+        AggregateException failure =
+            await Assert.ThrowsAsync<AggregateException>(async () =>
+                await disposing);
+
+        Assert.Equal(2, failure.Flatten().InnerExceptions.Count);
+        Assert.Contains(
+            failure.Flatten().InnerExceptions,
+            cause => ReferenceEquals(cause, sink.CancellationFailure));
+        Assert.Contains(
+            failure.Flatten().InnerExceptions,
+            cause => ReferenceEquals(cause, sink.CleanupFailure));
+        Assert.All(
+            await Task.WhenAll(accepted.Select(result => result.Completion!)),
+            outcome => Assert.Equal(
+                RemoteWindowMediaDeliveryOutcome.Cancelled,
+                outcome));
+        Assert.True(sink.IsDisposed);
+        Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
+
+        await using var replacement = new RemoteWindowMediaOutboundQueue(
+            budget,
+            PeerId,
+            new ImmediateMediaSink());
+    }
+
+    [Fact]
     public async Task ConcurrentEnqueueNeverOverbooksPeerBudget()
     {
         var budget = new RemoteWindowMediaSessionBudget();
         var sink = new BlockingMediaSink();
         var queue = new RemoteWindowMediaOutboundQueue(budget, PeerId, sink);
         Task<RemoteWindowMediaEnqueueResult>[] attempts = Enumerable.Range(1, 64)
-            .Select(index => Task.Run(() => queue.TryEnqueue(
-                CreateFrame(checked((ulong)index)))))
+            .Select(index => Task.Run(() => EnqueueFrame(
+                queue,
+                checked((ulong)index))))
             .ToArray();
 
         RemoteWindowMediaEnqueueResult[] results = await Task.WhenAll(attempts);
@@ -294,6 +351,27 @@ public sealed class RemoteWindowMediaOutboundQueueTests
         Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
     }
 
+    [Fact]
+    public async Task SentQueueCloneIsDisposedBeforeDeliveryCompletes()
+    {
+        var budget = new RemoteWindowMediaSessionBudget();
+        var sink = new CapturingMediaSink();
+        await using var queue = new RemoteWindowMediaOutboundQueue(
+            budget,
+            PeerId,
+            sink);
+        using RemoteWindowMediaFrame submitted = CreateFrame(sequence: 1);
+
+        RemoteWindowMediaEnqueueResult result = queue.TryEnqueue(submitted);
+
+        Assert.Equal(
+            RemoteWindowMediaDeliveryOutcome.Sent,
+            await result.Completion!);
+        Assert.NotNull(sink.Frame);
+        Assert.Throws<ObjectDisposedException>(sink.Frame.ExportPayload);
+        Assert.NotEmpty(submitted.ExportPayload());
+    }
+
     private static RemoteWindowMediaFrame CreateFrame(ulong sequence) =>
         RemoteWindowMediaFrame.Create(
             SessionId,
@@ -303,6 +381,27 @@ public sealed class RemoteWindowMediaOutboundQueueTests
             chunkIndex: 0,
             chunkCount: 1,
             [checked((byte)sequence)]);
+
+    private static RemoteWindowMediaEnqueueResult EnqueueFrame(
+        RemoteWindowMediaOutboundQueue queue,
+        ulong sequence)
+    {
+        using RemoteWindowMediaFrame frame = CreateFrame(sequence);
+        return queue.TryEnqueue(frame);
+    }
+
+    private sealed class CapturingMediaSink : IRemoteWindowMediaSink
+    {
+        public RemoteWindowMediaFrame? Frame { get; private set; }
+
+        public ValueTask SendAsync(
+            RemoteWindowMediaFrame frame,
+            CancellationToken cancellationToken = default)
+        {
+            Frame = frame;
+            return ValueTask.CompletedTask;
+        }
+    }
 
     private sealed class BlockingMediaSink : IRemoteWindowMediaSink, IDisposable
     {
@@ -409,5 +508,53 @@ public sealed class RemoteWindowMediaOutboundQueueTests
             await fail.Task.WaitAsync(cancellationToken);
             throw new InvalidOperationException(exceptionMessage);
         }
+    }
+
+    private sealed class ThrowingCancellationMediaSink :
+        IRemoteWindowMediaSink,
+        IAsyncDisposable
+    {
+        public Exception CancellationFailure { get; } =
+            new InvalidOperationException("injected cancellation callback failure");
+
+        public Exception CleanupFailure { get; } =
+            new InvalidOperationException("injected sink cleanup failure");
+
+        public bool IsDisposed { get; private set; }
+
+        public Task CancellationStarted => cancellationStarted.Task;
+
+        public TaskCompletionSource SendStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private readonly TaskCompletionSource cancellationStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private readonly TaskCompletionSource releaseCancellation =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask DisposeAsync()
+        {
+            IsDisposed = true;
+            return ValueTask.FromException(CleanupFailure);
+        }
+
+        public async ValueTask SendAsync(
+            RemoteWindowMediaFrame frame,
+            CancellationToken cancellationToken = default)
+        {
+            using CancellationTokenRegistration callback =
+                cancellationToken.Register(() =>
+                {
+                    cancellationStarted.TrySetResult();
+                    releaseCancellation.Task.GetAwaiter().GetResult();
+                    throw CancellationFailure;
+                });
+            SendStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+
+        public void ReleaseCancellation() =>
+            releaseCancellation.TrySetResult();
     }
 }

@@ -36,7 +36,7 @@ public sealed class AuthenticatedControlSessionDispatcherConcurrencyTests
             session,
             remoteWindowSession: null,
             static () => NullDisposable.Instance,
-            stop.Token).AsTask();
+            cancellationToken: stop.Token).AsTask();
         await connection.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Task<ActivityDeliveryResult> sending = session.SendAsync(
             LocalId,
@@ -55,6 +55,147 @@ public sealed class AuthenticatedControlSessionDispatcherConcurrencyTests
         Assert.Equal(
             ActivityDeliveryStatus.AcknowledgementLost,
             (await sending.WaitAsync(TimeSpan.FromSeconds(5))).Status);
+    }
+
+    [Fact]
+    public async Task OwnedCleanupRevokesBeforeDispatcherStopAndDrainsAfterLocalStop()
+    {
+        var receiveStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseReceive = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var sendStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowCleanup = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var receiveFailure = new InvalidDataException("receive-primary");
+        bool dispatcherWasStoppingWhenCleanupStarted = true;
+        await using var dispatcher = new AuthenticatedControlSessionDispatcher(
+            LocalId,
+            PeerId,
+            new ProtocolVersion(1, 4),
+            async cancellationToken =>
+            {
+                _ = cancellationToken;
+                receiveStarted.TrySetResult();
+                await releaseReceive.Task;
+                throw receiveFailure;
+            },
+            (_, _) =>
+            {
+                sendStarted.TrySetResult();
+                return ValueTask.CompletedTask;
+            });
+        await using var session = new ActivityControlSession(
+            dispatcher.ActivityConnection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        Task run = dispatcher.RunAsync(
+            session,
+            remoteWindowSession: null,
+            static () => NullDisposable.Instance,
+            beginOwnedCleanup: () =>
+            {
+                dispatcherWasStoppingWhenCleanupStarted =
+                    dispatcher.HasStartedStopping;
+                cleanupStarted.TrySetResult();
+                return new ValueTask(allowCleanup.Task);
+            }).AsTask();
+        await receiveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task<ActivityDeliveryResult> sending = session.SendAsync(
+            LocalId,
+            CreateOffer(),
+            CancellationToken.None).AsTask();
+        await sendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        releaseReceive.TrySetResult();
+        await cleanupStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        ActivityDeliveryResult delivery = await sending.WaitAsync(
+            TimeSpan.FromSeconds(5));
+
+        Assert.False(dispatcherWasStoppingWhenCleanupStarted);
+        Assert.True(dispatcher.HasStartedStopping);
+        Assert.False(session.SupportsSwap);
+        Assert.Equal(
+            ActivityDeliveryStatus.AcknowledgementLost,
+            delivery.Status);
+        Assert.False(run.IsCompleted);
+        allowCleanup.TrySetResult();
+        InvalidDataException failure =
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                run.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Same(receiveFailure, failure);
+    }
+
+    [Fact]
+    public async Task RunPreservesReceiveOwnedCleanupAndRoutedStopFailures()
+    {
+        var receiveStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseReceive = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var sendStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var receiveFailure = new InvalidDataException("receive-primary");
+        var ownedCleanupFailure = new InvalidOperationException("owned-cleanup");
+        var routedStopFailure = new InvalidOperationException("routed-stop");
+        var dispatcher = new AuthenticatedControlSessionDispatcher(
+            LocalId,
+            PeerId,
+            new ProtocolVersion(1, 4),
+            async cancellationToken =>
+            {
+                _ = cancellationToken;
+                receiveStarted.TrySetResult();
+                await releaseReceive.Task;
+                throw receiveFailure;
+            },
+            async (_, cancellationToken) =>
+            {
+                Task pending = Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+                using CancellationTokenRegistration registration =
+                    cancellationToken.Register(() => throw routedStopFailure);
+                sendStarted.TrySetResult();
+                await pending;
+            });
+        var session = new ActivityControlSession(
+            dispatcher.ActivityConnection,
+            new RejectingActivityPeer(LocalId),
+            new FixedTimeProvider(Now));
+        Task run = dispatcher.RunAsync(
+            session,
+            remoteWindowSession: null,
+            static () => NullDisposable.Instance,
+            beginOwnedCleanup: () => throw ownedCleanupFailure).AsTask();
+        await receiveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task sending = dispatcher.ActivityConnection.SendAsync(
+            CreateMessage(),
+            CancellationToken.None).AsTask();
+        await sendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        releaseReceive.TrySetResult();
+
+        AggregateException failure = await Assert.ThrowsAsync<AggregateException>(
+            () => run.WaitAsync(TimeSpan.FromSeconds(5)));
+        await Assert.ThrowsAsync<IOException>(() =>
+            sending.WaitAsync(TimeSpan.FromSeconds(5)));
+        IReadOnlyCollection<Exception> failures =
+            failure.Flatten().InnerExceptions;
+        Assert.Contains(failures, item => ReferenceEquals(item, receiveFailure));
+        Assert.Contains(failures, item => ReferenceEquals(item, ownedCleanupFailure));
+        Assert.Contains(failures, item => ReferenceEquals(item, routedStopFailure));
+
+        AggregateException repeatedStopFailure =
+            await Assert.ThrowsAsync<AggregateException>(() =>
+                dispatcher.DisposeAsync().AsTask());
+        Assert.Contains(
+            repeatedStopFailure.Flatten().InnerExceptions,
+            item => ReferenceEquals(item, routedStopFailure));
+        await session.DisposeAsync();
     }
 
     [Fact]

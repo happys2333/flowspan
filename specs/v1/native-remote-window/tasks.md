@@ -75,6 +75,27 @@
     complete native and authenticated path.
   - Add public Desktop tests for source churn, readiness, prompt order, visible
     sharing, rendering, input mapping, failure, and recovery.
+  - [x] 5.1 Compose protocol-1.6 media sessions into authenticated control
+    registration and the shared published listener. Bind route ownership to the
+    control lifetime and stop control on route, attachment, or media failure.
+  - [x] 5.2 Implement owned 64-KiB chunking and strict reassembly for a bounded
+    1-MiB logical video frame, including mismatch, allocation/copy failure,
+    cancellation, replacement, and zeroing tests.
+  - [x] 5.3 Implement the capacity-one latest-pending logical-frame sender over
+    the peer/session-budgeted outbound queue, with one outstanding wire chunk,
+    bounded outcomes, non-cooperative cancellation coverage, and complete
+    teardown/failure aggregation.
+  - [ ] 5.4 Prove small epoch/frame/plaintext budget exhaustion closes both the
+    attachment and owning control connection, then completes a fresh authenticated
+    handshake with a new media session and route without rekey or reuse.
+  - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
+    JPEG encoder, authenticated media, decoder, participant renderer, protection,
+    independent Emergency Stop, visible sharing, input, and ordered Desktop
+    teardown. Keep `CreateProduction` unavailable until this path is complete.
+  - Candidate evidence for 5.1-5.3:
+    `docs/evidence/2026-08-28-native-remote-window-transport-candidate.md`.
+    This remains dirty-tree local macOS evidence until committed and verified by
+    exact-commit Windows/macOS/Linux CI, Secret Scan, and CodeQL.
   - _Requirements: NR1-NR6, NR8-NR9_
 
 - [ ] 6. Deliver the macOS native vertical slice

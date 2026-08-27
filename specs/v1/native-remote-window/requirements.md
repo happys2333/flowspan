@@ -104,6 +104,21 @@ as Remote Window.
    one still JPEG image with positive bounded dimensions, no more than 16,777,216
    pixels, and no more than 67,108,864 decoded BGRA bytes; malformed, truncated,
    animated, multi-frame, or other formats shall fail closed.
+10. When sending one encoded logical video frame, Flowspan shall split 1 through
+    1,048,576 owned bytes into at most 16 ordered chunks of at most 65,536 bytes,
+    with one Session, Activity, chunk count, and strictly continuous sequence
+    range. The receiver shall reject a wrong binding, kind, count, index, order,
+    sequence, empty chunk, or aggregate size and shall clear any partial frame.
+11. While transport is slower than capture, Flowspan shall retain at most one
+    not-yet-started logical video frame. A newer frame shall replace and clear the
+    older pending frame; the active frame shall send at most one wire chunk at a
+    time, shall never interleave with another logical frame, and shall report a
+    bounded Sent, Replaced, Dropped, Failed, or Cancelled outcome.
+12. When a connection-owned media route expires, is revoked, fails attachment,
+    faults during media I/O, or is disposed, Flowspan shall stop the owning
+    authenticated control connection and shall not reuse that media session or
+    route. Budget exhaustion additionally requires the fresh authenticated
+    recovery specified in NR8.
 
 ### NR4 - Native input
 
@@ -178,6 +193,22 @@ as Remote Window.
 4. Native resources, frame buffers, event taps, portal sessions, PipeWire
    streams, COM objects, and callback handles shall be released on success,
    failure, cancellation, timeout, replacement, and disposal.
+5. When an asynchronous media handshake or frame operation ignores cancellation,
+   caller cancellation, the configured deadline, or session disposal shall still
+   stop waiting without clearing or reusing a buffer still borrowed by that
+   operation. Flowspan shall observe the detached completion and clear the buffer
+   only after the underlying operation settles.
+6. Media teardown shall attempt cancellation, active and pending frame release,
+   queue drain, budget release, sink disposal, attachment disposal, route cleanup,
+   and control stop even when an earlier stage fails. One failure shall preserve
+   its original identity; concurrent primary and cleanup failures shall remain
+   observable together.
+7. Before either attached media direction exhausts `2^20` protected frames,
+   1 GiB of plaintext, or its sequence/epoch range, Flowspan shall close the media
+   attachment and owning authenticated control connection. Recovery shall perform
+   a fresh authenticated control handshake, derive a fresh media session, and use
+   a new route without raising a budget, rekeying media in place, or republishing
+   the consumed route.
 
 ### NR9 - Accessibility and visible sharing
 

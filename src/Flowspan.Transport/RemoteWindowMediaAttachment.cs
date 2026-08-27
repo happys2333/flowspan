@@ -139,6 +139,7 @@ public sealed class RemoteWindowMediaAttachment :
                 CryptographicOperations.ZeroMemory(responderNonce);
             }
 
+            operation.Token.ThrowIfCancellationRequested();
             var channel = new SecureRemoteWindowMediaChannel(
                 stream,
                 ownedMediaSession,
@@ -1223,6 +1224,8 @@ public sealed class RemoteWindowMediaRouteRegistration : IAsyncDisposable
 
     public bool IsAttached => registry.IsAttached(entry);
 
+    internal Task CleanupCompletion => entry.CleanupCompletion.Task;
+
     public ValueTask DisposeAsync() => registry.RevokeAsync(entry);
 
     public override string ToString() =>
@@ -1240,12 +1243,20 @@ internal static class RemoteWindowMediaAttachmentWire
     {
         byte[] prefix = new byte[LengthPrefixBytes];
         BinaryPrimitives.WriteInt32BigEndian(prefix, envelope.Length);
-        await WriteOwnedAsync(stream, prefix, cancellationToken)
+        await WriteOwnedAsync(
+                stream,
+                prefix,
+                cancellationToken)
             .ConfigureAwait(false);
-        await WriteOwnedAsync(stream, envelope, cancellationToken)
+        await WriteOwnedAsync(
+                stream,
+                envelope,
+                cancellationToken)
             .ConfigureAwait(false);
         Task flushing = stream.FlushAsync(cancellationToken);
-        await WaitAndObserveAsync(flushing, cancellationToken)
+        await WaitAndObserveAsync(
+                flushing,
+                cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -1257,7 +1268,9 @@ internal static class RemoteWindowMediaAttachmentWire
         byte[] prefix = new byte[LengthPrefixBytes];
         Task prefixRead = stream.ReadExactlyAsync(prefix, cancellationToken)
             .AsTask();
-        await WaitAndObserveAsync(prefixRead, cancellationToken)
+        await WaitAndObserveAsync(
+                prefixRead,
+                cancellationToken)
             .ConfigureAwait(false);
         int length = BinaryPrimitives.ReadInt32BigEndian(prefix);
         if (length != expectedEnvelopeBytes
@@ -1273,7 +1286,9 @@ internal static class RemoteWindowMediaAttachmentWire
         {
             envelopeRead = stream.ReadExactlyAsync(envelope, cancellationToken)
                 .AsTask();
-            await envelopeRead.WaitAsync(cancellationToken)
+            await WaitAndObserveAsync(
+                    envelopeRead,
+                    cancellationToken)
                 .ConfigureAwait(false);
             return envelope;
         }
@@ -1303,7 +1318,10 @@ internal static class RemoteWindowMediaAttachmentWire
         try
         {
             writing = stream.WriteAsync(owned, cancellationToken).AsTask();
-            await writing.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await WaitAndObserveAsync(
+                    writing,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
         catch
         {
@@ -1334,10 +1352,7 @@ internal static class RemoteWindowMediaAttachmentWire
         }
         catch
         {
-            if (!operation.IsCompleted)
-            {
-                _ = ObserveWhenCompletedAsync(operation);
-            }
+            _ = ObserveWhenCompletedAsync(operation);
 
             throw;
         }

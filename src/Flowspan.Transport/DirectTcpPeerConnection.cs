@@ -143,6 +143,22 @@ public sealed class DirectTcpPeerConnection :
         return message;
     }
 
+    internal Stream TakeRemoteWindowMediaStream()
+    {
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (upgraded)
+            {
+                throw new InvalidOperationException(
+                    "A direct TCP connection can transfer ownership only once.");
+            }
+
+            upgraded = true;
+            return client.GetStream();
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
         lock (gate)

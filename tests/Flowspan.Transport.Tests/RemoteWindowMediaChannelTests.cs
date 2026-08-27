@@ -40,7 +40,7 @@ public sealed class RemoteWindowMediaChannelTests
             responder,
             SessionId,
             ActivityId);
-        RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Video,
@@ -52,7 +52,7 @@ public sealed class RemoteWindowMediaChannelTests
         Task<RemoteWindowMediaFrame> receiving =
             serverChannel.ReceiveAsync().AsTask();
         await clientChannel.SendAsync(expected);
-        RemoteWindowMediaFrame actual = await receiving;
+        using RemoteWindowMediaFrame actual = await receiving;
 
         Assert.Equal(expected.SessionId, actual.SessionId);
         Assert.Equal(expected.ActivityId, actual.ActivityId);
@@ -92,7 +92,7 @@ public sealed class RemoteWindowMediaChannelTests
                 responderMedia,
                 SessionId,
                 ActivityId);
-            RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
+            using RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
                 SessionId,
                 ActivityId,
                 RemoteWindowMediaKind.Audio,
@@ -104,7 +104,7 @@ public sealed class RemoteWindowMediaChannelTests
             Task<RemoteWindowMediaFrame> receiving =
                 serverChannel.ReceiveAsync().AsTask();
             await clientChannel.SendAsync(expected);
-            RemoteWindowMediaFrame actual = await receiving;
+            using RemoteWindowMediaFrame actual = await receiving;
 
             Assert.Equal(
                 ProtocolFeatures.RemoteWindowMinimumVersion,
@@ -161,7 +161,7 @@ public sealed class RemoteWindowMediaChannelTests
             responder,
             SessionId,
             ActivityId);
-        RemoteWindowMediaFrame first = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame first = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Cursor,
@@ -169,7 +169,7 @@ public sealed class RemoteWindowMediaChannelTests
             chunkIndex: 0,
             chunkCount: 1,
             [0x01]);
-        RemoteWindowMediaFrame repeated = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame repeated = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Cursor,
@@ -179,7 +179,9 @@ public sealed class RemoteWindowMediaChannelTests
             [0x02]);
 
         await clientChannel.SendAsync(first);
-        Assert.Equal<ulong>(7, (await serverChannel.ReceiveAsync()).Sequence);
+        using RemoteWindowMediaFrame receivedFirst =
+            await serverChannel.ReceiveAsync();
+        Assert.Equal<ulong>(7, receivedFirst.Sequence);
         await clientChannel.SendAsync(repeated);
 
         await Assert.ThrowsAsync<InvalidDataException>(async () =>
@@ -200,17 +202,15 @@ public sealed class RemoteWindowMediaChannelTests
                 sequence <= SecureRemoteWindowMediaChannel.MaximumReceiveFramesPerSecond + 1;
                 sequence++)
             {
-                AppendEncryptedFrame(
-                    stream,
-                    sender,
-                    RemoteWindowMediaFrame.Create(
-                        SessionId,
-                        ActivityId,
-                        RemoteWindowMediaKind.Cursor,
-                        sequence,
-                        chunkIndex: 0,
-                        chunkCount: 1,
-                        [0x01]));
+                using RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
+                    SessionId,
+                    ActivityId,
+                    RemoteWindowMediaKind.Cursor,
+                    sequence,
+                    chunkIndex: 0,
+                    chunkCount: 1,
+                    [0x01]);
+                AppendEncryptedFrame(stream, sender, frame);
             }
 
             stream.Position = 0;
@@ -222,13 +222,15 @@ public sealed class RemoteWindowMediaChannelTests
                 SessionId,
                 ActivityId,
                 timeProvider: time);
-            _ = await channel.ReceiveAsync();
+            using RemoteWindowMediaFrame firstReceived =
+                await channel.ReceiveAsync();
             time.Advance(TimeSpan.FromMilliseconds(999));
             for (int index = 1;
                 index < SecureRemoteWindowMediaChannel.MaximumReceiveFramesPerSecond;
                 index++)
             {
-                _ = await channel.ReceiveAsync();
+                using RemoteWindowMediaFrame received =
+                    await channel.ReceiveAsync();
             }
 
             time.Advance(TimeSpan.FromMilliseconds(1));
@@ -254,7 +256,7 @@ public sealed class RemoteWindowMediaChannelTests
             SessionId,
             ActivityId,
             timeProvider: time);
-        RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Audio,

@@ -347,7 +347,7 @@ public sealed class AuthenticatedTcpControlConnectionTests
                 initiatorMedia);
         await using RemoteWindowMediaAttachment responderAttachment =
             await acceptingAttachment;
-        RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
             sessionId,
             activityId,
             RemoteWindowMediaKind.Video,
@@ -359,7 +359,7 @@ public sealed class AuthenticatedTcpControlConnectionTests
         Task<RemoteWindowMediaFrame> receiving =
             responderAttachment.ReceiveAsync().AsTask();
         await initiatorAttachment.SendAsync(expected);
-        RemoteWindowMediaFrame actual = await receiving;
+        using RemoteWindowMediaFrame actual = await receiving;
 
         Assert.Equal(binding, initiatorAttachment.Binding);
         Assert.Equal(binding, responderAttachment.Binding);

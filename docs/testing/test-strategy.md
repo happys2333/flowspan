@@ -480,13 +480,33 @@ media session exactly once. It then manually composes a registry and second
 loopback listener, completes `FSM1` Connect/Accept, and exchanges one synthetic
 bound encrypted media frame. This joins production cryptographic derivation to
 the attachment contract, but it is not a production vertical or end-to-end test.
-Production listener classification, control-connection teardown coupling,
-Desktop runtime ownership, codec-to-renderer flow, native capture, and physical
-networking remain Task 5 and later scope.
 Attachment-wire write/read tests cancel streams that ignore cancellation and
 prove borrowed envelope buffers remain stable and are not zeroed or returned
 until the underlying I/O actually completes. The encrypted media channel applies
 the same lifetime rule to a cancelled non-cooperative frame read.
+
+Native Remote Window Task 5 Transport tests then use the production
+`FlowspanTcpInboundListener` to classify `FSM1` beside pairing and authenticated
+control with independent media capacity. A connection-owned media directory
+transfers each protocol-1.6 media session exactly once, binds responder route or
+initiator attachment to the control registration, and requests control stop on
+route expiry/revoke, attachment failure, media fault, cancellation, or disposal.
+Loopbacks cover authenticated attachment and a complete synthetic logical video
+frame. Concurrency and fault tests cover claim/registration/disposal races,
+non-cooperative handshake cancellation, handler-plus-cleanup failure preservation,
+observer isolation, and listener shutdown without treating clear route possession
+as authorization.
+
+Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
+1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
+count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,
+partial interruption/rejection, idempotent disposal, and zeroing of every transferred or
+rejected owner. The capacity-one logical sender keeps only the latest pending
+frame, never has more than one wire chunk outstanding, maps peer/session
+backpressure to a bounded drop, and settles active/pending payloads under stop,
+replacement, sink failure, cancellation, throwing or blocking cancellation
+callbacks, and concurrent disposal. Queue teardown attempts every cleanup stage
+and releases its budget even when cancellation or sink disposal throws.
 
 Desktop codec tests freeze the finite JPEG ladder (original dimensions at quality
 82/68/54, then 3/4 and 1/2 at 68/54), exercise every possible first-fitting
@@ -519,6 +539,14 @@ or a sequence/epoch boundary, the runtime must terminate the attachment and its
 owning authenticated control connection, complete a fresh authenticated control
 handshake, and derive a new media session and route. Tests must never raise those
 budgets or reuse the consumed route as a recovery path.
+
+Task 5 Transport candidate evidence is recorded separately in
+`docs/evidence/2026-08-28-native-remote-window-transport-candidate.md`. Until its
+implementation is committed and the exact SHA passes Windows, macOS, Linux,
+Secret Scan, and CodeQL, it is dirty-tree local macOS evidence only. Even after
+those hosted gates, it will not prove the still-open small-budget reconnect path,
+Desktop capture/encode/decode/render composition, native adapters, physical
+Devices, or interactive-quality requirements.
 
 Headless Desktop tests additionally block and reorder permission, service, and
 observer callbacks. A permission busy-state observer may synchronously request

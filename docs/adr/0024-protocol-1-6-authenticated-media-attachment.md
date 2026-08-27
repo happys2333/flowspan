@@ -91,6 +91,27 @@ loopback behavior. Task 5 owns composition into the production Desktop listener
 and Remote Window runtime, so this decision alone does not make native Remote
 Window available.
 
+The Task 5 Transport slice now classifies `FSM1` on the same production listener
+as pairing and authenticated control and transfers each protocol-1.6 connection's
+purpose-separated media session into one connection-owned directory entry. The
+responder route, initiator connect, accepted attachment, media I/O, and control
+registration share one failure domain: route expiry/revoke, attachment failure,
+media fault, or disposal requests control stop and consumes the route.
+
+Handshake reads and writes wait through a caller-cancellable wrapper even when a
+stream ignores the supplied token. An owned wire buffer that remains borrowed by
+such an operation is observed and cleared only after the underlying operation
+settles. Session disposal also requests cancellation and closes the candidate
+stream; cancellation and stream cleanup failures remain observable. The listener
+always attempts accepted-attachment disposal after its handler and aggregates a
+handler failure with a distinct cleanup failure instead of overwriting either.
+This contract does not claim bounded return from a synchronous stream `Dispose`
+implementation that itself blocks forever.
+
+The small-budget exhaustion and complete fresh-control-handshake recovery path is
+not yet composed. Until that testable epoch boundary exists, the Task 5 parent and
+production Remote Window availability remain open.
+
 ## Alternatives considered
 
 ### Extend `FSH1` with another hello kind

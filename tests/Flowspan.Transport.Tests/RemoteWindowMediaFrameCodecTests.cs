@@ -18,7 +18,7 @@ public sealed class RemoteWindowMediaFrameCodecTests
     public void VideoChunkRoundTripsExactBindingAndDefensivePayload()
     {
         byte[] source = [0x10, 0x20, 0x30, 0x40];
-        RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Video,
@@ -29,7 +29,7 @@ public sealed class RemoteWindowMediaFrameCodecTests
         source[0] = 0xff;
 
         byte[] encoded = RemoteWindowMediaFrameCodec.Encode(expected);
-        RemoteWindowMediaFrame decoded = RemoteWindowMediaFrameCodec.Decode(
+        using RemoteWindowMediaFrame decoded = RemoteWindowMediaFrameCodec.Decode(
             encoded,
             SessionId,
             ActivityId);
@@ -51,7 +51,7 @@ public sealed class RemoteWindowMediaFrameCodecTests
     [Fact]
     public void BinaryFrameHasFrozenHash()
     {
-        RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Cursor,
@@ -199,17 +199,17 @@ public sealed class RemoteWindowMediaFrameCodecTests
     {
         const string canary = "FLOWSPAN-MEDIA-PAYLOAD-CANARY";
         byte[] payload = Encoding.ASCII.GetBytes(canary);
-        byte[] encoded = RemoteWindowMediaFrameCodec.Encode(
-            RemoteWindowMediaFrame.Create(
-                SessionId,
-                ActivityId,
-                RemoteWindowMediaKind.Audio,
-                sequence: 2,
-                chunkIndex: 0,
-                chunkCount: 1,
-                payload));
+        using RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
+            SessionId,
+            ActivityId,
+            RemoteWindowMediaKind.Audio,
+            sequence: 2,
+            chunkIndex: 0,
+            chunkCount: 1,
+            payload);
+        byte[] encoded = RemoteWindowMediaFrameCodec.Encode(frame);
 
-        RemoteWindowMediaFrame decoded = RemoteWindowMediaFrameCodec.Decode(
+        using RemoteWindowMediaFrame decoded = RemoteWindowMediaFrameCodec.Decode(
             encoded,
             SessionId,
             ActivityId);
@@ -236,7 +236,7 @@ public sealed class RemoteWindowMediaFrameCodecTests
     public void PayloadBoundaryValuesRoundTrip(int payloadLength)
     {
         byte[] payload = new byte[payloadLength];
-        RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
+        using RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Audio,
@@ -245,7 +245,7 @@ public sealed class RemoteWindowMediaFrameCodecTests
             chunkCount: 1,
             payload);
 
-        RemoteWindowMediaFrame decoded = RemoteWindowMediaFrameCodec.Decode(
+        using RemoteWindowMediaFrame decoded = RemoteWindowMediaFrameCodec.Decode(
             RemoteWindowMediaFrameCodec.Encode(frame),
             SessionId,
             ActivityId);
@@ -254,13 +254,16 @@ public sealed class RemoteWindowMediaFrameCodecTests
         Assert.Equal(payload, decoded.ExportPayload());
     }
 
-    private static byte[] EncodeCursor() => RemoteWindowMediaFrameCodec.Encode(
-        RemoteWindowMediaFrame.Create(
+    private static byte[] EncodeCursor()
+    {
+        using RemoteWindowMediaFrame frame = RemoteWindowMediaFrame.Create(
             SessionId,
             ActivityId,
             RemoteWindowMediaKind.Cursor,
             sequence: 1,
             chunkIndex: 0,
             chunkCount: 1,
-            [0x01, 0x02, 0x03]));
+            [0x01, 0x02, 0x03]);
+        return RemoteWindowMediaFrameCodec.Encode(frame);
+    }
 }

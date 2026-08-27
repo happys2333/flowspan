@@ -112,9 +112,9 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
 
             byte[] lengthPrefix = new byte[LengthPrefixBytes];
             BinaryPrimitives.WriteInt32BigEndian(lengthPrefix, encryptedFrame.Length);
-            await stream.WriteAsync(lengthPrefix, operationToken)
-                .AsTask()
-                .WaitAsync(operationToken)
+            await WaitAndObserveAsync(
+                    stream.WriteAsync(lengthPrefix, operationToken).AsTask(),
+                    operationToken)
                 .ConfigureAwait(false);
             encryptedFrameWrite = stream.WriteAsync(encryptedFrame, operationToken)
                 .AsTask();
@@ -122,8 +122,9 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
                 .WaitAsync(operationToken)
                 .ConfigureAwait(false);
             encryptedFrameWriteObserved = true;
-            await stream.FlushAsync(operationToken)
-                .WaitAsync(operationToken)
+            await WaitAndObserveAsync(
+                    stream.FlushAsync(operationToken),
+                    operationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception failure)
@@ -178,6 +179,7 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
         bool encryptedFrameReadObserved = false;
         Task? lengthPrefixRead = null;
         byte[]? plaintext = null;
+        RemoteWindowMediaFrame? receivedFrame = null;
         bool gateHeld = false;
         try
         {
@@ -189,7 +191,7 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
                     lengthPrefix,
                     cancellationToken)
                 .AsTask();
-            await lengthPrefixRead.WaitAsync(cancellationToken)
+            await WaitAndObserveAsync(lengthPrefixRead, cancellationToken)
                 .ConfigureAwait(false);
             int frameLength = BinaryPrimitives.ReadInt32BigEndian(lengthPrefix);
             if (frameLength is < 1 or > MaximumEncryptedFrameBytes)
@@ -203,17 +205,19 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
                     encryptedFrame,
                     cancellationToken)
                 .AsTask();
-            await encryptedFrameRead.WaitAsync(cancellationToken)
+            await WaitAndObserveAsync(encryptedFrameRead, cancellationToken)
                 .ConfigureAwait(false);
             encryptedFrameReadObserved = true;
             plaintext = session.Decrypt(encryptedFrame);
-            RemoteWindowMediaFrame frame = RemoteWindowMediaFrameCodec.Decode(
+            receivedFrame = RemoteWindowMediaFrameCodec.Decode(
                 plaintext,
                 sessionId,
                 activityId);
-            ValidateAndRecordReceiveRate(frame);
-            ValidateAndAdvanceMediaSequence(frame);
-            return frame;
+            ValidateAndRecordReceiveRate(receivedFrame);
+            ValidateAndAdvanceMediaSequence(receivedFrame);
+            RemoteWindowMediaFrame result = receivedFrame;
+            receivedFrame = null;
+            return result;
         }
         catch (Exception failure)
         {
@@ -227,6 +231,7 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
         }
         finally
         {
+            receivedFrame?.Dispose();
             if (encryptedFrame is not null)
             {
                 if (encryptedFrameRead is { IsCompleted: false }
@@ -397,6 +402,22 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
         }
         catch
         {
+        }
+    }
+
+    private static async Task WaitAndObserveAsync(
+        Task operation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await operation.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _ = ObserveWhenCompletedAsync(operation);
+
+            throw;
         }
     }
 
