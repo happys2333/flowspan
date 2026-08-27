@@ -85,17 +85,28 @@ public sealed class DesktopPairingDecisionSourceTests
         Task<PairingDecision> first = source.DecideAsync(
             CreateRequest(peer, "111111"),
             firstCancellation.Token).AsTask();
-        Task cancelFirst = Task.Run(firstCancellation.Cancel);
-        await firstQueueReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task cancelFirst = Task.Factory.StartNew(
+            firstCancellation.Cancel,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        Task<PairingDecision> second;
+        Action publish;
+        try
+        {
+            await firstQueueReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            second = source.DecideAsync(
+                CreateRequest(peer, "222222"),
+                secondCancellation.Token).AsTask();
+            secondCancellation.Cancel();
+            publish = await workerCaptured.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            releaseFirstQueue.Set();
+            await cancelFirst.WaitAsync(TimeSpan.FromSeconds(5));
+        }
 
-        Task<PairingDecision> second = source.DecideAsync(
-            CreateRequest(peer, "222222"),
-            secondCancellation.Token).AsTask();
-        secondCancellation.Cancel();
-        Action publish = await workerCaptured.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-        releaseFirstQueue.Set();
-        await cancelFirst.WaitAsync(TimeSpan.FromSeconds(5));
         publish();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
