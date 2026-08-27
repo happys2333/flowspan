@@ -1,6 +1,6 @@
 # Direct dependency inventory
 
-Last reviewed: 2026-07-13
+Last reviewed: 2026-08-27
 
 Flowspan pins direct NuGet versions centrally and commits lock files for every
 project. Production dependencies require an ADR that records fit, maintenance,
@@ -14,6 +14,7 @@ transitive license report remain mandatory under the v1 release criteria.
 | `Avalonia` | 12.1.0 | MIT | Desktop control, styling, binding, and XAML core | [ADR 0007](../adr/0007-avalonia-desktop-shell.md) |
 | `Avalonia.Desktop` | 12.1.0 | MIT | Windows, macOS, and Linux desktop backends | [ADR 0007](../adr/0007-avalonia-desktop-shell.md) |
 | `Avalonia.Themes.Fluent` | 12.1.0 | MIT | Maintained accessible control templates; Flowspan owns visual tokens | [ADR 0007](../adr/0007-avalonia-desktop-shell.md) |
+| `SkiaSharp` | 3.119.4 | MIT | Bounded JPEG encode/decode inside the Desktop Remote Window media boundary | [ADR 0025](../adr/0025-bounded-skia-jpeg-remote-window-codec.md) |
 | `Makaretu.Dns.Multicast` | 0.27.0 | MIT source tag; nupkg metadata undeclared | Isolated provisional mDNS/DNS-SD browser and publisher | [ADR 0004](../adr/0004-dns-sd-discovery-boundary.md) |
 | `System.Security.Cryptography.ProtectedData` | 10.0.9 | MIT | Windows CurrentUser DPAPI byte API | [ADR 0005](../adr/0005-platform-secret-storage.md) |
 
@@ -21,6 +22,22 @@ The package is published by Microsoft from
 [`dotnet/runtime`](https://github.com/dotnet/runtime). It is referenced only by
 `Flowspan.Platform.Windows`; other platforms do not receive a plaintext or
 portable fallback.
+
+`SkiaSharp` is referenced directly only by `Flowspan.Desktop`; no Skia type
+crosses the Desktop boundary. Version 3.119.4 and the same native-asset graph
+were already locked transitively through Avalonia 12.1.0. The direct reference
+makes the security-sensitive codec input explicit without adding or upgrading a
+package. The NuGet package declares MIT, binds repository commit
+`f568ac94dd768ef9a2f593537cfde2dd0d348ef5`, and has package SHA-256
+`e32a449d31945c0b9d169eb5bc676e1e3f589aab69888e49d703fdc1c384c176`.
+The Linux, macOS, and Win32 native assets declare the same license/source commit
+and hash respectively to
+`fae0554059b1107ef7888e46c20bdfb548401ef7a7a6f7391ad4fadc7432d50a`,
+`f7f2f539ce5bba337aa4a8d6eac25caf58cbdd12edf3f32ddcc98294e730cf2c`,
+and `5a5698b1b4e1fdc9ffe9868df6874db5fa69f21a4de76ba71a01a542e9b43391`.
+On 2026-08-27 the release was current, non-prerelease, and from an active,
+non-archived upstream; the locked full graph reported no known NuGet
+vulnerabilities. ADR 0025 records the bounded JPEG replacement gate.
 
 `Makaretu.Dns.Multicast` is referenced only by `Flowspan.Transport.Mdns`; no
 third-party DNS type crosses the adapter boundary. Its locked graph currently

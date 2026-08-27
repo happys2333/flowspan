@@ -645,11 +645,11 @@ public sealed class DesktopTrustedPeerConnectionsTests
                 "NOT SHARING",
                 Assert.Single(listenerConnections.GetSnapshot()).StatusLabel);
             Assert.Equal(
-                ProtocolFeatures.RemoteWindowMinimumVersion,
+                ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion,
                 await connectorSession.ProtocolVersion.Task.WaitAsync(
                     TimeSpan.FromSeconds(1)));
             Assert.Equal(
-                ProtocolFeatures.RemoteWindowMinimumVersion,
+                ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion,
                 await listenerSession.ProtocolVersion.Task.WaitAsync(
                     TimeSpan.FromSeconds(1)));
         }

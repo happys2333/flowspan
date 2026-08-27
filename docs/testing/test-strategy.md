@@ -446,6 +446,78 @@ These tests prove portable authenticated control composition on loopback only;
 they do not route Remote Window media or prove native windows, physical Devices,
 operating-system permissions, input injection, or protected-surface detection.
 
+Native Remote Window task 4 freezes the protocol-1.6 media attachment separately
+from that production listener composition. Codec tests pin the canonical 200-byte
+`FSM1` request and 232-byte acknowledgement, require zero flags and exact lengths,
+and bind the negotiated protocol, directed Device pair, 16-byte route locator,
+Remote Window Session, Activity, and 32-byte initiator/responder nonces inside the
+AEAD-protected body. Protocol 1.5 cannot construct or accept a media route. Hostile
+tests cover truncated/trailing/tampered envelopes, clear/protected version or
+route disagreement, wrong direction/Device/Session/Activity, a forged or wrongly
+bound acknowledgement, and identifier-free diagnostics. A committed fixture
+freezes both attachment envelopes while the existing fixed encrypted-media frame
+codec vector remains unchanged.
+
+Deterministic registry tests enforce a 32-route default and 128-route hard cap, a
+30-second default and two-minute maximum TTL, separate 512-entry replay-nonce and
+consumed-route-ID caps, one attachment per live control route, and a two-second
+default/ten-second maximum handshake timeout. Tests fill each history, require
+fail-closed admission at capacity, advance a manual clock to prove bounded
+recovery, retain an attached route's history slot past the replay window, roll
+back only a failed timer-arm admission, and forbid republishing a consumed ID
+during cleanup or afterward inside the replay window. They also cover expiry,
+repeated nonces across routes, a second claim, cancellation and timeout during
+acknowledgement,
+registration/disposal and revoke/claim races, replacement-route isolation,
+observable timer cleanup failure, multi-owner cleanup joining, and
+primary-plus-cleanup exception preservation. The clear locator is exercised only
+as lookup input: matched malformed or failed claims consume that single-use
+route, while possession never admits Capability, Driver authority, or plaintext.
+
+One same-process loopback integration runs the real authenticated TCP handshake
+at protocol 1.6 and proves both peers transfer their matching purpose-separated
+media session exactly once. It then manually composes a registry and second
+loopback listener, completes `FSM1` Connect/Accept, and exchanges one synthetic
+bound encrypted media frame. This joins production cryptographic derivation to
+the attachment contract, but it is not a production vertical or end-to-end test.
+Production listener classification, control-connection teardown coupling,
+Desktop runtime ownership, codec-to-renderer flow, native capture, and physical
+networking remain Task 5 and later scope.
+Attachment-wire write/read tests cancel streams that ignore cancellation and
+prove borrowed envelope buffers remain stable and are not zeroed or returned
+until the underlying I/O actually completes. The encrypted media channel applies
+the same lifetime rule to a cancelled non-cooperative frame read.
+
+Desktop codec tests freeze the finite JPEG ladder (original dimensions at quality
+82/68/54, then 3/4 and 1/2 at 68/54), exercise every possible first-fitting
+candidate, bounded failure-to-encode, alpha discard, legal padded BGRA8888 stride
+behavior, pooled scratch clearing, and idempotent encoded/decoded owner disposal
+that zeros already-borrowed managed memory. Code review additionally requires the
+source/scaled Skia pixel spans and native encoded copy to clear before release. A
+fixed 397-byte JPEG with SHA-256
+`f294e425eda6aea42373311b447ac5518eabe2a897304b5a90c9a25ae3c8095e`
+proves decoder compatibility without freezing OS-specific encoder bytes. Hostile
+tests reject empty or over-1-MiB payloads before codec use, non-JPEG and animated
+content, truncation, concatenated/trailing images, non-TopLeft orientation, and
+invalid dimensions plus the exact combined 16,777,216-pixel/64-MiB BGRA boundary
+before pixel allocation. There is no separate unreachable decoded-byte status.
+The marker walker additionally rejects zero/one-length segments, segment overrun, and
+scan-only markers outside entropy data while accepting legal fill bytes,
+progressive multi-scan images with stuffed entropy bytes, and declared restart
+markers.
+
+Current Task 4 results are portable local contract evidence. Exact-commit hosted
+Windows, macOS, and Linux evidence remains pending. These results do not prove
+that the production listener classifies `FSM1`, that the Desktop runtime owns and
+renews a media route, that native capture or rendering works, or that two physical
+Devices meet interactive quality, firewall, permission, or protected-surface
+requirements. The media `SecureFrameSession` has no live rekey:
+before either direction would exceed `2^20` protected frames, 1 GiB of plaintext,
+or a sequence/epoch boundary, the runtime must terminate the attachment and its
+owning authenticated control connection, complete a fresh authenticated control
+handshake, and derive a new media session and route. Tests must never raise those
+budgets or reuse the consumed route as a recovery path.
+
 Headless Desktop tests additionally block and reorder permission, service, and
 observer callbacks. A permission busy-state observer may synchronously request
 disposal without waiting on its own callback lease; external callers still join

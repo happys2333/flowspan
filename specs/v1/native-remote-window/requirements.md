@@ -87,6 +87,23 @@ as Remote Window.
 5. When capture, encoding, transport, decoding, or rendering fails, Flowspan
    shall preserve source execution, stop or pause native sharing as required,
    and present a named degradation or recovery state.
+6. When a Remote Window media stream attaches to a live authenticated control
+   connection, Flowspan shall require protocol 1.6 or later and shall bind the
+   attachment to the exact local and peer Device IDs, live control route,
+   Session ID, Activity ID, and one fresh initiator nonce acknowledged by the
+   responder before admitting media frames.
+7. While classifying a second inbound stream, Flowspan shall use a distinct,
+   bounded media-attachment envelope and shall reject unknown routes, expired or
+   already-attached routes, replayed nonces, mismatched identities or sessions,
+   unsupported flags, trailing fields, and protocol 1.5 downgrade attempts before
+   exposing the stream to a media consumer.
+8. When encoding a captured BGRA8888 frame, Flowspan shall discard alpha and try
+   only the frozen finite JPEG quality/scale ladder; it shall return a bounded
+   drop reason when no candidate fits the 1-MiB logical-video-frame ceiling.
+9. Before allocating decoded pixels, Flowspan shall validate that the payload is
+   one still JPEG image with positive bounded dimensions, no more than 16,777,216
+   pixels, and no more than 67,108,864 decoded BGRA bytes; malformed, truncated,
+   animated, multi-frame, or other formats shall fail closed.
 
 ### NR4 - Native input
 

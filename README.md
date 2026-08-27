@@ -67,25 +67,25 @@ includes:
   input contracts, one current Capability snapshot per use, monotonic Driver
   Lease transfer/expiry/disconnect, protection pause/resume, and local
   emergency-stop preemption/fault results, plus strict protocol-1.5 authenticated
-  control and purpose-separated bounded media framing, rate limits, backpressure,
-  timeout, and cleanup tests;
+  control, protocol-1.6 authenticated media attachment, purpose-separated bounded
+  media framing, and a bounded SkiaSharp JPEG codec with hostile-input tests;
 - a local Desktop Remote Window candidate with an explicitly labelled
   source-hosted fallback, purpose-scoped mirror target selection independent of
   semantic receive targets, one protocol-gated dispatcher shared with Activity
   and Scene traffic on the production authenticated control registration,
   post-Trust-change refiltering, progressive permission review, persistent
   sharing and Driver/protection state, accessible Emergency Stop,
-  generation-bound stale result rejection, and fail-closed teardown; this is
-  control-channel composition only, and production sharing remains unavailable
-  until Task 4 freezes the media route/codec decisions and Task 5 composes the
-  complete host/participant runtime;
+  generation-bound stale result rejection, and fail-closed teardown; production
+  sharing remains unavailable because the Task 4 media route and codec contracts
+  are not composed into the complete Task 5 host/participant runtime;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
-permission integrations, native capture/input, a production Remote Window codec
-or renderer, complete Activity desktop workflows, packaged native accessibility
-evidence, signed/notarized real-machine install/upgrade/uninstall evidence, or the
-complete Windows/macOS/Linux acceptance matrix. See
+permission integrations, native capture/input, a composed production Remote
+Window media listener/runtime or renderer, complete Activity desktop workflows,
+packaged native accessibility evidence, signed/notarized real-machine
+install/upgrade/uninstall evidence, or the complete Windows/macOS/Linux acceptance
+matrix. See
 [the v1 task tracker](specs/v1/tasks.md) and
 [release criteria](docs/release/v1-release-criteria.md) for the honest status.
 
@@ -108,7 +108,7 @@ dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
 Desktop validation uses an explicitly degraded in-memory identity, prints TEST
 MODE, and exits; it never substitutes for production platform storage. The
 simulator uses fixed device, operation, and clock values. A successful run
-prints protocol `1.5`, `Source preserved: True`, `Target resumed: True`,
+prints protocol `1.6`, `Source preserved: True`, `Target resumed: True`,
 `Atomic swap committed: True`, and a redacted operation receipt containing a
 descriptor digest but no Activity text. Its Swap endpoints and catalog remain
 process-memory tracers. Separate application and platform contracts implement
@@ -159,11 +159,12 @@ The production local-network control profile treats the Activity grants,
 establishing an authenticated idle channel; every Activity, Scene, and Remote
 Window operation rechecks its exact current grants. Viewing still requires
 `mirror.view`, and driving still requires both Mirror grants at each use boundary.
-Production Remote Window sharing intentionally reports unsupported because it has
-no composed media route, native capture, production codec/rendering,
-protected-surface probe, or input-injection adapter. The in-memory simulator and
-same-host loopback evidence do not substitute for physical-device,
-native-permission, or independent security review gates.
+Production Remote Window sharing intentionally reports unsupported because its
+authenticated media attachment and JPEG codec contracts are not yet composed
+with a production listener/renderer, native capture, protected-surface probe, or
+input-injection adapter. The in-memory simulator and same-host loopback evidence
+do not substitute for physical-device, native-permission, or independent security
+review gates.
 
 Flowspan is a clean-room rewrite. See
 [clean-room engineering and provenance](docs/engineering/clean-room.md).

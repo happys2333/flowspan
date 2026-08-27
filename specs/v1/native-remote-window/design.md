@@ -1,7 +1,8 @@
 # Native Remote Window Design
 
-Status: portable contracts and shared authenticated control composition
-implemented; production media, runtime, and native adapters pending
+Status: portable contracts, shared authenticated control composition, and Task 4
+media-route/codec contracts implemented; production runtime and native adapters
+pending
 
 Requirements: NR1-NR10
 
@@ -240,16 +241,61 @@ authenticated control channel; every operation rechecks its exact current grant,
 and unknown or cross-routed message types remain fatal.
 
 Task 3 composes only that authenticated control channel. It does not instantiate
-the production Remote Window host/participant runtime or route media. Task 4 must
-freeze the media-route and codec decisions below, and Task 5 must compose them in
-the complete production Desktop runtime described above.
+the production Remote Window host/participant runtime or route media. Task 4
+freezes the media-route and codec decisions below, and Task 5 must compose them
+in the complete production Desktop runtime described above.
 
 The media stream stays distinct from control keys, framing, counters, queues, and
-rekey state as required by ADR 0022. Before physical media routing is implemented,
-an ADR must freeze how a second authenticated stream declares its purpose and is
-bound to one live control Session without parser ambiguity or a new unauthenticated
-port. If that requires a wire change, it uses a new protocol minor version rather
-than changing frozen 1.5 fixtures.
+rekey state as required by ADR 0022. ADR 0024 assigns this attachment contract to
+protocol 1.6 and preserves every 1.5 control and media fixture byte-for-byte.
+Protocol 1.5 continues to expose Remote Window control; only 1.6 or later exposes
+the production media-route feature.
+
+Task 5's production listener will classify an independent `FSM1` attachment
+envelope on the same published endpoint as pairing and authenticated control. Its
+bounded clear prefix contains only the versioned purpose and an unpredictable
+route ID needed to locate a current in-memory control route. It is not proof of
+identity and is never logged. The request and acknowledgement are protected by
+the existing directional `FLOWSPAN-REMOTE-WINDOW-MEDIA-V1` keys and bind the
+negotiated protocol, both Device IDs in direction, exact route ID, Remote Window
+Session ID, Activity ID, and fresh initiator nonce. The responder acknowledgement
+echoes that nonce and contributes a responder nonce before either side admits a
+media frame.
+
+The route registry is process-local, bounded, time-limited, single-use, and owned
+by the live control connection. Closing or revoking that connection invalidates
+its route before stream cleanup. Unknown, expired, replayed, already-attached,
+wrong-peer, wrong-direction, wrong-session, and wrong-Activity attempts fail
+closed. v1 permits at most one attached media stream per authenticated control
+connection. Clear route lookup does not grant Capability, session admission,
+Driver authority, or access to media plaintext.
+
+The frozen registry defaults to 32 live routes with a hard maximum of 128. A
+pending route lives for 30 seconds by default and never more than two minutes;
+the process independently remembers at most 512 initiator-nonce fingerprints and
+512 consumed route IDs for the maximum route lifetime. Successful registration
+reserves its route ID before publication completes. The reservation survives
+claim, revocation, and cleanup, and an attached route keeps occupying its history
+slot past the replay window until cleanup releases ownership. Either full history
+fails new work closed; pruning resumes admission only after the maximum TTL and
+after no live owner still requires the route. Timer-arm failure is the one
+unpublished-admission case that rolls its history reservation back. Attachment
+handshakes use a two-second default and ten-second hard timeout. The fixed request
+and acknowledgement are 200 and 232 bytes respectively, and each nonce is 32
+bytes. A matched malformed, cancelled, timed-out, or rejected claim consumes the
+route; neither cleanup nor retry can republish that identifier inside the replay
+window. Long-running processes bound memory without weakening single-use
+semantics through arbitrary eviction.
+
+The attached media `SecureFrameSession` deliberately has no live rekey protocol.
+Its attachment envelopes and media frames consume the same directional epoch
+budgets. Before either direction would exceed `2^20` protected frames, 1 GiB of
+plaintext, or a sequence/epoch boundary, the runtime must close the attachment
+and its owning authenticated control connection. Recovery performs a complete
+fresh authenticated control handshake, derives a new purpose-separated media
+session, and registers its new session-identifier route. It must not raise a
+budget, advance the media epoch without an authenticated transition, or reuse the
+consumed route.
 
 This decision gate is intentional: native capture may be developed and tested
 behind the bounded frame sink, but production availability remains false until
@@ -257,20 +303,40 @@ the authenticated media route and participant renderer are composed.
 
 ## 7. Frame encoding and rendering
 
-The first production codec is an independently framed, bounded intra-frame image
-codec implemented through the already shipped Skia family. It is chosen for a
-small, inspectable failure surface and frame-drop recovery; it is not a claim of
-video-codec efficiency. A dependency/codec ADR must pin the direct package,
-format, dimensions, quality ladder, alpha behavior, decoder limits, and physical
-revisit threshold before code lands.
+The first production codec is independently framed JPEG through directly pinned
+SkiaSharp 3.119.4, as frozen by ADR 0025. It is chosen for a small, inspectable
+intra-frame failure surface and frame-drop recovery; it is not a claim of
+video-codec efficiency. The portable boundary accepts only the existing bounded
+BGRA8888 frame contract, including its validated row stride, discards alpha, and
+returns owned bytes rather than exposing a Skia type outside `Flowspan.Desktop`.
 
-Capture writes to a capacity-one latest-frame queue. Encoding uses bounded pixel
-dimensions and attempts a finite quality/scale ladder until the encoded image
-fits the existing 16-chunk/1-MiB logical-frame ceiling. Failure drops the frame.
-It never enlarges protocol limits or queues. The participant decodes into a
-bounded buffer off the UI thread and swaps the latest complete bitmap on the UI
-dispatcher. Stale Session, Activity, sequence, or renderer-generation frames are
-discarded before presentation.
+Capture writes to a capacity-one latest-frame queue. Encoding uses the frozen
+ladder: original size at qualities 82, 68, and 54, then 3/4 and 1/2 scale at
+qualities 68 and 54. Scaling never enlarges a frame and each candidate is checked
+against the logical-frame ceiling before export. Each attempt rents one bounded
+scratch buffer and clears it on return instead of allocating a fixed large
+object. It never enlarges protocol limits or queues.
+
+The decoder first requires one structurally complete JPEG with no trailing second
+image, then uses `SKCodec` metadata to require TopLeft orientation, a single still
+frame, positive dimensions no larger than 16,384 on either axis, and at most
+16,777,216 pixels, exactly equivalent to 67,108,864 decoded BGRA bytes. Only then
+may it allocate one tightly packed BGRA8888 destination. Truncated data, concatenated or
+trailing images, unsupported color conversion, animation/multiple frames, other
+formats, or an incomplete decode fail closed without returning pixels. The
+participant decodes off the UI thread and swaps the latest complete bitmap on the
+UI dispatcher. Stale Session, Activity, sequence, or renderer-generation frames
+are discarded before presentation.
+
+Encoded and decoded result owners require idempotent disposal and clear their
+managed bytes. The codec clears source/scaled Skia pixel spans, its native encoded
+copy, failed decode buffers, and pooled scratch before releasing them. Task 5 must
+preserve that ownership through queue, transport, and renderer handoff.
+
+Golden compatibility covers a fixed decoder JPEG, the 1.6 attachment envelopes,
+and the existing fixed media-frame codec vector. Encoder output is deliberately
+not hash-frozen across supported OS native Skia builds; tests instead assert JPEG
+identity, dimensions, alpha behavior, byte limits, and successful bounded decode.
 
 Audio remains unavailable until its capture, codec, consent, and renderer have
 their own acceptance slice. Cursor may be embedded in the captured frame for the

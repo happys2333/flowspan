@@ -13,6 +13,8 @@ screens or arbitrary process migration.
 | **Adapter** | An integration that captures and/or resumes one semantic Activity kind. | Migrator |
 | **Semantic Handoff** | A resume of an Activity through a target Adapter using portable context. | App migration |
 | **Remote Window** | An explicit fallback that keeps execution on the source while presenting captured output and optional authorized input elsewhere. | Migration, screen handoff |
+| **Remote Window Media Route** | A bounded, expiring, process-local association owned by one live authenticated control connection and bound to its exact Devices, Remote Window Session, and Activity; locating it grants no authority. | Media permission, sharing session |
+| **Media Attachment** | The protocol-1.6 authenticated request and acknowledgement that consumes one Remote Window Media Route and binds one second stream before media frames are admitted. | Login, Driver grant |
 | **Handoff** | An operation that resumes an Activity on another device while preserving the source. | Move |
 | **Move** | An operation that resumes an Activity elsewhere, then closes or suspends the source only after verified target acknowledgement; failed source cleanup is a committed duplicate warning, not a target rollback. | Handoff |
 | **Replace** | An operation that preserves eligible target state before installing an incoming Activity in its Placement. | Overwrite |
@@ -72,6 +74,9 @@ screens or arbitrary process migration.
   **Activity**; it never represents arbitrary process memory.
 - A **Semantic Handoff** and a **Remote Window** are distinct execution modes;
   the latter keeps authoritative execution on the source.
+- A **Media Attachment** may consume one **Remote Window Media Route**, but it
+  never substitutes for current Trust, Capability, session admission,
+  protection, or **Driver Lease** checks on the control path.
 - A **Move** is complete only after the target acknowledges resume; a
   **Handoff** never removes the source. If Move source cleanup fails, the target
   remains committed and both active copies must be reported.

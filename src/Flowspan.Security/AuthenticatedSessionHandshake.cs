@@ -439,6 +439,9 @@ public sealed class SessionHandshakeException : CryptographicException
 
 public sealed class AuthenticatedSession : IDisposable
 {
+    private int disposed;
+    private SecureFrameSession? remoteWindowMediaFrames;
+
     internal AuthenticatedSession(
         ProtocolVersion protocolVersion,
         PublicDeviceIdentity peerIdentity,
@@ -448,26 +451,56 @@ public sealed class AuthenticatedSession : IDisposable
         ProtocolVersion = protocolVersion;
         PeerIdentity = peerIdentity;
         SecureFrames = secureFrames;
-        RemoteWindowMediaFrames = remoteWindowMediaFrames;
+        this.remoteWindowMediaFrames = remoteWindowMediaFrames;
     }
 
     public ProtocolVersion ProtocolVersion { get; }
 
     public PublicDeviceIdentity PeerIdentity { get; }
 
-    public SecureFrameSession? RemoteWindowMediaFrames { get; }
+    internal SecureFrameSession? RemoteWindowMediaFrames =>
+        Volatile.Read(ref remoteWindowMediaFrames);
 
     public SecureFrameSession SecureFrames { get; }
 
+    internal SecureFrameSession TakeRemoteWindowMediaFrames()
+    {
+        if (!ProtocolFeatures.SupportsRemoteWindowMediaRoute(ProtocolVersion))
+        {
+            throw new InvalidOperationException(
+                $"Remote Window media-session transfer requires protocol {ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion} or later.");
+        }
+
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        SecureFrameSession? transferred = Interlocked.Exchange(
+            ref remoteWindowMediaFrames,
+            null);
+        if (transferred is null)
+        {
+            throw new InvalidOperationException(
+                "The Remote Window media session has already been transferred.");
+        }
+
+        return transferred;
+    }
+
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
+
+        SecureFrameSession? media = Interlocked.Exchange(
+            ref remoteWindowMediaFrames,
+            null);
         try
         {
             SecureFrames.Dispose();
         }
         finally
         {
-            RemoteWindowMediaFrames?.Dispose();
+            media?.Dispose();
         }
     }
 }

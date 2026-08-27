@@ -351,8 +351,28 @@ Detailed native contracts, platform slices, and evidence gates are tracked in
     stream with strict Session/Activity binding, bounded binary frames,
     per-peer and per-session queue budgets, receive-rate ceilings, accepted-write
     timeouts, explicit backpressure, and hostile length/tamper/rate/cancellation/
-    cleanup tests. This is portable ordered-stream evidence, not a production
-    codec, renderer, physical-network quality result, or native capture proof.
+    cleanup tests.
+  - Task 4 adds protocol 1.6 feature gating, fixed `FSM1` request/acknowledgement
+    envelopes, and a purpose-separated media-session route whose clear 16-byte ID
+    is only a locator. Its process-local registry is bounded, TTL-limited,
+    single-use, replay-nonce protected, cryptographically bound to one
+    authenticated control handshake, and owned by its registration. One
+    same-process loopback integration derives media keys from a real protocol-1.6
+    handshake, then manually registers and attaches `FSM1` before exchanging one
+    synthetic encrypted media frame. Hostile binding/replay/timeout/cancellation/
+    cleanup/race tests prove the lower-level contract. The first codec is directly
+    pinned SkiaSharp JPEG with a finite quality/scale ladder, a fixed decoder
+    fixture, a 1-MiB encoded ceiling, and dimension plus equivalent pixel/BGRA-byte
+    checks before allocation; malformed, animated, oriented, truncated,
+    concatenated, trailing, and bomb-shaped inputs fail closed.
+  - These are route, codec, and portable ordered-stream contracts. Task 5 still
+    owns `FSM1` classification in the production listener, control-close teardown
+    coupling, and composition into the Desktop Remote Window runtime. Production
+    rendering, physical-network quality, native capture/input/protection, and
+    matching-machine evidence remain open. Media has no live rekey: budget or
+    sequence/epoch exhaustion must close the attachment and authenticated control
+    connection, then derive a fresh media session and non-reused route through a
+    new authenticated handshake.
   - Clipboard and file-content transfer remain open. They require a separate
     content policy, consent model, protocol, resource contract, and evidence;
     the Remote Window media implementation does not satisfy that scope.

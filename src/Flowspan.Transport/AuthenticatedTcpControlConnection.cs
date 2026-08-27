@@ -63,6 +63,9 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
 
     public IPEndPoint RemoteEndPoint { get; }
 
+    internal SecureFrameSession TakeRemoteWindowMediaFrames() =>
+        authenticatedSession.TakeRemoteWindowMediaFrames();
+
     public async ValueTask<ControlMessage> ReceiveAsync(
         CancellationToken cancellationToken = default)
     {

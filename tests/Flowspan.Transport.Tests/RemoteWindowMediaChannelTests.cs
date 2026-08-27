@@ -304,6 +304,59 @@ public sealed class RemoteWindowMediaChannelTests
             await channel.ReceiveAsync());
     }
 
+    [Fact]
+    public async Task ConcurrentDisposersJoinAndObserveCleanupFailure()
+    {
+        var stream = new BlockingFailingDisposeStream();
+        (SecureFrameSession session, SecureFrameSession unused) =
+            CreateSecureSessions();
+        unused.Dispose();
+        var channel = new SecureRemoteWindowMediaChannel(
+            stream,
+            session,
+            SessionId,
+            ActivityId);
+        Task first = Task.Run(async () => await channel.DisposeAsync());
+        await stream.DisposeStarted.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task second = channel.DisposeAsync().AsTask();
+
+        Assert.False(first.IsCompleted);
+        Assert.False(second.IsCompleted);
+        stream.AllowDispose.TrySetResult();
+        InvalidOperationException firstFailure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() => first);
+        InvalidOperationException secondFailure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() => second);
+        Assert.Equal("stream cleanup failed", firstFailure.Message);
+        Assert.Equal("stream cleanup failed", secondFailure.Message);
+        Assert.Throws<ObjectDisposedException>(() => session.Encrypt([0x01]));
+    }
+
+    [Fact]
+    public async Task CanceledNonCooperativeEncryptedReadRetainsBufferUntilIoCompletes()
+    {
+        var stream = new NonCooperativeFrameReadStream(frameBytes: 64);
+        (SecureFrameSession unused, SecureFrameSession receiver) =
+            CreateSecureSessions();
+        unused.Dispose();
+        var channel = new SecureRemoteWindowMediaChannel(
+            stream,
+            receiver,
+            SessionId,
+            ActivityId);
+        using var cancellation = new CancellationTokenSource();
+        Task receiving = channel.ReceiveAsync(cancellation.Token).AsTask();
+        await stream.PayloadReadStarted.WaitAsync(TimeSpan.FromSeconds(2));
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => receiving);
+        stream.CompleteRead();
+
+        Assert.True(stream.PayloadWasStableUntilCompletion);
+        await channel.DisposeAsync();
+    }
+
     private static void AppendEncryptedFrame(
         Stream stream,
         SecureFrameSession sender,
@@ -325,9 +378,10 @@ public sealed class RemoteWindowMediaChannelTests
         byte[] secret = Enumerable.Repeat((byte)0x33, 32).ToArray();
         byte[] transcriptHash = SHA256.HashData(
             Encoding.ASCII.GetBytes("authenticated-media-test-transcript"));
-        using SecureSessionKeyMaterial material = SecureSessionKeyMaterial.Derive(
-            secret,
-            transcriptHash);
+        using SecureSessionKeyMaterial material =
+            SecureSessionKeyMaterial.DeriveRemoteWindowMedia(
+                secret,
+                transcriptHash);
         CryptographicOperations.ZeroMemory(secret);
         CryptographicOperations.ZeroMemory(transcriptHash);
         return (
@@ -650,6 +704,132 @@ public sealed class RemoteWindowMediaChannelTests
         {
             IsDisposed = true;
             base.Dispose(disposing);
+        }
+    }
+
+    private sealed class BlockingFailingDisposeStream : Stream
+    {
+        private int disposeCalls;
+        private readonly TaskCompletionSource disposeStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource AllowDispose { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public Task DisposeStarted => disposeStarted.Task;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => 0;
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && Interlocked.Increment(ref disposeCalls) == 1)
+            {
+                disposeStarted.TrySetResult();
+                AllowDispose.Task.GetAwaiter().GetResult();
+                throw new InvalidOperationException("stream cleanup failed");
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class NonCooperativeFrameReadStream(int frameBytes) : Stream
+    {
+        private readonly TaskCompletionSource<int> readCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private byte[]? payloadCopy;
+        private Memory<byte> pendingPayload;
+        private int reads;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public override long Length => throw new NotSupportedException();
+
+        public Task PayloadReadStarted { get; private set; } = Task.CompletedTask;
+
+        public bool PayloadWasStableUntilCompletion { get; private set; }
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public void CompleteRead()
+        {
+            PayloadWasStableUntilCompletion = payloadCopy is not null
+                && pendingPayload.Span.SequenceEqual(payloadCopy);
+            readCompletion.TrySetResult(pendingPayload.Length);
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            _ = cancellationToken;
+            if (Interlocked.Increment(ref reads) == 1)
+            {
+                BinaryPrimitives.WriteInt32BigEndian(buffer.Span, frameBytes);
+                return new ValueTask<int>(buffer.Length);
+            }
+
+            buffer.Span.Fill(0x7c);
+            pendingPayload = buffer;
+            payloadCopy = buffer.ToArray();
+            var started = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            PayloadReadStarted = started.Task;
+            started.TrySetResult();
+            return new ValueTask<int>(readCompletion.Task);
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
         }
     }
 }

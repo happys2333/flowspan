@@ -43,13 +43,20 @@
     4-10 evidence remain open.
   - _Requirements: NR2, NR4, NR8, NR10_
 
-- [ ] 4. Freeze production media routing and codec ADRs
-  - Decide and document the authenticated second-stream purpose/binding without
-    parser ambiguity; bump the protocol minor version if frozen 1.5 would change.
-  - Pin the bounded intra-frame codec/Skia dependency, quality ladder, decoder
-    limits, and physical performance revisit threshold.
-  - Extend golden fixtures, downgrade tests, hostile media tests, SBOM, license,
-    and reproducible package inputs.
+- [ ] 4. Freeze and implement portable media-routing and codec contracts
+  - Add protocol 1.6 and a distinct bounded `FSM1` attachment contract that binds
+    both Device IDs, one live control route, exact Session and Activity IDs, and
+    fresh request/acknowledgement nonces without changing protocol 1.5 fixtures.
+  - Implement a bounded, expiring, single-use media-route registry with one
+    attachment per transferred control-route media session and fail-closed revoke,
+    replay, mismatch, cancellation, and cleanup behavior. Task 5 binds the
+    registration lifetime to its production control connection.
+  - Pin SkiaSharp 3.119.4 directly and implement the finite JPEG quality/scale
+    ladder plus pre-allocation decoder limits of 16,777,216 pixels and 64 MiB.
+  - Extend golden decoder/attachment fixtures, downgrade and hostile media tests,
+    SBOM, license inventory, package locks, and reproducible package inputs.
+  - Keep production Remote Window unavailable until Task 5 composes the listener,
+    route registry, encoder, transport, decoder, renderer, and native gates.
   - _Requirements: NR3, NR8, NR10_
 
 - [ ] 5. Implement the production Desktop Remote Window runtime

@@ -255,6 +255,123 @@ public sealed class AuthenticatedTcpControlConnectionTests
     }
 
     [Fact]
+    public async Task ProtocolOnePointSixAuthenticatedHandshakeAttachesEncryptedMediaRoute()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("11111111-1111-1111-1111-111111111111"),
+            "Laptop");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        var initiatorTrust = new TrustRecord(
+            responderIdentity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.None);
+        var responderTrust = new TrustRecord(
+            initiatorIdentity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.None);
+        using var controlListener = new TcpListener(IPAddress.Loopback, 0);
+        controlListener.Start(backlog: 1);
+        var controlEndpoint = Assert.IsType<IPEndPoint>(
+            controlListener.LocalEndpoint);
+        ProtocolVersion version =
+            ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion;
+        Task<AuthenticatedTcpControlConnection> accept =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                controlListener,
+                responderIdentity,
+                responderTrust,
+                [version]).AsTask();
+
+        await using AuthenticatedTcpControlConnection initiator =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                controlEndpoint,
+                initiatorIdentity,
+                initiatorTrust,
+                [version]);
+        await using AuthenticatedTcpControlConnection responder = await accept;
+        SecureFrameSession initiatorMedia =
+            initiator.TakeRemoteWindowMediaFrames();
+        SecureFrameSession responderMedia =
+            responder.TakeRemoteWindowMediaFrames();
+
+        RemoteWindowMediaRouteId initiatorRoute =
+            RemoteWindowMediaRouteId.FromSession(initiatorMedia);
+        RemoteWindowMediaRouteId responderRoute =
+            RemoteWindowMediaRouteId.FromSession(responderMedia);
+        Assert.Equal(version, initiator.ProtocolVersion);
+        Assert.Equal(version, responder.ProtocolVersion);
+        Assert.Equal(
+            initiatorMedia.SessionIdentifier,
+            responderMedia.SessionIdentifier);
+        Assert.Equal(initiatorRoute, responderRoute);
+        Assert.Throws<InvalidOperationException>(() =>
+            initiator.TakeRemoteWindowMediaFrames());
+        Assert.Throws<InvalidOperationException>(() =>
+            responder.TakeRemoteWindowMediaFrames());
+
+        var sessionId = RemoteWindowSessionId.Parse(
+            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var activityId = ActivityId.Parse(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        RemoteWindowMediaRouteBinding binding =
+            RemoteWindowMediaRouteBinding.Create(
+                version,
+                initiatorIdentity.DeviceId,
+                responderIdentity.DeviceId,
+                initiatorRoute,
+                sessionId,
+                activityId);
+        await using var registry = new RemoteWindowMediaRouteRegistry();
+        await using RemoteWindowMediaRouteRegistration registration =
+            registry.RegisterOwnedRoute(binding, responderMedia);
+        using var mediaListener = new TcpListener(IPAddress.Loopback, 0);
+        mediaListener.Start(backlog: 1);
+        var mediaEndpoint = Assert.IsType<IPEndPoint>(
+            mediaListener.LocalEndpoint);
+        Task<TcpClient> acceptingMediaClient =
+            mediaListener.AcceptTcpClientAsync();
+        using var mediaClient = new TcpClient();
+        await mediaClient.ConnectAsync(
+            mediaEndpoint.Address,
+            mediaEndpoint.Port);
+        using TcpClient mediaServer = await acceptingMediaClient;
+
+        Task<RemoteWindowMediaAttachment> acceptingAttachment =
+            registry.AcceptAsync(mediaServer.GetStream()).AsTask();
+        await using RemoteWindowMediaAttachment initiatorAttachment =
+            await RemoteWindowMediaAttachment.ConnectAsync(
+                mediaClient.GetStream(),
+                binding,
+                initiatorMedia);
+        await using RemoteWindowMediaAttachment responderAttachment =
+            await acceptingAttachment;
+        RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
+            sessionId,
+            activityId,
+            RemoteWindowMediaKind.Video,
+            sequence: 1,
+            chunkIndex: 0,
+            chunkCount: 1,
+            [0x10, 0x20, 0x30]);
+
+        Task<RemoteWindowMediaFrame> receiving =
+            responderAttachment.ReceiveAsync().AsTask();
+        await initiatorAttachment.SendAsync(expected);
+        RemoteWindowMediaFrame actual = await receiving;
+
+        Assert.Equal(binding, initiatorAttachment.Binding);
+        Assert.Equal(binding, responderAttachment.Binding);
+        Assert.Equal(expected.SessionId, actual.SessionId);
+        Assert.Equal(expected.ActivityId, actual.ActivityId);
+        Assert.Equal(expected.Kind, actual.Kind);
+        Assert.Equal(expected.Sequence, actual.Sequence);
+        Assert.Equal(expected.ExportPayload(), actual.ExportPayload());
+        Assert.True(registration.IsAttached);
+    }
+
+    [Fact]
     public async Task TrustedPeersEstablishVersionAndIdentityBoundEncryptedChannel()
     {
         using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(

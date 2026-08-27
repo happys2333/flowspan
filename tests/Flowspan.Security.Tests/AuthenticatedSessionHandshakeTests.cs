@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Flowspan.Domain;
@@ -9,6 +10,17 @@ namespace Flowspan.Security.Tests;
 
 public sealed class AuthenticatedSessionHandshakeTests
 {
+    [Fact]
+    public void MediaSessionCannotBeBorrowedThroughPublicApi()
+    {
+        Assert.Null(typeof(AuthenticatedSession).GetProperty(
+            "RemoteWindowMediaFrames",
+            BindingFlags.Instance | BindingFlags.Public));
+        Assert.Null(typeof(AuthenticatedSession).GetMethod(
+            "TakeRemoteWindowMediaFrames",
+            BindingFlags.Instance | BindingFlags.Public));
+    }
+
     [Fact]
     public void TrustedPartiesDeriveAuthenticatedBidirectionalSession()
     {
@@ -136,6 +148,121 @@ public sealed class AuthenticatedSessionHandshakeTests
         tampered[^1] ^= 0xff;
         Assert.ThrowsAny<CryptographicException>(() => responderMedia.Decrypt(tampered));
         Assert.Equal(plaintext, responderMedia.Decrypt(intact));
+    }
+
+    [Fact]
+    public void ProtocolOnePointFiveRetainsMediaSessionOwnership()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        SecureFrameSession control = CreateSecureSession(0x41);
+        SecureFrameSession media = CreateSecureSession(0x42);
+        var authenticated = new AuthenticatedSession(
+            ProtocolFeatures.RemoteWindowMinimumVersion,
+            peer.PublicIdentity,
+            control,
+            media);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            authenticated.TakeRemoteWindowMediaFrames());
+
+        authenticated.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => media.Encrypt([0x01]));
+    }
+
+    [Fact]
+    public void ProtocolOnePointSixTransfersMediaSessionOwnershipExactlyOnce()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        SecureFrameSession control = CreateSecureSession(0x51);
+        SecureFrameSession media = CreateSecureSession(0x52);
+        var authenticated = new AuthenticatedSession(
+            ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion,
+            peer.PublicIdentity,
+            control,
+            media);
+
+        SecureFrameSession transferred =
+            authenticated.TakeRemoteWindowMediaFrames();
+        Assert.Same(media, transferred);
+        Assert.Null(authenticated.RemoteWindowMediaFrames);
+        Assert.Throws<InvalidOperationException>(() =>
+            authenticated.TakeRemoteWindowMediaFrames());
+
+        authenticated.Dispose();
+        byte[] encrypted = transferred.Encrypt([0x01]);
+        Assert.NotEmpty(encrypted);
+        transferred.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => transferred.Encrypt([0x02]));
+    }
+
+    [Fact]
+    public async Task TakeAndDisposeRaceHasExactlyOneMediaSessionOwner()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        for (var iteration = 0; iteration < 256; iteration++)
+        {
+            SecureFrameSession control = CreateSecureSession(0x53);
+            SecureFrameSession media = CreateSecureSession(0x54);
+            var authenticated = new AuthenticatedSession(
+                ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion,
+                peer.PublicIdentity,
+                control,
+                media);
+            var start = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            SecureFrameSession? transferred = null;
+            Exception? transferFailure = null;
+            Task taking = Task.Run(async () =>
+            {
+                await start.Task;
+                try
+                {
+                    transferred = authenticated.TakeRemoteWindowMediaFrames();
+                }
+                catch (Exception failure)
+                    when (failure is ObjectDisposedException
+                        or InvalidOperationException)
+                {
+                    transferFailure = failure;
+                }
+            });
+            Task disposing = Task.Run(async () =>
+            {
+                await start.Task;
+                authenticated.Dispose();
+            });
+
+            start.TrySetResult();
+            await Task.WhenAll(taking, disposing);
+            try
+            {
+                Assert.Throws<ObjectDisposedException>(() =>
+                    control.Encrypt([0x01]));
+                if (transferred is null)
+                {
+                    Assert.NotNull(transferFailure);
+                    Assert.Throws<ObjectDisposedException>(() =>
+                        media.Encrypt([0x02]));
+                }
+                else
+                {
+                    Assert.Null(transferFailure);
+                    Assert.Same(media, transferred);
+                    Assert.NotEmpty(transferred.Encrypt([0x03]));
+                }
+            }
+            finally
+            {
+                transferred?.Dispose();
+                authenticated.Dispose();
+            }
+        }
     }
 
     [Fact]
@@ -478,4 +605,16 @@ public sealed class AuthenticatedSessionHandshakeTests
             Enumerable.Repeat(nonceByte, SessionHandshakeHello.NonceLength)
                 .Select(static value => (byte)value)
                 .ToArray());
+
+    private static SecureFrameSession CreateSecureSession(byte seed)
+    {
+        byte[] secret = Enumerable.Repeat(seed, 32).ToArray();
+        byte[] transcriptHash = SHA256.HashData([seed]);
+        using SecureSessionKeyMaterial material = SecureSessionKeyMaterial.Derive(
+            secret,
+            transcriptHash);
+        CryptographicOperations.ZeroMemory(secret);
+        CryptographicOperations.ZeroMemory(transcriptHash);
+        return material.CreateSession(SecureSessionRole.Initiator);
+    }
 }

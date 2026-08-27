@@ -20,6 +20,8 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
 
     private const int LengthPrefixBytes = sizeof(int);
     private readonly ActivityId activityId;
+    private readonly TaskCompletionSource disposalCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TimeSpan operationTimeout;
     private readonly SemaphoreSlim receiveGate = new(1, 1);
     private readonly SecureFrameSession session;
@@ -172,6 +174,9 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
     {
         ThrowIfUnavailable();
         byte[]? encryptedFrame = null;
+        Task? encryptedFrameRead = null;
+        bool encryptedFrameReadObserved = false;
+        Task? lengthPrefixRead = null;
         byte[]? plaintext = null;
         bool gateHeld = false;
         try
@@ -180,9 +185,11 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
             gateHeld = true;
             ThrowIfUnavailable();
             byte[] lengthPrefix = new byte[LengthPrefixBytes];
-            await stream.ReadExactlyAsync(lengthPrefix, cancellationToken)
-                .AsTask()
-                .WaitAsync(cancellationToken)
+            lengthPrefixRead = stream.ReadExactlyAsync(
+                    lengthPrefix,
+                    cancellationToken)
+                .AsTask();
+            await lengthPrefixRead.WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
             int frameLength = BinaryPrimitives.ReadInt32BigEndian(lengthPrefix);
             if (frameLength is < 1 or > MaximumEncryptedFrameBytes)
@@ -192,10 +199,13 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
             }
 
             encryptedFrame = GC.AllocateUninitializedArray<byte>(frameLength);
-            await stream.ReadExactlyAsync(encryptedFrame, cancellationToken)
-                .AsTask()
-                .WaitAsync(cancellationToken)
+            encryptedFrameRead = stream.ReadExactlyAsync(
+                    encryptedFrame,
+                    cancellationToken)
+                .AsTask();
+            await encryptedFrameRead.WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
+            encryptedFrameReadObserved = true;
             plaintext = session.Decrypt(encryptedFrame);
             RemoteWindowMediaFrame frame = RemoteWindowMediaFrameCodec.Decode(
                 plaintext,
@@ -219,7 +229,22 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
         {
             if (encryptedFrame is not null)
             {
-                CryptographicOperations.ZeroMemory(encryptedFrame);
+                if (encryptedFrameRead is { IsCompleted: false }
+                    && !encryptedFrameReadObserved)
+                {
+                    _ = ZeroWhenCompletedAsync(
+                        encryptedFrameRead,
+                        encryptedFrame);
+                }
+                else
+                {
+                    CryptographicOperations.ZeroMemory(encryptedFrame);
+                }
+            }
+
+            if (lengthPrefixRead is { IsCompleted: false })
+            {
+                _ = ObserveWhenCompletedAsync(lengthPrefixRead);
             }
 
             if (plaintext is not null)
@@ -234,62 +259,82 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        if (Interlocked.Exchange(ref disposed, 1) == 0)
         {
-            return;
+            _ = CompleteDisposalAsync();
         }
 
-        Exception? cleanupFailure = null;
+        return new ValueTask(disposalCompletion.Task);
+    }
+
+    private async Task CompleteDisposalAsync()
+    {
+        List<Exception>? cleanupFailures = null;
         try
         {
             stream.Dispose();
         }
         catch (Exception exception)
         {
-            cleanupFailure = exception;
+            cleanupFailures = [exception];
         }
 
-        await receiveGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await sendGate.WaitAsync().ConfigureAwait(false);
+            await receiveGate.WaitAsync().ConfigureAwait(false);
             try
             {
+                await sendGate.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    session.Dispose();
-                }
-                catch (Exception exception)
-                {
-                    cleanupFailure ??= exception;
-                }
+                    try
+                    {
+                        session.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        (cleanupFailures ??= []).Add(exception);
+                    }
 
-                try
-                {
-                    await stream.DisposeAsync().ConfigureAwait(false);
+                    try
+                    {
+                        await stream.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception exception)
+                    {
+                        (cleanupFailures ??= []).Add(exception);
+                    }
                 }
-                catch (Exception exception)
+                finally
                 {
-                    cleanupFailure ??= exception;
+                    sendGate.Release();
                 }
             }
             finally
             {
-                sendGate.Release();
+                receiveGate.Release();
             }
         }
-        finally
+        catch (Exception exception)
         {
-            receiveGate.Release();
+            (cleanupFailures ??= []).Add(exception);
         }
 
-        if (cleanupFailure is not null)
+        if (cleanupFailures is null)
         {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo
-                .Capture(cleanupFailure)
-                .Throw();
+            disposalCompletion.TrySetResult();
+        }
+        else if (cleanupFailures.Count == 1)
+        {
+            disposalCompletion.TrySetException(cleanupFailures[0]);
+        }
+        else
+        {
+            disposalCompletion.TrySetException(new AggregateException(
+                "Secure Remote Window media channel cleanup failed.",
+                cleanupFailures));
         }
     }
 
@@ -341,6 +386,17 @@ public sealed class SecureRemoteWindowMediaChannel : IRemoteWindowMediaSink, IAs
         finally
         {
             CryptographicOperations.ZeroMemory(buffer);
+        }
+    }
+
+    private static async Task ObserveWhenCompletedAsync(Task operation)
+    {
+        try
+        {
+            await operation.ConfigureAwait(false);
+        }
+        catch
+        {
         }
     }
 

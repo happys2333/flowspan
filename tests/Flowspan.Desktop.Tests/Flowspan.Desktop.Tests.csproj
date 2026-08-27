@@ -35,5 +35,7 @@
     <None Include="../../src/Flowspan.Desktop/*.cs"
           Link="DesktopSource/%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/remote-window-2x2.jpg"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
