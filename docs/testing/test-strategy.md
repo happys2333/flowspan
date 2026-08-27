@@ -541,10 +541,11 @@ handshake, and derive a new media session and route. Tests must never raise thos
 budgets or reuse the consumed route as a recovery path.
 
 Task 5 Transport candidate evidence is recorded separately in
-`docs/evidence/2026-08-28-native-remote-window-transport-candidate.md`. Until its
-implementation is committed and the exact SHA passes Windows, macOS, Linux,
-Secret Scan, and CodeQL, it is dirty-tree local macOS evidence only. Even after
-those hosted gates, it will not prove the still-open small-budget reconnect path,
+`docs/evidence/2026-08-28-native-remote-window-transport-candidate.md`.
+Implementation commit `f430705` has exact-tree local macOS evidence. Until the
+exact hosted tip containing that implementation passes Windows, macOS, Linux,
+Secret Scan, and CodeQL, it is not hosted portable evidence. Even after those
+hosted gates, it will not prove the still-open small-budget reconnect path,
 Desktop capture/encode/decode/render composition, native adapters, physical
 Devices, or interactive-quality requirements.
 

@@ -94,8 +94,8 @@
     teardown. Keep `CreateProduction` unavailable until this path is complete.
   - Candidate evidence for 5.1-5.3:
     `docs/evidence/2026-08-28-native-remote-window-transport-candidate.md`.
-    This remains dirty-tree local macOS evidence until committed and verified by
-    exact-commit Windows/macOS/Linux CI, Secret Scan, and CodeQL.
+    Implementation commit `f430705` has exact-tree local macOS evidence; hosted
+    Windows/macOS/Linux CI, Secret Scan, and CodeQL remain required.
   - _Requirements: NR1-NR6, NR8-NR9_
 
 - [ ] 6. Deliver the macOS native vertical slice

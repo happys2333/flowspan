@@ -9,9 +9,12 @@ Branch: `codex/v1-foundation`
 
 Base commit: `645b065571a08f777a8272d171be5d5151826bd6`.
 
-Candidate implementation commit: **not yet assigned**. This record currently
-describes an uncommitted working tree on macOS. It is not exact-commit hosted CI,
-native-platform, physical-device, packaged, signed, or release evidence.
+Candidate implementation commit:
+`f4307052c9660475ab07d6d8ea42234fede0a890`.
+
+The local gates below ran against the exact implementation tree before that tree
+was committed without content changes. This is not hosted CI, native-platform,
+physical-device, packaged, signed, or release evidence.
 
 This candidate supports only Task 5.1-5.3 in
 `specs/v1/native-remote-window/tasks.md`. Task 5 and Flowspan v1 remain open.
@@ -73,7 +76,7 @@ Host: macOS 26.6.2 (build 25G83), Apple Silicon, Asia/Hong_Kong
 Branch: codex/v1-foundation
 Verification date: 2026-08-28
 Base commit: 645b065571a08f777a8272d171be5d5151826bd6
-Candidate state: uncommitted working tree
+Implementation commit: f4307052c9660475ab07d6d8ea42234fede0a890
 ```
 
 Observed results on that final local tree:
