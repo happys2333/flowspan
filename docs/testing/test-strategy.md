@@ -506,12 +506,14 @@ scan-only markers outside entropy data while accepting legal fill bytes,
 progressive multi-scan images with stuffed entropy bytes, and declared restart
 markers.
 
-Current Task 4 results are portable local contract evidence. Exact-commit hosted
-Windows, macOS, and Linux evidence remains pending. These results do not prove
-that the production listener classifies `FSM1`, that the Desktop runtime owns and
-renews a media route, that native capture or rendering works, or that two physical
-Devices meet interactive quality, firewall, permission, or protected-surface
-requirements. The media `SecureFrameSession` has no live rekey:
+Task 4 now has local and exact-commit hosted portable contract evidence in
+`docs/evidence/2026-08-27-native-remote-window-media-contracts.md`. The hosted
+Windows, macOS, and Linux results prove the named contract, headless, and unsigned
+package paths only. They do not prove that the production listener classifies
+`FSM1`, that the Desktop runtime owns and renews a media route, that native capture
+or rendering works, or that two physical Devices meet interactive quality,
+firewall, permission, or protected-surface requirements. The media
+`SecureFrameSession` has no live rekey:
 before either direction would exceed `2^20` protected frames, 1 GiB of plaintext,
 or a sequence/epoch boundary, the runtime must terminate the attachment and its
 owning authenticated control connection, complete a fresh authenticated control

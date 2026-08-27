@@ -43,7 +43,7 @@
     4-10 evidence remain open.
   - _Requirements: NR2, NR4, NR8, NR10_
 
-- [ ] 4. Freeze and implement portable media-routing and codec contracts
+- [x] 4. Freeze and implement portable media-routing and codec contracts
   - Add protocol 1.6 and a distinct bounded `FSM1` attachment contract that binds
     both Device IDs, one live control route, exact Session and Activity IDs, and
     fresh request/acknowledgement nonces without changing protocol 1.5 fixtures.
@@ -57,6 +57,12 @@
     SBOM, license inventory, package locks, and reproducible package inputs.
   - Keep production Remote Window unavailable until Task 5 composes the listener,
     route registry, encoder, transport, decoder, renderer, and native gates.
+  - Evidence: implementation `c269209`, Windows scheduling repair `ec2ccba`,
+    and
+    `docs/evidence/2026-08-27-native-remote-window-media-contracts.md`.
+    Final exact-implementation CI `33086310636` and CodeQL `33086310637`
+    passed; production listener/runtime, native API, physical-device, and tasks
+    5-10 evidence remain open.
   - _Requirements: NR3, NR8, NR10_
 
 - [ ] 5. Implement the production Desktop Remote Window runtime
