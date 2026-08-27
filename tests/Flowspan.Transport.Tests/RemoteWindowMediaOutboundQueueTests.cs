@@ -216,6 +216,51 @@ public sealed class RemoteWindowMediaOutboundQueueTests
     }
 
     [Fact]
+    public async Task ConcurrentDisposersJoinBlockedSinkCleanup()
+    {
+        var budget = new RemoteWindowMediaSessionBudget();
+        var sink = new BlockingAsyncDisposableMediaSink();
+        var queue = new RemoteWindowMediaOutboundQueue(budget, PeerId, sink);
+
+        Task firstDisposal = queue.DisposeAsync().AsTask();
+        await sink.DisposeStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        Task secondDisposal = queue.DisposeAsync().AsTask();
+
+        Assert.False(firstDisposal.IsCompleted);
+        Assert.False(secondDisposal.IsCompleted);
+        Assert.Equal(1, sink.DisposeCalls);
+
+        sink.ReleaseDispose();
+        await Task.WhenAll(firstDisposal, secondDisposal);
+
+        Assert.Equal(1, sink.DisposeCalls);
+        Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConcurrentDisposersObserveTheSameCleanupFailure()
+    {
+        var budget = new RemoteWindowMediaSessionBudget();
+        var sink = new BlockingAsyncDisposableMediaSink(
+            new InvalidOperationException("FLOWSPAN-DISPOSAL-FAILURE-CANARY"));
+        var queue = new RemoteWindowMediaOutboundQueue(budget, PeerId, sink);
+
+        Task firstDisposal = queue.DisposeAsync().AsTask();
+        await sink.DisposeStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        Task secondDisposal = queue.DisposeAsync().AsTask();
+        sink.ReleaseDispose();
+
+        Exception firstFailure = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => firstDisposal);
+        Exception secondFailure = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => secondDisposal);
+
+        Assert.Same(firstFailure, secondFailure);
+        Assert.Equal(1, sink.DisposeCalls);
+        Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
+    }
+
+    [Fact]
     public async Task ConcurrentEnqueueNeverOverbooksPeerBudget()
     {
         var budget = new RemoteWindowMediaSessionBudget();
@@ -307,6 +352,38 @@ public sealed class RemoteWindowMediaOutboundQueueTests
 
     private sealed class ImmediateMediaSink : IRemoteWindowMediaSink
     {
+        public ValueTask SendAsync(
+            RemoteWindowMediaFrame frame,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    }
+
+    private sealed class BlockingAsyncDisposableMediaSink(Exception? failure = null) :
+        IRemoteWindowMediaSink,
+        IAsyncDisposable
+    {
+        private readonly TaskCompletionSource disposeStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseDispose = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int disposeCalls;
+
+        public int DisposeCalls => Volatile.Read(ref disposeCalls);
+
+        public Task DisposeStarted => disposeStarted.Task;
+
+        public async ValueTask DisposeAsync()
+        {
+            Interlocked.Increment(ref disposeCalls);
+            disposeStarted.TrySetResult();
+            await releaseDispose.Task;
+            if (failure is not null)
+            {
+                throw failure;
+            }
+        }
+
+        public void ReleaseDispose() => releaseDispose.TrySetResult();
+
         public ValueTask SendAsync(
             RemoteWindowMediaFrame frame,
             CancellationToken cancellationToken = default) => ValueTask.CompletedTask;

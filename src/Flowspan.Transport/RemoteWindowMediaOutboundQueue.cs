@@ -232,6 +232,8 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
     private readonly DeviceId peerId;
     private readonly CancellationTokenSource shutdown = new();
     private readonly IRemoteWindowMediaSink sink;
+    private readonly TaskCompletionSource disposalCompletion = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Task worker;
     private bool closed;
     private int disposeStarted;
@@ -299,13 +301,31 @@ public sealed class RemoteWindowMediaOutboundQueue : IAsyncDisposable
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposeStarted, 1) != 0)
+        if (Interlocked.Exchange(ref disposeStarted, 1) == 0)
         {
-            return;
+            _ = DisposeAndCompleteAsync();
         }
 
+        return new ValueTask(disposalCompletion.Task);
+    }
+
+    private async Task DisposeAndCompleteAsync()
+    {
+        try
+        {
+            await DisposeResourcesAsync().ConfigureAwait(false);
+            disposalCompletion.TrySetResult();
+        }
+        catch (Exception failure)
+        {
+            disposalCompletion.TrySetException(failure);
+        }
+    }
+
+    private async Task DisposeResourcesAsync()
+    {
         lock (gate)
         {
             closed = true;
