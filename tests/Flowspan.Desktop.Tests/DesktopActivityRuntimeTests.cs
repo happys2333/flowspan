@@ -39,6 +39,161 @@ public sealed class DesktopActivityRuntimeTests
     }
 
     [Fact]
+    public async Task ConcurrentDisposeCallersJoinBlockedCleanupFailure()
+    {
+        const string canary = "ACTIVITY_RUNTIME_SHARED_DISPOSAL_FAILURE";
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        var identityRequested = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseIdentity = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var runtime = new DesktopActivityRuntime(
+            async cancellationToken =>
+            {
+                using CancellationTokenRegistration registration =
+                    cancellationToken.Register(
+                        () => throw new InvalidOperationException(canary));
+                identityRequested.TrySetResult();
+                await releaseIdentity.Task.ConfigureAwait(false);
+                return identity;
+            },
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(trust);
+            },
+            new FixedTimeProvider(Now));
+        Task initializing = runtime.InitializeAsync().AsTask();
+        await identityRequested.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task firstDisposal = runtime.DisposeAsync().AsTask();
+        Task concurrentDisposal = runtime.DisposeAsync().AsTask();
+        bool firstWasBlocked = !firstDisposal.IsCompleted;
+        bool concurrentWasBlocked = !concurrentDisposal.IsCompleted;
+        bool sharedCompletion = ReferenceEquals(
+            firstDisposal,
+            concurrentDisposal);
+
+        releaseIdentity.TrySetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            initializing.WaitAsync(TimeSpan.FromSeconds(2)));
+        Exception? firstFailure = await Record.ExceptionAsync(() =>
+            firstDisposal.WaitAsync(TimeSpan.FromSeconds(2)));
+        Exception? concurrentFailure = await Record.ExceptionAsync(() =>
+            concurrentDisposal.WaitAsync(TimeSpan.FromSeconds(2)));
+        Task repeatedDisposal = runtime.DisposeAsync().AsTask();
+        Exception? repeatedFailure = await Record.ExceptionAsync(() =>
+            repeatedDisposal.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        Assert.True(firstWasBlocked);
+        Assert.True(concurrentWasBlocked);
+        Assert.True(sharedCompletion);
+        Assert.Same(firstDisposal, repeatedDisposal);
+        Assert.NotNull(firstFailure);
+        Assert.Same(firstFailure, concurrentFailure);
+        Assert.Same(firstFailure, repeatedFailure);
+        Assert.Contains(canary, firstFailure.ToString(), StringComparison.Ordinal);
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task InitializationRollbackPreservesPrimaryAndCleanupFailures()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        var mediaSessions = new FailingRemoteWindowMediaSessionOwner();
+        var runtime = new DesktopActivityRuntime(
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(identity);
+            },
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(trust);
+            },
+            new FixedTimeProvider(Now),
+            replaceStatePayloadStore: null,
+            sceneRemoteChildStatePayloadStore: null,
+            sceneApplyStatePayloadStore: null,
+            receiptSink: null,
+            _ => mediaSessions);
+
+        AggregateException failure = await Assert.ThrowsAsync<AggregateException>(
+            () => runtime.InitializeAsync().AsTask());
+
+        Assert.Collection(
+            failure.InnerExceptions,
+            primary => Assert.Same(mediaSessions.InitializationFailure, primary),
+            cleanup => Assert.Same(mediaSessions.CleanupFailure, cleanup));
+        Assert.Equal(1, mediaSessions.DisposeCalls);
+        Assert.False(runtime.IsReady);
+
+        await runtime.DisposeAsync();
+        await trust.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task InitializationRollbackDisposesHandlerBeforeMediaOwner()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        AuthenticatedActivitySessionHandler? constructedHandler = null;
+        var mediaSessions = new RecordingRemoteWindowMediaSessionOwner(
+            () => constructedHandler);
+        var initializationFailure = new InvalidOperationException(
+            "Injected post-handler initialization failure.");
+        var runtime = new DesktopActivityRuntime(
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(identity);
+            },
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(trust);
+            },
+            new FixedTimeProvider(Now),
+            new MemoryReplaceStatePayloadStore(),
+            sceneRemoteChildStatePayloadStore: null,
+            sceneApplyStatePayloadStore: null,
+            receiptSink: null,
+            _ => mediaSessions,
+            handler =>
+            {
+                constructedHandler = handler;
+                throw initializationFailure;
+            });
+
+        try
+        {
+            InvalidOperationException failure =
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => runtime.InitializeAsync().AsTask());
+
+            Assert.Same(initializationFailure, failure);
+            Assert.NotNull(constructedHandler);
+            Assert.False(constructedHandler.IsReplaceEndpointAvailable);
+            Assert.True(mediaSessions.HandlerDisposedBeforeCleanup);
+            Assert.Equal(1, mediaSessions.DisposeCalls);
+            Assert.False(runtime.IsReady);
+        }
+        finally
+        {
+            if (constructedHandler is not null)
+            {
+                await constructedHandler.DisposeAsync();
+            }
+
+            await runtime.DisposeAsync();
+            await trust.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task UnsupportedRemoteWindowPermissionBoundaryFailsClosed()
     {
         UnavailableDesktopRemoteWindowPermissionService service =
@@ -1564,6 +1719,48 @@ public sealed class DesktopActivityRuntimeTests
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class FailingRemoteWindowMediaSessionOwner :
+        IDesktopRemoteWindowMediaSessionOwner
+    {
+        public Exception CleanupFailure { get; } =
+            new IOException("Injected Remote Window media cleanup failure.");
+
+        public int DisposeCalls { get; private set; }
+
+        public Exception InitializationFailure { get; } =
+            new InvalidOperationException(
+                "Injected Remote Window media initialization failure.");
+
+        public AuthenticatedRemoteWindowMediaSessionDirectory SessionDirectory =>
+            throw InitializationFailure;
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCalls++;
+            return ValueTask.FromException(CleanupFailure);
+        }
+    }
+
+    private sealed class RecordingRemoteWindowMediaSessionOwner(
+        Func<AuthenticatedActivitySessionHandler?> getHandler) :
+        IDesktopRemoteWindowMediaSessionOwner
+    {
+        public int DisposeCalls { get; private set; }
+
+        public bool HandlerDisposedBeforeCleanup { get; private set; }
+
+        public AuthenticatedRemoteWindowMediaSessionDirectory SessionDirectory { get; } =
+            new();
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCalls++;
+            HandlerDisposedBeforeCleanup =
+                getHandler() is { IsReplaceEndpointAvailable: false };
+            return SessionDirectory.DisposeAsync();
+        }
     }
 
     private sealed class MemoryReplaceStatePayloadStore : IReplaceStatePayloadStore

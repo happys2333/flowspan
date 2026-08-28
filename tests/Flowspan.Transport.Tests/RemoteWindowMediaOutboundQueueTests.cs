@@ -533,6 +533,9 @@ public sealed class RemoteWindowMediaOutboundQueueTests
         private readonly TaskCompletionSource releaseCancellation =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        private readonly TaskCompletionSource sendCancelled =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public ValueTask DisposeAsync()
         {
             IsDisposed = true;
@@ -548,10 +551,12 @@ public sealed class RemoteWindowMediaOutboundQueueTests
                 {
                     cancellationStarted.TrySetResult();
                     releaseCancellation.Task.GetAwaiter().GetResult();
+                    sendCancelled.TrySetResult();
                     throw CancellationFailure;
                 });
             SendStarted.TrySetResult();
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            await sendCancelled.Task;
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         public void ReleaseCancellation() =>

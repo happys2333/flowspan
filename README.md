@@ -68,7 +68,9 @@ includes:
   Lease transfer/expiry/disconnect, protection pause/resume, and local
   emergency-stop preemption/fault results, plus strict protocol-1.5 authenticated
   control, protocol-1.6 authenticated media attachment, purpose-separated bounded
-  media framing, and a bounded SkiaSharp JPEG codec with hostile-input tests;
+  media framing, a bounded SkiaSharp JPEG codec with hostile-input tests, and a
+  protocol-1.7 Remote Window Preparation candidate that freezes exact
+  Prepare/Ready bindings without treating readiness as admission;
 - a local Desktop Remote Window candidate with an explicitly labelled
   source-hosted fallback, purpose-scoped mirror target selection independent of
   semantic receive targets, one protocol-gated dispatcher shared with Activity
@@ -76,8 +78,9 @@ includes:
   post-Trust-change refiltering, progressive permission review, persistent
   sharing and Driver/protection state, accessible Emergency Stop,
   generation-bound stale result rejection, and fail-closed teardown; production
-  sharing remains unavailable because the Task 4 media route and codec contracts
-  are not composed into the complete Task 5 host/participant runtime;
+  sharing remains unavailable because protocol-1.7 Preparation is not yet
+  connected to the complete exact-source, native capture/input, participant
+  renderer, protection, and final-admission Task 5 host/participant runtime;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
@@ -108,7 +111,7 @@ dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
 Desktop validation uses an explicitly degraded in-memory identity, prints TEST
 MODE, and exits; it never substitutes for production platform storage. The
 simulator uses fixed device, operation, and clock values. A successful run
-prints protocol `1.6`, `Source preserved: True`, `Target resumed: True`,
+prints protocol `1.7`, `Source preserved: True`, `Target resumed: True`,
 `Atomic swap committed: True`, and a redacted operation receipt containing a
 descriptor digest but no Activity text. Its Swap endpoints and catalog remain
 process-memory tracers. Separate application and platform contracts implement
@@ -160,11 +163,11 @@ establishing an authenticated idle channel; every Activity, Scene, and Remote
 Window operation rechecks its exact current grants. Viewing still requires
 `mirror.view`, and driving still requires both Mirror grants at each use boundary.
 Production Remote Window sharing intentionally reports unsupported because its
-authenticated media attachment and JPEG codec contracts are not yet composed
-with a production listener/renderer, native capture, protected-surface probe, or
-input-injection adapter. The in-memory simulator and same-host loopback evidence
-do not substitute for physical-device, native-permission, or independent security
-review gates.
+authenticated media attachment and JPEG codec contracts are not yet bound through
+the protocol-1.7 Preparation and exact final-Admission gate to a production
+renderer, native capture, protected-surface probe, or input-injection adapter. The
+in-memory simulator and same-host loopback evidence do not substitute for
+physical-device, native-permission, or independent security review gates.
 
 Flowspan is a clean-room rewrite. See
 [clean-room engineering and provenance](docs/engineering/clean-room.md).

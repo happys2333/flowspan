@@ -1,8 +1,9 @@
 # Remote Window and Mirror Control Requirements
 
 Status: approved v1 baseline; portable control plane, authenticated bounded
-media, and portable/headless Desktop workflow complete; native adapters and
-physical evidence pending
+media, portable/headless Desktop workflow, and protocol-1.7 Preparation
+codec/managed-session candidate implemented; production Preparation composition,
+native adapters, and physical evidence pending
 
 ## Problem and scope
 
@@ -90,6 +91,91 @@ defines the still open boundary for native Windows, macOS, and Linux adapters.
   refresh. If that later read is unavailable, the accepted started, stopped, or
   reset state shall remain last known rather than reverting to pre-command
   uncertainty; in particular, a stoppable state shall retain Emergency Stop.
+- RW2.8: When a host user starts Remote Window for one exact source, target, and
+  role, Flowspan shall require negotiated protocol 1.7 or later and shall create
+  one bounded `remote-window.prepare` transaction before native capture starts.
+  The transaction shall bind its correlation, unpredictable Session ID, exact
+  Activity ID, authenticated host and participant Devices, frozen requested
+  role, and canonical whole-millisecond UTC deadline no more than ten seconds
+  after send. Prepare and Ready shall canonicalize their wire send timestamp to
+  whole-millisecond UTC, preserve the exact deadline, and carry and recompute the
+  same domain-separated canonical SHA-256
+  `prepareDigest` over that complete binding, and Ready shall repeat every bound
+  field before the host accepts its terminal result.
+- RW2.9: Before the host sends Prepare, Flowspan shall revalidate the exact
+  source lease and generation, authenticated connection, current Trust and role
+  Capabilities, prompt-free permission/readiness facts, fresh Safe protection,
+  independent Emergency Stop readiness, and connection-owned responder media
+  route. Prepare shall contain no native token or handle, source generation,
+  media route ID, Activity Descriptor or Kind, raw title, key, frame, input, or
+  exception text.
+  Ready before Prepare send begins shall fault closed. During Prepare send, one
+  exact Ready success may be buffered without completing the transaction or
+  authorizing final Admission and shall require send success plus a current
+  Stop/deadline commit. Once that exact result commits, later Stop or deadline
+  observation shall not reverse its acknowledged result. An exact Ready
+  rejection is a safe terminal acknowledgement and shall close the connection
+  even if that closure cancels the local send flush. Prepare, Ready, and final
+  Admission shall recheck the absolute Preparation deadline at their actual
+  send-admission boundary before any expired frame can enter the wire boundary.
+- RW2.10: When a participant receives a well-formed Prepare, Flowspan shall
+  verify its authenticated host-to-participant direction, exact correlation,
+  Session, Activity, Device, role, deadline, current authenticated Trust and
+  connection, non-revoked/non-stopping receiver state, local receive policy, and
+  renderer/media readiness before preparing the exact initiator `FSM1`
+  attachment. The participant shall not require a reciprocal local
+  `mirror.view` or `mirror.drive` grant: those grants authorize the host to view
+  or drive the participant in the opposite direction, and v1 has no
+  `remote-window.receive` Capability. While asynchronous preparation is pending,
+  the authenticated control dispatcher shall remain able to read and route
+  messages and shall not synchronously wait in its single read loop for work
+  that requires that loop.
+- RW2.11: When renderer preparation and the exact attachment acknowledgement
+  both succeed, the participant shall send exactly one bound
+  `remote-window.ready` success result. When the user rejects or a local
+  preparation boundary fails while the request remains well formed, the
+  participant shall send one terminal Ready rejection with an allowlisted
+  bounded reason and shall release prepared owners without causing host capture.
+  A malformed, unauthenticated, or wrongly bound Prepare shall fault closed
+  without reflecting attacker-selected detail.
+  A final Admission received before Ready send starts shall fault closed without
+  invoking the participant endpoint. During Ready send, at most one exact final
+  Admission may be buffered without authority; it shall be consumed only after
+  send success and discarded if send fails.
+- RW2.12: When the host receives a successful Ready, Flowspan shall match the
+  one current pending Prepare and media binding, then revalidate source,
+  connection, Trust, Capabilities, permission, protection, and Emergency Stop
+  facts. Only then shall it register protection and Emergency Stop ownership,
+  call controller Start while media-frame admission remains closed, and add the
+  exact participant with the frozen role. If any step fails, no captured frame
+  shall be disclosed.
+- RW2.13: When host Start and participant admission succeed, the host shall send
+  the existing strict `remote-window.state` admission outcome for the same
+  correlation and binding. The participant shall open rendering only after that
+  state has action `Admission`, outcome `Applied` or `AlreadyApplied`, and its
+  exact requested effective role, the current media binding matches, and the
+  received media sequence advances strictly. Ready shall not establish the
+  participant's known live binding.
+- RW2.14: While a Preparation is pending or locally ready, Prepare, Ready,
+  authenticated connection admission, permission success, route possession,
+  attachment success, and renderer readiness shall grant no Capability,
+  participant membership, Driver Lease, input authority, capture authority, or
+  rendering authority by themselves.
+- RW2.15: If Prepare or Ready is unknown, duplicate, conflicting, expired, or
+  already terminal, or if cancellation, disconnect, revocation, attachment,
+  revalidation, capture, admission, state delivery, or rendering fails, Flowspan
+  shall close new frame admission and unwind all prepared owners without
+  crossing or continuing unauthorized capture. Once the connection-owned media
+  session selected a route role, recovery shall close the owning authenticated
+  control connection and require a fresh handshake, media session, route,
+  Session ID, and correlation rather than retrying or republishing on the old
+  connection.
+- RW2.16: While an authenticated control registration owns a selected media
+  session, Flowspan shall admit at most one pending Preparation. It shall retain
+  a bounded terminal tombstone until that Prepare's deadline or connection close
+  so a delayed Ready cannot revive work. A requested-role change shall require a
+  fresh Preparation on a fresh authenticated connection and shall not mutate the
+  pending role.
 
 ### RW3 - Capability authorization
 
@@ -262,19 +348,29 @@ defines the still open boundary for native Windows, macOS, and Linux adapters.
 - RW7.4: Normal state and evidence shall exclude frames, audio, raw input,
   Activity descriptor payloads, credentials, session keys, and peer-supplied
   exception text.
-- RW7.5: Remote Window wire messages shall require negotiated protocol 1.5 or
-  later. A 1.0-1.4 session shall reject their construction and decoding while
-  retaining its older negotiated feature set.
+- RW7.5: Admission, Driver, input, disconnect, state, and encrypted Remote
+  Window media frames shall require negotiated protocol 1.5 or later; the
+  authenticated `FSM1` media attachment shall require 1.6 or later; and
+  `remote-window.prepare` plus `remote-window.ready` shall require 1.7 or later.
+  A lower negotiated minor shall reject construction and decoding for the newer
+  feature while retaining its frozen older feature set and shall never silently
+  downgrade Preparation to Activity transfer, unsolicited state, clear media,
+  or an unprepared Admission.
 - RW7.6: Every Remote Window command and state shall bind the authenticated
   sender and recipient, one unpredictable live Session ID, the exact Activity
   ID, a correlation ID, a short deadline, and the current state or Driver epoch
   needed by that operation. A stale session, wrong participant, wrong Activity,
   expired envelope, or unsolicited result shall fail closed before controller
   or input work.
-- RW7.7: Admission, Driver request, input, disconnect, and participant/
-  protection state shall use strict canonical control schemas with no unknown,
-  duplicate, null, or wrong-type fields. Remote input shall retain the portable
-  1-64 event contract and shall not be placed in media frames.
+- RW7.7: Prepare, Ready, Admission, Driver request, input, disconnect, and
+  participant/protection state shall use strict canonical control schemas with
+  no unknown, duplicate, null, or wrong-type fields. Ready shall repeat the
+  exact Prepare binding and `prepareDigest` and contain one terminal boolean plus
+  one allowlisted bounded reason code. Both peers shall recompute the 32-byte
+  digest from the fixed domain, negotiated version, correlation, Session,
+  Activity, directed Devices, role, and deadline and compare it in constant time.
+  Remote input shall retain the portable 1-64 event contract and shall not be
+  placed in media frames.
 - RW7.8: Video, audio, and cursor data shall use a separately framed binary
   channel protected with key material purpose-separated from control traffic.
   Each frame shall bind its live Session ID, Activity ID, media kind, monotonic
@@ -349,6 +445,23 @@ defines the still open boundary for native Windows, macOS, and Linux adapters.
   disconnect and current-generation cumulative Emergency Stop confirmations.
   Shell and pairing tests shall also prove parallel safety teardown, projection
   draining, retained cleanup ownership, and shared disposal completion.
+- RW8.8: Protocol tests shall freeze canonical protocol-1.7 Prepare, successful
+  Ready, and rejected Ready fixtures while proving every protocol-1.5 and 1.6
+  fixture remains byte-for-byte stable. Negative tests shall cover 1.6 feature
+  rejection, canonical digest vectors, malformed/wrong/cross-request digest,
+  unknown/trailing/duplicate fields, wrong direction or identity,
+  every exact-binding and role mismatch, invalid/expired deadlines, unknown or
+  replayed correlation, duplicate and concurrent Prepare, delayed Ready after a
+  terminal tombstone, malformed-message no-reflection behavior, and bounded
+  cancellation/disconnect/revocation cleanup. A production-composed two-node
+  tracer shall prove the control read loop does not deadlock, capture receives no
+  call before successful Ready and attachment acknowledgement, no media frame is
+  admitted before final state acknowledgement, and every rejection/fault leaves
+  controller, renderer, queue, attachment, route, media-directory, and control
+  owners drained. Complementary one-way-grant cases shall prove the host's grant
+  to the participant authorizes only the host source direction and that the
+  participant does not require or reinterpret a reciprocal Mirror grant. This
+  remains managed evidence until matching native and physical gates pass.
 
 ## Non-goals for the authenticated control and bounded media slice
 

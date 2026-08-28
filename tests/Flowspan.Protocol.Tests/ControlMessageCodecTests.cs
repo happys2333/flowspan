@@ -332,6 +332,203 @@ public sealed class ControlMessageCodecTests
             () => ControlMessageCodec.Decode(downgraded));
     }
 
+    [Fact]
+    public void ProtocolOnePointSevenRoundTripsRemoteWindowPrepare()
+    {
+        ControlMessage message = ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            ControlMessageType.RemoteWindowPrepare,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}");
+
+        byte[] encoded = ControlMessageCodec.Encode(message);
+        ControlMessage decoded = ControlMessageCodec.Decode(encoded);
+
+        Assert.Contains(
+            "\"type\":\"remote-window.prepare\"",
+            Encoding.UTF8.GetString(encoded),
+            StringComparison.Ordinal);
+        Assert.Equal(ControlMessageType.RemoteWindowPrepare, decoded.Type);
+        Assert.Equal(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            decoded.Version);
+    }
+
+    [Fact]
+    public void ProtocolOnePointSevenRoundTripsRemoteWindowReady()
+    {
+        ControlMessage message = ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            ControlMessageType.RemoteWindowReady,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}");
+
+        byte[] encoded = ControlMessageCodec.Encode(message);
+        ControlMessage decoded = ControlMessageCodec.Decode(encoded);
+
+        Assert.Contains(
+            "\"type\":\"remote-window.ready\"",
+            Encoding.UTF8.GetString(encoded),
+            StringComparison.Ordinal);
+        Assert.Equal(ControlMessageType.RemoteWindowReady, decoded.Type);
+        Assert.Equal(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            decoded.Version);
+    }
+
+    [Theory]
+    [InlineData(ControlMessageType.RemoteWindowPrepare)]
+    [InlineData(ControlMessageType.RemoteWindowReady)]
+    public void ProtocolOnePointSevenPreparationRejectsUnknownEnvelopeProperty(
+        ControlMessageType type)
+    {
+        ControlMessage message = ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}");
+        string encoded = Encoding.UTF8.GetString(ControlMessageCodec.Encode(message));
+        byte[] extended = Encoding.UTF8.GetBytes(
+            encoded.Insert(1, "\"extension\":true,"));
+
+        Assert.Throws<InvalidDataException>(
+            () => ControlMessageCodec.Decode(extended));
+    }
+
+    [Theory]
+    [InlineData(ControlMessageType.RemoteWindowPrepare)]
+    [InlineData(ControlMessageType.RemoteWindowReady)]
+    public void ProtocolOnePointSevenPreparationRejectsUnknownProtocolProperty(
+        ControlMessageType type)
+    {
+        ControlMessage message = ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}");
+        string encoded = Encoding.UTF8.GetString(ControlMessageCodec.Encode(message));
+        byte[] extended = Encoding.UTF8.GetBytes(encoded.Replace(
+            "\"minor\":7",
+            "\"minor\":7,\"extension\":true",
+            StringComparison.Ordinal));
+
+        Assert.Throws<InvalidDataException>(
+            () => ControlMessageCodec.Decode(extended));
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void ProtocolOnePointFiveAndSixReadersIgnoreUnknownEnvelopeAndProtocolProperties(
+        int minor)
+    {
+        ControlMessage message = ControlMessage.Create(
+            new ProtocolVersion(1, minor),
+            ControlMessageType.RemoteWindowState,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}");
+        string encoded = Encoding.UTF8.GetString(ControlMessageCodec.Encode(message));
+        byte[] extended = Encoding.UTF8.GetBytes(encoded
+            .Insert(1, "\"extension\":true,")
+            .Replace(
+                $"\"minor\":{minor}",
+                $"\"minor\":{minor},\"extension\":true",
+                StringComparison.Ordinal));
+
+        ControlMessage decoded = ControlMessageCodec.Decode(extended);
+
+        Assert.Equal(new ProtocolVersion(1, minor), decoded.Version);
+        Assert.Equal(ControlMessageType.RemoteWindowState, decoded.Type);
+    }
+
+    [Theory]
+    [InlineData(ControlMessageType.RemoteWindowPrepare)]
+    [InlineData(ControlMessageType.RemoteWindowReady)]
+    public void PreparationMessageCreationRequiresWholeMillisecondUtcSentAt(
+        ControlMessageType type)
+    {
+        Assert.Throws<ArgumentException>(() => ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt.AddTicks(1),
+            TimeSpan.FromSeconds(5),
+            "{}"));
+        Assert.Throws<ArgumentException>(() => ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt.ToOffset(TimeSpan.FromHours(1)),
+            TimeSpan.FromSeconds(5),
+            "{}"));
+    }
+
+    [Theory]
+    [InlineData(ControlMessageType.RemoteWindowPrepare)]
+    [InlineData(ControlMessageType.RemoteWindowReady)]
+    public void ProtocolOnePointSixRejectsRemoteWindowPreparationMessageTypes(
+        ControlMessageType type)
+    {
+        Assert.Throws<ArgumentException>(() => ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}"));
+    }
+
+    [Theory]
+    [InlineData(ControlMessageType.RemoteWindowPrepare)]
+    [InlineData(ControlMessageType.RemoteWindowReady)]
+    public void DecoderRejectsRemoteWindowPreparationFrameDowngradedToOnePointSix(
+        ControlMessageType type)
+    {
+        ControlMessage message = ControlMessage.Create(
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            type,
+            MessageId,
+            Correlation,
+            Sender,
+            SentAt,
+            TimeSpan.FromSeconds(5),
+            "{}");
+        string encoded = Encoding.UTF8.GetString(ControlMessageCodec.Encode(message));
+        byte[] downgraded = Encoding.UTF8.GetBytes(encoded.Replace(
+            "\"minor\":7",
+            "\"minor\":6",
+            StringComparison.Ordinal));
+
+        Assert.Throws<InvalidDataException>(
+            () => ControlMessageCodec.Decode(downgraded));
+    }
+
     private static ControlMessage Create(string bodyJson) => ControlMessage.Create(
         new ProtocolVersion(1, 0),
         ControlMessageType.Hello,

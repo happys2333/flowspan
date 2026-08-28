@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Flowspan.Application;
 using Flowspan.Application.Adapters;
@@ -8,13 +9,28 @@ using Flowspan.Transport;
 
 namespace Flowspan.Desktop;
 
+internal sealed record DesktopActivityNetworkBindings(
+    AuthenticatedActivitySessionHandler SessionHandler,
+    AuthenticatedRemoteWindowMediaSessionDirectory RemoteWindowMediaSessions);
+
+internal interface IDesktopRemoteWindowMediaSessionOwner : IAsyncDisposable
+{
+    public AuthenticatedRemoteWindowMediaSessionDirectory SessionDirectory { get; }
+}
+
 internal sealed class DesktopActivityRuntime :
     IDesktopActivityService,
     IDesktopSceneApplyService
 {
     private static readonly TimeSpan OperationLifetime = TimeSpan.FromSeconds(30);
+    private readonly TaskCompletionSource disposalCompletion = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Func<CancellationToken, ValueTask<DeviceIdentity>> getIdentity;
     private readonly Func<CancellationToken, ValueTask<TrustSessionCoordinator>> getTrust;
+    private readonly Func<TimeProvider, IDesktopRemoteWindowMediaSessionOwner>
+        createRemoteWindowMediaSessions;
+    private readonly Action<AuthenticatedActivitySessionHandler>?
+        onSessionHandlerCreated;
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly IReplaceStatePayloadStore? replaceStatePayloadStore;
@@ -33,6 +49,8 @@ internal sealed class DesktopActivityRuntime :
     private SceneApplyPlanner? sceneApplyPlanner;
     private SceneApplyCoordinator? sceneApplyCoordinator;
     private SceneApplyCompensator? sceneApplyCompensator;
+    private IDesktopRemoteWindowMediaSessionOwner?
+        remoteWindowMediaSessions;
     private TrustSessionCoordinator? trust;
     private int disposed;
 
@@ -45,12 +63,40 @@ internal sealed class DesktopActivityRuntime :
             sceneRemoteChildStatePayloadStore = null,
         ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore = null,
         IReceiptSink? receiptSink = null)
+        : this(
+            getIdentity,
+            getTrust,
+            timeProvider,
+            replaceStatePayloadStore,
+            sceneRemoteChildStatePayloadStore,
+            sceneApplyStatePayloadStore,
+            receiptSink,
+            static provider => new DesktopRemoteWindowMediaSessionOwner(provider),
+            onSessionHandlerCreated: null)
+    {
+    }
+
+    internal DesktopActivityRuntime(
+        Func<CancellationToken, ValueTask<DeviceIdentity>> getIdentity,
+        Func<CancellationToken, ValueTask<TrustSessionCoordinator>> getTrust,
+        TimeProvider? timeProvider,
+        IReplaceStatePayloadStore? replaceStatePayloadStore,
+        ISceneRemoteChildStatePayloadStore?
+            sceneRemoteChildStatePayloadStore,
+        ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore,
+        IReceiptSink? receiptSink,
+        Func<TimeProvider, IDesktopRemoteWindowMediaSessionOwner>
+            createRemoteWindowMediaSessions,
+        Action<AuthenticatedActivitySessionHandler>? onSessionHandlerCreated = null)
     {
         ArgumentNullException.ThrowIfNull(getIdentity);
         ArgumentNullException.ThrowIfNull(getTrust);
+        ArgumentNullException.ThrowIfNull(createRemoteWindowMediaSessions);
         this.getIdentity = getIdentity;
         this.getTrust = getTrust;
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.createRemoteWindowMediaSessions = createRemoteWindowMediaSessions;
+        this.onSessionHandlerCreated = onSessionHandlerCreated;
         this.replaceStatePayloadStore = replaceStatePayloadStore;
         this.sceneRemoteChildStatePayloadStore =
             sceneRemoteChildStatePayloadStore;
@@ -915,12 +961,17 @@ internal sealed class DesktopActivityRuntime :
                 }
             }
 
-            AuthenticatedActivitySessionHandler newHandler;
+            AuthenticatedActivitySessionHandler? newHandler = null;
+            IDesktopRemoteWindowMediaSessionOwner? newRemoteWindowMediaSessions = null;
             SceneApplyPlanner? newSceneApplyPlanner = null;
             SceneApplyCoordinator? newSceneApplyCoordinator = null;
             SceneApplyCompensator? newSceneApplyCompensator = null;
             try
             {
+                newRemoteWindowMediaSessions =
+                    createRemoteWindowMediaSessions(timeProvider)
+                    ?? throw new InvalidOperationException(
+                        "The Remote Window media session owner factory returned null.");
                 IReplacePeer? authorizedReplacePeer = newReplaceEndpoint is null
                     || newReplaceState is null
                     ? null
@@ -936,7 +987,10 @@ internal sealed class DesktopActivityRuntime :
                     authorizedInventoryPeer,
                     swapPeer: null,
                     timeProvider,
-                    authorizedScenePeer);
+                    authorizedScenePeer,
+                    remoteWindowMediaSessions:
+                        newRemoteWindowMediaSessions.SessionDirectory);
+                onSessionHandlerCreated?.Invoke(newHandler);
                 if (authorizedScenePeer is not null)
                 {
                     sceneRoutes.SetInner(newHandler);
@@ -973,19 +1027,64 @@ internal sealed class DesktopActivityRuntime :
                         operationPort);
                 }
             }
-            catch
+            catch (Exception initializationFailure)
             {
-                newSceneApplyJournal?.Dispose();
-                newSceneRemoteChildJournal?.Dispose();
-                newReplaceEndpoint?.Dispose();
-                newReplaceState?.Dispose();
+                var failures = new List<Exception> { initializationFailure };
+                if (newHandler is not null)
+                {
+                    await CaptureCleanupFailureAsync(
+                        newHandler.DisposeAsync,
+                        failures).ConfigureAwait(false);
+                }
+
+                if (newRemoteWindowMediaSessions is not null)
+                {
+                    await CaptureCleanupFailureAsync(
+                        newRemoteWindowMediaSessions.DisposeAsync,
+                        failures).ConfigureAwait(false);
+                }
+
+                if (newSceneApplyJournal is not null)
+                {
+                    CaptureCleanupFailure(newSceneApplyJournal.Dispose, failures);
+                }
+
+                if (newSceneRemoteChildJournal is not null)
+                {
+                    CaptureCleanupFailure(
+                        newSceneRemoteChildJournal.Dispose,
+                        failures);
+                }
+
+                if (newReplaceEndpoint is not null)
+                {
+                    CaptureCleanupFailure(newReplaceEndpoint.Dispose, failures);
+                }
+
+                if (newReplaceState is not null)
+                {
+                    CaptureCleanupFailure(newReplaceState.Dispose, failures);
+                }
+
+                if (failures.Count > 1)
+                {
+                    throw new AggregateException(
+                        "Desktop Activity runtime initialization and cleanup failed.",
+                        failures);
+                }
+
+                ExceptionDispatchInfo.Capture(initializationFailure).Throw();
                 throw;
             }
-            newHandler.Changed += OnHandlerChanged;
+            AuthenticatedActivitySessionHandler initializedHandler = newHandler
+                ?? throw new InvalidOperationException(
+                    "The Activity session handler was not constructed.");
+            initializedHandler.Changed += OnHandlerChanged;
             coordinator.Changed += OnTrustChanged;
             catalog = newCatalog;
             trust = coordinator;
-            handler = newHandler;
+            handler = initializedHandler;
+            remoteWindowMediaSessions = newRemoteWindowMediaSessions;
             replaceEndpoint = newReplaceEndpoint;
             replaceState = newReplaceState;
             sceneRemoteChildJournal = newSceneRemoteChildJournal;
@@ -1012,62 +1111,190 @@ internal sealed class DesktopActivityRuntime :
                 "The Activity session handler was not initialized.");
     }
 
-    public async ValueTask DisposeAsync()
+    internal async ValueTask<DesktopActivityNetworkBindings>
+        GetNetworkBindingsAsync(CancellationToken cancellationToken = default)
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
+        AuthenticatedActivitySessionHandler currentHandler = handler
+            ?? throw new InvalidOperationException(
+                "The Activity session handler was not initialized.");
+        AuthenticatedRemoteWindowMediaSessionDirectory currentMediaSessions =
+            remoteWindowMediaSessions?.SessionDirectory
+            ?? throw new InvalidOperationException(
+                "The Remote Window media directory was not initialized.");
+        return new DesktopActivityNetworkBindings(
+            currentHandler,
+            currentMediaSessions);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (Interlocked.CompareExchange(ref disposed, 1, 0) == 0)
         {
-            return;
+            _ = CompleteDisposalAsync();
         }
 
-        lifetimeCancellation.Cancel();
-        await initializationGate.WaitAsync().ConfigureAwait(false);
+        return new ValueTask(disposalCompletion.Task);
+    }
+
+    private async Task CompleteDisposalAsync()
+    {
         try
         {
+            await DisposeResourcesAsync().ConfigureAwait(false);
+            disposalCompletion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            disposalCompletion.TrySetException(exception);
+        }
+    }
+
+    private async Task DisposeResourcesAsync()
+    {
+        var failures = new List<Exception>();
+        CaptureCleanupFailure(lifetimeCancellation.Cancel, failures);
+        bool gateEntered = false;
+        try
+        {
+            await initializationGate.WaitAsync().ConfigureAwait(false);
+            gateEntered = true;
             AuthenticatedActivitySessionHandler? current = handler;
             handler = null;
             TrustSessionCoordinator? currentTrust = trust;
             trust = null;
             if (currentTrust is not null)
             {
-                currentTrust.Changed -= OnTrustChanged;
+                CaptureCleanupFailure(
+                    () => currentTrust.Changed -= OnTrustChanged,
+                    failures);
             }
 
             if (current is not null)
             {
-                current.Changed -= OnHandlerChanged;
-                await current.DisposeAsync().ConfigureAwait(false);
+                CaptureCleanupFailure(
+                    () => current.Changed -= OnHandlerChanged,
+                    failures);
+                await CaptureCleanupFailureAsync(
+                    current.DisposeAsync,
+                    failures).ConfigureAwait(false);
+            }
+
+            IDesktopRemoteWindowMediaSessionOwner? currentMediaSessions =
+                remoteWindowMediaSessions;
+            remoteWindowMediaSessions = null;
+            if (currentMediaSessions is not null)
+            {
+                await CaptureCleanupFailureAsync(
+                    currentMediaSessions.DisposeAsync,
+                    failures).ConfigureAwait(false);
             }
 
             Volatile.Write(ref node, null);
             ReplaceEndpoint? currentReplaceEndpoint = replaceEndpoint;
             replaceEndpoint = null;
-            currentReplaceEndpoint?.Dispose();
+            if (currentReplaceEndpoint is not null)
+            {
+                CaptureCleanupFailure(currentReplaceEndpoint.Dispose, failures);
+            }
+
             PersistentReplaceStateStore? currentReplaceState = replaceState;
             replaceState = null;
-            currentReplaceState?.Dispose();
+            if (currentReplaceState is not null)
+            {
+                CaptureCleanupFailure(currentReplaceState.Dispose, failures);
+            }
+
             PersistentSceneRemoteChildJournal? currentSceneJournal =
                 sceneRemoteChildJournal;
             sceneRemoteChildJournal = null;
-            currentSceneJournal?.Dispose();
+            if (currentSceneJournal is not null)
+            {
+                CaptureCleanupFailure(currentSceneJournal.Dispose, failures);
+            }
+
             sceneApplyPlanner = null;
             sceneApplyCoordinator = null;
             sceneApplyCompensator = null;
             PersistentSceneApplyJournal? currentSceneApplyJournal =
                 sceneApplyJournal;
             sceneApplyJournal = null;
-            currentSceneApplyJournal?.Dispose();
+            if (currentSceneApplyJournal is not null)
+            {
+                CaptureCleanupFailure(currentSceneApplyJournal.Dispose, failures);
+            }
+
             catalog = null;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
         }
         finally
         {
-            initializationGate.Release();
-            initializationGate.Dispose();
-            lifetimeCancellation.Dispose();
+            if (gateEntered)
+            {
+                CaptureCleanupFailure(
+                    () => _ = initializationGate.Release(),
+                    failures);
+            }
+
+            CaptureCleanupFailure(initializationGate.Dispose, failures);
+            CaptureCleanupFailure(lifetimeCancellation.Dispose, failures);
+        }
+
+        if (failures.Count == 1)
+        {
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+
+        if (failures.Count > 1)
+        {
+            throw new AggregateException(
+                "Desktop Activity runtime cleanup failed.",
+                failures);
+        }
+    }
+
+    private static void CaptureCleanupFailure(
+        Action cleanup,
+        List<Exception> failures)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private static async ValueTask CaptureCleanupFailureAsync(
+        Func<ValueTask> cleanup,
+        List<Exception> failures)
+    {
+        try
+        {
+            await cleanup().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
         }
     }
 
     private static ActivityKind WorkspaceNoteKind { get; } =
         ActivityKind.Parse("workspace.note/v1");
+
+    private sealed class DesktopRemoteWindowMediaSessionOwner(
+        TimeProvider timeProvider) : IDesktopRemoteWindowMediaSessionOwner
+    {
+        public AuthenticatedRemoteWindowMediaSessionDirectory SessionDirectory { get; } =
+            new(timeProvider: timeProvider);
+
+        public ValueTask DisposeAsync() => SessionDirectory.DisposeAsync();
+    }
 
     private OutboundOperationPreparation PrepareOutboundOperation(
         ActivityId activityId,

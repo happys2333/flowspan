@@ -213,7 +213,8 @@ public sealed class AuthenticatedRemoteWindowMediaLoopbackTests
             new FlowspanTcpInboundProfile(new AuthenticatedInboundSessionProfile(
                 CapabilityGrant.Of(Capability.ActivityReceive),
                 [version],
-                maximumConcurrentSessions: 1,
+                // Directory removal precedes release of the accepted-session listener slot.
+                maximumConcurrentSessions: 2,
                 handshakeTimeout: TimeSpan.FromSeconds(2))),
             responderHandler,
             responderMedia,

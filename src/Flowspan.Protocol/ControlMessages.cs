@@ -35,6 +35,8 @@ public enum ControlMessageType
     RemoteWindowInput,
     RemoteWindowDisconnect,
     RemoteWindowState,
+    RemoteWindowPrepare,
+    RemoteWindowReady,
 }
 
 public sealed record ControlMessage
@@ -113,6 +115,15 @@ public sealed record ControlMessage
         }
 
         ValidateTypeVersion(version, type);
+        if (type is ControlMessageType.RemoteWindowPrepare
+                or ControlMessageType.RemoteWindowReady
+            && (sentAt.Offset != TimeSpan.Zero
+                || sentAt.Ticks % TimeSpan.TicksPerMillisecond != 0))
+        {
+            throw new ArgumentException(
+                "A Remote Window preparation sentAt must be whole-millisecond UTC.",
+                nameof(sentAt));
+        }
 
         if (messageId == Guid.Empty)
         {
@@ -224,6 +235,17 @@ public sealed record ControlMessage
                 $"The '{type}' control message requires protocol {ProtocolFeatures.RemoteWindowMinimumVersion} or later.",
                 nameof(version));
         }
+
+        bool remoteWindowPreparationMessage = type is
+            ControlMessageType.RemoteWindowPrepare
+            or ControlMessageType.RemoteWindowReady;
+        if (remoteWindowPreparationMessage
+            && !ProtocolFeatures.SupportsRemoteWindowPreparation(version))
+        {
+            throw new ArgumentException(
+                $"The '{type}' control message requires protocol {ProtocolFeatures.RemoteWindowPreparationMinimumVersion} or later.",
+                nameof(version));
+        }
     }
 
     private static int ValidateTimeToLive(TimeSpan timeToLive)
@@ -245,6 +267,22 @@ public static class ControlMessageCodec
 {
     public const int MaximumFrameBytes = 256 * 1024;
     public const int MaximumJsonDepth = 32;
+
+    private static readonly string[] PreparationEnvelopePropertyNames =
+    [
+        "magic",
+        "protocol",
+        "type",
+        "messageId",
+        "correlationId",
+        "senderDeviceId",
+        "sentAt",
+        "ttlMs",
+        "bodyDigest",
+        "body",
+    ];
+
+    private static readonly string[] ProtocolPropertyNames = ["major", "minor"];
 
     public static byte[] Encode(ControlMessage message)
     {
@@ -319,11 +357,28 @@ public static class ControlMessageCodec
             var version = new ProtocolVersion(major, minor);
             RequireString(root, "type", out string typeName);
             ControlMessageType type = FromWireName(typeName);
+            if (ProtocolFeatures.SupportsRemoteWindowPreparation(version)
+                && type is ControlMessageType.RemoteWindowPrepare
+                    or ControlMessageType.RemoteWindowReady)
+            {
+                RequireExactProperties(root, PreparationEnvelopePropertyNames);
+                RequireExactProperties(protocol, ProtocolPropertyNames);
+            }
+
             Guid messageId = RequireGuid(root, "messageId");
             CorrelationId correlationId = CorrelationId.From(
                 RequireGuid(root, "correlationId"));
             DeviceId senderDeviceId = DeviceId.From(RequireGuid(root, "senderDeviceId"));
             DateTimeOffset sentAt = RequireDateTimeOffset(root, "sentAt");
+            if (ProtocolFeatures.SupportsRemoteWindowPreparation(version)
+                && type is ControlMessageType.RemoteWindowPrepare
+                    or ControlMessageType.RemoteWindowReady)
+            {
+                RequireCanonicalPreparationTimestamp(
+                    root.GetProperty("sentAt"),
+                    sentAt);
+            }
+
             int ttl = RequireInt32(root, "ttlMs");
             RequireString(root, "bodyDigest", out string claimedDigest);
             JsonElement bodyElement = Require(root, "body", JsonValueKind.Object);
@@ -371,6 +426,30 @@ public static class ControlMessageCodec
         return value;
     }
 
+    private static void RequireExactProperties(
+        JsonElement parent,
+        string[] expectedPropertyNames)
+    {
+        int propertyCount = 0;
+        foreach (JsonProperty property in parent.EnumerateObject())
+        {
+            propertyCount++;
+            if (!expectedPropertyNames.Contains(
+                    property.Name,
+                    StringComparer.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"The '{property.Name}' property is not allowed in this control frame.");
+            }
+        }
+
+        if (propertyCount != expectedPropertyNames.Length)
+        {
+            throw new InvalidDataException(
+                "The control frame does not contain the exact required property set.");
+        }
+    }
+
     private static void RequireString(
         JsonElement parent,
         string propertyName,
@@ -409,6 +488,21 @@ public static class ControlMessageCodec
             ? value
             : throw new InvalidDataException(
                 $"The '{propertyName}' property is not a timestamp with an offset.");
+    }
+
+    private static void RequireCanonicalPreparationTimestamp(
+        JsonElement element,
+        DateTimeOffset value)
+    {
+        if (value.Offset != TimeSpan.Zero
+            || value.Ticks % TimeSpan.TicksPerMillisecond != 0
+            || !StringComparer.Ordinal.Equals(
+                element.GetString(),
+                JsonSerializer.SerializeToElement(value).GetString()))
+        {
+            throw new InvalidDataException(
+                "A Remote Window preparation sentAt timestamp must use canonical whole-millisecond UTC spelling.");
+        }
     }
 
     private static void ValidateDigest(string claimedDigest, JsonElement body)
@@ -459,6 +553,8 @@ public static class ControlMessageCodec
         ControlMessageType.RemoteWindowInput => "remote-window.input",
         ControlMessageType.RemoteWindowDisconnect => "remote-window.disconnect",
         ControlMessageType.RemoteWindowState => "remote-window.state",
+        ControlMessageType.RemoteWindowPrepare => "remote-window.prepare",
+        ControlMessageType.RemoteWindowReady => "remote-window.ready",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown message type."),
     };
 
@@ -490,6 +586,8 @@ public static class ControlMessageCodec
         "remote-window.input" => ControlMessageType.RemoteWindowInput,
         "remote-window.disconnect" => ControlMessageType.RemoteWindowDisconnect,
         "remote-window.state" => ControlMessageType.RemoteWindowState,
+        "remote-window.prepare" => ControlMessageType.RemoteWindowPrepare,
+        "remote-window.ready" => ControlMessageType.RemoteWindowReady,
         _ => throw new InvalidDataException($"The control message type '{type}' is unknown."),
     };
 }

@@ -1,9 +1,154 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Flowspan.Domain;
 using Flowspan.Platform;
 using Flowspan.Protocol;
 
 namespace Flowspan.Transport;
+
+public sealed record RemoteWindowPreparationRequest
+{
+    private RemoteWindowPreparationRequest(
+        CorrelationId correlationId,
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        DeviceId hostDeviceId,
+        DeviceId participantDeviceId,
+        MirrorParticipantRole requestedRole,
+        DateTimeOffset deadline)
+    {
+        CorrelationId = correlationId;
+        SessionId = sessionId;
+        ActivityId = activityId;
+        HostDeviceId = hostDeviceId;
+        ParticipantDeviceId = participantDeviceId;
+        RequestedRole = requestedRole;
+        Deadline = deadline;
+    }
+
+    public ActivityId ActivityId { get; }
+
+    public CorrelationId CorrelationId { get; }
+
+    public DateTimeOffset Deadline { get; }
+
+    public DeviceId HostDeviceId { get; }
+
+    public DeviceId ParticipantDeviceId { get; }
+
+    public MirrorParticipantRole RequestedRole { get; }
+
+    public RemoteWindowSessionId SessionId { get; }
+
+    public static RemoteWindowPreparationRequest Create(
+        CorrelationId correlationId,
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        DeviceId hostDeviceId,
+        DeviceId participantDeviceId,
+        MirrorParticipantRole requestedRole,
+        DateTimeOffset deadline)
+    {
+        ArgumentNullException.ThrowIfNull(correlationId);
+        ArgumentNullException.ThrowIfNull(sessionId);
+        ArgumentNullException.ThrowIfNull(activityId);
+        ArgumentNullException.ThrowIfNull(hostDeviceId);
+        ArgumentNullException.ThrowIfNull(participantDeviceId);
+        if (hostDeviceId == participantDeviceId)
+        {
+            throw new ArgumentException(
+                "A Remote Window participant must be remote from its host.",
+                nameof(participantDeviceId));
+        }
+
+        if (!Enum.IsDefined(requestedRole))
+        {
+            throw new ArgumentOutOfRangeException(nameof(requestedRole));
+        }
+
+        if (deadline.Offset != TimeSpan.Zero
+            || deadline.Ticks % TimeSpan.TicksPerMillisecond != 0)
+        {
+            throw new ArgumentException(
+                "A Remote Window preparation deadline must be a whole-millisecond canonical UTC timestamp.",
+                nameof(deadline));
+        }
+
+        return new RemoteWindowPreparationRequest(
+            correlationId,
+            sessionId,
+            activityId,
+            hostDeviceId,
+            participantDeviceId,
+            requestedRole,
+            deadline);
+    }
+}
+
+public enum RemoteWindowPreparationOutcome
+{
+    Ready,
+    Rejected,
+}
+
+public sealed record RemoteWindowPreparationResponse
+{
+    private RemoteWindowPreparationResponse(
+        RemoteWindowPreparationRequest request,
+        RemoteWindowPreparationOutcome outcome,
+        string reasonCode)
+    {
+        Request = request;
+        Outcome = outcome;
+        ReasonCode = reasonCode;
+    }
+
+    public RemoteWindowPreparationOutcome Outcome { get; }
+
+    public string ReasonCode { get; }
+
+    public RemoteWindowPreparationRequest Request { get; }
+
+    public static RemoteWindowPreparationResponse Create(
+        RemoteWindowPreparationRequest request,
+        RemoteWindowPreparationOutcome outcome,
+        string reasonCode)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!Enum.IsDefined(outcome))
+        {
+            throw new ArgumentOutOfRangeException(nameof(outcome));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(reasonCode);
+        bool valid = outcome switch
+        {
+            RemoteWindowPreparationOutcome.Ready =>
+                reasonCode is "participant_ready",
+            RemoteWindowPreparationOutcome.Rejected => reasonCode is
+                "participant_busy"
+                or "renderer_unavailable"
+                or "renderer_start_failed"
+                or "media_unavailable"
+                or "media_attachment_failed"
+                or "role_unsupported"
+                or "preparation_expired"
+                or "preparation_cancelled"
+                or "participant_stopping",
+            _ => false,
+        };
+        if (!valid)
+        {
+            throw new ArgumentException(
+                "The Remote Window preparation reason is not valid for its outcome.",
+                nameof(reasonCode));
+        }
+
+        return new RemoteWindowPreparationResponse(request, outcome, reasonCode);
+    }
+}
 
 public sealed record RemoteWindowAdmissionRequest
 {
@@ -544,11 +689,244 @@ public sealed record RemoteWindowParticipantState
 
 public static class RemoteWindowControlMessageCodec
 {
+    private const string PreparationDigestDomain =
+        "flowspan.remote-window.prepare.v1";
+
     public static readonly TimeSpan MaximumCommandTimeToLive = TimeSpan.FromSeconds(10);
 
     public static readonly TimeSpan MaximumInputTimeToLive = TimeSpan.FromSeconds(2);
 
     public static readonly TimeSpan StateTimeToLive = TimeSpan.FromSeconds(5);
+
+    public static ControlMessage CreatePrepare(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        RemoteWindowPreparationRequest request,
+        DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(request);
+        if (senderDeviceId != request.HostDeviceId)
+        {
+            throw new ArgumentException(
+                "A Remote Window preparation must be sent by its host.",
+                nameof(senderDeviceId));
+        }
+
+        DateTimeOffset canonicalSentAt = CanonicalizePreparationSentAt(sentAt);
+        string preparationDigest = ComputePreparationDigest(version, request);
+        string body = JsonSerializer.Serialize(new
+        {
+            activityId = request.ActivityId.ToString(),
+            deadline = request.Deadline,
+            hostDeviceId = request.HostDeviceId.ToString(),
+            participantDeviceId = request.ParticipantDeviceId.ToString(),
+            prepareDigest = preparationDigest,
+            requestedRole = ToWireName(request.RequestedRole),
+            sessionId = request.SessionId.ToString(),
+        });
+        return ControlMessage.Create(
+            version,
+            ControlMessageType.RemoteWindowPrepare,
+            Guid.NewGuid(),
+            request.CorrelationId,
+            senderDeviceId,
+            canonicalSentAt,
+            DeadlineTimeToLive(request.Deadline, canonicalSentAt),
+            body);
+    }
+
+    public static RemoteWindowPreparationRequest DecodePrepare(
+        ControlMessage message,
+        DeviceId expectedParticipantDeviceId,
+        ProtocolVersion expectedVersion)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expectedParticipantDeviceId);
+        RequirePreparationType(message, ControlMessageType.RemoteWindowPrepare);
+        if (message.Version != expectedVersion)
+        {
+            throw new InvalidDataException(
+                "Remote Window preparation does not match the negotiated protocol version.");
+        }
+
+        RequireCanonicalWholeMillisecondUtc(message.SentAt, "sentAt");
+
+        try
+        {
+            JsonElement root = message.Body;
+            RequireOnly(
+                root,
+                "activityId",
+                "deadline",
+                "hostDeviceId",
+                "participantDeviceId",
+                "prepareDigest",
+                "requestedRole",
+                "sessionId");
+            DateTimeOffset deadline = RequireCanonicalWholeMillisecondUtc(
+                root,
+                "deadline");
+            ValidateDeadline(message, deadline);
+            DeviceId hostDeviceId = DeviceId.Parse(
+                RequireString(root, "hostDeviceId"));
+            DeviceId participantDeviceId = DeviceId.Parse(
+                RequireString(root, "participantDeviceId"));
+            if (hostDeviceId != message.SenderDeviceId
+                || participantDeviceId != expectedParticipantDeviceId)
+            {
+                throw new InvalidDataException(
+                    "The Remote Window preparation does not match its authenticated participants.");
+            }
+
+            RemoteWindowPreparationRequest request = RemoteWindowPreparationRequest.Create(
+                message.CorrelationId,
+                RemoteWindowSessionId.Parse(RequireString(root, "sessionId")),
+                ActivityId.Parse(RequireString(root, "activityId")),
+                hostDeviceId,
+                participantDeviceId,
+                ParseParticipantRole(RequireString(root, "requestedRole")),
+                deadline);
+            ValidatePreparationDigest(
+                RequireString(root, "prepareDigest"),
+                ComputePreparationDigest(message.Version, request));
+            return request;
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException
+            or FormatException
+            or JsonException
+            or OverflowException)
+        {
+            throw new InvalidDataException(
+                "The Remote Window preparation body is malformed.",
+                exception);
+        }
+    }
+
+    public static ControlMessage CreateReady(
+        ProtocolVersion version,
+        DeviceId senderDeviceId,
+        RemoteWindowPreparationResponse response,
+        DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(senderDeviceId);
+        ArgumentNullException.ThrowIfNull(response);
+        RemoteWindowPreparationRequest request = response.Request;
+        if (senderDeviceId != request.ParticipantDeviceId)
+        {
+            throw new ArgumentException(
+                "Remote Window readiness must be sent by its participant.",
+                nameof(senderDeviceId));
+        }
+
+        DateTimeOffset canonicalSentAt = CanonicalizePreparationSentAt(sentAt);
+        string body = JsonSerializer.Serialize(new
+        {
+            activityId = request.ActivityId.ToString(),
+            deadline = request.Deadline,
+            hostDeviceId = request.HostDeviceId.ToString(),
+            participantDeviceId = request.ParticipantDeviceId.ToString(),
+            prepareDigest = ComputePreparationDigest(version, request),
+            ready = response.Outcome is RemoteWindowPreparationOutcome.Ready,
+            reasonCode = response.ReasonCode,
+            requestedRole = ToWireName(request.RequestedRole),
+            sessionId = request.SessionId.ToString(),
+        });
+        return ControlMessage.Create(
+            version,
+            ControlMessageType.RemoteWindowReady,
+            Guid.NewGuid(),
+            request.CorrelationId,
+            senderDeviceId,
+            canonicalSentAt,
+            DeadlineTimeToLive(request.Deadline, canonicalSentAt),
+            body);
+    }
+
+    public static RemoteWindowPreparationResponse DecodeReady(
+        ControlMessage message,
+        DeviceId expectedHostDeviceId,
+        ProtocolVersion expectedVersion,
+        RemoteWindowPreparationRequest expectedRequest)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expectedHostDeviceId);
+        ArgumentNullException.ThrowIfNull(expectedRequest);
+        RequirePreparationType(message, ControlMessageType.RemoteWindowReady);
+        if (message.Version != expectedVersion)
+        {
+            throw new InvalidDataException(
+                "Remote Window readiness does not match the pending protocol version.");
+        }
+
+        RequireCanonicalWholeMillisecondUtc(message.SentAt, "sentAt");
+
+        try
+        {
+            JsonElement root = message.Body;
+            RequireOnly(
+                root,
+                "activityId",
+                "deadline",
+                "hostDeviceId",
+                "participantDeviceId",
+                "prepareDigest",
+                "ready",
+                "reasonCode",
+                "requestedRole",
+                "sessionId");
+            DateTimeOffset deadline = RequireCanonicalWholeMillisecondUtc(
+                root,
+                "deadline");
+            ValidateDeadline(message, deadline);
+            DeviceId hostDeviceId = DeviceId.Parse(
+                RequireString(root, "hostDeviceId"));
+            DeviceId participantDeviceId = DeviceId.Parse(
+                RequireString(root, "participantDeviceId"));
+            if (hostDeviceId != expectedHostDeviceId
+                || participantDeviceId != message.SenderDeviceId)
+            {
+                throw new InvalidDataException(
+                    "Remote Window readiness does not match its authenticated participants.");
+            }
+
+            RemoteWindowPreparationRequest request = RemoteWindowPreparationRequest.Create(
+                message.CorrelationId,
+                RemoteWindowSessionId.Parse(RequireString(root, "sessionId")),
+                ActivityId.Parse(RequireString(root, "activityId")),
+                hostDeviceId,
+                participantDeviceId,
+                ParseParticipantRole(RequireString(root, "requestedRole")),
+                deadline);
+            if (message.CorrelationId != expectedRequest.CorrelationId
+                || request != expectedRequest)
+            {
+                throw new InvalidDataException(
+                    "Remote Window readiness does not match its pending preparation.");
+            }
+
+            ValidatePreparationDigest(
+                RequireString(root, "prepareDigest"),
+                ComputePreparationDigest(expectedVersion, expectedRequest));
+            return RemoteWindowPreparationResponse.Create(
+                request,
+                RequireBoolean(root, "ready")
+                    ? RemoteWindowPreparationOutcome.Ready
+                    : RemoteWindowPreparationOutcome.Rejected,
+                RequireString(root, "reasonCode"));
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException
+            or FormatException
+            or JsonException
+            or OverflowException)
+        {
+            throw new InvalidDataException(
+                "The Remote Window readiness body is malformed.",
+                exception);
+        }
+    }
 
     public static ControlMessage CreateAdmission(
         ProtocolVersion version,
@@ -1094,6 +1472,15 @@ public static class RemoteWindowControlMessageCodec
         return ttl;
     }
 
+    private static DateTimeOffset CanonicalizePreparationSentAt(
+        DateTimeOffset sentAt)
+    {
+        DateTimeOffset utc = sentAt.ToUniversalTime();
+        long canonicalTicks = utc.Ticks
+            - utc.Ticks % TimeSpan.TicksPerMillisecond;
+        return new DateTimeOffset(canonicalTicks, TimeSpan.Zero);
+    }
+
     private static void ValidateDeadline(
         ControlMessage message,
         DateTimeOffset deadline,
@@ -1122,6 +1509,69 @@ public static class RemoteWindowControlMessageCodec
         }
     }
 
+    private static void RequirePreparationType(
+        ControlMessage message,
+        ControlMessageType expected)
+    {
+        if (message.Type != expected
+            || !ProtocolFeatures.SupportsRemoteWindowPreparation(message.Version))
+        {
+            throw new InvalidDataException(
+                "The control message is not a supported Remote Window preparation message.");
+        }
+    }
+
+    private static string ComputePreparationDigest(
+        ProtocolVersion version,
+        RemoteWindowPreparationRequest request)
+    {
+        string canonical = string.Join(
+            '\n',
+            PreparationDigestDomain,
+            version.Major.ToString(CultureInfo.InvariantCulture),
+            version.Minor.ToString(CultureInfo.InvariantCulture),
+            request.CorrelationId.ToString(),
+            request.SessionId.ToString(),
+            request.ActivityId.ToString(),
+            request.HostDeviceId.ToString(),
+            request.ParticipantDeviceId.ToString(),
+            ToWireName(request.RequestedRole),
+            request.Deadline.ToUnixTimeMilliseconds()
+                .ToString(CultureInfo.InvariantCulture));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+    }
+
+    private static void ValidatePreparationDigest(string claimed, string actual)
+    {
+        if (claimed.Length != 64
+            || claimed.Any(static character => character is not
+                (>= '0' and <= '9') and not (>= 'A' and <= 'F')))
+        {
+            throw new InvalidDataException(
+                "The Remote Window preparation digest is not canonical uppercase hexadecimal.");
+        }
+
+        byte[] claimedBytes;
+        try
+        {
+            claimedBytes = Convert.FromHexString(claimed);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException(
+                "The Remote Window preparation digest is malformed.",
+                exception);
+        }
+
+        byte[] actualBytes = Convert.FromHexString(actual);
+        if (claimedBytes.Length != actualBytes.Length
+            || !CryptographicOperations.FixedTimeEquals(claimedBytes, actualBytes))
+        {
+            throw new InvalidDataException(
+                "The Remote Window preparation digest does not match its binding.");
+        }
+    }
+
     private static DateTimeOffset RequireUtc(JsonElement parent, string name)
     {
         JsonElement value = Require(parent, name, JsonValueKind.String);
@@ -1133,6 +1583,41 @@ public static class RemoteWindowControlMessageCodec
         }
 
         return parsed;
+    }
+
+    private static DateTimeOffset RequireCanonicalWholeMillisecondUtc(
+        JsonElement parent,
+        string name)
+    {
+        JsonElement value = Require(parent, name, JsonValueKind.String);
+        if (!value.TryGetDateTimeOffset(out DateTimeOffset parsed))
+        {
+            throw new InvalidDataException(
+                $"The '{name}' field must be a canonical whole-millisecond UTC timestamp.");
+        }
+
+        RequireCanonicalWholeMillisecondUtc(parsed, name);
+        if (!StringComparer.Ordinal.Equals(
+                value.GetString(),
+                JsonSerializer.SerializeToElement(parsed).GetString()))
+        {
+            throw new InvalidDataException(
+                $"The '{name}' field must be a canonical whole-millisecond UTC timestamp.");
+        }
+
+        return parsed;
+    }
+
+    private static void RequireCanonicalWholeMillisecondUtc(
+        DateTimeOffset value,
+        string name)
+    {
+        if (value.Offset != TimeSpan.Zero
+            || value.Ticks % TimeSpan.TicksPerMillisecond != 0)
+        {
+            throw new InvalidDataException(
+                $"The '{name}' field must be a canonical whole-millisecond UTC timestamp.");
+        }
     }
 
     private static string RequireString(JsonElement parent, string name)
@@ -1156,6 +1641,15 @@ public static class RemoteWindowControlMessageCodec
         return value.TryGetInt64(out long parsed)
             ? parsed
             : throw new InvalidDataException($"The '{name}' field is not an integer.");
+    }
+
+    private static bool RequireBoolean(JsonElement parent, string name)
+    {
+        JsonElement value = RequirePresent(parent, name);
+        return value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : throw new InvalidDataException(
+                $"The '{name}' field is not a boolean.");
     }
 
     private static long? ParseNullableInt64(JsonElement parent, string name)
@@ -1256,7 +1750,7 @@ public static class RemoteWindowControlMessageCodec
             if (!expected.Remove(property.Name))
             {
                 throw new InvalidDataException(
-                    $"The message body contains unsupported field '{property.Name}'.");
+                    "The message body schema is invalid.");
             }
         }
 

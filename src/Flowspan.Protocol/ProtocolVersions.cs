@@ -52,6 +52,9 @@ public static class ProtocolFeatures
     public static ProtocolVersion RemoteWindowMediaRouteMinimumVersion { get; } =
         new(1, 6);
 
+    public static ProtocolVersion RemoteWindowPreparationMinimumVersion { get; } =
+        new(1, 7);
+
     public static ImmutableArray<ProtocolVersion> ProductionSupportedVersions { get; } =
     [
         new ProtocolVersion(1, 0),
@@ -61,6 +64,7 @@ public static class ProtocolFeatures
         SceneApplyMinimumVersion,
         RemoteWindowMinimumVersion,
         RemoteWindowMediaRouteMinimumVersion,
+        RemoteWindowPreparationMinimumVersion,
     ];
 
     public static bool SupportsActivitySwap(ProtocolVersion version) =>
@@ -86,6 +90,10 @@ public static class ProtocolFeatures
     public static bool SupportsRemoteWindowMediaRoute(ProtocolVersion version) =>
         version.Major == RemoteWindowMediaRouteMinimumVersion.Major
         && version.Minor >= RemoteWindowMediaRouteMinimumVersion.Minor;
+
+    public static bool SupportsRemoteWindowPreparation(ProtocolVersion version) =>
+        version.Major == RemoteWindowPreparationMinimumVersion.Major
+        && version.Minor >= RemoteWindowPreparationMinimumVersion.Minor;
 }
 
 public readonly record struct ProtocolNegotiationResult(

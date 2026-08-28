@@ -139,7 +139,7 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
             await authenticated.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await runtimeObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(
-                ProtocolFeatures.RemoteWindowMediaRouteMinimumVersion,
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
                 connection.ProtocolVersion);
             Assert.True(activityRuntime.TryGetRemoteWindowChannel(
                 peerIdentity.DeviceId,

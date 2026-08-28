@@ -514,6 +514,130 @@ receive epoch or sequence, then accepts ciphertext created by the fresh session.
 The media epoch remains one throughout exhaustion; no test raises a production
 budget, rekeys media in place, or republishes the consumed route.
 
+Native Remote Window Task 5.5a freezes protocol-1.7 Preparation separately from
+the still-open Desktop/native runtime. Protocol fixtures cover one canonical
+host-to-participant Prepare, participant-to-host Ready success, and Ready
+rejection. Each fixture repeats the exact correlation, Session, Activity,
+directed Devices, role, deadline, and uppercase hexadecimal `prepareDigest`.
+`Fixtures/remote-window-preparation-v1.7.json` freezes all three complete
+canonical frames and their SHA-256 hashes. The matching codec test decodes each
+fixture, re-encodes it byte-for-byte, and runs beside the unchanged protocol-1.5
+control and protocol-1.6 `FSM1` fixture tests.
+Digest vectors independently construct the UTF-8 newline-separated
+`flowspan.remote-window.prepare.v1` domain, negotiated major/minor, correlation,
+Session, Activity, host, participant, canonical role, and deadline Unix
+milliseconds, then verify the SHA-256 bytes. Tamper cases change each component,
+use malformed/short/long/cross-request digests, and require constant-time digest
+comparison in the implementation. Every committed protocol-1.5 and 1.6 fixture
+and hash remains unchanged; negotiated 1.6 rejects both new message types without
+falling back to Admission, Activity transfer, state, or clear media.
+
+Strict codec cases cover unknown, duplicate, missing, null, wrong-type, and
+trailing fields; noncanonical UTC or envelope/body deadline disagreement; zero,
+self, wrong, or swapped Device bindings; wrong authenticated sender/recipient;
+wrong Session, Activity, role, correlation, and version; expired deadlines; and
+allowlisted Ready reasons. A well-formed local rejection emits Ready false, while
+malformed or wrongly bound traffic faults the control connection without a
+reflected response. Fixtures and diagnostics use canaries to prove there is no
+native token/handle/generation, route ID, Descriptor/Kind, raw title, key, input,
+frame, or exception text.
+The generic control decoder additionally requires the new Prepare/Ready outer
+envelope to contain exactly `magic`, `protocol`, `type`, `messageId`,
+`correlationId`, `senderDeviceId`, `sentAt`, `ttlMs`, `bodyDigest`, and `body`,
+with exactly `major` and `minor` inside `protocol`. This closed outer schema is
+limited to protocol-1.7 Preparation messages; explicit compatibility tests prove
+that frozen protocol-1.5 and 1.6 readers still tolerate extension fields.
+Prepare and Ready writer tests also feed system-like sub-millisecond timestamps,
+then require one canonical whole-millisecond UTC `sentAt`, an exact integral TTL,
+and unchanged deadline semantics. Lexical cases pin fixed-width date/time,
+literal `+00:00`, omitted zero milliseconds, and shortest `.001`/`.01`/`.1`/
+`.12`/`.123` fractions while rejecting `Z`, other offsets, redundant zeros, and
+sub-millisecond values. Frozen 1.5/1.6 UTC readers remain compatible. Decoder
+tests independently reject a supported but non-negotiated future protocol
+version.
+
+State-machine tests reserve at most one Preparation on each authenticated
+registration and retain a terminal tombstone through its deadline or connection
+close. They cover duplicate and conflicting Prepare, concurrent reservations,
+unknown/cross-request/duplicate Ready, Ready after reject/timeout/cancel/revoke/
+disconnect, a requested-role change, and a stale connection generation. Once
+route-role selection occurs, every terminal failure must consume that media
+session, close the owning control connection, and reject retry until a fresh
+authenticated handshake supplies a new media session, route, Session ID, and
+correlation.
+
+Direction coverage at the trust-bound Preparation boundary must use
+complementary one-way Trust grants. The source host's grant to the participant
+must satisfy view-only or DriverEligible checks before Prepare, before capture,
+and at AddParticipant. The receiving participant has no reciprocal Mirror grant
+and must still prepare under current authenticated Trust and local receive
+policy. Reversing the grant must not authorize the original source direction;
+tests must not invent a `remote-window.receive` Capability. The current focused
+codec/session filters prove directed Device bindings but do not yet include this
+complementary-grant and reversed-grant-negative matrix.
+
+Dispatch concurrency tests block media connect, renderer readiness, Ready send,
+host Start, AddParticipant, and final state separately. `HandlePrepare` must
+validate/reserve, launch one owned deadline/lifetime worker, and return so the
+sole authenticated read loop continues routing unrelated control and stop
+traffic. Stop/dispose cancels and joins the worker without callback self-wait.
+On the host, a Ready exposed during Prepare send remains `ReadyBuffered`; final
+Admission and caller completion require the same-lock `ReadyAcknowledged`
+transition after the send succeeds. Tests prove a failed Prepare send cannot
+leak final Admission, an acknowledged result cannot be reversed by Stop or a
+later deadline read, and an expired Prepare, Ready, or final Admission cannot
+enter the wire boundary even when its timer/watchdog has not run.
+An Admission received before Ready send begins is rejected without invoking the
+participant endpoint. During an exposed but incomplete Ready send, at most one
+strictly bound Admission may be buffered; it is consumed only after send success
+and is discarded on send failure. Final binding publication shares the Stop
+linearization lock and rechecks cancellation, deadline, owner, and phase before
+committing.
+`AuthenticatedActivitySessionHandler.Changed` publishes synchronously after its
+lifecycle lock is released. Observers may snapshot the now-Ready routes or start
+nonblocking channel work, but must hand off rather than synchronously wait for a
+round trip that requires the same dispatcher's sole read loop. Subscriber
+exceptions are isolated; subscriber scheduling is not asynchronous. Tests prove
+the first notification sees only started routes and a pre-cancelled run publishes
+nothing, not that arbitrary observers are asynchronously isolated.
+
+The Desktop network composition now gives the authenticated control handler and
+published listener the same process-owned media directory. A Ready registration
+also exposes an atomic generation-bound lease over its Preparation channel and
+transferred media session. Generation revocation callbacks use a generation-owned
+registration API and an invocation-local execution-context marker: callback-owned
+direct or `Task.Run` disposal cannot self-wait, while a returned callback's copied
+context cannot bypass cleanup even while a sibling callback remains active.
+Registration/disposal races keep the cancellation source alive until cancellation,
+registration establishment, and all leases have drained; a weak-reference test
+proves completed generations are not retained in the caller's context. The
+still-required production coordinator must use that lease with a verified
+peer-endpoint connector, prepare the host responder
+route before Prepare, and complete participant initiator `FSM1` plus renderer
+readiness before Ready. Route locators must never appear in control JSON.
+
+The still-required production-composed managed two-node tracer must use real
+authenticated TCP and the shared `FSM1` listener with deterministic host
+source/capture/input/protection/Emergency doubles and participant renderer. It
+must assert capture call count zero before Ready plus attachment acknowledgement,
+then order current revalidation, safety registration, controller Start, and exact
+AddParticipant with frame admission closed. Ready must not create a known
+binding. Only a correlated `remote-window.state` with Admission action, Applied
+or AlreadyApplied outcome, exact effective role, and current media binding may
+open rendering. The tracer must then carry one exact source frame through JPEG
+encode, encrypted chunking, decode, and renderer; return one authorized Driver
+input to the exact host boundary; and prove Emergency Stop closes capture/input/
+frame admission without network or UI acknowledgement.
+
+Each tracer boundary has reject, throw, cancel, timeout, revoke, disconnect, and
+cleanup-fault cases. Teardown must close new admission first, attempt every
+renderer, active/pending frame, queue, attachment, route, media-directory,
+controller, protection, Emergency Stop, and control owner, and preserve combined
+failures. Success and every fault end with zero retained owner/budget counts.
+These are managed protocol/runtime contracts only; they do not close Task 5/5.5,
+native platform, physical-device, accessibility, interactive-quality, signed
+release, release-criterion, or Goal evidence.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,
@@ -576,7 +700,9 @@ interactive-quality requirements remain open regardless of these managed results
 Headless Desktop tests additionally block and reorder permission, service, and
 observer callbacks. A permission busy-state observer may synchronously request
 disposal without waiting on its own callback lease; external callers still join
-the complete shared cleanup. Authoritative inactivity or caller cancellation
+the complete shared cleanup. Concurrent and later Desktop runtime disposers also
+join one completion task and observe the same success or cleanup failure.
+Authoritative inactivity or caller cancellation
 before a late successful Start result forces local Emergency Stop, while an old
 result cannot stop a newer same-controller replacement session before or after
 that replacement ends. A lower-revision DriverEligible snapshot is rejected
@@ -626,6 +752,12 @@ Core invariants are asserted after every event:
     whose local disconnect remains pending, and stop/reset truth is computed from
     cumulative local-boundary confirmation for only the current session
     generation.
+16. a Remote Window Preparation grants no authority: only the source host reads
+    its peer-relative grant; Ready cannot create a known participant binding;
+    capture and frames remain closed until current host revalidation, Start,
+    AddParticipant, and exact final Admission state all succeed; any terminal
+    failure consumes the selected media session and requires a fresh
+    authenticated connection.
 
 ## 4. CI matrix
 
@@ -655,6 +787,10 @@ machine gates even when all three validators pass.
 - The oldest supported minor fixture is included in every run.
 - Protocol 1.0 is the oldest non-Swap control version; Swap first appears in the
   frozen 1.1 fixture and is not exposed on a negotiated 1.0 session.
+- Protocol 1.5 freezes Remote Window control and encrypted media-frame fixtures;
+  protocol 1.6 adds only the frozen authenticated `FSM1` media attachment; and
+  protocol 1.7 adds the independently gated Prepare/Ready transaction. Every
+  lower minor rejects the newer feature without semantic fallback.
 - Required-field removal or semantic reuse requires a major version.
 - Optional additions need old-reader behavior tests.
 - Fuzz and hostile fixtures have bounded execution time and allocations.

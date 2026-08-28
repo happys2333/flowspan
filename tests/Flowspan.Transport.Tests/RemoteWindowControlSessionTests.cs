@@ -21,6 +21,255 @@ public sealed class RemoteWindowControlSessionTests
         RemoteWindowSessionId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     [Fact]
+    public async Task RealAuthenticatedPreparationBootstrapsBindingBeforePublishedState()
+    {
+        DeviceId hostId = DeviceId.Parse(
+            "11111111-1111-1111-1111-111111111111");
+        DeviceId participantId = DeviceId.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        ActivityId activityId = ActivityId.Parse(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        CorrelationId correlationId = CorrelationId.Parse(
+            "cccccccc-cccc-cccc-cccc-cccccccccccc");
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(hostId, "Host");
+        using DeviceIdentity participantIdentity =
+            DeviceIdentity.Generate(participantId, "Participant");
+        var hostCatalog = new InMemoryActivityCatalog();
+        var participantCatalog = new InMemoryActivityCatalog();
+        FlowspanNode hostNode = CreateNode(hostId, "Host", hostCatalog);
+        FlowspanNode participantNode = CreateNode(
+            participantId,
+            "Participant",
+            participantCatalog);
+        participantNode.SetPeerGrant(
+            hostId,
+            CapabilityGrant.Of(Capability.ActivityOffer));
+        var authorization = new MutableAuthorization();
+        authorization.SetGrant(
+            participantId,
+            CapabilityGrant.Of(Capability.MirrorView));
+        using var controller = new RemoteWindowSessionController(
+            hostId,
+            ActivityInstance.Active(
+                ActivityDescriptor.Create(
+                    activityId,
+                    ActivityKind.Parse("workspace.note/v1"),
+                    hostId,
+                    "title-canary",
+                    JsonSerializer.Serialize(new { text = "payload-canary" })),
+                ActivityPlacement.On(hostId),
+                revision: 1),
+            new FixedClock(Now),
+            authorization,
+            new ConfirmingCaptureBoundary(),
+            new ConfirmingInputBoundary(),
+            new ConfirmingSessionBoundary(),
+            TimeSpan.FromMinutes(1));
+        var hostPeer = new RemoteWindowControllerControlPeer(SessionId, controller);
+        var participantPreparation = new BlockingPreparationPeer(participantId);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        ProtocolVersion version = ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+        CapabilityGrant connectionCapabilities = CapabilityGrant.Of(
+            Capability.ActivityOffer,
+            Capability.ActivityReceive,
+            Capability.MirrorView);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                hostIdentity,
+                new TrustRecord(
+                    participantIdentity.PublicIdentity,
+                    Now,
+                    connectionCapabilities),
+                [version]).AsTask();
+        await using AuthenticatedTcpControlConnection participantConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                participantIdentity,
+                new TrustRecord(
+                    hostIdentity.PublicIdentity,
+                    Now,
+                    connectionCapabilities),
+                [version]);
+        await using AuthenticatedTcpControlConnection hostConnection = await accepting;
+        await using var participantHandler = new AuthenticatedActivitySessionHandler(
+            participantNode,
+            new FixedTimeProvider(Now),
+            remoteWindowPreparationPeer: participantPreparation);
+        await using var hostHandler = new AuthenticatedActivitySessionHandler(
+            hostNode,
+            new FixedTimeProvider(Now),
+            hostPeer);
+        using var stop = new CancellationTokenSource();
+        Task participantRun = participantHandler.RunAsync(
+            participantConnection,
+            stop.Token).AsTask();
+        Task hostRun = hostHandler.RunAsync(hostConnection, stop.Token).AsTask();
+        Assert.True(hostHandler.TryGetRemoteWindowPreparationChannel(
+            participantId,
+            out IRemoteWindowPreparationChannel? preparationChannel));
+        Assert.NotNull(preparationChannel);
+        Assert.True(participantHandler.TryGetRemoteWindowChannel(
+            hostId,
+            out IRemoteWindowControlChannel? participantChannel));
+        Assert.NotNull(participantChannel);
+        var admissionObserved = new TaskCompletionSource<RemoteWindowParticipantState>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        participantChannel.StateChanged += value =>
+            admissionObserved.TrySetResult(value);
+        RemoteWindowPreparationRequest request = RemoteWindowPreparationRequest.Create(
+            correlationId,
+            SessionId,
+            activityId,
+            hostId,
+            participantId,
+            MirrorParticipantRole.ViewOnly,
+            Now.AddSeconds(5));
+
+        Task<RemoteWindowPreparationDeliveryResult> preparing =
+            preparationChannel.PrepareAsync(request, CancellationToken.None).AsTask();
+        await participantPreparation.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(preparing.IsCompleted);
+        Assert.Equal(RemoteWindowLifecycle.Idle, controller.Snapshot.Lifecycle);
+        Assert.True(hostHandler.TryGetChannel(
+            participantId,
+            out IActivityChannel? activityChannel));
+        Assert.NotNull(activityChannel);
+        ActivityDescriptor transferred = ActivityDescriptor.Create(
+            ActivityId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            ActivityKind.Parse("workspace.note/v1"),
+            hostId,
+            "Concurrent handoff",
+            JsonSerializer.Serialize(new { text = "dispatcher canary" }));
+        ActivityTransferOffer offer = ActivityTransferOffer.Create(
+            OperationKind.Handoff,
+            OperationContext.Create(
+                OperationId.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                CorrelationId.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                Now.AddSeconds(5)),
+            transferred,
+            ActivityPlacement.On(participantId, "desktop"));
+
+        ActivityDeliveryResult activityDelivery = await activityChannel.SendAsync(
+                hostId,
+                offer,
+                CancellationToken.None)
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(ActivityDeliveryStatus.Acknowledged, activityDelivery.Status);
+        Assert.True(participantCatalog.TryGet(transferred.Id, out _));
+        Assert.False(preparing.IsCompleted);
+
+        participantPreparation.Release.TrySetResult();
+        RemoteWindowPreparationDeliveryResult prepared = await preparing.WaitAsync(
+            TimeSpan.FromSeconds(5));
+        Assert.Equal(RemoteWindowControlDeliveryStatus.Acknowledged, prepared.Status);
+        Assert.Equal(
+            RemoteWindowPreparationOutcome.Ready,
+            Assert.IsType<RemoteWindowPreparationResponse>(prepared.Response).Outcome);
+        Assert.Equal(RemoteWindowLifecycle.Idle, controller.Snapshot.Lifecycle);
+
+        _ = await controller.StartAsync(
+            new ProtectionSnapshot(ProtectionKind.Safe, Now, "test"));
+        RemoteWindowParticipantState admission = await hostPeer.AdmitAsync(
+            RemoteWindowAdmissionRequest.Create(
+                correlationId,
+                SessionId,
+                activityId,
+                hostId,
+                participantId,
+                MirrorParticipantRole.ViewOnly,
+                Now.AddSeconds(5)),
+            CancellationToken.None);
+        await preparationChannel.PublishAdmissionStateAsync(
+            admission,
+            CancellationToken.None);
+
+        await participantPreparation.AdmissionStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5));
+        ActivityDescriptor afterAdmission = ActivityDescriptor.Create(
+            ActivityId.Parse("14141414-1414-1414-1414-141414141414"),
+            ActivityKind.Parse("workspace.note/v1"),
+            hostId,
+            "Finalization handoff",
+            JsonSerializer.Serialize(new { text = "finalization canary" }));
+        ActivityTransferOffer afterAdmissionOffer = ActivityTransferOffer.Create(
+            OperationKind.Handoff,
+            OperationContext.Create(
+                OperationId.Parse("15151515-1515-1515-1515-151515151515"),
+                CorrelationId.Parse("16161616-1616-1616-1616-161616161616"),
+                Now.AddSeconds(5)),
+            afterAdmission,
+            ActivityPlacement.On(participantId, "secondary"));
+        try
+        {
+            ActivityDeliveryResult duringFinalization = await activityChannel.SendAsync(
+                    hostId,
+                    afterAdmissionOffer,
+                    CancellationToken.None)
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(
+                ActivityDeliveryStatus.Acknowledged,
+                duringFinalization.Status);
+            Assert.True(participantCatalog.TryGet(afterAdmission.Id, out _));
+        }
+        finally
+        {
+            participantPreparation.ReleaseAdmission.TrySetResult();
+        }
+
+        Assert.Equal(
+            admission,
+            await admissionObserved.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(2, controller.Snapshot.Participants.Count);
+
+        var changedObserved = new TaskCompletionSource<RemoteWindowParticipantState>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        participantChannel.StateChanged += value =>
+        {
+            if (value.Action is RemoteWindowControlAction.StateChanged)
+            {
+                changedObserved.TrySetResult(value);
+            }
+        };
+        Assert.True(hostHandler.TryGetRemoteWindowChannel(
+            participantId,
+            out IRemoteWindowControlChannel? hostChannel));
+        RemoteWindowParticipantState changed = RemoteWindowParticipantState.Create(
+            CorrelationId.From(Guid.NewGuid()),
+            admission.SessionId,
+            admission.ActivityId,
+            admission.HostDeviceId,
+            admission.ParticipantDeviceId,
+            RemoteWindowControlAction.StateChanged,
+            RemoteWindowControlOutcome.Applied,
+            "state_changed",
+            admission.Lifecycle,
+            admission.CaptureState,
+            admission.ParticipantCount,
+            admission.EffectiveRole,
+            admission.CurrentDriverDeviceId,
+            admission.DriverLeaseEpoch,
+            admission.DriverLeaseExpiresAt,
+            admission.ProtectionKind,
+            admission.Revision + 1);
+        await hostChannel!.PublishStateAsync(changed, CancellationToken.None);
+        Assert.Equal(
+            changed,
+            await changedObserved.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            participantRun.WaitAsync(TimeSpan.FromSeconds(5)));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            hostRun.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
     public async Task RealAuthenticatedLoopbackAdmitsCurrentAuthorizedParticipant()
     {
         DeviceId hostId = DeviceId.Parse(
@@ -766,6 +1015,156 @@ public sealed class RemoteWindowControlSessionTests
     }
 
     [Fact]
+    public async Task DisposalBeforeDispatchDoesNotNotifyRemoteWindowPeers()
+    {
+        DeviceId hostId = DeviceId.Parse(
+            "11111111-1111-1111-1111-111111111111");
+        DeviceId participantId = DeviceId.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        ActivityId activityId = ActivityId.Parse(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var connection = new BlockingPendingRegistrationConnection(
+            hostId,
+            participantId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion);
+        var controlPeer = new SignalingDisconnectRemoteWindowPeer(
+            SessionId,
+            activityId,
+            hostId);
+        var preparationPeer = new BlockingPreparationPeer(hostId);
+        await using var session = new RemoteWindowControlSession(
+            connection,
+            controlPeer,
+            new FixedTimeProvider(Now),
+            preparationPeer);
+
+        await session.DisposeAsync();
+
+        Assert.Equal(0, controlPeer.DisconnectCount);
+        Assert.Equal(0, preparationPeer.DisconnectCount);
+    }
+
+    [Fact]
+    public async Task StartedSessionDisposalNotifiesRemoteWindowPeersExactlyOnce()
+    {
+        DeviceId hostId = DeviceId.Parse(
+            "11111111-1111-1111-1111-111111111111");
+        DeviceId participantId = DeviceId.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        ActivityId activityId = ActivityId.Parse(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var connection = new BlockingPendingRegistrationConnection(
+            hostId,
+            participantId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion);
+        var controlPeer = new SignalingDisconnectRemoteWindowPeer(
+            SessionId,
+            activityId,
+            hostId);
+        var preparationPeer = new BlockingPreparationPeer(hostId);
+        await using var session = new RemoteWindowControlSession(
+            connection,
+            controlPeer,
+            new FixedTimeProvider(Now),
+            preparationPeer);
+        session.StartDispatch();
+
+        Task firstDisposal = session.DisposeAsync().AsTask();
+        Task secondDisposal = session.DisposeAsync().AsTask();
+        await Task.WhenAll(firstDisposal, secondDisposal);
+
+        Assert.Equal(1, controlPeer.DisconnectCount);
+        Assert.Equal(1, preparationPeer.DisconnectCount);
+    }
+
+    [Fact]
+    public async Task RejectedDuplicateSessionDoesNotDisconnectActivePeer()
+    {
+        DeviceId hostId = DeviceId.Parse(
+            "11111111-1111-1111-1111-111111111111");
+        DeviceId participantId = DeviceId.Parse(
+            "22222222-2222-2222-2222-222222222222");
+        ActivityId activityId = ActivityId.Parse(
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(hostId, "Host");
+        using DeviceIdentity participantIdentity =
+            DeviceIdentity.Generate(participantId, "Participant");
+        CapabilityGrant capabilities = CapabilityGrant.Of(
+            Capability.ActivityReceive,
+            Capability.MirrorView);
+        var peer = new SignalingDisconnectRemoteWindowPeer(
+            SessionId,
+            activityId,
+            hostId);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            CreateNode(hostId, "Host", new InMemoryActivityCatalog()),
+            timeProvider: new FixedTimeProvider(Now),
+            remoteWindowPeer: peer);
+        (AuthenticatedTcpControlConnection firstParticipant,
+            AuthenticatedTcpControlConnection firstHost) = await CreatePairAsync();
+        (AuthenticatedTcpControlConnection secondParticipant,
+            AuthenticatedTcpControlConnection secondHost) = await CreatePairAsync();
+        await using (firstParticipant)
+        await using (firstHost)
+        await using (secondParticipant)
+        await using (secondHost)
+        {
+            Task firstRun = handler.RunAsync(firstHost).AsTask();
+            IRemoteWindowControlChannel activeChannel =
+                await WaitForRemoteWindowChannelAsync(handler, participantId);
+            Task secondRun = handler.RunAsync(secondHost).AsTask();
+
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                secondRun.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(0, peer.DisconnectCount);
+            Assert.True(handler.TryGetRemoteWindowChannel(
+                participantId,
+                out IRemoteWindowControlChannel? currentChannel));
+            Assert.Same(activeChannel, currentChannel);
+
+            await handler.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                firstRun.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(1, peer.DisconnectCount);
+        }
+
+        async Task<(AuthenticatedTcpControlConnection Participant,
+            AuthenticatedTcpControlConnection Host)> CreatePairAsync()
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start(backlog: 1);
+            var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+            Task<AuthenticatedTcpControlConnection> accepting =
+                AuthenticatedTcpControlConnection.AcceptAsync(
+                    listener,
+                    hostIdentity,
+                    new TrustRecord(
+                        participantIdentity.PublicIdentity,
+                        Now,
+                        capabilities),
+                    [ProtocolFeatures.RemoteWindowMinimumVersion]).AsTask();
+            AuthenticatedTcpControlConnection participant =
+                await AuthenticatedTcpControlConnection.ConnectAsync(
+                    endpoint,
+                    participantIdentity,
+                    new TrustRecord(
+                        hostIdentity.PublicIdentity,
+                        Now,
+                        capabilities),
+                    [ProtocolFeatures.RemoteWindowMinimumVersion]);
+            try
+            {
+                return (participant, await accepting);
+            }
+            catch
+            {
+                await participant.DisposeAsync();
+                throw;
+            }
+        }
+    }
+
+    [Fact]
     public async Task HandlerDisposalWaitsForFinalRouteChangeNotification()
     {
         DeviceId hostId = DeviceId.Parse(
@@ -1024,6 +1423,22 @@ public sealed class RemoteWindowControlSessionTests
             .WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(ControlMessageType.RemoteWindowState, response.Type);
         await peer.CopiedContextReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var driverRequest = RemoteWindowDriverRequest.Create(
+            CorrelationId.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            SessionId,
+            activityId,
+            hostId,
+            participantId,
+            expectedEpoch: 1,
+            TimeSpan.FromSeconds(30),
+            Now.AddSeconds(5));
+        await participantConnection.SendAsync(
+            RemoteWindowControlMessageCodec.CreateDriverRequest(
+                ProtocolFeatures.RemoteWindowMinimumVersion,
+                participantId,
+                driverRequest,
+                Now));
+        await peer.NextDispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         peer.ReleaseCopiedContext.TrySetResult();
 
         bool completedSynchronously =
@@ -1389,6 +1804,57 @@ public sealed class RemoteWindowControlSessionTests
             run.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    private sealed class BlockingPreparationPeer(DeviceId participantDeviceId) :
+        IRemoteWindowPreparationPeer
+    {
+        private int disconnectCount;
+
+        public TaskCompletionSource AdmissionStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public DeviceId ParticipantDeviceId { get; } = participantDeviceId;
+
+        public int DisconnectCount => Volatile.Read(ref disconnectCount);
+
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseAdmission { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask<RemoteWindowPreparationResponse> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return RemoteWindowPreparationResponse.Create(
+                request,
+                RemoteWindowPreparationOutcome.Ready,
+                "participant_ready");
+        }
+
+        public async ValueTask CompleteAdmissionAsync(
+            RemoteWindowPreparationRequest request,
+            RemoteWindowParticipantState state,
+            CancellationToken cancellationToken)
+        {
+            AdmissionStarted.TrySetResult();
+            await ReleaseAdmission.Task.WaitAsync(cancellationToken);
+        }
+
+        public ValueTask PeerDisconnectedAsync(
+            DeviceId hostDeviceId,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref disconnectCount);
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class MutableAuthorization : IMirrorAuthorizationSource
     {
         private readonly Dictionary<DeviceId, CapabilityGrant> grants = [];
@@ -1543,7 +2009,8 @@ public sealed class RemoteWindowControlSessionTests
 
     private sealed class BlockingPendingRegistrationConnection(
         DeviceId localDeviceId,
-        DeviceId peerDeviceId) : IRemoteWindowControlConnection
+        DeviceId peerDeviceId,
+        ProtocolVersion? protocolVersion = null) : IRemoteWindowControlConnection
     {
         private int localDeviceIdReadsUntilBlock;
         private int sentCount;
@@ -1571,8 +2038,8 @@ public sealed class RemoteWindowControlSessionTests
 
         public DeviceId PeerDeviceId { get; } = peerDeviceId;
 
-        public ProtocolVersion ProtocolVersion { get; } =
-            ProtocolFeatures.RemoteWindowMinimumVersion;
+        public ProtocolVersion ProtocolVersion { get; } = protocolVersion
+            ?? ProtocolFeatures.RemoteWindowMinimumVersion;
 
         public TaskCompletionSource ReadStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1767,6 +2234,9 @@ public sealed class RemoteWindowControlSessionTests
 
         public DeviceId HostDeviceId { get; } = hostDeviceId;
 
+        public TaskCompletionSource NextDispatchStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public TaskCompletionSource ReleaseCopiedContext { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -1800,9 +2270,15 @@ public sealed class RemoteWindowControlSessionTests
                 revision: 1));
         }
 
-        public ValueTask<RemoteWindowParticipantState> RequestDriverAsync(
+        public async ValueTask<RemoteWindowParticipantState> RequestDriverAsync(
             RemoteWindowDriverRequest request,
-            CancellationToken cancellationToken) => NeverCalled();
+            CancellationToken cancellationToken)
+        {
+            NextDispatchStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException(
+                "The copied-context test's second dispatch must be cancelled.");
+        }
 
         public ValueTask<RemoteWindowParticipantState> SendInputAsync(
             RemoteWindowInputRequest request,
@@ -1898,10 +2374,14 @@ public sealed class RemoteWindowControlSessionTests
         ActivityId activityId,
         DeviceId hostDeviceId) : IRemoteWindowControlPeer
     {
+        private int disconnectCount;
+
         public ActivityId ActivityId { get; } = activityId;
 
         public TaskCompletionSource DisconnectStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int DisconnectCount => Volatile.Read(ref disconnectCount);
 
         public DeviceId HostDeviceId { get; } = hostDeviceId;
 
@@ -1927,6 +2407,7 @@ public sealed class RemoteWindowControlSessionTests
             DeviceId peerDeviceId,
             CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref disconnectCount);
             DisconnectStarted.TrySetResult();
             return ValueTask.CompletedTask;
         }

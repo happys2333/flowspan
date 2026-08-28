@@ -961,6 +961,8 @@ internal sealed class AuthenticatedRemoteWindowMediaSessionRegistration :
 
     internal CancellationToken ControlStopToken => controlStopToken;
 
+    internal AuthenticatedRemoteWindowMediaSession Session => session;
+
     public ValueTask DisposeAsync() =>
         Interlocked.Exchange(ref disposeStarted, 1) == 0
             ? directory.UnregisterAsync(session)

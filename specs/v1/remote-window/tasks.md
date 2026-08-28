@@ -103,6 +103,42 @@
   - Keep source execution and every unavailable/degraded/native state visible.
   - _Requirements: RW1-RW6, RW8_
 
+- [ ] 5.5a Freeze and implement protocol-1.7 Remote Window Preparation
+  - Add independently version-gated `remote-window.prepare` host-to-participant
+    and `remote-window.ready` participant-to-host messages without changing any
+    frozen protocol-1.5 or 1.6 fixture or reusing Admission as Ready.
+  - Bind the exact correlation, Session, Activity, directed Devices, frozen role,
+    deadline, and domain-separated canonical SHA-256 `prepareDigest`; require a
+    terminal Ready success or bounded rejection and retain a terminal tombstone.
+  - Keep participant preparation off the single control read loop, bind it to
+    one connection-owned media session and generation-bound peer connector, and
+    consume that session plus close control on rejection, timeout, or failure.
+  - Prove Prepare and Ready grant no Capability, membership, Driver, capture,
+    input, or rendering authority. Establish the participant's known binding and
+    open rendering only from the final exact Admission state after host Start and
+    AddParticipant succeed.
+  - Add canonical/digest/hostile/downgrade/replay/concurrency/deadlock/cleanup
+    tests, including complementary one-way grants and an exact two-node managed
+    tracer. Keep production availability, native adapters, physical evidence,
+    release criteria, and the long-term Goal open.
+  - Local candidate evidence on 2026-08-28 freezes Prepare, Ready success, and
+    Ready rejection in `remote-window-preparation-v1.7.json`, pins an independent
+    digest known-answer vector, and passes all 140 strict Remote Window control
+    codec tests together with the unchanged protocol-1.5 and 1.6 fixture tests.
+    The 81 focused managed-session tests include 62 concurrency cases covering
+    deadline wire admission, collision, buffered-versus-acknowledged Ready,
+    irreversible completion, Stop linearization, and cleanup; those focused
+    filters exclude additional dispatcher, registration, shared-disposal, and
+    generation-lease regressions. Desktop networking now shares one media
+    directory between the authenticated handler and listener and exposes an
+    atomic generation-bound Preparation/media lease. The verified peer-endpoint
+    connector, production
+    coordinator, complementary grant matrix, complete production tracer, and
+    native/runtime evidence remain open, so this task remains unchecked. Exact
+    local results and limits are recorded in
+    `docs/evidence/2026-08-28-protocol-1-7-remote-window-preparation.md`.
+  - _Requirements: RW2.8-RW2.16, RW7.5-RW7.7, RW8.8_
+
 - [ ] 6. Implement Windows native adapters
   - Add Windows Graphics Capture, SendInput under current lease, secure-desktop
     and protected-content detection, local emergency hotkey, and matching native

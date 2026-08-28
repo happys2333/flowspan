@@ -300,6 +300,207 @@ public sealed class AuthenticatedControlSessionDispatcherIntegrationTests
             sourceRun.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    [Fact]
+    public async Task RegistrationChangeExposesOnlyStartedNegotiatedRoutes()
+    {
+        ProtocolVersion version = ProtocolFeatures.RemoteWindowMinimumVersion;
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Target");
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [version]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [version]);
+        await using AuthenticatedTcpControlConnection targetConnection =
+            await accepting;
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(SourceId),
+            new FixedTimeProvider(Now));
+        var admissionRequest = RemoteWindowAdmissionRequest.Create(
+            CorrelationId.Parse("abababab-abab-abab-abab-abababababab"),
+            RemoteWindowSessionId.Parse("bcbcbcbc-bcbc-bcbc-bcbc-bcbcbcbcbcbc"),
+            ActivityId.Parse("cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd"),
+            TargetId,
+            SourceId,
+            MirrorParticipantRole.ViewOnly,
+            Now.AddSeconds(5));
+        var admissionStarted =
+            new TaskCompletionSource<Task<RemoteWindowControlDeliveryResult>>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        int notificationCount = 0;
+        void StartAdmissionOnFirstChange()
+        {
+            if (Interlocked.Increment(ref notificationCount) != 1)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!handler.TryGetRemoteWindowChannel(
+                        TargetId,
+                        out IRemoteWindowControlChannel? channel)
+                    || channel is null)
+                {
+                    admissionStarted.TrySetException(
+                        new InvalidOperationException(
+                            "The first registration change exposed no Remote Window route."));
+                    return;
+                }
+
+                admissionStarted.TrySetResult(
+                    channel.AdmitAsync(admissionRequest, CancellationToken.None).AsTask());
+            }
+            catch (Exception exception)
+            {
+                admissionStarted.TrySetException(exception);
+            }
+        }
+
+        handler.Changed += StartAdmissionOnFirstChange;
+        using var stop = new CancellationTokenSource();
+        Task run = handler.RunAsync(sourceConnection, stop.Token).AsTask();
+        try
+        {
+            Task<RemoteWindowControlDeliveryResult> admission =
+                await admissionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(
+                admission.IsCompleted,
+                "A newly published registration must not return before its route can send.");
+            ControlMessage sent = await targetConnection.ReceiveAsync()
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(ControlMessageType.RemoteWindowAdmission, sent.Type);
+            Assert.Equal(
+                admissionRequest,
+                RemoteWindowControlMessageCodec.DecodeAdmission(sent, TargetId));
+        }
+        finally
+        {
+            handler.Changed -= StartAdmissionOnFirstChange;
+            stop.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                run.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
+    public async Task PreCancelledRunNeverPublishesARegistration()
+    {
+        ProtocolVersion version = ProtocolFeatures.RemoteWindowMinimumVersion;
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Target");
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [version]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [version]);
+        await using AuthenticatedTcpControlConnection targetConnection =
+            await accepting;
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(SourceId),
+            new FixedTimeProvider(Now));
+        int notificationCount = 0;
+        handler.Changed += () => Interlocked.Increment(ref notificationCount);
+        using var stop = new CancellationTokenSource();
+        stop.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            handler.RunAsync(sourceConnection, stop.Token).AsTask());
+
+        Assert.Equal(0, Volatile.Read(ref notificationCount));
+        Assert.Empty(handler.GetConnectedPeers());
+        Assert.False(handler.TryGetChannel(TargetId, out _));
+        Assert.False(handler.TryGetRemoteWindowChannel(TargetId, out _));
+        Assert.False(handler.TryGetRemoteWindowPreparationChannel(TargetId, out _));
+        Assert.False(handler.TryAcquireRemoteWindowConnection(TargetId, out _));
+    }
+
+    [Theory]
+    [InlineData(5, false)]
+    [InlineData(6, false)]
+    [InlineData(7, true)]
+    public async Task PreparationChannelExposureMatchesNegotiatedMinor(
+        int minor,
+        bool expected)
+    {
+        var version = new ProtocolVersion(1, minor);
+        using DeviceIdentity sourceIdentity = DeviceIdentity.Generate(SourceId, "Source");
+        using DeviceIdentity targetIdentity = DeviceIdentity.Generate(TargetId, "Target");
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                listener,
+                targetIdentity,
+                new TrustRecord(
+                    sourceIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [version]).AsTask();
+        await using AuthenticatedTcpControlConnection sourceConnection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                endpoint,
+                sourceIdentity,
+                new TrustRecord(
+                    targetIdentity.PublicIdentity,
+                    Now,
+                    CapabilityGrant.None),
+                [version]);
+        await using AuthenticatedTcpControlConnection targetConnection =
+            await accepting;
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(SourceId),
+            new FixedTimeProvider(Now));
+        using var stop = new CancellationTokenSource();
+        Task run = handler.RunAsync(sourceConnection, stop.Token).AsTask();
+
+        Assert.Equal(
+            expected,
+            handler.TryGetRemoteWindowPreparationChannel(
+                TargetId,
+                out IRemoteWindowPreparationChannel? channel));
+        Assert.Equal(expected, channel is not null);
+
+        stop.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            run.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
     private sealed class RejectingActivityPeer(DeviceId deviceId) : IActivityPeer
     {
         public DeviceId DeviceId { get; } = deviceId;

@@ -88,6 +88,34 @@
   - [x] 5.4 Prove small epoch/frame/plaintext budget exhaustion closes both the
     attachment and owning control connection, then completes a fresh authenticated
     handshake with a new media session and route without rekey or reuse.
+  - [ ] 5.5a Freeze and implement the protocol-1.7 Prepare/Ready prerequisite.
+    Add independent host-to-participant Prepare and participant-to-host Ready
+    messages with exact direction, complete echoed binding, domain-separated
+    canonical SHA-256 digest, terminal success/rejection, deadline, one pending
+    transaction, and terminal tombstone. Preserve all protocol-1.5/1.6 fixtures.
+    Keep participant preparation in an owned worker outside the sole control read
+    loop; share one media directory across control and listener; add a
+    generation-bound peer connector lease; and consume media plus control on
+    every post-route terminal failure. Prove one-way grant direction and that no
+    known binding, capture, participant, Driver, frame, or rendering authority
+    exists before the exact final Admission state. Add canonical, hostile,
+    downgrade, replay, concurrency, deadlock, fault, and complete-cleanup tests.
+    This protocol prerequisite alone does not make production available or close
+    Task 5, Task 5.5, any native/physical/release gate, or the Goal.
+    Local candidate evidence on 2026-08-28 freezes all three protocol-1.7 frames,
+    pins the digest known-answer vector, and passes 140 strict control-codec tests
+    beside the unchanged protocol-1.5/1.6 fixtures. The 81 focused managed-session
+    tests include 62 concurrency cases for deadline wire admission, collision,
+    buffered-versus-acknowledged Ready, irreversible completion, Stop
+    linearization, and cleanup; additional dispatcher, registration, disposal,
+    and generation-lease regressions run outside those focused filters. Desktop
+    networking now shares one media directory between the authenticated handler
+    and listener and exposes an atomic generation-bound Preparation/media lease.
+    The verified
+    peer-endpoint connector, production coordinator, complementary grant matrix,
+    complete production tracer, and native/runtime evidence remain open. Exact
+    local results and limits are in
+    `docs/evidence/2026-08-28-protocol-1-7-remote-window-preparation.md`.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
@@ -104,7 +132,7 @@
     and all three reproducible unsigned package jobs; CodeQL `33109385769` also
     passes. Task 5, Task 5.5, and every native, physical-device, accessibility, and
     packaged-runtime gate remain open.
-  - _Requirements: NR1-NR6, NR8-NR9_
+  - _Requirements: NR1-NR6, NR8-NR10_
 
 - [ ] 6. Deliver the macOS native vertical slice
   - Implement prompt-free screen-capture and Accessibility facts, explicit TCC

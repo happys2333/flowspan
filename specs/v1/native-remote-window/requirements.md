@@ -1,6 +1,7 @@
 # Native Remote Window Requirements
 
-Status: approved product baseline, implementation in progress
+Status: approved product baseline; protocol-1.7 Preparation codec/managed-session
+candidate implemented; production Desktop/native composition in progress
 
 Parent requirements: R1, R3.3-R3.5, R6, R8.4, R9, R10, R12
 
@@ -69,6 +70,60 @@ as Remote Window.
 4. Permission success shall grant no peer Capability or Driver authority. Every
    peer action shall still pass current Trust, Capability, session, role, lease,
    protection, and generation checks at use time.
+5. When the host user starts one exact source for one participant and role,
+   Flowspan shall require negotiated protocol 1.7 or later and shall complete one
+   bounded host-to-participant Prepare/Ready transaction before crossing native
+   capture. Protocol 1.5 Admission shall not be reused as Ready.
+6. Before Prepare is sent, the host shall revalidate the exact source lease and
+   generation, current authenticated connection, Trust and role Capabilities,
+   prompt-free capture and requested-role readiness, fresh Safe protection,
+   independent Emergency Stop readiness, and the responder media route. Prepare
+   shall bind correlation, Session, Activity, directed Devices, frozen role,
+   canonical whole-millisecond UTC deadline, and a domain-separated canonical SHA-256
+   `prepareDigest`, and shall expose no native or route identity.
+   Ready received before Prepare send begins shall fault closed. During Prepare
+   send, one exact Ready success may be buffered but shall not complete until send
+   success wins the Stop/deadline commit. An exact rejection is a safe terminal
+   acknowledgement and shall close the connection even if it cancels send flush.
+7. When the participant receives a well-formed Prepare, it shall verify the
+   authenticated current connection and Trust, local recipient, exact binding
+   and digest, non-revoked/non-stopping state, local receive policy, deadline,
+   renderer readiness, and initiator media attachment before returning one
+   terminal Ready. It shall not require a reciprocal `mirror.view` or
+   `mirror.drive` grant, because those grants authorize the opposite source
+   direction and v1 has no `remote-window.receive` Capability.
+8. While participant media/renderer preparation is pending, the authenticated
+   control read loop shall remain able to dispatch traffic. Preparation shall run
+   in one owned, deadline- and lifetime-cancelled worker that Stop and disposal
+   join; it shall not synchronously wait inside the single read loop.
+9. When participant preparation succeeds, Ready shall repeat every exact binding
+   and digest and report success. When the user rejects or a local preparation
+   boundary fails, Ready shall report one allowlisted bounded rejection and
+   release prepared owners without starting host capture. Malformed or wrongly
+   bound traffic shall fault closed without reflecting attacker-controlled text.
+   A final Admission before Ready send begins shall fault closed without invoking
+   the participant endpoint. During Ready send, at most one exact final Admission
+   may be buffered without authority; send success may consume it, while send
+   failure shall discard it and close the connection.
+10. When the host receives Ready success, it shall match the one live pending
+    transaction and current media binding, revalidate every host fact, register
+    protection and independent Emergency Stop ownership, call controller Start
+    with frame admission closed, and then add the exact participant with the
+    frozen role. The participant shall establish its known binding and render
+    only after the final correlated state reports Admission, Applied or
+    AlreadyApplied, and the exact effective role.
+11. Prepare, Ready, authenticated connection, permission, route possession,
+    attachment, and renderer readiness shall grant no Capability, participant
+    membership, Driver Lease, input, capture, or rendering authority by
+    themselves. No captured frame shall be disclosed before final admission.
+12. If either side rejects, expires, cancels, disconnects, revokes, faults, or
+    fails any revalidation, capture, admission, final state, media, renderer, or
+    cleanup boundary, Flowspan shall close frame admission and unwind every
+    owner. Once media route-role selection occurred, it shall consume that media
+    session and close the owning authenticated control connection; retry shall
+    require a fresh handshake, route, Session ID, and correlation. One control
+    registration shall admit at most one Preparation and retain its bounded
+    terminal tombstone through the deadline or connection close.
 
 ### NR3 - Capture and media
 
@@ -119,6 +174,11 @@ as Remote Window.
     authenticated control connection and shall not reuse that media session or
     route. Budget exhaustion additionally requires the fresh authenticated
     recovery specified in NR8.
+13. When the host-selected production workflow prepares its media path, the host
+    shall call `PrepareResponderRoute` before Prepare and the participant shall
+    call `ConnectInitiatorAsync` for the same Session and Activity before Ready.
+    The route locator shall remain inside the authenticated `FSM1` attachment and
+    shall not appear in Prepare, Ready, logs, diagnostics, or presentation.
 
 ### NR4 - Native input
 
@@ -209,6 +269,11 @@ as Remote Window.
    a fresh authenticated control handshake, derive a fresh media session, and use
    a new route without raising a budget, rekeying media in place, or republishing
    the consumed route.
+8. A requested-role change, duplicate or concurrent Prepare, delayed Ready,
+   unknown correlation, digest mismatch, or connection-generation change shall
+   not mutate or revive pending work. After terminal Preparation cleanup, retry
+   shall use a fresh authenticated connection rather than retaining stale media
+   or participant state.
 
 ### NR9 - Accessibility and visible sharing
 
@@ -236,6 +301,17 @@ as Remote Window.
    Wayland, and the documented X11 degradation.
 4. Physical two-device latency, loss, reconnect, and sustained-load results shall
    be recorded separately from same-host and hosted-runner evidence.
+5. Protocol-1.7 evidence shall include canonical Prepare, Ready-success, and
+   Ready-rejection fixtures; stable protocol-1.5/1.6 fixtures; digest vectors;
+   hostile schema, direction, identity, binding, role, deadline, replay, and
+   downgrade cases; one-way-grant direction; concurrent and delayed terminal
+   outcomes; non-deadlocking dispatch; and full cancellation/fault cleanup.
+6. A production-composed managed two-node tracer shall prove zero native capture
+   before Ready and attachment acknowledgement, zero media publication before
+   exact final Admission state, capture-to-JPEG-to-encrypted-media-to-decode-to-
+   renderer flow after admission, exact Driver input return, Emergency Stop, and
+   empty controller/renderer/queue/attachment/route/directory/control ownership
+   after teardown. This tracer shall not be labelled native or physical evidence.
 
 ## 4. Non-goals
 

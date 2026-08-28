@@ -57,6 +57,7 @@ internal sealed class AuthenticatedControlSessionDispatcher : IAsyncDisposable
         ActivityControlSession activitySession,
         RemoteWindowControlSession? remoteWindowSession,
         Func<IDisposable> enterSessionCall,
+        Action? onStarted = null,
         Func<ValueTask>? beginOwnedCleanup = null,
         CancellationToken cancellationToken = default)
     {
@@ -72,20 +73,23 @@ internal sealed class AuthenticatedControlSessionDispatcher : IAsyncDisposable
         Exception? failure = null;
         bool activityStarted = false;
         bool remoteWindowStarted = false;
+        using CancellationTokenSource linked = remoteWindowSession is null
+            ? CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                activitySession.LifetimeCancellationToken)
+            : CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                activitySession.LifetimeCancellationToken,
+                remoteWindowSession.LifetimeCancellationToken);
         try
         {
+            linked.Token.ThrowIfCancellationRequested();
             activitySession.StartDispatch();
             activityStarted = true;
             remoteWindowSession?.StartDispatch();
             remoteWindowStarted = remoteWindowSession is not null;
-            using CancellationTokenSource linked = remoteWindowSession is null
-                ? CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken,
-                    activitySession.LifetimeCancellationToken)
-                : CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken,
-                    activitySession.LifetimeCancellationToken,
-                    remoteWindowSession.LifetimeCancellationToken);
+            linked.Token.ThrowIfCancellationRequested();
+            onStarted?.Invoke();
             try
             {
                 while (true)
@@ -231,7 +235,9 @@ internal sealed class AuthenticatedControlSessionDispatcher : IAsyncDisposable
             or ControlMessageType.RemoteWindowDriver
             or ControlMessageType.RemoteWindowInput
             or ControlMessageType.RemoteWindowDisconnect
-            or ControlMessageType.RemoteWindowState => ControlMessageFamily.RemoteWindow,
+            or ControlMessageType.RemoteWindowState
+            or ControlMessageType.RemoteWindowPrepare
+            or ControlMessageType.RemoteWindowReady => ControlMessageFamily.RemoteWindow,
         _ => throw new InvalidDataException(
             "The authenticated control message type is not valid after the handshake."),
     };

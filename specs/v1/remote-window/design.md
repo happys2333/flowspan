@@ -1,8 +1,10 @@
 # Remote Window and Mirror Control Design
 
-Status: approved portable control plane and protocol 1.5; portable/headless
-Desktop workflow complete with exact-commit hosted evidence; native adapters
-and physical evidence pending
+Status: approved portable control plane and frozen protocol 1.5/1.6 contracts;
+protocol-1.7 Preparation codec and managed-session candidate implemented;
+portable/headless Desktop workflow complete with exact-commit hosted evidence;
+production Preparation composition, native adapters, and physical evidence
+pending
 
 ## Design summary
 
@@ -513,10 +515,122 @@ check through the native input boundary. Input results and state frames contain
 only a decision/status, bounded reason code, state revision, participant count,
 effective role, and current Driver metadata; they never echo events.
 
+## Protocol 1.7 host-selected Preparation
+
+ADR 0026 adds a host-selected pre-admission transaction without changing any
+protocol-1.5 or 1.6 fixture. Protocol 1.7 gates two additional strict messages:
+
+| Message | Direction | Purpose |
+| --- | --- | --- |
+| `remote-window.prepare` | host to participant | Propose one exact live Session/Activity/role and ask the participant to prepare media and rendering. |
+| `remote-window.ready` | participant to host | Return one terminal ready or rejected result for that exact Prepare. |
+
+Both bodies repeat Session, Activity, host, participant, role, and deadline.
+Their envelope correlation is the Preparation transaction ID. Both also carry
+the uppercase hexadecimal SHA-256 `prepareDigest`. Its UTF-8 canonical input is
+the newline-separated domain `flowspan.remote-window.prepare.v1`, negotiated
+major, negotiated minor, correlation ID, Session ID, Activity ID, host Device
+ID, participant Device ID, canonical role, and UTC deadline Unix milliseconds,
+with no trailing newline. A decoder recomputes the digest and compares the 32
+decoded bytes in constant time before accepting the message. Ready adds only one
+terminal boolean and one allowlisted bounded reason code.
+The deadline and both wire send timestamps are canonical whole-millisecond UTC.
+Writers truncate an observed sub-millisecond send time downward before deriving
+the exact integral envelope TTL, without changing the deadline.
+Their lexical spelling uses fixed-width date/time fields, literal `+00:00`, no
+fraction for zero milliseconds, and the shortest millisecond fraction for a
+nonzero value (`.001`, `.01`, `.1`, `.12`, or `.123` for 1, 10, 100, 120, or
+123 milliseconds). `Z`, other offsets, redundant zeros, and sub-millisecond
+spellings are rejected only for the new 1.7 messages; legacy readers remain
+unchanged.
+
+The source host owns all peer-relative Mirror authorization. It checks the grant
+to the participant before Prepare, again before native capture, and again when
+the controller adds that participant. The receiving participant checks the
+current authenticated connection and Trust, local recipient identity,
+non-revoked/non-stopping state, receiver policy, renderer, and media readiness.
+It must not require its local `mirror.view` or `mirror.drive` grant to the host,
+because that grant authorizes the opposite source direction. There is no
+`remote-window.receive` Capability in v1.
+The host retains a `Created` outbound reservation until the Prepare wire send
+actually starts. Ready before that point is fatal. During `PrepareSending`, one
+exact Ready success enters `ReadyBuffered` but is neither published to the caller
+nor accepted by final Admission until the Prepare send commits against Stop and
+deadline as `ReadyAcknowledged`. State and completion publish in the same lock;
+an acknowledged result cannot be reversed by a later Stop or clock read. An
+exact rejection is terminal and may close the connection while the local send is
+still flushing without losing the rejected result. Prepare, Ready, and final
+Admission each check the absolute deadline again at actual wire-send admission,
+before invoking the connection, so delayed watchdog scheduling cannot expose an
+expired frame.
+
+```mermaid
+sequenceDiagram
+    participant H as Host runtime
+    participant C as Authenticated control
+    participant P as Participant runtime
+    participant M as FSM1 media
+
+    H->>H: Revalidate source, grant, permission, protection, E-stop
+    H->>M: PrepareResponderRoute(Session, Activity)
+    H->>C: remote-window.prepare
+    C->>P: Validate and reserve exact pending Prepare
+    P-->>C: Return read loop immediately; start owned worker
+    P->>M: ConnectInitiatorAsync and verify acknowledgement
+    P->>P: Prepare renderer
+    P->>C: remote-window.ready(success)
+    C->>H: Match digest, binding, deadline, connection generation
+    H->>H: Revalidate, register safety owners, Start capture
+    H->>H: Add exact participant with frozen role
+    H->>C: remote-window.state Admission outcome
+    C->>P: Establish known binding only from accepted final state
+    P->>P: Open frame admission and rendering
+```
+
+The participant control handler performs only strict validation and bounded slot
+reservation on the dispatch call. It starts an owned, deadline- and
+lifetime-cancelled preparation worker and returns immediately so the single
+connection read loop cannot deadlock on media or a later control response. Stop
+and disposal cancel and join that worker. The worker uses the same process-level
+authenticated media directory as the control handler and published listener,
+plus a generation-bound peer media connector lease for the exact authenticated
+connection. The route ID remains inside `FSM1`; it never enters control JSON.
+The participant remains `Preparing` until Ready send actually starts. It rejects
+Admission before that point, buffers at most one exact Admission while Ready is
+sending, and invokes no final endpoint until the send succeeds. A failed send
+discards the buffer and closes the connection.
+
+Ready means only that the participant can receive this exact authenticated media
+binding. It does not create the participant's known live-session binding. After
+Ready success the host rechecks every mutable fact, registers protection and the
+independent Emergency Stop, starts native capture with frame admission still
+closed, and calls `AddParticipantAsync`. The existing correlated
+`remote-window.state` becomes the final gate only when its action is Admission,
+its outcome is Applied or AlreadyApplied, and its effective role matches the
+frozen request. Only then does the participant record the known binding and open
+rendering. No frame can leave the host before this gate.
+
+Each authenticated control registration admits one Preparation because its
+connection-owned media session can choose one route role. The host and
+participant each retain an exact pending record and a bounded terminal tombstone
+through the deadline or connection close. Unknown, duplicate, conflicting,
+expired, or delayed messages are fatal rather than idempotently starting new
+work. A well-formed local rejection produces Ready false; malformed or wrongly
+bound traffic is not reflected.
+
+Any terminal rejection or failure closes frame admission before reverse-order
+cleanup. Once route-role selection occurred, cleanup consumes the media session
+and closes the owning authenticated control connection; retry requires a fresh
+handshake, media session, route, Session ID, and correlation. Cleanup attempts
+renderer/queue, attachment/route, controller, protection, Emergency Stop, and
+control owners even when an earlier stage fails, preserving simultaneous failure
+identity locally without disclosing exception text.
+
 ## Purpose-separated bounded media
 
-Media uses a second ordered duplex stream attached to the already authenticated
-protocol-1.5 session. The authenticated handshake derives a second directional
+Media frames are available from protocol 1.5, while a production second ordered
+duplex stream attaches only at protocol 1.6 or later to the already authenticated
+control session. The authenticated handshake derives a second directional
 AES-256-GCM frame session with HKDF context
 `FLOWSPAN-REMOTE-WINDOW-MEDIA-V1`; it does not reuse control keys, counters, or
 rekey state. An implementation may later replace the ordered media transport,

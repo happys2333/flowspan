@@ -387,6 +387,16 @@ Detailed native contracts, platform slices, and evidence gates are tracked in
     authenticated handshake and distinct media session/route. Production Desktop
     rendering, physical-network quality, native capture/input/protection, and
     matching-machine evidence remain open, so this parent task stays partial.
+  - Protocol 1.7 now has a strict Prepare/Ready codec and managed-session
+    candidate with canonical fixtures, a domain-separated binding digest,
+    frozen 1.5/1.6 compatibility, bounded one-Preparation state, asynchronous
+    participant dispatch, final-Admission gating, and deterministic deadline/
+    Stop/failure races. Desktop networking now shares one production media
+    directory between handler and listener and exposes an atomic
+    generation-bound Preparation/media lease. No production coordinator yet uses
+    it with a verified peer-endpoint connector, responder/initiator attachment,
+    renderer, controller, or native boundaries, so Task 5.5a, production Remote
+    Window, and this parent task remain open.
   - Clipboard and file-content transfer remain open. They require a separate
     content policy, consent model, protocol, resource contract, and evidence;
     the Remote Window media implementation does not satisfy that scope.

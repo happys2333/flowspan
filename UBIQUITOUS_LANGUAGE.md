@@ -13,6 +13,10 @@ screens or arbitrary process migration.
 | **Adapter** | An integration that captures and/or resumes one semantic Activity kind. | Migrator |
 | **Semantic Handoff** | A resume of an Activity through a target Adapter using portable context. | App migration |
 | **Remote Window** | An explicit fallback that keeps execution on the source while presenting captured output and optional authorized input elsewhere. | Migration, screen handoff |
+| **Remote Window Preparation** | A bounded protocol-1.7 host-selected transaction that proves one exact participant can receive a proposed Session/Activity/role binding before host capture and admission. | Invitation, sharing session |
+| **Remote Window Prepare** | The host-to-participant proposal that carries the exact Preparation binding and digest but grants no authority. | Admission request, Activity offer |
+| **Remote Window Ready** | The participant-to-host terminal result that reports local renderer and authenticated-media readiness or a bounded rejection but grants no authority. | Admission, authorization, connected |
+| **Remote Window Admission** | The host controller decision that adds the exact participant and role to an already started live session and is confirmed by final state. | Ready, attachment acknowledgement |
 | **Remote Window Media Route** | A bounded, expiring, process-local association owned by one live authenticated control connection and bound to its exact Devices, Remote Window Session, and Activity; locating it grants no authority. | Media permission, sharing session |
 | **Media Attachment** | The protocol-1.6 authenticated request and acknowledgement that consumes one Remote Window Media Route and binds one second stream before media frames are admitted. | Login, Driver grant |
 | **Handoff** | An operation that resumes an Activity on another device while preserving the source. | Move |
@@ -77,6 +81,17 @@ screens or arbitrary process migration.
 - A **Media Attachment** may consume one **Remote Window Media Route**, but it
   never substitutes for current Trust, Capability, session admission,
   protection, or **Driver Lease** checks on the control path.
+- A **Remote Window Preparation** contains exactly one **Remote Window Prepare**
+  and one terminal **Remote Window Ready** result. Ready success permits the host
+  to revalidate and attempt **Remote Window Admission**; it is not Admission.
+- **Remote Window Admission** establishes the participant's known live binding
+  only after host capture starts safely and final state confirms the exact role.
+  Prepare, Ready, route possession, and **Media Attachment** each grant no
+  participant, Driver, capture, input, or rendering authority alone.
+- The source host's grant to a participant controls one Remote Window direction.
+  A reciprocal Mirror grant on the participant would authorize the opposite
+  source direction and is not receiver permission; v1 has no
+  `remote-window.receive` Capability.
 - A **Move** is complete only after the target acknowledges resume; a
   **Handoff** never removes the source. If Move source cleanup fails, the target
   remains committed and both active copies must be reported.
@@ -164,6 +179,11 @@ screens or arbitrary process migration.
 >
 > **Domain expert:** “No. Only the current **Driver Lease** authorizes input, and
 > **Emergency Stop** revokes it locally without waiting for the peer.”
+>
+> **Developer:** “Does **Remote Window Ready** mean the participant may render?”
+>
+> **Domain expert:** “No. It only completes **Remote Window Preparation**. The
+> participant waits for exact **Remote Window Admission** state before rendering.”
 
 ## Flagged ambiguities
 
@@ -178,5 +198,11 @@ screens or arbitrary process migration.
   *discovered*, *paired*, *authenticated*, and *operation-ready*.
 - **Session** is overloaded; qualify it as *transport session*, *secure session*,
   *mirror session*, or *application session*.
+- **Prepare** is used by both Swap reservation and Remote Window readiness; use
+  **Swap Prepare** or **Remote Window Prepare**, never the unqualified term in a
+  cross-domain contract.
+- **Ready** can mean connected, locally prepared, admitted, or rendering; use
+  **Remote Window Ready** only for the terminal participant preparation result
+  and **Remote Window Admission** for membership authority.
 - **Owner** can mean the local person, authoritative execution host, or input
   holder; use *device owner*, *execution host*, or **Driver**.

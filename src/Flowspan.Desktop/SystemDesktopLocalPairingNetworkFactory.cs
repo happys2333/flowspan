@@ -72,9 +72,9 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             .ConfigureAwait(false);
         TrustSessionCoordinator trust = await getTrust(cancellationToken)
             .ConfigureAwait(false);
-        AuthenticatedActivitySessionHandler? activityHandler = activityRuntime is null
+        DesktopActivityNetworkBindings? activityBindings = activityRuntime is null
             ? null
-            : await activityRuntime.GetSessionHandlerAsync(cancellationToken)
+            : await activityRuntime.GetNetworkBindingsAsync(cancellationToken)
                 .ConfigureAwait(false);
         TcpListener? listener = null;
         DnsSdUnverifiedPairingCandidateSource? candidates = null;
@@ -105,7 +105,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     identity,
                     trust,
                     trustedCandidateSource),
-                activityHandler);
+                activityBindings?.SessionHandler);
             IPEndPoint boundEndPoint = listener.LocalEndpoint as IPEndPoint
                 ?? throw new InvalidOperationException(
                     "The local pairing listener did not expose an IP endpoint.");
@@ -129,7 +129,9 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 pairingDecisions,
                 trust,
                 new FlowspanTcpInboundProfile(sessionProfile),
-                trustedConnections.SessionHandler);
+                trustedConnections.SessionHandler,
+                remoteWindowMediaSessions:
+                    activityBindings?.RemoteWindowMediaSessions);
             var advertisementPublisher = new CleanupTrackingDnsSdPublisher(
                 dns.Publisher);
             var advertisement = new DnsSdPeerAdvertisementService(

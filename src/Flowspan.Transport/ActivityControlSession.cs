@@ -1621,28 +1621,33 @@ public sealed class AuthenticatedActivitySessionHandler :
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object lifecycleGate = new();
     private readonly CancellationTokenSource lifetimeCancellation = new();
+    private readonly object revocationCallbackOwner = new();
     private readonly IActivityPeer localPeer;
     private readonly IReplaceTargetInventoryPeer? replaceInventoryPeer;
     private readonly IReplacePeer? replacePeer;
     private readonly AuthenticatedRemoteWindowMediaSessionDirectory?
         remoteWindowMediaSessions;
     private readonly IRemoteWindowControlPeer? remoteWindowPeer;
+    private readonly IRemoteWindowPreparationPeer? remoteWindowPreparationPeer;
     private readonly ISceneControlPeer? scenePeer;
     private readonly ISwapEndpointPeer? swapPeer;
     private readonly TimeProvider timeProvider;
     private int disposalCleanupStarted;
     private int disposed;
+    private long nextRemoteWindowConnectionGeneration;
 
     public AuthenticatedActivitySessionHandler(
         IActivityPeer localPeer,
         TimeProvider? timeProvider = null,
-        IRemoteWindowControlPeer? remoteWindowPeer = null) : this(
+        IRemoteWindowControlPeer? remoteWindowPeer = null,
+        IRemoteWindowPreparationPeer? remoteWindowPreparationPeer = null) : this(
             localPeer,
             null,
             null,
             null,
             timeProvider,
-            remoteWindowPeer: remoteWindowPeer)
+            remoteWindowPeer: remoteWindowPeer,
+            remoteWindowPreparationPeer: remoteWindowPreparationPeer)
     {
     }
 
@@ -1693,7 +1698,8 @@ public sealed class AuthenticatedActivitySessionHandler :
         ISceneControlPeer? scenePeer = null,
         IRemoteWindowControlPeer? remoteWindowPeer = null,
         AuthenticatedRemoteWindowMediaSessionDirectory?
-            remoteWindowMediaSessions = null)
+            remoteWindowMediaSessions = null,
+        IRemoteWindowPreparationPeer? remoteWindowPreparationPeer = null)
     {
         ArgumentNullException.ThrowIfNull(localPeer);
         if (replacePeer is not null && replacePeer.DeviceId != localPeer.DeviceId)
@@ -1734,12 +1740,21 @@ public sealed class AuthenticatedActivitySessionHandler :
                 nameof(remoteWindowPeer));
         }
 
+        if (remoteWindowPreparationPeer is not null
+            && remoteWindowPreparationPeer.ParticipantDeviceId != localPeer.DeviceId)
+        {
+            throw new ArgumentException(
+                "The Activity and Remote Window preparation peers must represent the same local device.",
+                nameof(remoteWindowPreparationPeer));
+        }
+
         this.localPeer = localPeer;
         this.replacePeer = replacePeer;
         this.replaceInventoryPeer = replaceInventoryPeer;
         this.swapPeer = swapPeer;
         this.scenePeer = scenePeer;
         this.remoteWindowPeer = remoteWindowPeer;
+        this.remoteWindowPreparationPeer = remoteWindowPreparationPeer;
         this.remoteWindowMediaSessions = remoteWindowMediaSessions;
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
@@ -1762,7 +1777,9 @@ public sealed class AuthenticatedActivitySessionHandler :
             return [];
         }
 
-        return sessions.Keys
+        return sessions
+            .Where(static pair => pair.Value.IsReady)
+            .Select(static pair => pair.Key)
             .OrderBy(static id => id.ToString(), StringComparer.Ordinal)
             .ToArray();
     }
@@ -1773,7 +1790,8 @@ public sealed class AuthenticatedActivitySessionHandler :
     {
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (Volatile.Read(ref disposed) == 0
-            && sessions.TryGetValue(peerDeviceId, out Registration? registration))
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady)
         {
             channel = registration.Session;
             return true;
@@ -1789,7 +1807,8 @@ public sealed class AuthenticatedActivitySessionHandler :
     {
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (Volatile.Read(ref disposed) == 0
-            && sessions.TryGetValue(peerDeviceId, out Registration? registration))
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady)
         {
             channel = registration.Session;
             return true;
@@ -1805,7 +1824,8 @@ public sealed class AuthenticatedActivitySessionHandler :
     {
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (Volatile.Read(ref disposed) == 0
-            && sessions.TryGetValue(peerDeviceId, out Registration? registration))
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady)
         {
             channel = registration.Session;
             return true;
@@ -1822,6 +1842,7 @@ public sealed class AuthenticatedActivitySessionHandler :
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (Volatile.Read(ref disposed) == 0
             && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady
             && registration.RemoteWindowSession is not null)
         {
             channel = registration.RemoteWindowSession;
@@ -1832,6 +1853,41 @@ public sealed class AuthenticatedActivitySessionHandler :
         return false;
     }
 
+    public bool TryGetRemoteWindowPreparationChannel(
+        DeviceId peerDeviceId,
+        out IRemoteWindowPreparationChannel? channel)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady
+            && registration.RemoteWindowPreparationChannel is not null)
+        {
+            channel = registration.RemoteWindowPreparationChannel;
+            return true;
+        }
+
+        channel = null;
+        return false;
+    }
+
+    public bool TryAcquireRemoteWindowConnection(
+        DeviceId peerDeviceId,
+        out AuthenticatedRemoteWindowConnectionLease? lease)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady
+            && registration.TryAcquireRemoteWindowConnection(out lease))
+        {
+            return true;
+        }
+
+        lease = null;
+        return false;
+    }
+
     public bool TryGetSwapChannel(
         DeviceId peerDeviceId,
         out ISwapEndpointChannel? channel)
@@ -1839,6 +1895,7 @@ public sealed class AuthenticatedActivitySessionHandler :
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (Volatile.Read(ref disposed) == 0
             && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady
             && registration.Session.SupportsSwap)
         {
             channel = registration.Session;
@@ -1859,7 +1916,9 @@ public sealed class AuthenticatedActivitySessionHandler :
             }
 
             return sessions
-                .Where(static pair => pair.Value.Session.SupportsSceneApply)
+                .Where(static pair =>
+                    pair.Value.IsReady
+                    && pair.Value.Session.SupportsSceneApply)
                 .Select(static pair => pair.Key)
                 .OrderBy(static deviceId => deviceId.Value)
                 .ToArray();
@@ -1873,6 +1932,7 @@ public sealed class AuthenticatedActivitySessionHandler :
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (Volatile.Read(ref disposed) == 0
             && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady
             && registration.Session.SupportsSceneApply)
         {
             channel = registration.Session;
@@ -1890,6 +1950,7 @@ public sealed class AuthenticatedActivitySessionHandler :
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (Volatile.Read(ref disposed) == 0
             && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady
             && registration.Session.SupportsSceneApply)
         {
             channel = registration.Session;
@@ -1907,6 +1968,7 @@ public sealed class AuthenticatedActivitySessionHandler :
         ArgumentNullException.ThrowIfNull(peerDeviceId);
         if (Volatile.Read(ref disposed) == 0
             && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady
             && registration.Session.SupportsSceneApply)
         {
             channel = registration.Session;
@@ -1981,11 +2043,16 @@ public sealed class AuthenticatedActivitySessionHandler :
                     : new RemoteWindowControlSession(
                         dispatcher.RemoteWindowConnection,
                         remoteWindowPeer,
-                        timeProvider);
+                        timeProvider,
+                        remoteWindowPreparationPeer);
             constructedRegistration = new Registration(
+                this,
                 constructedSession,
                 constructedRemoteWindowSession,
-                mediaRegistration);
+                mediaRegistration,
+                ProtocolFeatures.SupportsRemoteWindowPreparation(
+                    dispatcher.ActivityConnection.ProtocolVersion),
+                GetNextRemoteWindowConnectionGeneration());
         }
         catch (Exception constructionFailure)
         {
@@ -2030,7 +2097,7 @@ public sealed class AuthenticatedActivitySessionHandler :
         if (!registered)
         {
             Exception? rejectionCleanupFailure =
-                await DisposeMediaRegistrationAsync(mediaRegistration)
+                await CaptureOwnedCleanupFailureAsync(registration)
                     .ConfigureAwait(false);
             rejectionCleanupFailure = CombineFailures(
                 rejectionCleanupFailure,
@@ -2050,11 +2117,6 @@ public sealed class AuthenticatedActivitySessionHandler :
         Exception? runFailure = null;
         try
         {
-            using (EnterSessionCall())
-            {
-                PublishChanged();
-            }
-
             using CancellationTokenSource linked = mediaRegistration is null
                 ? CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken,
@@ -2067,9 +2129,12 @@ public sealed class AuthenticatedActivitySessionHandler :
                 session,
                 remoteWindowSession,
                 EnterSessionCall,
+                onStarted: () => PublishStartedRegistration(
+                    peerDeviceId,
+                    registration),
                 beginOwnedCleanup: mediaRegistration is null
                     ? null
-                    : mediaRegistration.DisposeAsync,
+                    : registration.BeginOwnedCleanupAsync,
                 cancellationToken: linked.Token).ConfigureAwait(false);
         }
         catch (Exception exception)
@@ -2078,9 +2143,9 @@ public sealed class AuthenticatedActivitySessionHandler :
         }
 
         Exception? cleanupFailure =
-            await DisposeMediaRegistrationAsync(mediaRegistration)
+            await CaptureOwnedCleanupFailureAsync(registration)
                 .ConfigureAwait(false);
-        sessions.TryRemove(
+        bool removed = sessions.TryRemove(
             new KeyValuePair<DeviceId, Registration>(
                 peerDeviceId,
                 registration));
@@ -2089,9 +2154,12 @@ public sealed class AuthenticatedActivitySessionHandler :
             await DisposeSessionsAsync(
                 session,
                 remoteWindowSession).ConfigureAwait(false));
-        using (EnterSessionCall())
+        if (removed && registration.IsReady)
         {
-            PublishChanged();
+            using (EnterSessionCall())
+            {
+                PublishChanged();
+            }
         }
 
         lock (lifecycleGate)
@@ -2182,7 +2250,7 @@ public sealed class AuthenticatedActivitySessionHandler :
                     if (registration.MediaRegistration is not null)
                     {
                         mediaCleanup.Add(
-                            registration.MediaRegistration.DisposeAsync().AsTask());
+                            registration.BeginOwnedCleanupAsync().AsTask());
                     }
                 }
                 catch (Exception exception)
@@ -2335,6 +2403,33 @@ public sealed class AuthenticatedActivitySessionHandler :
         }
     }
 
+    private static async ValueTask<Exception?> CaptureOwnedCleanupFailureAsync(
+        Registration registration)
+    {
+        try
+        {
+            await registration.BeginOwnedCleanupAsync().ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
+    private long GetNextRemoteWindowConnectionGeneration()
+    {
+        long generation = Interlocked.Increment(
+            ref nextRemoteWindowConnectionGeneration);
+        if (generation <= 0)
+        {
+            throw new InvalidOperationException(
+                "The Remote Window connection generation space was exhausted.");
+        }
+
+        return generation;
+    }
+
     private IDisposable EnterSessionCall()
     {
         SessionCallScope? inheritedScope = activeSessionCall.Value;
@@ -2363,7 +2458,35 @@ public sealed class AuthenticatedActivitySessionHandler :
             }
         }
 
-        return false;
+        return RemoteWindowConnectionGeneration.IsActiveRevocationCallback(
+            revocationCallbackOwner);
+    }
+
+    private void PublishStartedRegistration(
+        DeviceId peerDeviceId,
+        Registration registration)
+    {
+        bool publish;
+        lock (lifecycleGate)
+        {
+            publish = disposed == 0
+                && sessions.TryGetValue(
+                    peerDeviceId,
+                    out Registration? current)
+                && ReferenceEquals(current, registration);
+            if (publish)
+            {
+                registration.MarkReady();
+            }
+        }
+
+        if (publish)
+        {
+            using (EnterSessionCall())
+            {
+                PublishChanged();
+            }
+        }
     }
 
     private void PublishChanged()
@@ -2382,12 +2505,29 @@ public sealed class AuthenticatedActivitySessionHandler :
     }
 
     private sealed class Registration(
+        AuthenticatedActivitySessionHandler owner,
         ActivityControlSession session,
         RemoteWindowControlSession? remoteWindowSession,
-        AuthenticatedRemoteWindowMediaSessionRegistration? mediaRegistration)
+        AuthenticatedRemoteWindowMediaSessionRegistration? mediaRegistration,
+        bool supportsRemoteWindowPreparation,
+        long remoteWindowConnectionGeneration)
     {
+        private readonly object ownedCleanupGate = new();
+        private readonly RemoteWindowConnectionGeneration? remoteWindowGeneration =
+            supportsRemoteWindowPreparation
+            && remoteWindowSession is not null
+            && mediaRegistration is not null
+                ? new RemoteWindowConnectionGeneration(
+                    remoteWindowConnectionGeneration,
+                    owner.revocationCallbackOwner)
+                : null;
+        private Task? ownedCleanup;
+        private int ready;
+
         public TaskCompletionSource Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool IsReady => Volatile.Read(ref ready) != 0;
 
         public ActivityControlSession Session { get; } = session;
 
@@ -2396,6 +2536,86 @@ public sealed class AuthenticatedActivitySessionHandler :
 
         public RemoteWindowControlSession? RemoteWindowSession { get; } =
             remoteWindowSession;
+
+        public IRemoteWindowPreparationChannel? RemoteWindowPreparationChannel { get; } =
+            supportsRemoteWindowPreparation
+                ? remoteWindowSession
+                : null;
+
+        public void MarkReady() => Volatile.Write(ref ready, 1);
+
+        public ValueTask BeginOwnedCleanupAsync()
+        {
+            TaskCompletionSource completion;
+            Task cleanup;
+            lock (ownedCleanupGate)
+            {
+                if (ownedCleanup is not null)
+                {
+                    return new ValueTask(ownedCleanup);
+                }
+
+                completion = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                cleanup = completion.Task;
+                ownedCleanup = cleanup;
+            }
+
+            _ = CompleteOwnedCleanupAsync(completion);
+            return new ValueTask(cleanup);
+        }
+
+        public bool TryAcquireRemoteWindowConnection(
+            out AuthenticatedRemoteWindowConnectionLease? lease)
+        {
+            IRemoteWindowPreparationChannel? channel =
+                RemoteWindowPreparationChannel;
+            RemoteWindowConnectionGeneration? generation =
+                remoteWindowGeneration;
+            AuthenticatedRemoteWindowMediaSessionRegistration? media =
+                MediaRegistration;
+            if (channel is not null
+                && generation is not null
+                && media is not null)
+            {
+                return generation.TryAcquire(channel, media.Session, out lease);
+            }
+
+            lease = null;
+            return false;
+        }
+
+        private async Task CompleteOwnedCleanupAsync(
+            TaskCompletionSource completion)
+        {
+            try
+            {
+                Exception? failure = null;
+                try
+                {
+                    remoteWindowGeneration?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    failure = exception;
+                }
+
+                Exception? mediaFailure = await DisposeMediaRegistrationAsync(
+                        MediaRegistration)
+                    .ConfigureAwait(false);
+                Exception? combined = CombineFailures(failure, mediaFailure);
+                if (combined is not null)
+                {
+                    ExceptionDispatchInfo.Capture(combined).Throw();
+                }
+
+                completion.TrySetResult();
+            }
+            catch (Exception exception)
+            {
+                completion.TrySetException(exception);
+            }
+        }
     }
 
     private sealed class SessionCallLease(

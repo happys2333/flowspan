@@ -2,7 +2,8 @@
 
 Status: portable contracts, shared authenticated control composition, Task 4
 media-route/codec contracts, and Task 5.1-5.4 Transport composition implemented;
-production Desktop runtime and native adapters pending
+protocol-1.7 Preparation codec/managed-session candidate implemented; production
+Desktop Preparation runtime and native adapters pending
 
 Requirements: NR1-NR10
 
@@ -212,15 +213,35 @@ containing:
 - the exact selected native source lease;
 - `RemoteWindowSessionController` and unpredictable Session ID;
 - the current authenticated control endpoint;
+- the process-level authenticated media directory shared with the control
+  handler and published listener;
+- one generation-bound peer media connector/listener-endpoint lease;
+- one bounded pending Preparation owner and terminal tombstone;
 - capture-to-encoder and decoder-to-renderer queues;
 - protection subscription and local Emergency Stop registration;
 - cancellation and complete asynchronous disposal.
 
-Start order is strict: revalidate Activity/source, current Trust and Capability,
-prompt-free permission, participant connection, renderer readiness, protection,
-and Emergency Stop registration; create the controller and endpoint; then cross
-native capture. Any failure unwinds in reverse order and retains no participant
-or Driver authority.
+Start order is strict. The host revalidates Activity/source, its current grant to
+the participant, prompt-free permission, connection, protection, Emergency Stop,
+and media ownership; allocates the controller/Session; prepares the responder
+route; and sends protocol-1.7 Prepare before native capture. The participant
+validates the current authenticated receiver connection and policy, returns the
+control read loop immediately, and uses an owned worker plus the generation-bound
+connector lease to attach `FSM1` and prepare its renderer. It does not require a
+reciprocal Mirror grant. Only after Ready success does the host revalidate every
+fact, register protection and Emergency Stop ownership, cross native capture with
+frame admission closed, add the exact participant, and return final Admission
+state. Only that exact accepted state opens participant rendering. Any failure
+unwinds in reverse order and retains no participant or Driver authority.
+
+The media directory must be the same instance passed to the authenticated
+control handler and the shared `FlowspanTcpInboundListener`; a Desktop-only or
+second directory cannot find the transferred media session. The connector lease
+must bind the peer endpoint to the current authenticated connection generation,
+not merely reuse an unverified discovery address. The runtime never receives an
+`AuthenticatedRemoteWindowMediaSessionRegistration`; it retrieves the current
+connection-owned session by exact peer from the directory, and loss of that
+registration invalidates preparation.
 
 The existing Desktop reducer consumes only controller snapshots and permission
 facts. It does not infer native success from a task completing. Production
@@ -251,6 +272,42 @@ rekey state as required by ADR 0022. ADR 0024 assigns this attachment contract t
 protocol 1.6 and preserves every 1.5 control and media fixture byte-for-byte.
 Protocol 1.5 continues to expose Remote Window control; only 1.6 or later exposes
 the production media-route feature.
+
+ADR 0026 assigns host-selected Preparation to protocol 1.7. Its independent
+`remote-window.prepare` and `remote-window.ready` messages bind the exact
+correlation, Session, Activity, directed Devices, role, deadline, and canonical
+domain-separated SHA-256 `prepareDigest`. Ready repeats that complete binding and
+returns one terminal success/rejection plus a bounded reason. Neither message
+reuses Admission or carries the `FSM1` route locator. Protocol 1.5 and 1.6 peers
+retain their frozen behavior and cannot be selected for this production
+host-initiated workflow.
+Their deadline and envelope send times use whole-millisecond UTC. The writer
+truncates an observed sub-millisecond send time before deriving the exact TTL and
+does not change the bound deadline.
+The host keeps the outbound record `Created` until its Prepare send actually
+starts. A pre-send Ready is fatal; a success received during send is buffered
+until send/Stop/deadline commit, while an exact rejection remains a terminal
+acknowledgement even when closing the connection cancels local send flush.
+
+The preparation dispatch path reserves at most one transaction and starts an
+owned asynchronous participant worker before returning to the connection's sole
+read loop. The worker attaches media and prepares the renderer, then sends Ready
+through the existing serialized send path. Stop, deadline, revoke, connection
+loss, and disposal cancel and join the worker. A terminal record remains through
+the deadline or connection close so replay cannot revive it. Once either side
+selects its media route role, every rejection or fault closes the owning control
+connection and requires a fresh handshake rather than retrying the old session.
+Admission received before Ready send begins is fatal. During Ready send the
+participant can buffer at most one exact final Admission without invoking its
+endpoint; only send success consumes it, and send failure discards it.
+
+Ready establishes no known binding. After Ready success the host still starts
+the controller, adds the exact participant, and sends correlated state. Only an
+Admission action with Applied or AlreadyApplied outcome and the exact effective
+role establishes the participant's known live binding and opens media-frame
+admission. Current host-side Trust/Capability is checked before Prepare, before
+capture, and by AddParticipant; the receiving side checks connection/Trust and
+local receive policy without interpreting its opposite-direction grants.
 
 The production listener classifies an independent `FSM1` attachment
 envelope on the same published endpoint as pairing and authenticated control. Its
@@ -463,6 +520,15 @@ late-generation callbacks, resource ceilings, and partial cleanup. Media tests
 include hostile dimensions, compressed bombs, malformed frames, backpressure,
 and UI disposal. Physical tests record machines, OS/compositor versions,
 permissions, devices, network, package digest, exact commit, and limitations.
+
+The protocol-1.7 prerequisite additionally freezes canonical Prepare and both
+Ready outcomes plus digest vectors, preserves every 1.5/1.6 fixture, and tests
+lower-version rejection, strict schemas, direction/identity/binding/role/deadline
+tamper, one-way grant direction, duplicate/concurrent/late outcomes, terminal
+tombstones, read-loop progress, and full owner cleanup. A managed two-node tracer
+must prove no capture before Ready/attachment, no frame before final Admission
+state, and empty controller/renderer/queue/attachment/route/directory/control
+ownership after teardown. It remains portable evidence.
 
 Hosted runners may prove only the native calls they actually execute. A runner
 without an interactive desktop or permission grant remains contract evidence.

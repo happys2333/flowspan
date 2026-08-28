@@ -621,6 +621,7 @@ public sealed class RemoteWindowLogicalVideoFrameSenderTests
     {
         private readonly TaskCompletionSource cancellationStarted = NewCompletion();
         private readonly TaskCompletionSource releaseCancellation = NewCompletion();
+        private readonly TaskCompletionSource sendCancelled = NewCompletion();
         private readonly TaskCompletionSource sendStarted = NewCompletion();
 
         public Task CancellationStarted => cancellationStarted.Task;
@@ -638,9 +639,11 @@ public sealed class RemoteWindowLogicalVideoFrameSenderTests
                 {
                     cancellationStarted.TrySetResult();
                     releaseCancellation.Task.GetAwaiter().GetResult();
+                    sendCancelled.TrySetResult();
                 });
             sendStarted.TrySetResult();
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            await sendCancelled.Task;
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 

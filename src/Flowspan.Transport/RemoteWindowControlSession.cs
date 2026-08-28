@@ -33,6 +33,25 @@ public sealed record RemoteWindowControlDeliveryResult(
         new(RemoteWindowControlDeliveryStatus.ProtocolUnsupported, null);
 }
 
+public sealed record RemoteWindowPreparationDeliveryResult(
+    RemoteWindowControlDeliveryStatus Status,
+    RemoteWindowPreparationResponse? Response)
+{
+    public static RemoteWindowPreparationDeliveryResult Acknowledged(
+        RemoteWindowPreparationResponse response) => new(
+            RemoteWindowControlDeliveryStatus.Acknowledged,
+            response ?? throw new ArgumentNullException(nameof(response)));
+
+    public static RemoteWindowPreparationDeliveryResult NotDelivered { get; } =
+        new(RemoteWindowControlDeliveryStatus.NotDelivered, null);
+
+    public static RemoteWindowPreparationDeliveryResult AcknowledgementLost { get; } =
+        new(RemoteWindowControlDeliveryStatus.AcknowledgementLost, null);
+
+    public static RemoteWindowPreparationDeliveryResult ProtocolUnsupported { get; } =
+        new(RemoteWindowControlDeliveryStatus.ProtocolUnsupported, null);
+}
+
 public interface IRemoteWindowControlChannel
 {
     public event Action<RemoteWindowParticipantState>? StateChanged;
@@ -57,6 +76,37 @@ public interface IRemoteWindowControlChannel
 
     public ValueTask PublishStateAsync(
         RemoteWindowParticipantState state,
+        CancellationToken cancellationToken);
+}
+
+public interface IRemoteWindowPreparationChannel
+{
+    public DeviceId ParticipantDeviceId { get; }
+
+    public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
+        RemoteWindowPreparationRequest request,
+        CancellationToken cancellationToken);
+
+    public ValueTask PublishAdmissionStateAsync(
+        RemoteWindowParticipantState state,
+        CancellationToken cancellationToken);
+}
+
+public interface IRemoteWindowPreparationPeer
+{
+    public DeviceId ParticipantDeviceId { get; }
+
+    public ValueTask<RemoteWindowPreparationResponse> PrepareAsync(
+        RemoteWindowPreparationRequest request,
+        CancellationToken cancellationToken);
+
+    public ValueTask CompleteAdmissionAsync(
+        RemoteWindowPreparationRequest request,
+        RemoteWindowParticipantState state,
+        CancellationToken cancellationToken);
+
+    public ValueTask PeerDisconnectedAsync(
+        DeviceId hostDeviceId,
         CancellationToken cancellationToken);
 }
 
@@ -330,6 +380,7 @@ internal interface IRemoteWindowControlConnection
 
 internal sealed class RemoteWindowControlSession :
     IRemoteWindowControlChannel,
+    IRemoteWindowPreparationChannel,
     IAsyncDisposable
 {
     [ThreadStatic]
@@ -339,6 +390,7 @@ internal sealed class RemoteWindowControlSession :
 
     private readonly AsyncLocal<SessionCallScope?> activeLifetimeCancellationCall =
         new();
+    private readonly AsyncLocal<SessionCallScope?> activePreparationCall = new();
     private readonly AsyncLocal<SessionCallScope?> activeSendCall = new();
     private readonly AsyncLocal<SessionCallScope?> activeStopDispatchCall = new();
     private readonly IRemoteWindowControlConnection connection;
@@ -351,6 +403,12 @@ internal sealed class RemoteWindowControlSession :
     private readonly object lifetimeCancellationGate = new();
     private readonly ConcurrentDictionary<CorrelationId, PendingState> pending = new();
     private readonly IRemoteWindowControlPeer? peer;
+    private readonly TaskCompletionSource peerDisconnectCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly object preparationGate = new();
+    private readonly IRemoteWindowPreparationPeer? preparationPeer;
+    private readonly TaskCompletionSource preparationPeerDisconnectCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object sendAdmissionGate = new();
     private readonly TimeProvider timeProvider;
     private readonly TaskCompletionSource stopDispatchCompletion =
@@ -362,6 +420,10 @@ internal sealed class RemoteWindowControlSession :
     private int lifetimeCancellationUsers;
     private int lifetimeStopRequested;
     private int pendingCommandCount;
+    private int peerDisconnectStarted;
+    private int preparationPeerDisconnectStarted;
+    private InboundPreparation? inboundPreparation;
+    private OutboundPreparation? outboundPreparation;
     private int running;
     private TaskCompletionSource? sendDrainCompletion;
     private int stopDispatchStarted;
@@ -370,11 +432,13 @@ internal sealed class RemoteWindowControlSession :
     public RemoteWindowControlSession(
         IRemoteWindowControlConnection connection,
         IRemoteWindowControlPeer? peer = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IRemoteWindowPreparationPeer? preparationPeer = null)
     {
         this.connection = connection
             ?? throw new ArgumentNullException(nameof(connection));
         this.peer = peer;
+        this.preparationPeer = preparationPeer;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         if (peer is not null && peer.HostDeviceId != connection.LocalDeviceId)
         {
@@ -382,9 +446,20 @@ internal sealed class RemoteWindowControlSession :
                 "A Remote Window control peer must represent the authenticated local host.",
                 nameof(peer));
         }
+
+
+        if (preparationPeer is not null
+            && preparationPeer.ParticipantDeviceId != connection.LocalDeviceId)
+        {
+            throw new ArgumentException(
+                "A Remote Window preparation peer must represent the authenticated local participant.",
+                nameof(preparationPeer));
+        }
     }
 
     public DeviceId HostDeviceId => connection.PeerDeviceId;
+
+    public DeviceId ParticipantDeviceId => connection.PeerDeviceId;
 
     internal CancellationToken LifetimeCancellationToken
     {
@@ -470,6 +545,13 @@ internal sealed class RemoteWindowControlSession :
         ArgumentNullException.ThrowIfNull(message);
         switch (message.Type)
         {
+            case ControlMessageType.RemoteWindowPrepare:
+                await HandlePrepareAsync(message, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case ControlMessageType.RemoteWindowReady:
+                HandleReady(message);
+                break;
             case ControlMessageType.RemoteWindowAdmission:
                 await HandleAdmissionAsync(message, cancellationToken)
                     .ConfigureAwait(false);
@@ -514,6 +596,7 @@ internal sealed class RemoteWindowControlSession :
     internal ValueTask StopDispatchAsync()
     {
         bool calledFromActiveSessionCall = IsActiveSessionCall(activeSendCall)
+            || IsActiveSessionCall(activePreparationCall)
             || IsActiveSessionCall(activeStopDispatchCall)
             || IsActiveSessionCall(activeLifetimeCancellationCall)
             || ReferenceEquals(activeLifetimeCancellationOwner, this);
@@ -554,6 +637,9 @@ internal sealed class RemoteWindowControlSession :
         }
 
         CompletePendingAsLost();
+        Task preparationPeerDisconnect =
+            NotifyPreparationPeerDisconnectedAsync().AsTask();
+
         if (sendDrain is not null)
         {
             try
@@ -566,15 +652,24 @@ internal sealed class RemoteWindowControlSession :
             }
         }
 
-        if (peer is not null)
+        InboundPreparation? inbound;
+        OutboundPreparation? outbound;
+        lock (preparationGate)
+        {
+            inbound = inboundPreparation;
+            outbound = outboundPreparation;
+        }
+
+        if (inbound is not null)
         {
             try
             {
-                using SessionCallLease sessionCall = EnterSessionCall(
-                    activeStopDispatchCall);
-                await peer.PeerDisconnectedAsync(
-                    connection.PeerDeviceId,
-                    CancellationToken.None).ConfigureAwait(false);
+                await inbound.Completion.Task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                Volatile.Read(ref lifetimeStopRequested) != 0)
+            {
+                // The connection stop owns this preparation cancellation.
             }
             catch (Exception exception)
             {
@@ -582,11 +677,367 @@ internal sealed class RemoteWindowControlSession :
             }
         }
 
+        if (outbound is not null)
+        {
+            try
+            {
+                await outbound.WatchdogCompletion.Task.ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure = CombineFailures(failure, exception);
+            }
+        }
+
+        try
+        {
+            await preparationPeerDisconnect.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = CombineFailures(failure, exception);
+        }
+
+        try
+        {
+            await NotifyControlPeerDisconnectedAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = CombineFailures(failure, exception);
+        }
+
         if (failure is not null)
         {
             System.Runtime.ExceptionServices.ExceptionDispatchInfo
                 .Capture(failure)
                 .Throw();
+        }
+    }
+
+    public async ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
+        RemoteWindowPreparationRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (!ProtocolFeatures.SupportsRemoteWindowPreparation(
+                connection.ProtocolVersion))
+        {
+            return RemoteWindowPreparationDeliveryResult.ProtocolUnsupported;
+        }
+
+        if (Volatile.Read(ref running) == 0 || Volatile.Read(ref stopped) != 0)
+        {
+            return RemoteWindowPreparationDeliveryResult.NotDelivered;
+        }
+
+        if (request.HostDeviceId != connection.LocalDeviceId
+            || request.ParticipantDeviceId != connection.PeerDeviceId)
+        {
+            throw new InvalidOperationException(
+                "A Remote Window preparation must match the authenticated host and participant.");
+        }
+
+        DateTimeOffset now = timeProvider.GetUtcNow();
+        ControlMessage message = RemoteWindowControlMessageCodec.CreatePrepare(
+            connection.ProtocolVersion,
+            connection.LocalDeviceId,
+            request,
+            now);
+        var preparation = new OutboundPreparation(
+            request,
+            CancellationTokenSource.CreateLinkedTokenSource(
+                lifetimeCancellation.Token));
+        bool reserved = false;
+        lock (sendAdmissionGate)
+        {
+            lock (preparationGate)
+            {
+                DateTimeOffset reservationTime = timeProvider.GetUtcNow();
+                if (Volatile.Read(ref stopped) == 0
+                    && !preparation.WatchdogCancellation.IsCancellationRequested
+                    && !cancellationToken.IsCancellationRequested
+                    && reservationTime < request.Deadline)
+                {
+                    if (outboundPreparation is not null
+                        || inboundPreparation is not null
+                        || pending.ContainsKey(request.CorrelationId))
+                    {
+                        preparation.WatchdogCancellation.Dispose();
+                        throw new InvalidOperationException(
+                            "An authenticated Remote Window connection can prepare only one session.");
+                    }
+
+                    outboundPreparation = preparation;
+                    reserved = true;
+                }
+            }
+        }
+
+        if (!reserved)
+        {
+            preparation.WatchdogCancellation.Dispose();
+            if (cancellationToken.IsCancellationRequested)
+            {
+                Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return RemoteWindowPreparationDeliveryResult.NotDelivered;
+        }
+
+        _ = MonitorOutboundPreparationAsync(preparation);
+
+        try
+        {
+            if (!await TrySendPrepareMessageAsync(
+                    message,
+                    preparation,
+                    cancellationToken)
+                .ConfigureAwait(false))
+            {
+                Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+                return RemoteWindowPreparationDeliveryResult.NotDelivered;
+            }
+
+            bool sendCommitted;
+            RemoteWindowPreparationResponse? bufferedResponse;
+            lock (sendAdmissionGate)
+            {
+                lock (preparationGate)
+                {
+                    bufferedResponse = preparation.State is (
+                            OutboundPreparationState.ReadyBuffered
+                            or OutboundPreparationState.ReadyAcknowledged)
+                        ? preparation.Response
+                        : null;
+                    bool rejected = bufferedResponse?.Outcome
+                        is RemoteWindowPreparationOutcome.Rejected;
+                    DateTimeOffset commitTime = rejected
+                        ? default
+                        : timeProvider.GetUtcNow();
+                    sendCommitted = rejected
+                        || Volatile.Read(ref stopped) == 0
+                        && !cancellationToken.IsCancellationRequested
+                        && commitTime < request.Deadline
+                        && ReferenceEquals(outboundPreparation, preparation)
+                        && preparation.State is (
+                            OutboundPreparationState.PrepareSending
+                            or OutboundPreparationState.ReadyBuffered
+                            or OutboundPreparationState.ReadyAcknowledged);
+                    if (sendCommitted
+                        && preparation.State == OutboundPreparationState.PrepareSending)
+                    {
+                        preparation.State = OutboundPreparationState.PrepareSent;
+                    }
+
+                    if (sendCommitted
+                        && preparation.State == OutboundPreparationState.ReadyBuffered)
+                    {
+                        preparation.State = OutboundPreparationState.ReadyAcknowledged;
+                        preparation.Completion.TrySetResult(bufferedResponse!);
+                    }
+                }
+            }
+
+            if (!sendCommitted)
+            {
+                Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+                return RemoteWindowPreparationDeliveryResult.AcknowledgementLost;
+            }
+
+            if (TryGetAcknowledgedPreparationResponse(
+                    preparation,
+                    out RemoteWindowPreparationResponse committedResponse))
+            {
+                return RemoteWindowPreparationDeliveryResult.Acknowledged(
+                    committedResponse);
+            }
+
+            TimeSpan remaining = request.Deadline - timeProvider.GetUtcNow();
+            if (remaining <= TimeSpan.Zero)
+            {
+                Cancel();
+                if (TryGetAcknowledgedPreparationResponse(
+                        preparation,
+                        out committedResponse))
+                {
+                    return RemoteWindowPreparationDeliveryResult.Acknowledged(
+                        committedResponse);
+                }
+
+                return RemoteWindowPreparationDeliveryResult.AcknowledgementLost;
+            }
+
+            try
+            {
+                RemoteWindowPreparationResponse response =
+                    await preparation.Completion.Task
+                        .WaitAsync(remaining, timeProvider, cancellationToken)
+                        .ConfigureAwait(false);
+                return RemoteWindowPreparationDeliveryResult.Acknowledged(response);
+            }
+            catch (TimeoutException)
+            {
+                Cancel();
+                if (TryGetAcknowledgedPreparationResponse(
+                        preparation,
+                        out committedResponse))
+                {
+                    return RemoteWindowPreparationDeliveryResult.Acknowledged(
+                        committedResponse);
+                }
+
+                return RemoteWindowPreparationDeliveryResult.AcknowledgementLost;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return RemoteWindowPreparationDeliveryResult.AcknowledgementLost;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Cancel();
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            if (TryGetAcknowledgedPreparationResponse(preparation, out var response))
+            {
+                return RemoteWindowPreparationDeliveryResult.Acknowledged(response);
+            }
+
+            Cancel();
+            return RemoteWindowPreparationDeliveryResult.AcknowledgementLost;
+        }
+        catch (Exception exception) when (exception is
+            IOException or SocketException or TimeoutException)
+        {
+            if (TryGetAcknowledgedPreparationResponse(preparation, out var response))
+            {
+                return RemoteWindowPreparationDeliveryResult.Acknowledged(response);
+            }
+
+            Cancel();
+            return RemoteWindowPreparationDeliveryResult.NotDelivered;
+        }
+    }
+
+    public async ValueTask PublishAdmissionStateAsync(
+        RemoteWindowParticipantState state,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        OutboundPreparation preparation;
+        bool expired;
+        bool inactive;
+        lock (sendAdmissionGate)
+        {
+            lock (preparationGate)
+            {
+                preparation = outboundPreparation
+                    ?? throw new InvalidOperationException(
+                        "A Remote Window admission cannot precede preparation.");
+                RemoteWindowPreparationRequest request = preparation.Request;
+                bool applied = state.Outcome is
+                    RemoteWindowControlOutcome.Applied
+                    or RemoteWindowControlOutcome.AlreadyApplied;
+                DateTimeOffset reservationTime = timeProvider.GetUtcNow();
+                expired = reservationTime >= request.Deadline;
+                inactive = Volatile.Read(ref running) == 0
+                    || Volatile.Read(ref stopped) != 0
+                    || preparation.WatchdogCancellation.IsCancellationRequested
+                    || cancellationToken.IsCancellationRequested;
+                if (!expired
+                    && (preparation.State != OutboundPreparationState.ReadyAcknowledged
+                    || preparation.Response?.Outcome is not RemoteWindowPreparationOutcome.Ready
+                    || state.Action != RemoteWindowControlAction.Admission
+                    || state.CorrelationId != request.CorrelationId
+                    || state.SessionId != request.SessionId
+                    || state.ActivityId != request.ActivityId
+                    || state.HostDeviceId != request.HostDeviceId
+                    || state.ParticipantDeviceId != request.ParticipantDeviceId
+                    || applied && state.EffectiveRole != request.RequestedRole
+                    || !applied && state.Outcome != RemoteWindowControlOutcome.Rejected))
+                {
+                    throw new InvalidOperationException(
+                        "A Remote Window admission state must exactly finalize its ready preparation.");
+                }
+
+                if (!expired && !inactive)
+                {
+                    preparation.State = OutboundPreparationState.AdmissionSending;
+                }
+            }
+        }
+
+        if (expired)
+        {
+            Cancel();
+            throw new InvalidOperationException(
+                "A Remote Window admission cannot outlive its preparation deadline.");
+        }
+
+        if (inactive)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            throw new InvalidOperationException(
+                "A Remote Window admission cannot be published on an inactive session.");
+        }
+
+        try
+        {
+            await SendStateAsync(
+                    state,
+                    cancellationToken,
+                    preparation.Request.Deadline)
+                .ConfigureAwait(false);
+            bool publicationCommitted;
+            lock (sendAdmissionGate)
+            {
+                lock (preparationGate)
+                {
+                    DateTimeOffset commitTime = timeProvider.GetUtcNow();
+                    publicationCommitted = Volatile.Read(ref stopped) == 0
+                        && !cancellationToken.IsCancellationRequested
+                        && commitTime < preparation.Request.Deadline
+                        && ReferenceEquals(outboundPreparation, preparation)
+                        && preparation.State
+                            == OutboundPreparationState.AdmissionSending;
+                    if (publicationCommitted)
+                    {
+                        preparation.State = OutboundPreparationState.AdmissionSent;
+                        preparation.WatchdogCancellation.Cancel();
+                    }
+                }
+            }
+
+            if (!publicationCommitted)
+            {
+                Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new InvalidOperationException(
+                    "The Remote Window admission publication raced its deadline or connection stop.");
+            }
+
+            if (state.Outcome is RemoteWindowControlOutcome.Rejected)
+            {
+                Cancel();
+            }
+        }
+        catch
+        {
+            Cancel();
+            throw;
         }
     }
 
@@ -671,6 +1122,7 @@ internal sealed class RemoteWindowControlSession :
     public ValueTask DisposeAsync()
     {
         bool calledFromActiveSessionCall = IsActiveSessionCall(activeSendCall)
+            || IsActiveSessionCall(activePreparationCall)
             || IsActiveSessionCall(activeStopDispatchCall)
             || IsActiveSessionCall(activeLifetimeCancellationCall)
             || ReferenceEquals(activeLifetimeCancellationOwner, this);
@@ -701,6 +1153,9 @@ internal sealed class RemoteWindowControlSession :
             CompletePendingAsLost();
         }
 
+        Task preparationPeerDisconnect =
+            NotifyPreparationPeerDisconnectedAsync().AsTask();
+
         if (sendDrain is not null)
         {
             try
@@ -711,6 +1166,61 @@ internal sealed class RemoteWindowControlSession :
             {
                 failure = CombineFailures(failure, exception);
             }
+        }
+
+        InboundPreparation? preparation;
+        OutboundPreparation? outbound;
+        lock (preparationGate)
+        {
+            preparation = inboundPreparation;
+            outbound = outboundPreparation;
+        }
+
+        if (preparation is not null)
+        {
+            try
+            {
+                await preparation.Completion.Task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                Volatile.Read(ref lifetimeStopRequested) != 0)
+            {
+                // The connection stop owns this preparation cancellation.
+            }
+            catch (Exception exception)
+            {
+                failure = CombineFailures(failure, exception);
+            }
+        }
+
+        if (outbound is not null)
+        {
+            try
+            {
+                await outbound.WatchdogCompletion.Task.ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure = CombineFailures(failure, exception);
+            }
+        }
+
+        try
+        {
+            await preparationPeerDisconnect.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = CombineFailures(failure, exception);
+        }
+
+        try
+        {
+            await NotifyControlPeerDisconnectedAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = CombineFailures(failure, exception);
         }
 
         try
@@ -767,7 +1277,21 @@ internal sealed class RemoteWindowControlSession :
             binding.SessionId,
             binding.ActivityId,
             action);
-        if (!pending.TryAdd(binding.CorrelationId, pendingState))
+        bool registered;
+        lock (preparationGate)
+        {
+            if (inboundPreparation?.Request.CorrelationId == binding.CorrelationId
+                || outboundPreparation?.Request.CorrelationId == binding.CorrelationId)
+            {
+                ReleasePendingSlot();
+                throw new InvalidOperationException(
+                    "A Remote Window command cannot reuse its connection's preparation correlation ID.");
+            }
+
+            registered = pending.TryAdd(binding.CorrelationId, pendingState);
+        }
+
+        if (!registered)
         {
             ReleasePendingSlot();
             throw new InvalidOperationException(
@@ -831,10 +1355,561 @@ internal sealed class RemoteWindowControlSession :
         }
     }
 
+    private ValueTask HandlePrepareAsync(
+        ControlMessage message,
+        CancellationToken cancellationToken)
+    {
+        IRemoteWindowPreparationPeer target = preparationPeer
+            ?? throw new InvalidDataException(
+                "This authenticated Device has no Remote Window preparation endpoint.");
+        RemoteWindowPreparationRequest request =
+            RemoteWindowControlMessageCodec.DecodePrepare(
+                message,
+                connection.LocalDeviceId,
+                connection.ProtocolVersion);
+        ValidateIncoming(request.Deadline);
+        TimeSpan remaining = request.Deadline - timeProvider.GetUtcNow();
+        if (remaining <= TimeSpan.Zero)
+        {
+            throw new InvalidDataException(
+                "The Remote Window preparation deadline expired before it could be reserved.");
+        }
+
+        var deadlineCancellation = new CancellationTokenSource(
+            remaining,
+            timeProvider);
+        CancellationTokenSource cancellation;
+        try
+        {
+            cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                lifetimeCancellation.Token,
+                deadlineCancellation.Token);
+        }
+        catch
+        {
+            deadlineCancellation.Dispose();
+            throw;
+        }
+
+        var preparation = new InboundPreparation(
+            request,
+            cancellation,
+            deadlineCancellation);
+        bool reserved = false;
+        bool deadlineExpired = false;
+        lock (sendAdmissionGate)
+        {
+            lock (preparationGate)
+            {
+                DateTimeOffset reservationTime = timeProvider.GetUtcNow();
+                deadlineExpired = reservationTime >= request.Deadline;
+                if (Volatile.Read(ref stopped) == 0
+                    && !preparation.Cancellation.IsCancellationRequested
+                    && !deadlineExpired)
+                {
+                    if (inboundPreparation is not null
+                        || outboundPreparation is not null
+                        || pending.ContainsKey(request.CorrelationId))
+                    {
+                        preparation.Cancellation.Dispose();
+                        preparation.DeadlineCancellation.Dispose();
+                        throw new InvalidDataException(
+                            "An authenticated Remote Window connection received a conflicting preparation.");
+                    }
+
+                    inboundPreparation = preparation;
+                    reserved = true;
+                }
+            }
+        }
+
+        if (!reserved)
+        {
+            preparation.Cancellation.Dispose();
+            preparation.DeadlineCancellation.Dispose();
+            if (deadlineExpired)
+            {
+                throw new InvalidDataException(
+                    "The Remote Window preparation deadline expired before it could be reserved.");
+            }
+
+            throw new OperationCanceledException(
+                "The Remote Window preparation raced the connection stop.");
+        }
+
+        _ = Task.Run(
+            () => CompleteInboundPreparationAsync(target, preparation),
+            CancellationToken.None);
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task CompleteInboundPreparationAsync(
+        IRemoteWindowPreparationPeer target,
+        InboundPreparation preparation)
+    {
+        Exception? failure = null;
+        bool cancelled = false;
+        try
+        {
+            RemoteWindowPreparationResponse response;
+            using (SessionCallLease sessionCall = EnterSessionCall(
+                       activePreparationCall))
+            {
+                bool boundaryStarted;
+                bool deadlineExpired;
+                lock (sendAdmissionGate)
+                {
+                    lock (preparationGate)
+                    {
+                        DateTimeOffset boundaryStartTime = timeProvider.GetUtcNow();
+                        deadlineExpired = boundaryStartTime
+                            >= preparation.Request.Deadline;
+                        if (!ReferenceEquals(inboundPreparation, preparation)
+                            || preparation.State != InboundPreparationState.Reserved)
+                        {
+                            throw new InvalidDataException(
+                                "The Remote Window participant boundary raced a terminal preparation.");
+                        }
+
+                        boundaryStarted = Volatile.Read(ref stopped) == 0
+                            && !preparation.Cancellation.IsCancellationRequested
+                            && !deadlineExpired;
+                        if (boundaryStarted)
+                        {
+                            preparation.State = InboundPreparationState.Preparing;
+                        }
+                    }
+                }
+
+                if (!boundaryStarted)
+                {
+                    if (deadlineExpired)
+                    {
+                        throw new InvalidDataException(
+                            "The Remote Window preparation deadline expired before its participant boundary started.");
+                    }
+
+                    throw new OperationCanceledException(
+                        "The Remote Window preparation stopped before its participant boundary started.",
+                        preparation.Cancellation.Token);
+                }
+
+                response = await target.PrepareAsync(
+                    preparation.Request,
+                    preparation.Cancellation.Token).ConfigureAwait(false);
+            }
+            if (response.Request != preparation.Request)
+            {
+                throw new InvalidDataException(
+                    "The local Remote Window preparation endpoint changed its binding.");
+            }
+
+            ValidateIncoming(preparation.Request.Deadline);
+            lock (preparationGate)
+            {
+                if (!ReferenceEquals(inboundPreparation, preparation)
+                    || preparation.State != InboundPreparationState.Preparing)
+                {
+                    throw new InvalidDataException(
+                        "The Remote Window preparation raced a terminal state.");
+                }
+
+                preparation.Response = response;
+                if (response.Outcome is RemoteWindowPreparationOutcome.Rejected)
+                {
+                    preparation.State = InboundPreparationState.Rejected;
+                }
+            }
+
+            ControlMessage ready = RemoteWindowControlMessageCodec.CreateReady(
+                connection.ProtocolVersion,
+                connection.LocalDeviceId,
+                response,
+                timeProvider.GetUtcNow());
+            bool readySent = response.Outcome is RemoteWindowPreparationOutcome.Ready
+                ? await TrySendReadyMessageAsync(ready, preparation).ConfigureAwait(false)
+                : await TrySendMessageAsync(
+                    ready,
+                    preparation.Cancellation.Token,
+                    preparation.Request.Deadline).ConfigureAwait(false);
+            if (!readySent)
+            {
+                throw new OperationCanceledException(
+                    "The Remote Window readiness result could not be sent.");
+            }
+
+            if (response.Outcome is RemoteWindowPreparationOutcome.Rejected)
+            {
+                Cancel();
+            }
+            else
+            {
+                RemoteWindowParticipantState? bufferedAdmission;
+                bool readyCommitted;
+                lock (sendAdmissionGate)
+                {
+                    lock (preparationGate)
+                    {
+                        DateTimeOffset commitTime = timeProvider.GetUtcNow();
+                        readyCommitted = Volatile.Read(ref stopped) == 0
+                            && !preparation.Cancellation.IsCancellationRequested
+                            && commitTime < preparation.Request.Deadline
+                            && ReferenceEquals(inboundPreparation, preparation)
+                            && preparation.State == InboundPreparationState.ReadySending;
+                        bufferedAdmission = readyCommitted
+                            ? preparation.BufferedAdmissionState
+                            : null;
+                        if (readyCommitted)
+                        {
+                            preparation.State = bufferedAdmission is null
+                                ? InboundPreparationState.AwaitingAdmissionState
+                                : InboundPreparationState.AdmissionPendingBoundary;
+                        }
+                    }
+                }
+
+                if (!readyCommitted)
+                {
+                    Cancel();
+                    throw new OperationCanceledException(
+                        "The Remote Window readiness send raced its deadline or connection stop.",
+                        preparation.Cancellation.Token);
+                }
+
+                if (bufferedAdmission is not null
+                    && !preparation.AdmissionCompletion.TrySetResult(bufferedAdmission))
+                {
+                    throw new InvalidDataException(
+                        "The buffered Remote Window admission raced another terminal result.");
+                }
+
+                TimeSpan remaining = preparation.Request.Deadline
+                    - timeProvider.GetUtcNow();
+                if (remaining <= TimeSpan.Zero)
+                {
+                    throw new TimeoutException(
+                        "The Remote Window admission state missed its preparation deadline.");
+                }
+
+                RemoteWindowParticipantState admission =
+                    await preparation.AdmissionCompletion.Task
+                    .WaitAsync(
+                        remaining,
+                        timeProvider,
+                        preparation.Cancellation.Token)
+                    .ConfigureAwait(false);
+                await CompletePreparedAdmissionAsync(
+                    target,
+                    preparation,
+                    admission).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (
+            preparation.Cancellation.IsCancellationRequested)
+        {
+            cancelled = true;
+            Cancel();
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+            Cancel();
+        }
+        finally
+        {
+            preparation.Cancellation.Dispose();
+            preparation.DeadlineCancellation.Dispose();
+            if (failure is not null)
+            {
+                preparation.Completion.TrySetException(failure);
+            }
+            else if (cancelled)
+            {
+                preparation.Completion.TrySetCanceled();
+            }
+            else
+            {
+                preparation.Completion.TrySetResult();
+            }
+        }
+    }
+
+    private async Task CompletePreparedAdmissionAsync(
+        IRemoteWindowPreparationPeer target,
+        InboundPreparation preparation,
+        RemoteWindowParticipantState state)
+    {
+        RemoteWindowPreparationRequest request = preparation.Request;
+        bool applied = state.Outcome is
+            RemoteWindowControlOutcome.Applied
+            or RemoteWindowControlOutcome.AlreadyApplied;
+        var binding = new SessionBinding(state.SessionId, state.ActivityId);
+        CancellationToken preparationCancellation =
+            preparation.Cancellation.Token;
+        using SessionCallLease sessionCall = EnterSessionCall(
+            activePreparationCall);
+        bool boundaryStarted;
+        lock (sendAdmissionGate)
+        {
+            lock (preparationGate)
+            {
+                DateTimeOffset boundaryStartTime = timeProvider.GetUtcNow();
+                if (!ReferenceEquals(inboundPreparation, preparation)
+                    || preparation.State
+                        != InboundPreparationState.AdmissionPendingBoundary)
+                {
+                    throw new InvalidDataException(
+                        "The Remote Window admission boundary raced a terminal preparation.");
+                }
+
+                boundaryStarted = Volatile.Read(ref stopped) == 0
+                    && !preparationCancellation.IsCancellationRequested
+                    && boundaryStartTime < request.Deadline;
+                if (boundaryStarted)
+                {
+                    preparation.State = InboundPreparationState.FinalizingAdmission;
+                }
+            }
+        }
+
+        if (!boundaryStarted)
+        {
+            Cancel();
+            throw new OperationCanceledException(
+                "The Remote Window admission boundary raced its deadline or connection stop.",
+                preparationCancellation);
+        }
+
+        await target.CompleteAdmissionAsync(
+                request,
+                state,
+                preparationCancellation)
+            .ConfigureAwait(false);
+
+        bool completionCommitted;
+        lock (sendAdmissionGate)
+        {
+            lock (preparationGate)
+            {
+                DateTimeOffset now = timeProvider.GetUtcNow();
+                completionCommitted = Volatile.Read(ref stopped) == 0
+                    && !preparationCancellation.IsCancellationRequested
+                    && now < request.Deadline;
+                if (completionCommitted)
+                {
+                    if (!ReferenceEquals(inboundPreparation, preparation)
+                        || preparation.State != InboundPreparationState.FinalizingAdmission)
+                    {
+                        throw new InvalidDataException(
+                            "The Remote Window admission completion raced a terminal preparation.");
+                    }
+
+                    if (applied)
+                    {
+                        if (!knownBindings.IsEmpty
+                            && !knownBindings.ContainsKey(binding))
+                        {
+                            throw new InvalidDataException(
+                                "The authenticated connection already owns another Remote Window binding.");
+                        }
+
+                        knownBindings.AddOrUpdate(
+                            binding,
+                            state.Revision,
+                            (_, revision) => Math.Max(revision, state.Revision));
+                        preparation.State = InboundPreparationState.Admitted;
+                    }
+                    else
+                    {
+                        preparation.State = InboundPreparationState.Rejected;
+                    }
+                }
+            }
+        }
+
+        if (!completionCommitted)
+        {
+            Cancel();
+            throw new OperationCanceledException(
+                "The Remote Window admission completion raced its deadline or connection stop.",
+                preparationCancellation);
+        }
+
+        PublishStateChanged(state);
+        if (!applied)
+        {
+            Cancel();
+        }
+    }
+
+    private async Task MonitorOutboundPreparationAsync(
+        OutboundPreparation preparation)
+    {
+        Exception? failure = null;
+        try
+        {
+            TimeSpan remaining = preparation.Request.Deadline
+                - timeProvider.GetUtcNow();
+            if (remaining > TimeSpan.Zero)
+            {
+                await Task.Delay(
+                    remaining,
+                    timeProvider,
+                    preparation.WatchdogCancellation.Token).ConfigureAwait(false);
+            }
+
+            DateTimeOffset expiryCheckTime = timeProvider.GetUtcNow();
+            bool expired;
+            lock (preparationGate)
+            {
+                expired = ReferenceEquals(outboundPreparation, preparation)
+                    && preparation.State != OutboundPreparationState.AdmissionSent
+                    && expiryCheckTime >= preparation.Request.Deadline;
+            }
+
+            if (expired)
+            {
+                Cancel();
+            }
+        }
+        catch (OperationCanceledException) when (
+            preparation.WatchdogCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+            try
+            {
+                Cancel();
+            }
+            catch (Exception cancellationFailure)
+            {
+                failure = CombineFailures(failure, cancellationFailure);
+            }
+        }
+        finally
+        {
+            preparation.WatchdogCancellation.Dispose();
+            if (failure is null)
+            {
+                preparation.WatchdogCompletion.TrySetResult();
+            }
+            else
+            {
+                preparation.WatchdogCompletion.TrySetException(failure);
+            }
+        }
+    }
+
+    private void HandleReady(ControlMessage message)
+    {
+        OutboundPreparation preparation;
+        lock (preparationGate)
+        {
+            preparation = outboundPreparation
+                ?? throw new InvalidDataException(
+                    "An unsolicited Remote Window readiness result was rejected.");
+            if (preparation.IsTerminal)
+            {
+                throw new InvalidDataException(
+                    "A delayed Remote Window readiness result was rejected by the terminal preparation tombstone.");
+            }
+
+            if (preparation.State is not (
+                    OutboundPreparationState.PrepareSending
+                    or OutboundPreparationState.PrepareSent))
+            {
+                throw new InvalidDataException(
+                    "A duplicate Remote Window readiness result was rejected.");
+            }
+        }
+
+        RemoteWindowPreparationResponse response =
+            RemoteWindowControlMessageCodec.DecodeReady(
+                message,
+                connection.LocalDeviceId,
+                connection.ProtocolVersion,
+                preparation.Request);
+        ValidateIncoming(response.Request.Deadline);
+        bool commitResponse;
+        lock (sendAdmissionGate)
+        {
+            lock (preparationGate)
+            {
+                if (!ReferenceEquals(outboundPreparation, preparation)
+                    || preparation.IsTerminal
+                    || preparation.State is not (
+                        OutboundPreparationState.PrepareSending
+                        or OutboundPreparationState.PrepareSent))
+                {
+                    throw new InvalidDataException(
+                        "The Remote Window readiness result raced a terminal state.");
+                }
+
+                DateTimeOffset commitTime = response.Outcome
+                        is RemoteWindowPreparationOutcome.Rejected
+                    ? default
+                    : timeProvider.GetUtcNow();
+                commitResponse = Volatile.Read(ref stopped) == 0
+                    && !preparation.WatchdogCancellation.IsCancellationRequested
+                    && (response.Outcome is RemoteWindowPreparationOutcome.Rejected
+                        || commitTime < preparation.Request.Deadline);
+                if (commitResponse)
+                {
+                    preparation.Response = response;
+                    bool acknowledged = preparation.State
+                            == OutboundPreparationState.PrepareSent
+                        || response.Outcome is RemoteWindowPreparationOutcome.Rejected;
+                    preparation.State = acknowledged
+                        ? OutboundPreparationState.ReadyAcknowledged
+                        : OutboundPreparationState.ReadyBuffered;
+                    if (acknowledged)
+                    {
+                        preparation.Completion.TrySetResult(response);
+                    }
+                }
+            }
+        }
+
+        if (!commitResponse)
+        {
+            Cancel();
+            throw new InvalidDataException(
+                "The Remote Window readiness result raced its deadline or connection stop.");
+        }
+
+        if (response.Outcome is RemoteWindowPreparationOutcome.Rejected)
+        {
+            Cancel();
+        }
+    }
+
+    private bool TryGetAcknowledgedPreparationResponse(
+        OutboundPreparation preparation,
+        out RemoteWindowPreparationResponse response)
+    {
+        lock (preparationGate)
+        {
+            if (ReferenceEquals(outboundPreparation, preparation)
+                && preparation.State == OutboundPreparationState.ReadyAcknowledged
+                && preparation.Response is { } acknowledged)
+            {
+                response = acknowledged;
+                return true;
+            }
+        }
+
+        response = null!;
+        return false;
+    }
+
     private async ValueTask HandleAdmissionAsync(
         ControlMessage message,
         CancellationToken cancellationToken)
     {
+        RejectPreparationCorrelation(message.CorrelationId);
         IRemoteWindowControlPeer target = RequirePeer();
         RemoteWindowAdmissionRequest request =
             RemoteWindowControlMessageCodec.DecodeAdmission(
@@ -851,6 +1926,7 @@ internal sealed class RemoteWindowControlSession :
         ControlMessage message,
         CancellationToken cancellationToken)
     {
+        RejectPreparationCorrelation(message.CorrelationId);
         IRemoteWindowControlPeer target = RequirePeer();
         RemoteWindowDriverRequest request =
             RemoteWindowControlMessageCodec.DecodeDriverRequest(
@@ -867,6 +1943,7 @@ internal sealed class RemoteWindowControlSession :
         ControlMessage message,
         CancellationToken cancellationToken)
     {
+        RejectPreparationCorrelation(message.CorrelationId);
         IRemoteWindowControlPeer target = RequirePeer();
         RemoteWindowInputRequest request =
             RemoteWindowControlMessageCodec.DecodeInputRequest(
@@ -883,6 +1960,7 @@ internal sealed class RemoteWindowControlSession :
         ControlMessage message,
         CancellationToken cancellationToken)
     {
+        RejectPreparationCorrelation(message.CorrelationId);
         IRemoteWindowControlPeer target = RequirePeer();
         RemoteWindowDisconnectRequest request =
             RemoteWindowControlMessageCodec.DecodeDisconnect(
@@ -902,6 +1980,11 @@ internal sealed class RemoteWindowControlSession :
         if (timeProvider.GetUtcNow() >= expiresAt)
         {
             throw new InvalidDataException("The Remote Window state has expired.");
+        }
+
+        if (TryHandlePreparedAdmissionState(message))
+        {
+            return;
         }
 
         if (!pending.TryGetValue(
@@ -961,16 +2044,135 @@ internal sealed class RemoteWindowControlSession :
         pendingState.Completion.TrySetResult(state);
     }
 
+    private bool TryHandlePreparedAdmissionState(ControlMessage message)
+    {
+        InboundPreparation? preparation;
+        lock (preparationGate)
+        {
+            preparation = inboundPreparation;
+            if (preparation is null
+                || message.CorrelationId != preparation.Request.CorrelationId)
+            {
+                return false;
+            }
+
+            if (preparation.State is not (
+                    InboundPreparationState.ReadySending
+                    or InboundPreparationState.AwaitingAdmissionState)
+                || preparation.BufferedAdmissionState is not null)
+            {
+                throw new InvalidDataException(
+                    "The Remote Window admission state arrived outside its preparation phase.");
+            }
+        }
+
+        RemoteWindowPreparationRequest request = preparation.Request;
+        if (timeProvider.GetUtcNow() >= request.Deadline)
+        {
+            throw new InvalidDataException(
+                "The Remote Window admission state missed its preparation deadline.");
+        }
+
+        RemoteWindowParticipantState state =
+            RemoteWindowControlMessageCodec.DecodeState(
+                message,
+                connection.LocalDeviceId,
+                request.SessionId,
+                request.ActivityId);
+        bool applied = state.Outcome is
+            RemoteWindowControlOutcome.Applied
+            or RemoteWindowControlOutcome.AlreadyApplied;
+        if (state.HostDeviceId != request.HostDeviceId
+            || state.ParticipantDeviceId != request.ParticipantDeviceId
+            || state.Action != RemoteWindowControlAction.Admission
+            || applied && state.EffectiveRole != request.RequestedRole
+            || !applied && state.Outcome != RemoteWindowControlOutcome.Rejected)
+        {
+            throw new InvalidDataException(
+                "The Remote Window admission state does not finalize its preparation.");
+        }
+
+        var binding = new SessionBinding(state.SessionId, state.ActivityId);
+        bool completeAdmission;
+        bool commitAdmission;
+        lock (sendAdmissionGate)
+        {
+            lock (preparationGate)
+            {
+                DateTimeOffset commitTime = timeProvider.GetUtcNow();
+                if (!ReferenceEquals(inboundPreparation, preparation)
+                    || preparation.State is not (
+                        InboundPreparationState.ReadySending
+                        or InboundPreparationState.AwaitingAdmissionState)
+                    || preparation.BufferedAdmissionState is not null)
+                {
+                    throw new InvalidDataException(
+                        "The Remote Window admission state raced a terminal preparation.");
+                }
+
+                commitAdmission = Volatile.Read(ref stopped) == 0
+                    && !preparation.Cancellation.IsCancellationRequested
+                    && commitTime < request.Deadline;
+                if (commitAdmission)
+                {
+                    if (applied
+                        && !knownBindings.IsEmpty
+                        && !knownBindings.ContainsKey(binding))
+                    {
+                        throw new InvalidDataException(
+                            "The authenticated connection already owns another Remote Window binding.");
+                    }
+
+                    completeAdmission = preparation.State
+                        == InboundPreparationState.AwaitingAdmissionState;
+                    if (completeAdmission)
+                    {
+                        preparation.State =
+                            InboundPreparationState.AdmissionPendingBoundary;
+                    }
+                    else
+                    {
+                        preparation.BufferedAdmissionState = state;
+                    }
+                }
+                else
+                {
+                    completeAdmission = false;
+                }
+            }
+        }
+
+        if (!commitAdmission)
+        {
+            Cancel();
+            throw new InvalidDataException(
+                "The Remote Window admission state raced its deadline or connection stop.");
+        }
+
+        if (completeAdmission
+            && !preparation.AdmissionCompletion.TrySetResult(state))
+        {
+            throw new InvalidDataException(
+                "The Remote Window admission state raced another terminal result.");
+        }
+
+        return true;
+    }
+
     private async ValueTask SendStateAsync(
         RemoteWindowParticipantState state,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DateTimeOffset? sendDeadline = null)
     {
         ControlMessage response = RemoteWindowControlMessageCodec.CreateState(
             connection.ProtocolVersion,
             connection.LocalDeviceId,
             state,
             timeProvider.GetUtcNow());
-        if (!await TrySendMessageAsync(response, cancellationToken)
+        if (!await TrySendMessageAsync(
+                response,
+                cancellationToken,
+                sendDeadline)
             .ConfigureAwait(false))
         {
             throw new OperationCanceledException(
@@ -994,16 +2196,71 @@ internal sealed class RemoteWindowControlSession :
         }
     }
 
+    private ValueTask<bool> TrySendPrepareMessageAsync(
+        ControlMessage message,
+        OutboundPreparation preparation,
+        CancellationToken cancellationToken) => TrySendMessageAsync(
+            message,
+            cancellationToken,
+            preparation.Request.Deadline,
+            () => AdmitPrepareSend(preparation));
+
+    private void AdmitPrepareSend(OutboundPreparation preparation)
+    {
+        lock (preparationGate)
+        {
+            if (!ReferenceEquals(outboundPreparation, preparation)
+                || preparation.State != OutboundPreparationState.Created)
+            {
+                throw new InvalidOperationException(
+                    "The Remote Window preparation send raced a terminal state.");
+            }
+
+            preparation.State = OutboundPreparationState.PrepareSending;
+        }
+    }
+
+    private ValueTask<bool> TrySendReadyMessageAsync(
+        ControlMessage message,
+        InboundPreparation preparation) => TrySendMessageAsync(
+            message,
+            preparation.Cancellation.Token,
+            preparation.Request.Deadline,
+            () => AdmitReadySend(preparation));
+
+    private void AdmitReadySend(InboundPreparation preparation)
+    {
+        lock (preparationGate)
+        {
+            if (!ReferenceEquals(inboundPreparation, preparation)
+                || preparation.State != InboundPreparationState.Preparing
+                || preparation.Response?.Outcome is not RemoteWindowPreparationOutcome.Ready)
+            {
+                throw new InvalidDataException(
+                    "The Remote Window readiness send raced a terminal preparation.");
+            }
+
+            preparation.State = InboundPreparationState.ReadySending;
+        }
+    }
+
     private async ValueTask<bool> TrySendMessageAsync(
         ControlMessage message,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DateTimeOffset? sendDeadline = null,
+        Action? admitSend = null)
     {
         CancellationTokenSource linked;
         SessionCallScope? inheritedScope = activeSendCall.Value;
         var currentScope = new SessionCallScope(this, inheritedScope);
         lock (sendAdmissionGate)
         {
-            if (Volatile.Read(ref stopped) != 0)
+            DateTimeOffset admissionTime = sendDeadline.HasValue
+                ? timeProvider.GetUtcNow()
+                : default;
+            if (Volatile.Read(ref stopped) != 0
+                || cancellationToken.IsCancellationRequested
+                || sendDeadline.HasValue && admissionTime >= sendDeadline.Value)
             {
                 return false;
             }
@@ -1011,7 +2268,16 @@ internal sealed class RemoteWindowControlSession :
             linked = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 lifetimeCancellation.Token);
-            activeSends++;
+            try
+            {
+                admitSend?.Invoke();
+                activeSends++;
+            }
+            catch
+            {
+                linked.Dispose();
+                throw;
+            }
         }
 
         activeSendCall.Value = currentScope;
@@ -1026,6 +2292,63 @@ internal sealed class RemoteWindowControlSession :
             linked.Dispose();
             CompleteSend();
         }
+    }
+
+    private async ValueTask NotifyPreparationPeerDisconnectedAsync()
+    {
+        if (Volatile.Read(ref running) == 0 || preparationPeer is null)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(
+                ref preparationPeerDisconnectStarted,
+                1,
+                0) == 0)
+        {
+            try
+            {
+                using SessionCallLease sessionCall = EnterSessionCall(
+                    activeStopDispatchCall);
+                await preparationPeer.PeerDisconnectedAsync(
+                    connection.PeerDeviceId,
+                    CancellationToken.None).ConfigureAwait(false);
+                preparationPeerDisconnectCompletion.TrySetResult();
+            }
+            catch (Exception exception)
+            {
+                preparationPeerDisconnectCompletion.TrySetException(exception);
+            }
+        }
+
+        await preparationPeerDisconnectCompletion.Task.ConfigureAwait(false);
+    }
+
+    private async ValueTask NotifyControlPeerDisconnectedAsync()
+    {
+        if (Volatile.Read(ref running) == 0 || peer is null)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref peerDisconnectStarted, 1, 0) == 0)
+        {
+            try
+            {
+                using SessionCallLease sessionCall = EnterSessionCall(
+                    activeStopDispatchCall);
+                await peer.PeerDisconnectedAsync(
+                    connection.PeerDeviceId,
+                    CancellationToken.None).ConfigureAwait(false);
+                peerDisconnectCompletion.TrySetResult();
+            }
+            catch (Exception exception)
+            {
+                peerDisconnectCompletion.TrySetException(exception);
+            }
+        }
+
+        await peerDisconnectCompletion.Task.ConfigureAwait(false);
     }
 
     private void CompleteSend()
@@ -1110,6 +2433,19 @@ internal sealed class RemoteWindowControlSession :
         }
     }
 
+    private void RejectPreparationCorrelation(CorrelationId correlationId)
+    {
+        lock (preparationGate)
+        {
+            if (inboundPreparation?.Request.CorrelationId == correlationId
+                || outboundPreparation?.Request.CorrelationId == correlationId)
+            {
+                throw new InvalidDataException(
+                    "A Remote Window command reused its connection's preparation correlation ID.");
+            }
+        }
+    }
+
     private void CompletePendingAsLost()
     {
         foreach ((CorrelationId correlationId, PendingState pendingState) in pending)
@@ -1120,6 +2456,15 @@ internal sealed class RemoteWindowControlSession :
                         pendingState)))
             {
                 pendingState.Completion.TrySetCanceled();
+            }
+        }
+
+        lock (preparationGate)
+        {
+            if (outboundPreparation is { } preparation)
+            {
+                preparation.IsTerminal = true;
+                preparation.Completion.TrySetCanceled();
             }
         }
     }
@@ -1323,6 +2668,80 @@ internal sealed class RemoteWindowControlSession :
             "The Remote Window request type is unsupported.",
             nameof(request)),
     };
+
+    private enum InboundPreparationState
+    {
+        Reserved,
+        Preparing,
+        ReadySending,
+        AwaitingAdmissionState,
+        AdmissionPendingBoundary,
+        FinalizingAdmission,
+        Rejected,
+        Admitted,
+    }
+
+    private sealed class InboundPreparation(
+        RemoteWindowPreparationRequest request,
+        CancellationTokenSource cancellation,
+        CancellationTokenSource deadlineCancellation)
+    {
+        public TaskCompletionSource<RemoteWindowParticipantState>
+            AdmissionCompletion
+        { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public RemoteWindowParticipantState? BufferedAdmissionState { get; set; }
+
+        public CancellationTokenSource Cancellation { get; } = cancellation;
+
+        public CancellationTokenSource DeadlineCancellation { get; } =
+            deadlineCancellation;
+
+        public TaskCompletionSource Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public RemoteWindowPreparationRequest Request { get; } = request;
+
+        public RemoteWindowPreparationResponse? Response { get; set; }
+
+        public InboundPreparationState State { get; set; } =
+            InboundPreparationState.Reserved;
+    }
+
+    private enum OutboundPreparationState
+    {
+        Created,
+        PrepareSending,
+        PrepareSent,
+        ReadyBuffered,
+        ReadyAcknowledged,
+        AdmissionSending,
+        AdmissionSent,
+    }
+
+    private sealed class OutboundPreparation(
+        RemoteWindowPreparationRequest request,
+        CancellationTokenSource watchdogCancellation)
+    {
+        public TaskCompletionSource<RemoteWindowPreparationResponse> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public RemoteWindowPreparationRequest Request { get; } = request;
+
+        public RemoteWindowPreparationResponse? Response { get; set; }
+
+        public bool IsTerminal { get; set; }
+
+        public OutboundPreparationState State { get; set; } =
+            OutboundPreparationState.Created;
+
+        public CancellationTokenSource WatchdogCancellation { get; } =
+            watchdogCancellation;
+
+        public TaskCompletionSource WatchdogCompletion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 
     private sealed class PendingState(
         RemoteWindowSessionId sessionId,
