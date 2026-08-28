@@ -32,6 +32,39 @@ public sealed class DiscoveryOfferTests
     }
 
     [Fact]
+    public void MinimumIssueTimeVerifiesWithoutClockSkewUnderflow()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(Device, "Laptop");
+        SignedDiscoveryOffer offer = CreateOffer(identity, DateTimeOffset.MinValue);
+
+        Assert.True(offer.Verify(identity.PublicIdentity, DateTimeOffset.MinValue));
+    }
+
+    [Fact]
+    public void MaximumExpiryRemainsExclusiveWithoutOverflow()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(Device, "Laptop");
+        DateTimeOffset issuedAt = DateTimeOffset.MaxValue.Subtract(
+            TimeSpan.FromSeconds(30));
+        SignedDiscoveryOffer offer = CreateOffer(identity, issuedAt);
+
+        Assert.True(offer.Verify(identity.PublicIdentity, issuedAt));
+        Assert.False(offer.Verify(identity.PublicIdentity, DateTimeOffset.MaxValue));
+    }
+
+    [Fact]
+    public void FutureClockSkewBoundaryIsInclusive()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(Device, "Laptop");
+        SignedDiscoveryOffer offer = CreateOffer(identity, Now);
+        DateTimeOffset boundary = Now.Subtract(
+            SignedDiscoveryOffer.MaximumFutureClockSkew);
+
+        Assert.True(offer.Verify(identity.PublicIdentity, boundary));
+        Assert.False(offer.Verify(identity.PublicIdentity, boundary.AddTicks(-1)));
+    }
+
+    [Fact]
     public void ProtocolVersionsAreCanonicalizedIntoOfferDigest()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(Device, "Laptop");
@@ -198,6 +231,16 @@ public sealed class DiscoveryOfferTests
             Now,
             TimeSpan.FromSeconds(30),
             nonce.AsSpan(0, nonce.Length - 1)));
+
+        ArgumentOutOfRangeException unrepresentableExpiry =
+            Assert.Throws<ArgumentOutOfRangeException>(() => SignedDiscoveryOffer.Create(
+                identity,
+                4747,
+                [new ProtocolVersion(1, 0)],
+                DateTimeOffset.MaxValue,
+                TimeSpan.FromSeconds(30),
+                nonce));
+        Assert.Equal("issuedAt", unrepresentableExpiry.ParamName);
     }
 
     private static SignedDiscoveryOffer CreateOffer(

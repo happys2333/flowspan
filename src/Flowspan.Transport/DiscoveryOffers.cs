@@ -100,6 +100,13 @@ public sealed class SignedDiscoveryOffer
                 nameof(protocolVersions));
         }
 
+        if (issuedAt.Ticks > DateTimeOffset.MaxValue.Ticks - lifetime.Ticks)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(issuedAt),
+                "A discovery offer issue time must allow a representable expiry.");
+        }
+
         DateTimeOffset expiresAt = issuedAt.Add(lifetime);
         byte[] nonceBytes = nonce.ToArray();
         byte[] encoded = EncodeUnsigned(
@@ -135,9 +142,7 @@ public sealed class SignedDiscoveryOffer
         if (identity.DeviceId != DeviceId
             || !StringComparer.Ordinal.Equals(identity.DisplayName, DisplayName)
             || !StringComparer.Ordinal.Equals(identity.Fingerprint, IdentityFingerprint)
-            || now < IssuedAt.Subtract(MaximumFutureClockSkew)
-            || now >= ExpiresAt
-            || ExpiresAt - IssuedAt > MaximumLifetime)
+            || !IsWithinValidityWindow(now))
         {
             return false;
         }
@@ -158,6 +163,17 @@ public sealed class SignedDiscoveryOffer
         bool valid = digestMatches && identity.VerifyHash(hash, signature);
         CryptographicOperations.ZeroMemory(hash);
         return valid;
+    }
+
+    internal bool IsWithinValidityWindow(DateTimeOffset now)
+    {
+        if (!HasValidLifetime(IssuedAt, ExpiresAt) || now >= ExpiresAt)
+        {
+            return false;
+        }
+
+        return now >= IssuedAt
+            || IssuedAt - now <= MaximumFutureClockSkew;
     }
 
     public byte[] ExportNonce() => (byte[])nonce.Clone();
@@ -235,7 +251,7 @@ public sealed class SignedDiscoveryOffer
                 nameof(protocolVersions));
         }
 
-        if (expiresAt <= issuedAt || expiresAt - issuedAt > MaximumLifetime)
+        if (!HasValidLifetime(issuedAt, expiresAt))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(expiresAt),
@@ -281,6 +297,12 @@ public sealed class SignedDiscoveryOffer
             digest,
             signature.ToArray());
     }
+
+    private static bool HasValidLifetime(
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt) =>
+        expiresAt > issuedAt
+        && expiresAt - issuedAt <= MaximumLifetime;
 
     private static byte[] EncodeUnsigned(
         DeviceId deviceId,

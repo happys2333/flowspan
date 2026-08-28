@@ -168,13 +168,80 @@ public sealed class DnsSdUnverifiedPairingCandidateSourceTests
             new FixedTimeProvider(Now));
         SignedDiscoveryOffer future = CreateOffer(
             peer,
-            Now.Add(SignedDiscoveryOffer.MaximumFutureClockSkew).AddMilliseconds(1));
+            Now.Add(SignedDiscoveryOffer.MaximumFutureClockSkew).AddTicks(1));
 
         browser.Change(DnsSdServiceSnapshot.Create(
             "desk._flowspan._tcp.local",
             future.Port,
             [IPAddress.Parse("192.168.50.20")],
             DnsSdDiscoveryOfferTxtCodec.Encode(future)));
+
+        Assert.Empty(source.GetSnapshot());
+    }
+
+    [Fact]
+    public void OfferAtFutureClockSkewBoundaryAppears()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(PeerDevice, "Desk");
+        var browser = new FakeDnsSdServiceBrowser();
+        using var source = new DnsSdUnverifiedPairingCandidateSource(
+            LocalDevice,
+            new InMemoryTrustStore(),
+            browser,
+            new FixedTimeProvider(Now));
+        SignedDiscoveryOffer boundary = CreateOffer(
+            peer,
+            Now.Add(SignedDiscoveryOffer.MaximumFutureClockSkew));
+
+        browser.Change(DnsSdServiceSnapshot.Create(
+            "desk._flowspan._tcp.local",
+            boundary.Port,
+            [IPAddress.Parse("192.168.50.20")],
+            DnsSdDiscoveryOfferTxtCodec.Encode(boundary)));
+
+        Assert.Single(source.GetSnapshot());
+    }
+
+    [Fact]
+    public void MinimumIssueTimeAppearsWithoutClockSkewUnderflow()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(PeerDevice, "Desk");
+        var browser = new FakeDnsSdServiceBrowser();
+        using var source = new DnsSdUnverifiedPairingCandidateSource(
+            LocalDevice,
+            new InMemoryTrustStore(),
+            browser,
+            new FixedTimeProvider(DateTimeOffset.MinValue));
+        SignedDiscoveryOffer offer = CreateOffer(peer, DateTimeOffset.MinValue);
+
+        browser.Change(DnsSdServiceSnapshot.Create(
+            "desk._flowspan._tcp.local",
+            offer.Port,
+            [IPAddress.Parse("192.168.50.20")],
+            DnsSdDiscoveryOfferTxtCodec.Encode(offer)));
+
+        Assert.Single(source.GetSnapshot());
+    }
+
+    [Fact]
+    public void CandidateAtMaximumExpiryIsExcludedWithoutOverflow()
+    {
+        using DeviceIdentity peer = DeviceIdentity.Generate(PeerDevice, "Desk");
+        var browser = new FakeDnsSdServiceBrowser();
+        using var source = new DnsSdUnverifiedPairingCandidateSource(
+            LocalDevice,
+            new InMemoryTrustStore(),
+            browser,
+            new FixedTimeProvider(DateTimeOffset.MaxValue));
+        SignedDiscoveryOffer offer = CreateOffer(
+            peer,
+            DateTimeOffset.MaxValue.Subtract(TimeSpan.FromSeconds(30)));
+
+        browser.Change(DnsSdServiceSnapshot.Create(
+            "desk._flowspan._tcp.local",
+            offer.Port,
+            [IPAddress.Parse("192.168.50.20")],
+            DnsSdDiscoveryOfferTxtCodec.Encode(offer)));
 
         Assert.Empty(source.GetSnapshot());
     }

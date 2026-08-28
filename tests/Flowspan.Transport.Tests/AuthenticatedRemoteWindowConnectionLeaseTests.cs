@@ -34,6 +34,7 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             Assert.True(generation.TryAcquire(
                 new UnusedPreparationChannel(),
                 mediaSession,
+                static () => ValueTask.CompletedTask,
                 out AuthenticatedRemoteWindowConnectionLease? acquired));
             AuthenticatedRemoteWindowConnectionLease lease = Assert.IsType<
                 AuthenticatedRemoteWindowConnectionLease>(acquired);

@@ -116,8 +116,7 @@ public sealed class DnsSdUnverifiedPairingCandidateSource : IDisposable
                 out SignedDiscoveryOffer? offer)
             || offer.DeviceId == localDeviceId
             || snapshot.Port != offer.Port
-            || now < offer.IssuedAt.Subtract(SignedDiscoveryOffer.MaximumFutureClockSkew)
-            || now >= offer.ExpiresAt)
+            || !offer.IsWithinValidityWindow(now))
         {
             return;
         }

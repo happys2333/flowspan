@@ -577,6 +577,528 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
     }
 
     [Fact]
+    public async Task VerifiedPeerBindingIsPinnedToTheAuthenticatedGeneration()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Initiator");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Responder");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(ResponderDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        ProtocolVersion version =
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+        (AuthenticatedTcpControlConnection initiatorConnection,
+            AuthenticatedTcpControlConnection responderConnection) =
+            await CreateControlPairAsync(
+                initiatorIdentity,
+                responderIdentity,
+                version);
+        await using (initiatorConnection)
+        await using (responderConnection)
+        {
+            VerifiedPeerConnectionCandidate candidate = CreateVerifiedCandidate(
+                initiatorIdentity,
+                responderConnection.RemoteEndPoint.Address,
+                listenerPort: 4747,
+                version);
+            var validator = new RecordingCandidateValidator(isCurrent: true);
+            Task running = handler.RunWithRemoteWindowPeerAsync(
+                    responderConnection,
+                    candidate,
+                    validator)
+                .AsTask();
+            AuthenticatedRemoteWindowConnectionLease? acquired;
+            using var timeout = new CancellationTokenSource(
+                TimeSpan.FromSeconds(3));
+            while (!handler.TryAcquireRemoteWindowPeerConnection(
+                       InitiatorDeviceId,
+                       out acquired))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
+            }
+
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            VerifiedPeerConnectionCandidate pinned = Assert.IsType<
+                VerifiedPeerConnectionCandidate>(lease.PeerConnectionCandidate);
+            Assert.Equal(new IPEndPoint(IPAddress.Loopback, 4747), pinned.EndPoint);
+            Assert.True(validator.ValidationCount > 0);
+            validator.SetCurrent(false);
+            Assert.False(handler.TryAcquireRemoteWindowPeerConnection(
+                InitiatorDeviceId,
+                out _));
+
+            await initiatorConnection.DisposeAsync();
+            await Assert.ThrowsAnyAsync<IOException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
+    public async Task VerifiedConnectionLeaseConnectsPinnedPeerAndExchangesMedia()
+    {
+        using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Participant");
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Host");
+        await using var participantRoutes = new RemoteWindowMediaRouteRegistry();
+        await using var participantMedia =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(participantRoutes);
+        await using var participantHandler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(InitiatorDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: participantMedia);
+        await using var hostRoutes = new RemoteWindowMediaRouteRegistry();
+        await using var hostMedia =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(hostRoutes);
+        await using var hostHandler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(ResponderDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: hostMedia);
+        ProtocolVersion version =
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+        (AuthenticatedTcpControlConnection participantConnection,
+            AuthenticatedTcpControlConnection hostConnection) =
+            await CreateControlPairAsync(
+                participantIdentity,
+                hostIdentity,
+                version);
+        using var mediaListener = new TcpListener(IPAddress.Loopback, 0);
+        mediaListener.Start(backlog: 1);
+        var mediaEndpoint = Assert.IsType<IPEndPoint>(mediaListener.LocalEndpoint);
+        VerifiedPeerConnectionCandidate candidate = CreateVerifiedCandidate(
+            hostIdentity,
+            mediaEndpoint.Address,
+            mediaEndpoint.Port,
+            version);
+        var validator = new RecordingCandidateValidator(isCurrent: true);
+        await using (participantConnection)
+        await using (hostConnection)
+        {
+            Task participantRunning = participantHandler
+                .RunWithRemoteWindowPeerAsync(
+                    participantConnection,
+                    candidate,
+                    validator)
+                .AsTask();
+            Task hostRunning = hostHandler.RunAsync(hostConnection).AsTask();
+            await using AuthenticatedRemoteWindowConnectionLease participantLease =
+                await WaitForPeerConnectionLeaseAsync(
+                    participantHandler,
+                    ResponderDeviceId);
+            await using AuthenticatedRemoteWindowConnectionLease hostLease =
+                await WaitForConnectionLeaseAsync(
+                    hostHandler,
+                    InitiatorDeviceId);
+            RemoteWindowMediaRouteBinding binding = hostLease.PrepareResponderRoute(
+                SessionId,
+                ActivityId);
+            DateTimeOffset deadline = DateTimeOffset.UtcNow;
+            deadline = deadline.AddTicks(
+                -(deadline.Ticks % TimeSpan.TicksPerMillisecond));
+            RemoteWindowPreparationRequest request =
+                RemoteWindowPreparationRequest.Create(
+                    CorrelationId.From(Guid.NewGuid()),
+                    SessionId,
+                    ActivityId,
+                    ResponderDeviceId,
+                    InitiatorDeviceId,
+                    MirrorParticipantRole.ViewOnly,
+                    deadline.AddMinutes(1));
+            Task accepting = AcceptOwnedMediaAsync();
+
+            await participantLease.ConnectInitiatorAsync(request);
+            await hostLease.WaitForMediaAttachmentAsync();
+            using RemoteWindowMediaFrame expected = RemoteWindowMediaFrame.Create(
+                SessionId,
+                ActivityId,
+                RemoteWindowMediaKind.Video,
+                sequence: 1,
+                chunkIndex: 0,
+                chunkCount: 1,
+                [0x31, 0x32, 0x33]);
+            Task<RemoteWindowMediaFrame> receiving =
+                participantLease.ReceiveMediaAsync().AsTask();
+
+            await hostLease.SendMediaAsync(expected);
+            using RemoteWindowMediaFrame actual = await receiving;
+
+            Assert.Equal(binding, participantMedia.TryGet(
+                ResponderDeviceId,
+                out AuthenticatedRemoteWindowMediaSession? participantSession)
+                    ? participantSession!.Binding
+                    : null);
+            Assert.Equal(expected.ExportPayload(), actual.ExportPayload());
+
+            await participantConnection.DisposeAsync();
+            await Assert.ThrowsAnyAsync<IOException>(() =>
+                hostRunning.WaitAsync(TimeSpan.FromSeconds(5)));
+            await Assert.ThrowsAnyAsync<IOException>(() =>
+                participantRunning.WaitAsync(TimeSpan.FromSeconds(5)));
+            await accepting.WaitAsync(TimeSpan.FromSeconds(5));
+
+            async Task AcceptOwnedMediaAsync()
+            {
+                using TcpClient accepted = await mediaListener.AcceptTcpClientAsync();
+                RemoteWindowMediaAttachment attachment =
+                    await hostRoutes.AcceptAsync(accepted.GetStream());
+                await FlowspanTcpInboundListener.RunOwnedMediaAttachmentHandlerAsync(
+                    attachment,
+                    hostMedia,
+                    CancellationToken.None);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CandidateInvalidatedAfterPeerConnectFailsClosedBeforeAttachment()
+    {
+        using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Participant");
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Host");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(InitiatorDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        ProtocolVersion version =
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+        (AuthenticatedTcpControlConnection participantConnection,
+            AuthenticatedTcpControlConnection hostConnection) =
+            await CreateControlPairAsync(
+                participantIdentity,
+                hostIdentity,
+                version);
+        VerifiedPeerConnectionCandidate candidate = CreateVerifiedCandidate(
+            hostIdentity,
+            IPAddress.Loopback,
+            listenerPort: 4747,
+            version);
+        var validator = new RecordingCandidateValidator(isCurrent: true);
+        var connector = new InvalidatingPeerStreamConnector(validator);
+        await using (participantConnection)
+        await using (hostConnection)
+        {
+            Task running = handler.RunWithRemoteWindowPeerAsync(
+                    participantConnection,
+                    candidate,
+                    validator)
+                .AsTask();
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                await WaitForPeerConnectionLeaseAsync(
+                    handler,
+                    ResponderDeviceId);
+            DateTimeOffset deadline = DateTimeOffset.UtcNow;
+            deadline = deadline.AddTicks(
+                -(deadline.Ticks % TimeSpan.TicksPerMillisecond));
+            RemoteWindowPreparationRequest request =
+                RemoteWindowPreparationRequest.Create(
+                    CorrelationId.From(Guid.NewGuid()),
+                    SessionId,
+                    ActivityId,
+                    ResponderDeviceId,
+                    InitiatorDeviceId,
+                    MirrorParticipantRole.ViewOnly,
+                    deadline.AddMinutes(1));
+
+            InvalidOperationException failure =
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    lease.ConnectInitiatorAsync(
+                            request,
+                            connector,
+                            CancellationToken.None)
+                        .AsTask());
+
+            Assert.Contains("no longer current", failure.Message);
+            Assert.False(connector.Stream.CanRead);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(mediaSessions.TryGet(ResponderDeviceId, out _));
+            Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
+    public async Task FailedPeerConnectRevokesGenerationBeforeReturnedStreamDisposalCompletes()
+    {
+        using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Participant");
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Host");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(InitiatorDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        ProtocolVersion version =
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+        (AuthenticatedTcpControlConnection participantConnection,
+            AuthenticatedTcpControlConnection hostConnection) =
+            await CreateControlPairAsync(
+                participantIdentity,
+                hostIdentity,
+                version);
+        VerifiedPeerConnectionCandidate candidate = CreateVerifiedCandidate(
+            hostIdentity,
+            IPAddress.Loopback,
+            listenerPort: 4747,
+            version);
+        var validator = new RecordingCandidateValidator(isCurrent: true);
+        var connector = new InvalidatingBlockingDisposePeerStreamConnector(
+            validator);
+        await using (participantConnection)
+        await using (hostConnection)
+        {
+            Task running = handler.RunWithRemoteWindowPeerAsync(
+                    participantConnection,
+                    candidate,
+                    validator)
+                .AsTask();
+            AuthenticatedRemoteWindowConnectionLease lease =
+                await WaitForPeerConnectionLeaseAsync(
+                    handler,
+                    ResponderDeviceId);
+            await using (lease)
+            {
+                DateTimeOffset deadline = DateTimeOffset.UtcNow;
+                deadline = deadline.AddTicks(
+                    -(deadline.Ticks % TimeSpan.TicksPerMillisecond));
+                RemoteWindowPreparationRequest request =
+                    RemoteWindowPreparationRequest.Create(
+                        CorrelationId.From(Guid.NewGuid()),
+                        SessionId,
+                        ActivityId,
+                        ResponderDeviceId,
+                        InitiatorDeviceId,
+                        MirrorParticipantRole.ViewOnly,
+                        deadline.AddMinutes(1));
+                Task connecting = lease.ConnectInitiatorAsync(
+                        request,
+                        connector,
+                        CancellationToken.None)
+                    .AsTask();
+
+                await connector.Stream.DisposeStarted.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                try
+                {
+                    Assert.True(lease.IsRevoked);
+                    Assert.False(connecting.IsCompleted);
+                    Assert.False(handler.TryAcquireRemoteWindowPeerConnection(
+                        ResponderDeviceId,
+                        out _));
+                }
+                finally
+                {
+                    connector.Stream.ReleaseDispose.TrySetResult();
+                }
+
+                InvalidOperationException failure =
+                    await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        connecting.WaitAsync(TimeSpan.FromSeconds(5)));
+
+                Assert.Contains("no longer current", failure.Message);
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                    running.WaitAsync(TimeSpan.FromSeconds(5)));
+                Assert.False(mediaSessions.TryGet(ResponderDeviceId, out _));
+                Assert.Equal(0, routes.Count);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task FailCloseCancelsAndJoinsPendingVerifiedPeerConnect()
+    {
+        using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Participant");
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Host");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(InitiatorDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        ProtocolVersion version =
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+        (AuthenticatedTcpControlConnection participantConnection,
+            AuthenticatedTcpControlConnection hostConnection) =
+            await CreateControlPairAsync(
+                participantIdentity,
+                hostIdentity,
+                version);
+        VerifiedPeerConnectionCandidate candidate = CreateVerifiedCandidate(
+            hostIdentity,
+            IPAddress.Loopback,
+            listenerPort: 4747,
+            version);
+        var validator = new RecordingCandidateValidator(isCurrent: true);
+        var connector = new NonCooperativePeerStreamConnector();
+        await using (participantConnection)
+        await using (hostConnection)
+        {
+            Task running = handler.RunWithRemoteWindowPeerAsync(
+                    participantConnection,
+                    candidate,
+                    validator)
+                .AsTask();
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                await WaitForPeerConnectionLeaseAsync(
+                    handler,
+                    ResponderDeviceId);
+            DateTimeOffset deadline = DateTimeOffset.UtcNow;
+            deadline = deadline.AddTicks(
+                -(deadline.Ticks % TimeSpan.TicksPerMillisecond));
+            RemoteWindowPreparationRequest request =
+                RemoteWindowPreparationRequest.Create(
+                    CorrelationId.From(Guid.NewGuid()),
+                    SessionId,
+                    ActivityId,
+                    ResponderDeviceId,
+                    InitiatorDeviceId,
+                    MirrorParticipantRole.ViewOnly,
+                    deadline.AddMinutes(1));
+            Task connecting = lease.ConnectInitiatorAsync(
+                    request,
+                    connector,
+                    CancellationToken.None)
+                .AsTask();
+            await connector.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Task cleanup = lease.FailCloseAsync().AsTask();
+            await connector.CancellationObserved.Task.WaitAsync(
+                TimeSpan.FromSeconds(5));
+
+            Assert.False(cleanup.IsCompleted);
+            Assert.False(connecting.IsCompleted);
+
+            connector.Release.TrySetResult();
+
+            await cleanup.WaitAsync(TimeSpan.FromSeconds(5));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                connecting.WaitAsync(TimeSpan.FromSeconds(5)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(mediaSessions.TryGet(ResponderDeviceId, out _));
+            Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
+    public async Task FailedPeerConnectFailClosesAfterConcurrentLeaseDisposal()
+    {
+        using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Participant");
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Host");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(InitiatorDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        ProtocolVersion version =
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+        (AuthenticatedTcpControlConnection participantConnection,
+            AuthenticatedTcpControlConnection hostConnection) =
+            await CreateControlPairAsync(
+                participantIdentity,
+                hostIdentity,
+                version);
+        VerifiedPeerConnectionCandidate candidate = CreateVerifiedCandidate(
+            hostIdentity,
+            IPAddress.Loopback,
+            listenerPort: 4747,
+            version);
+        var validator = new RecordingCandidateValidator(isCurrent: true);
+        var connector = new FailingBlockedPeerStreamConnector();
+        await using (participantConnection)
+        await using (hostConnection)
+        {
+            Task running = handler.RunWithRemoteWindowPeerAsync(
+                    participantConnection,
+                    candidate,
+                    validator)
+                .AsTask();
+            AuthenticatedRemoteWindowConnectionLease lease =
+                await WaitForPeerConnectionLeaseAsync(
+                    handler,
+                    ResponderDeviceId);
+            DateTimeOffset deadline = DateTimeOffset.UtcNow;
+            deadline = deadline.AddTicks(
+                -(deadline.Ticks % TimeSpan.TicksPerMillisecond));
+            RemoteWindowPreparationRequest request =
+                RemoteWindowPreparationRequest.Create(
+                    CorrelationId.From(Guid.NewGuid()),
+                    SessionId,
+                    ActivityId,
+                    ResponderDeviceId,
+                    InitiatorDeviceId,
+                    MirrorParticipantRole.ViewOnly,
+                    deadline.AddMinutes(1));
+            Task connecting = lease.ConnectInitiatorAsync(
+                    request,
+                    connector,
+                    CancellationToken.None)
+                .AsTask();
+            await connector.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            await lease.DisposeAsync();
+            connector.Release.TrySetResult();
+
+            Exception failure = Assert.IsType<IOException>(
+                await Record.ExceptionAsync(() =>
+                    connecting.WaitAsync(TimeSpan.FromSeconds(5))));
+            Assert.Same(connector.Failure, failure);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(handler.TryAcquireRemoteWindowPeerConnection(
+                ResponderDeviceId,
+                out _));
+            Assert.False(mediaSessions.TryGet(ResponderDeviceId, out _));
+            Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
     public async Task ReconnectCannotRetargetAnOlderConnectionLease()
     {
         using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
@@ -645,6 +1167,157 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
             await secondInitiator.DisposeAsync();
             await Assert.ThrowsAnyAsync<IOException>(() =>
                 secondRunning.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
+    public async Task ConnectionLeaseFailCloseRevokesGenerationAndConsumesOwner()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Initiator");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Responder");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(ResponderDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        (AuthenticatedTcpControlConnection initiatorConnection,
+            AuthenticatedTcpControlConnection responderConnection) =
+            await CreateControlPairAsync(
+                initiatorIdentity,
+                responderIdentity,
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion);
+        await using (initiatorConnection)
+        await using (responderConnection)
+        {
+            Task running = handler.RunAsync(responderConnection).AsTask();
+            await using AuthenticatedRemoteWindowConnectionLease first =
+                await WaitForConnectionLeaseAsync(handler, InitiatorDeviceId);
+            await using AuthenticatedRemoteWindowConnectionLease second =
+                await WaitForConnectionLeaseAsync(handler, InitiatorDeviceId);
+            first.PrepareResponderRoute(SessionId, ActivityId);
+
+            Task firstCleanup = first.FailCloseAsync().AsTask();
+            Task secondCleanup = second.FailCloseAsync().AsTask();
+
+            Assert.Same(firstCleanup, secondCleanup);
+            Assert.False(first.IsCurrent);
+            Assert.False(second.IsCurrent);
+            Assert.True(first.IsRevoked);
+            Assert.False(handler.TryAcquireRemoteWindowConnection(
+                InitiatorDeviceId,
+                out _));
+            Assert.Throws<InvalidOperationException>(() =>
+                second.PrepareResponderRoute(SessionId, ActivityId));
+
+            await firstCleanup.WaitAsync(TimeSpan.FromSeconds(5));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(mediaSessions.TryGet(InitiatorDeviceId, out _));
+            Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
+    public async Task FailCloseFromOwnRevocationCallbackDoesNotJoinItself()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Initiator");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Responder");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(ResponderDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        (AuthenticatedTcpControlConnection initiatorConnection,
+            AuthenticatedTcpControlConnection responderConnection) =
+            await CreateControlPairAsync(
+                initiatorIdentity,
+                responderIdentity,
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion);
+        await using (initiatorConnection)
+        await using (responderConnection)
+        {
+            Task running = handler.RunAsync(responderConnection).AsTask();
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                await WaitForConnectionLeaseAsync(handler, InitiatorDeviceId);
+            var callbackReturnedCompleted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using CancellationTokenRegistration registration =
+                lease.RegisterRevocationCallback(() =>
+                {
+                    Task callbackCleanup = lease.FailCloseAsync().AsTask();
+                    callbackReturnedCompleted.TrySetResult(
+                        callbackCleanup.IsCompletedSuccessfully);
+                });
+
+            Task externalCleanup = lease.FailCloseAsync().AsTask();
+
+            Assert.True(await callbackReturnedCompleted.Task.WaitAsync(
+                TimeSpan.FromSeconds(5)));
+            await externalCleanup.WaitAsync(TimeSpan.FromSeconds(5));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
+    public async Task DisposedConnectionLeaseCannotFailCloseItsFormerGeneration()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Initiator");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Responder");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(ResponderDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        (AuthenticatedTcpControlConnection initiatorConnection,
+            AuthenticatedTcpControlConnection responderConnection) =
+            await CreateControlPairAsync(
+                initiatorIdentity,
+                responderIdentity,
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion);
+        await using (initiatorConnection)
+        await using (responderConnection)
+        {
+            Task running = handler.RunAsync(responderConnection).AsTask();
+            AuthenticatedRemoteWindowConnectionLease lease =
+                await WaitForConnectionLeaseAsync(handler, InitiatorDeviceId);
+
+            await lease.DisposeAsync();
+
+            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                lease.FailCloseAsync().AsTask());
+            Assert.True(handler.TryAcquireRemoteWindowConnection(
+                InitiatorDeviceId,
+                out AuthenticatedRemoteWindowConnectionLease? replacement));
+            await Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(
+                replacement).DisposeAsync();
+            await initiatorConnection.DisposeAsync();
+            await Assert.ThrowsAnyAsync<IOException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
         }
     }
 
@@ -992,6 +1665,47 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
         return Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(lease);
     }
 
+    private static async Task<AuthenticatedRemoteWindowConnectionLease>
+        WaitForPeerConnectionLeaseAsync(
+        AuthenticatedActivitySessionHandler handler,
+        DeviceId peerDeviceId)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        AuthenticatedRemoteWindowConnectionLease? lease;
+        while (!handler.TryAcquireRemoteWindowPeerConnection(
+            peerDeviceId,
+            out lease))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
+        }
+
+        return Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(lease);
+    }
+
+    private static VerifiedPeerConnectionCandidate CreateVerifiedCandidate(
+        DeviceIdentity peer,
+        IPAddress address,
+        int listenerPort,
+        ProtocolVersion version)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        SignedDiscoveryOffer offer = SignedDiscoveryOffer.Create(
+            peer,
+            listenerPort,
+            [version],
+            now.Subtract(TimeSpan.FromSeconds(1)),
+            TimeSpan.FromMinutes(1),
+            Enumerable.Repeat(
+                    (byte)0x5a,
+                    SignedDiscoveryOffer.NonceLength)
+                .ToArray());
+        return VerifiedPeerConnectionCandidate.Create(
+            new IPEndPoint(address, listenerPort),
+            offer,
+            peer.PublicIdentity,
+            now);
+    }
+
     private static (SecureFrameSession Initiator, SecureFrameSession Responder)
         CreateSecureSessions(int seed = 0x73)
     {
@@ -1030,6 +1744,121 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
             CancellationToken cancellationToken) =>
             ValueTask.FromException<OperationReceipt>(
                 new InvalidOperationException("No Activity was expected."));
+    }
+
+    private sealed class RecordingCandidateValidator(bool isCurrent) :
+        IVerifiedPeerConnectionCandidateValidator
+    {
+        private int current = isCurrent ? 1 : 0;
+        private int validationCount;
+
+        public int ValidationCount => Volatile.Read(ref validationCount);
+
+        public void SetCurrent(bool value) =>
+            Volatile.Write(ref current, value ? 1 : 0);
+
+        public bool IsCurrent(
+            VerifiedPeerConnectionCandidate candidate,
+            ProtocolVersion protocolVersion)
+        {
+            Interlocked.Increment(ref validationCount);
+            return Volatile.Read(ref current) != 0;
+        }
+    }
+
+    private sealed class InvalidatingPeerStreamConnector(
+        RecordingCandidateValidator validator) :
+        IRemoteWindowPeerStreamConnector
+    {
+        public MemoryStream Stream { get; } = new();
+
+        public ValueTask<Stream> ConnectAsync(
+            IPEndPoint remoteEndPoint,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            validator.SetCurrent(false);
+            return ValueTask.FromResult<Stream>(Stream);
+        }
+    }
+
+    private sealed class InvalidatingBlockingDisposePeerStreamConnector(
+        RecordingCandidateValidator validator) :
+        IRemoteWindowPeerStreamConnector
+    {
+        public BlockingAsyncDisposeStream Stream { get; } = new();
+
+        public ValueTask<Stream> ConnectAsync(
+            IPEndPoint remoteEndPoint,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            validator.SetCurrent(false);
+            return ValueTask.FromResult<Stream>(Stream);
+        }
+    }
+
+    private sealed class BlockingAsyncDisposeStream : MemoryStream
+    {
+        public TaskCompletionSource DisposeStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseDispose { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async ValueTask DisposeAsync()
+        {
+            DisposeStarted.TrySetResult();
+            await ReleaseDispose.Task.ConfigureAwait(false);
+            await base.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private sealed class NonCooperativePeerStreamConnector :
+        IRemoteWindowPeerStreamConnector
+    {
+        public TaskCompletionSource CancellationObserved { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask<Stream> ConnectAsync(
+            IPEndPoint remoteEndPoint,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            using CancellationTokenRegistration registration =
+                cancellationToken.Register(
+                    () => CancellationObserved.TrySetResult());
+            await Release.Task;
+            cancellationToken.ThrowIfCancellationRequested();
+            return new MemoryStream();
+        }
+    }
+
+    private sealed class FailingBlockedPeerStreamConnector :
+        IRemoteWindowPeerStreamConnector
+    {
+        public IOException Failure { get; } = new("CANARY_CONNECT_FAILURE");
+
+        public TaskCompletionSource Release { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Started { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask<Stream> ConnectAsync(
+            IPEndPoint remoteEndPoint,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await Release.Task;
+            throw Failure;
+        }
     }
 
     private sealed class BlockingTimerTimeProvider : TimeProvider

@@ -15,6 +15,96 @@ public sealed class AuthenticatedTcpPeerSessionAttemptTests
         new(2026, 7, 13, 10, 30, 0, TimeSpan.Zero);
 
     [Fact]
+    public void VerifiedCandidateDefensivelySnapshotsItsSignedEndpoint()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        var supplied = new IPEndPoint(
+            new IPAddress(IPAddress.Parse("fe80::10").GetAddressBytes(), 7),
+            4747);
+        SignedDiscoveryOffer offer = SignedDiscoveryOffer.Create(
+            identity,
+            supplied.Port,
+            [new ProtocolVersion(1, 0)],
+            Now,
+            TimeSpan.FromSeconds(30),
+            Enumerable.Repeat((byte)0x11, SignedDiscoveryOffer.NonceLength)
+                .ToArray());
+        VerifiedPeerConnectionCandidate candidate =
+            VerifiedPeerConnectionCandidate.Create(
+                supplied,
+                offer,
+                identity.PublicIdentity,
+                Now);
+
+        supplied.Address.ScopeId = 17;
+        supplied.Address = new IPAddress(
+            IPAddress.Parse("fe80::20").GetAddressBytes(),
+            27);
+        supplied.Port = 5757;
+        IPEndPoint borrowed = candidate.EndPoint;
+        borrowed.Address.ScopeId = 37;
+        borrowed.Address = new IPAddress(
+            IPAddress.Parse("fe80::30").GetAddressBytes(),
+            47);
+        borrowed.Port = 6767;
+
+        IPEndPoint retained = candidate.EndPoint;
+        Assert.Equal(
+            new IPAddress(IPAddress.Parse("fe80::10").GetAddressBytes(), 7),
+            retained.Address);
+        Assert.Equal(7, retained.Address.ScopeId);
+        Assert.Equal(4747, retained.Port);
+        Assert.Equal(offer.Port, retained.Port);
+    }
+
+    [Fact]
+    public void VerifiedCandidateUsesEntrySnapshotWhenSourceChangesAfterValidation()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(
+            DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
+            "Desk");
+        var supplied = new IPEndPoint(
+            new IPAddress(IPAddress.Parse("fe80::10").GetAddressBytes(), 7),
+            4747);
+        SignedDiscoveryOffer offer = SignedDiscoveryOffer.Create(
+            identity,
+            supplied.Port,
+            [new ProtocolVersion(1, 0)],
+            Now,
+            TimeSpan.FromSeconds(30),
+            Enumerable.Repeat((byte)0x11, SignedDiscoveryOffer.NonceLength)
+                .ToArray());
+        bool changedAfterValidation = false;
+
+        VerifiedPeerConnectionCandidate candidate =
+            VerifiedPeerConnectionCandidate.CreateForTesting(
+                supplied,
+                offer,
+                identity.PublicIdentity,
+                Now,
+                () =>
+                {
+                    supplied.Address.ScopeId = 17;
+                    supplied.Address = new IPAddress(
+                        IPAddress.Parse("fe80::20").GetAddressBytes(),
+                        27);
+                    supplied.Port = 5757;
+                    changedAfterValidation = true;
+                });
+
+        IPEndPoint retained = candidate.EndPoint;
+        Assert.True(changedAfterValidation);
+        Assert.Equal(
+            new IPAddress(IPAddress.Parse("fe80::10").GetAddressBytes(), 7),
+            retained.Address);
+        Assert.Equal(7, retained.Address.ScopeId);
+        Assert.Equal(4747, retained.Port);
+        Assert.Equal(offer.Port, retained.Port);
+    }
+
+    [Fact]
     public async Task UntrustedCandidateIsRejectedBeforeTcpConnect()
     {
         using DeviceIdentity localIdentity = DeviceIdentity.Generate(

@@ -11,19 +11,21 @@ namespace Flowspan.Transport;
 
 public sealed class VerifiedPeerConnectionCandidate
 {
+    private readonly IPEndPoint endPoint;
+
     private VerifiedPeerConnectionCandidate(
         IPEndPoint endPoint,
         SignedDiscoveryOffer offer,
         PublicDeviceIdentity candidateIdentity)
     {
-        EndPoint = endPoint;
+        this.endPoint = endPoint;
         Offer = offer;
         CandidateIdentity = candidateIdentity;
     }
 
     public PublicDeviceIdentity CandidateIdentity { get; }
 
-    public IPEndPoint EndPoint { get; }
+    public IPEndPoint EndPoint => Clone(endPoint);
 
     public SignedDiscoveryOffer Offer { get; }
 
@@ -31,21 +33,50 @@ public sealed class VerifiedPeerConnectionCandidate
         IPEndPoint endPoint,
         SignedDiscoveryOffer offer,
         PublicDeviceIdentity candidateIdentity,
-        DateTimeOffset observedAt)
+        DateTimeOffset observedAt) => CreateCore(
+            endPoint,
+            offer,
+            candidateIdentity,
+            observedAt,
+            afterValidation: null);
+
+    internal static VerifiedPeerConnectionCandidate CreateForTesting(
+        IPEndPoint endPoint,
+        SignedDiscoveryOffer offer,
+        PublicDeviceIdentity candidateIdentity,
+        DateTimeOffset observedAt,
+        Action afterValidation)
+    {
+        ArgumentNullException.ThrowIfNull(afterValidation);
+        return CreateCore(
+            endPoint,
+            offer,
+            candidateIdentity,
+            observedAt,
+            afterValidation);
+    }
+
+    private static VerifiedPeerConnectionCandidate CreateCore(
+        IPEndPoint endPoint,
+        SignedDiscoveryOffer offer,
+        PublicDeviceIdentity candidateIdentity,
+        DateTimeOffset observedAt,
+        Action? afterValidation)
     {
         ArgumentNullException.ThrowIfNull(endPoint);
+        IPEndPoint endPointSnapshot = Clone(endPoint);
         ArgumentNullException.ThrowIfNull(offer);
         ArgumentNullException.ThrowIfNull(candidateIdentity);
-        if (endPoint.Port == 0
-            || endPoint.Address.Equals(IPAddress.Any)
-            || endPoint.Address.Equals(IPAddress.IPv6Any))
+        if (endPointSnapshot.Port == 0
+            || endPointSnapshot.Address.Equals(IPAddress.Any)
+            || endPointSnapshot.Address.Equals(IPAddress.IPv6Any))
         {
             throw new ArgumentException(
                 "A peer candidate requires a concrete address and port.",
                 nameof(endPoint));
         }
 
-        if (endPoint.Port != offer.Port)
+        if (endPointSnapshot.Port != offer.Port)
         {
             throw new ArgumentException(
                 "A peer candidate endpoint must use the signed discovery port.",
@@ -59,10 +90,24 @@ public sealed class VerifiedPeerConnectionCandidate
                 nameof(offer));
         }
 
+        afterValidation?.Invoke();
         return new VerifiedPeerConnectionCandidate(
-            endPoint,
+            endPointSnapshot,
             offer,
             candidateIdentity);
+    }
+
+    private static IPEndPoint Clone(IPEndPoint endPoint)
+    {
+        IPAddress sourceAddress = endPoint.Address;
+        byte[] addressBytes = sourceAddress.GetAddressBytes();
+        IPAddress address = sourceAddress.AddressFamily
+            == AddressFamily.InterNetworkV6
+                ? new IPAddress(
+                    addressBytes,
+                    sourceAddress.ScopeId)
+                : new IPAddress(addressBytes);
+        return new IPEndPoint(address, endPoint.Port);
     }
 }
 

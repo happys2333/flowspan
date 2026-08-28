@@ -162,7 +162,7 @@ public sealed class DesktopActivityRuntimeTests
             sceneApplyStatePayloadStore: null,
             receiptSink: null,
             _ => mediaSessions,
-            handler =>
+            (handler, _) =>
             {
                 constructedHandler = handler;
                 throw initializationFailure;
@@ -188,6 +188,143 @@ public sealed class DesktopActivityRuntimeTests
                 await constructedHandler.DisposeAsync();
             }
 
+            await runtime.DisposeAsync();
+            await trust.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task NetworkBindingsExposeIdentityBoundHostControlPeer()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        AuthenticatedActivitySessionHandler? constructedHandler = null;
+        DesktopRemoteWindowHostControlPeer? constructedHostControlPeer = null;
+        var mediaOwners = new List<RecordingRemoteWindowMediaSessionOwner>();
+        var runtime = new DesktopActivityRuntime(
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(identity);
+            },
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(trust);
+            },
+            new FixedTimeProvider(Now),
+            replaceStatePayloadStore: null,
+            sceneRemoteChildStatePayloadStore: null,
+            sceneApplyStatePayloadStore: null,
+            receiptSink: null,
+            _ =>
+            {
+                var owner = new RecordingRemoteWindowMediaSessionOwner(
+                    () => constructedHandler);
+                mediaOwners.Add(owner);
+                return owner;
+            },
+            (handler, hostControlPeer) =>
+            {
+                constructedHandler = handler;
+                constructedHostControlPeer = hostControlPeer;
+            });
+
+        try
+        {
+            DesktopActivityNetworkBindings first =
+                await runtime.GetNetworkBindingsAsync();
+            DesktopActivityNetworkBindings second =
+                await runtime.GetNetworkBindingsAsync();
+
+            Assert.Same(constructedHandler, first.SessionHandler);
+            Assert.Same(
+                constructedHostControlPeer,
+                first.RemoteWindowHostControlPeer);
+            Assert.Same(
+                first.RemoteWindowHostControlPeer,
+                second.RemoteWindowHostControlPeer);
+            Assert.Equal(SourceId, first.RemoteWindowHostControlPeer.HostDeviceId);
+            Assert.Single(mediaOwners);
+
+            await runtime.DisposeAsync();
+
+            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                runtime.GetNetworkBindingsAsync().AsTask());
+            Assert.Equal(1, Assert.Single(mediaOwners).DisposeCalls);
+        }
+        finally
+        {
+            await runtime.DisposeAsync();
+            await trust.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task FailedInitializationDoesNotPublishHostControlPeerToRetry()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(SourceId, "Source");
+        var trust = new TrustSessionCoordinator(new InMemoryTrustStore());
+        var hostControlPeers = new List<DesktopRemoteWindowHostControlPeer>();
+        var mediaOwners = new List<RecordingRemoteWindowMediaSessionOwner>();
+        AuthenticatedActivitySessionHandler? constructedHandler = null;
+        var initializationFailure = new InvalidOperationException(
+            "Injected first host control peer publication failure.");
+        var runtime = new DesktopActivityRuntime(
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(identity);
+            },
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(trust);
+            },
+            new FixedTimeProvider(Now),
+            replaceStatePayloadStore: null,
+            sceneRemoteChildStatePayloadStore: null,
+            sceneApplyStatePayloadStore: null,
+            receiptSink: null,
+            _ =>
+            {
+                var owner = new RecordingRemoteWindowMediaSessionOwner(
+                    () => constructedHandler);
+                mediaOwners.Add(owner);
+                return owner;
+            },
+            (handler, hostControlPeer) =>
+            {
+                constructedHandler = handler;
+                hostControlPeers.Add(hostControlPeer);
+                if (hostControlPeers.Count == 1)
+                {
+                    throw initializationFailure;
+                }
+            });
+
+        try
+        {
+            InvalidOperationException failure =
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    runtime.InitializeAsync().AsTask());
+
+            Assert.Same(initializationFailure, failure);
+            Assert.False(runtime.IsReady);
+            Assert.Equal(1, Assert.Single(mediaOwners).DisposeCalls);
+
+            DesktopActivityNetworkBindings bindings =
+                await runtime.GetNetworkBindingsAsync();
+
+            Assert.True(runtime.IsReady);
+            Assert.Equal(2, hostControlPeers.Count);
+            Assert.NotSame(hostControlPeers[0], hostControlPeers[1]);
+            Assert.Same(hostControlPeers[1], bindings.RemoteWindowHostControlPeer);
+            Assert.Equal(SourceId, bindings.RemoteWindowHostControlPeer.HostDeviceId);
+            Assert.Equal(2, mediaOwners.Count);
+        }
+        finally
+        {
             await runtime.DisposeAsync();
             await trust.DisposeAsync();
         }

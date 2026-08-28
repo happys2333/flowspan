@@ -11,7 +11,8 @@ namespace Flowspan.Desktop;
 
 internal sealed record DesktopActivityNetworkBindings(
     AuthenticatedActivitySessionHandler SessionHandler,
-    AuthenticatedRemoteWindowMediaSessionDirectory RemoteWindowMediaSessions);
+    AuthenticatedRemoteWindowMediaSessionDirectory RemoteWindowMediaSessions,
+    DesktopRemoteWindowHostControlPeer RemoteWindowHostControlPeer);
 
 internal interface IDesktopRemoteWindowMediaSessionOwner : IAsyncDisposable
 {
@@ -29,7 +30,9 @@ internal sealed class DesktopActivityRuntime :
     private readonly Func<CancellationToken, ValueTask<TrustSessionCoordinator>> getTrust;
     private readonly Func<TimeProvider, IDesktopRemoteWindowMediaSessionOwner>
         createRemoteWindowMediaSessions;
-    private readonly Action<AuthenticatedActivitySessionHandler>?
+    private readonly Action<
+        AuthenticatedActivitySessionHandler,
+        DesktopRemoteWindowHostControlPeer>?
         onSessionHandlerCreated;
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly CancellationTokenSource lifetimeCancellation = new();
@@ -51,6 +54,8 @@ internal sealed class DesktopActivityRuntime :
     private SceneApplyCompensator? sceneApplyCompensator;
     private IDesktopRemoteWindowMediaSessionOwner?
         remoteWindowMediaSessions;
+    private DesktopRemoteWindowHostControlPeer? remoteWindowHostControlPeer;
+    private DesktopRemoteWindowPreparationPeer? remoteWindowPreparationPeer;
     private TrustSessionCoordinator? trust;
     private int disposed;
 
@@ -87,7 +92,10 @@ internal sealed class DesktopActivityRuntime :
         IReceiptSink? receiptSink,
         Func<TimeProvider, IDesktopRemoteWindowMediaSessionOwner>
             createRemoteWindowMediaSessions,
-        Action<AuthenticatedActivitySessionHandler>? onSessionHandlerCreated = null)
+        Action<
+            AuthenticatedActivitySessionHandler,
+            DesktopRemoteWindowHostControlPeer>?
+            onSessionHandlerCreated = null)
     {
         ArgumentNullException.ThrowIfNull(getIdentity);
         ArgumentNullException.ThrowIfNull(getTrust);
@@ -963,6 +971,9 @@ internal sealed class DesktopActivityRuntime :
 
             AuthenticatedActivitySessionHandler? newHandler = null;
             IDesktopRemoteWindowMediaSessionOwner? newRemoteWindowMediaSessions = null;
+            DesktopRemoteWindowHostControlPeer?
+                newRemoteWindowHostControlPeer = null;
+            DesktopRemoteWindowPreparationPeer? newRemoteWindowPreparationPeer = null;
             SceneApplyPlanner? newSceneApplyPlanner = null;
             SceneApplyCoordinator? newSceneApplyCoordinator = null;
             SceneApplyCompensator? newSceneApplyCompensator = null;
@@ -981,6 +992,16 @@ internal sealed class DesktopActivityRuntime :
                         coordinator,
                         PublishChanged,
                         timeProvider);
+                newRemoteWindowPreparationPeer =
+                    new DesktopRemoteWindowPreparationPeer(
+                        identity.DeviceId,
+                        TryAcquireRemoteWindowPeerConnection,
+                        UnavailableDesktopRemoteWindowReceivePolicy.Instance,
+                        UnavailableDesktopRemoteWindowParticipantRendererFactory
+                            .Instance,
+                        timeProvider);
+                newRemoteWindowHostControlPeer =
+                    new DesktopRemoteWindowHostControlPeer(identity.DeviceId);
                 newHandler = new AuthenticatedActivitySessionHandler(
                     authorizedPeer,
                     authorizedReplacePeer,
@@ -988,9 +1009,14 @@ internal sealed class DesktopActivityRuntime :
                     swapPeer: null,
                     timeProvider,
                     authorizedScenePeer,
+                    remoteWindowPeer: newRemoteWindowHostControlPeer,
                     remoteWindowMediaSessions:
-                        newRemoteWindowMediaSessions.SessionDirectory);
-                onSessionHandlerCreated?.Invoke(newHandler);
+                        newRemoteWindowMediaSessions.SessionDirectory,
+                    remoteWindowPreparationPeer:
+                        newRemoteWindowPreparationPeer);
+                onSessionHandlerCreated?.Invoke(
+                    newHandler,
+                    newRemoteWindowHostControlPeer);
                 if (authorizedScenePeer is not null)
                 {
                     sceneRoutes.SetInner(newHandler);
@@ -1044,6 +1070,13 @@ internal sealed class DesktopActivityRuntime :
                         failures).ConfigureAwait(false);
                 }
 
+                if (newRemoteWindowPreparationPeer is not null)
+                {
+                    await CaptureCleanupFailureAsync(
+                        newRemoteWindowPreparationPeer.DisposeAsync,
+                        failures).ConfigureAwait(false);
+                }
+
                 if (newSceneApplyJournal is not null)
                 {
                     CaptureCleanupFailure(newSceneApplyJournal.Dispose, failures);
@@ -1085,6 +1118,8 @@ internal sealed class DesktopActivityRuntime :
             trust = coordinator;
             handler = initializedHandler;
             remoteWindowMediaSessions = newRemoteWindowMediaSessions;
+            remoteWindowHostControlPeer = newRemoteWindowHostControlPeer;
+            remoteWindowPreparationPeer = newRemoteWindowPreparationPeer;
             replaceEndpoint = newReplaceEndpoint;
             replaceState = newReplaceState;
             sceneRemoteChildJournal = newSceneRemoteChildJournal;
@@ -1093,6 +1128,22 @@ internal sealed class DesktopActivityRuntime :
             sceneApplyCoordinator = newSceneApplyCoordinator;
             sceneApplyCompensator = newSceneApplyCompensator;
             Volatile.Write(ref node, newNode);
+
+            bool TryAcquireRemoteWindowPeerConnection(
+                DeviceId peerDeviceId,
+                out AuthenticatedRemoteWindowConnectionLease? lease)
+            {
+                AuthenticatedActivitySessionHandler? current = newHandler;
+                if (current is not null)
+                {
+                    return current.TryAcquireRemoteWindowPeerConnection(
+                        peerDeviceId,
+                        out lease);
+                }
+
+                lease = null;
+                return false;
+            }
         }
         finally
         {
@@ -1122,9 +1173,14 @@ internal sealed class DesktopActivityRuntime :
             remoteWindowMediaSessions?.SessionDirectory
             ?? throw new InvalidOperationException(
                 "The Remote Window media directory was not initialized.");
+        DesktopRemoteWindowHostControlPeer currentRemoteWindowHostControlPeer =
+            remoteWindowHostControlPeer
+            ?? throw new InvalidOperationException(
+                "The Remote Window host control peer was not initialized.");
         return new DesktopActivityNetworkBindings(
             currentHandler,
-            currentMediaSessions);
+            currentMediaSessions,
+            currentRemoteWindowHostControlPeer);
     }
 
     public ValueTask DisposeAsync()
@@ -1177,6 +1233,18 @@ internal sealed class DesktopActivityRuntime :
                     failures);
                 await CaptureCleanupFailureAsync(
                     current.DisposeAsync,
+                    failures).ConfigureAwait(false);
+            }
+
+            remoteWindowHostControlPeer = null;
+
+            DesktopRemoteWindowPreparationPeer? currentPreparationPeer =
+                remoteWindowPreparationPeer;
+            remoteWindowPreparationPeer = null;
+            if (currentPreparationPeer is not null)
+            {
+                await CaptureCleanupFailureAsync(
+                    currentPreparationPeer.DisposeAsync,
                     failures).ConfigureAwait(false);
             }
 

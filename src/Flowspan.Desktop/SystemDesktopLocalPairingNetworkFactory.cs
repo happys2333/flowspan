@@ -94,9 +94,19 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 identity.DeviceId,
                 trust,
                 dns.Browser);
+            var remoteWindowPeerResolver =
+                new DesktopRemoteWindowPeerEndpointResolver(
+                    trust,
+                    candidates.GetSnapshot);
             var trustedCandidateSource = new DesktopTrustedPeerCandidateSource(
                 trust,
                 candidates.GetSnapshot);
+            IAuthenticatedControlSessionHandler? activitySessionHandler =
+                activityBindings is null
+                    ? null
+                    : new DesktopRemoteWindowPeerSessionHandler(
+                        activityBindings.SessionHandler,
+                        remoteWindowPeerResolver);
             trustedConnections = new DesktopTrustedPeerConnectionCoordinator(
                 identity.DeviceId,
                 trust,
@@ -105,7 +115,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     identity,
                     trust,
                     trustedCandidateSource),
-                activityBindings?.SessionHandler);
+                activitySessionHandler);
             IPEndPoint boundEndPoint = listener.LocalEndpoint as IPEndPoint
                 ?? throw new InvalidOperationException(
                     "The local pairing listener did not expose an IP endpoint.");

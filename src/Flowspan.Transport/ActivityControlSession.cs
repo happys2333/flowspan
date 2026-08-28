@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
 using Flowspan.Application;
 using Flowspan.Domain;
 using Flowspan.Protocol;
+using Flowspan.Security;
 
 namespace Flowspan.Transport;
 
@@ -1888,6 +1890,23 @@ public sealed class AuthenticatedActivitySessionHandler :
         return false;
     }
 
+    public bool TryAcquireRemoteWindowPeerConnection(
+        DeviceId peerDeviceId,
+        out AuthenticatedRemoteWindowConnectionLease? lease)
+    {
+        ArgumentNullException.ThrowIfNull(peerDeviceId);
+        if (Volatile.Read(ref disposed) == 0
+            && sessions.TryGetValue(peerDeviceId, out Registration? registration)
+            && registration.IsReady
+            && registration.TryAcquireRemoteWindowPeerConnection(out lease))
+        {
+            return true;
+        }
+
+        lease = null;
+        return false;
+    }
+
     public bool TryGetSwapChannel(
         DeviceId peerDeviceId,
         out ISwapEndpointChannel? channel)
@@ -1981,7 +2000,40 @@ public sealed class AuthenticatedActivitySessionHandler :
 
     public async ValueTask RunAsync(
         AuthenticatedTcpControlConnection connection,
+        CancellationToken cancellationToken = default) =>
+        await RunCoreAsync(
+                connection,
+                remoteWindowPeerCandidate: null,
+                candidateValidator: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public async ValueTask RunWithRemoteWindowPeerAsync(
+        AuthenticatedTcpControlConnection connection,
+        VerifiedPeerConnectionCandidate remoteWindowPeerCandidate,
+        IVerifiedPeerConnectionCandidateValidator candidateValidator,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(remoteWindowPeerCandidate);
+        ArgumentNullException.ThrowIfNull(candidateValidator);
+        ValidateRemoteWindowPeerBinding(
+            connection,
+            remoteWindowPeerCandidate,
+            candidateValidator);
+        await RunCoreAsync(
+                connection,
+                remoteWindowPeerCandidate,
+                candidateValidator,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask RunCoreAsync(
+        AuthenticatedTcpControlConnection connection,
+        VerifiedPeerConnectionCandidate? remoteWindowPeerCandidate,
+        IVerifiedPeerConnectionCandidateValidator? candidateValidator,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(connection);
         AuthenticatedRemoteWindowMediaSessionRegistration? mediaRegistration = null;
@@ -2006,6 +2058,8 @@ public sealed class AuthenticatedActivitySessionHandler :
                         connection.PeerIdentity.DeviceId,
                         dispatcher,
                         mediaRegistration,
+                        remoteWindowPeerCandidate,
+                        candidateValidator,
                         cancellationToken);
                 }).ConfigureAwait(false);
         }
@@ -2022,6 +2076,8 @@ public sealed class AuthenticatedActivitySessionHandler :
         DeviceId peerDeviceId,
         AuthenticatedControlSessionDispatcher dispatcher,
         AuthenticatedRemoteWindowMediaSessionRegistration? mediaRegistration,
+        VerifiedPeerConnectionCandidate? remoteWindowPeerCandidate,
+        IVerifiedPeerConnectionCandidateValidator? candidateValidator,
         CancellationToken cancellationToken)
     {
         ActivityControlSession? constructedSession = null;
@@ -2052,7 +2108,9 @@ public sealed class AuthenticatedActivitySessionHandler :
                 mediaRegistration,
                 ProtocolFeatures.SupportsRemoteWindowPreparation(
                     dispatcher.ActivityConnection.ProtocolVersion),
-                GetNextRemoteWindowConnectionGeneration());
+                GetNextRemoteWindowConnectionGeneration(),
+                remoteWindowPeerCandidate,
+                candidateValidator);
         }
         catch (Exception constructionFailure)
         {
@@ -2430,6 +2488,36 @@ public sealed class AuthenticatedActivitySessionHandler :
         return generation;
     }
 
+    private static void ValidateRemoteWindowPeerBinding(
+        AuthenticatedTcpControlConnection connection,
+        VerifiedPeerConnectionCandidate candidate,
+        IVerifiedPeerConnectionCandidateValidator validator)
+    {
+        IPEndPoint endpoint = candidate.EndPoint;
+        PublicDeviceIdentity authenticatedPeer = connection.PeerIdentity;
+        if (candidate.CandidateIdentity.DeviceId != authenticatedPeer.DeviceId
+            || !candidate.CandidateIdentity.HasSameKey(authenticatedPeer)
+            || candidate.Offer.DeviceId != authenticatedPeer.DeviceId
+            || !candidate.Offer.ProtocolVersions.Contains(
+                connection.ProtocolVersion)
+            || !NormalizePeerAddress(endpoint.Address).Equals(
+                NormalizePeerAddress(connection.RemoteEndPoint.Address)))
+        {
+            throw new ArgumentException(
+                "The verified Remote Window peer does not match the authenticated control connection.",
+                nameof(candidate));
+        }
+
+        if (!validator.IsCurrent(candidate, connection.ProtocolVersion))
+        {
+            throw new InvalidOperationException(
+                "The verified Remote Window peer is no longer current.");
+        }
+    }
+
+    private static IPAddress NormalizePeerAddress(IPAddress address) =>
+        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+
     private IDisposable EnterSessionCall()
     {
         SessionCallScope? inheritedScope = activeSessionCall.Value;
@@ -2510,7 +2598,9 @@ public sealed class AuthenticatedActivitySessionHandler :
         RemoteWindowControlSession? remoteWindowSession,
         AuthenticatedRemoteWindowMediaSessionRegistration? mediaRegistration,
         bool supportsRemoteWindowPreparation,
-        long remoteWindowConnectionGeneration)
+        long remoteWindowConnectionGeneration,
+        VerifiedPeerConnectionCandidate? remoteWindowPeerCandidate,
+        IVerifiedPeerConnectionCandidateValidator? candidateValidator)
     {
         private readonly object ownedCleanupGate = new();
         private readonly RemoteWindowConnectionGeneration? remoteWindowGeneration =
@@ -2519,7 +2609,9 @@ public sealed class AuthenticatedActivitySessionHandler :
             && mediaRegistration is not null
                 ? new RemoteWindowConnectionGeneration(
                     remoteWindowConnectionGeneration,
-                    owner.revocationCallbackOwner)
+                    owner.revocationCallbackOwner,
+                    remoteWindowPeerCandidate,
+                    candidateValidator)
                 : null;
         private Task? ownedCleanup;
         private int ready;
@@ -2568,6 +2660,23 @@ public sealed class AuthenticatedActivitySessionHandler :
         public bool TryAcquireRemoteWindowConnection(
             out AuthenticatedRemoteWindowConnectionLease? lease)
         {
+            return TryAcquireRemoteWindowConnection(
+                requireVerifiedPeer: false,
+                out lease);
+        }
+
+        public bool TryAcquireRemoteWindowPeerConnection(
+            out AuthenticatedRemoteWindowConnectionLease? lease)
+        {
+            return TryAcquireRemoteWindowConnection(
+                requireVerifiedPeer: true,
+                out lease);
+        }
+
+        private bool TryAcquireRemoteWindowConnection(
+            bool requireVerifiedPeer,
+            out AuthenticatedRemoteWindowConnectionLease? lease)
+        {
             IRemoteWindowPreparationChannel? channel =
                 RemoteWindowPreparationChannel;
             RemoteWindowConnectionGeneration? generation =
@@ -2578,7 +2687,12 @@ public sealed class AuthenticatedActivitySessionHandler :
                 && generation is not null
                 && media is not null)
             {
-                return generation.TryAcquire(channel, media.Session, out lease);
+                return generation.TryAcquire(
+                    channel,
+                    media.Session,
+                    BeginOwnedCleanupAsync,
+                    requireVerifiedPeer,
+                    out lease);
             }
 
             lease = null;
@@ -2598,6 +2712,19 @@ public sealed class AuthenticatedActivitySessionHandler :
                 catch (Exception exception)
                 {
                     failure = exception;
+                }
+
+                if (remoteWindowGeneration is not null)
+                {
+                    try
+                    {
+                        await remoteWindowGeneration.WaitForPeerConnectionsAsync()
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception exception)
+                    {
+                        failure = CombineFailures(failure, exception);
+                    }
                 }
 
                 Exception? mediaFailure = await DisposeMediaRegistrationAsync(

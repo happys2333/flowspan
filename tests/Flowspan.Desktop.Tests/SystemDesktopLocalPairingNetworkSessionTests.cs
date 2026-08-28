@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Flowspan.Domain;
 using Flowspan.Protocol;
@@ -187,6 +188,145 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
             {
                 runtimeObserved.TrySetResult();
             }
+        }
+    }
+
+    [Fact]
+    public async Task ProductionInboundPinsSignedPeerListenerToControlGeneration()
+    {
+        using DeviceIdentity identity = CreateIdentity(
+            "99999999-9999-9999-9999-999999999999",
+            "Desk");
+        using DeviceIdentity peerIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Peer");
+        var store = new InMemoryTrustStore();
+        store.Register(new TrustRecord(
+            peerIdentity.PublicIdentity,
+            DateTimeOffset.UtcNow,
+            CapabilityGrant.Of(Capability.MirrorView)));
+        await using var trust = new TrustSessionCoordinator(store);
+        await using var activityRuntime = new DesktopActivityRuntime(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust));
+        AuthenticatedActivitySessionHandler handler =
+            await activityRuntime.GetSessionHandlerAsync();
+        using var decisions = new DesktopPairingDecisionSource();
+        var dns = new RecordingDnsSdTransport();
+        IPAddress localAddress = GetNonLoopbackAddress();
+        var factory = new SystemDesktopLocalPairingNetworkFactory(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust),
+            decisions,
+            () => new TcpListener(localAddress, 0),
+            () => new DesktopDnsSdTransport(dns, dns),
+            () => new BlockingAdvertisementDelay(),
+            activityRuntime);
+        await using IDesktopLocalPairingNetworkSession session =
+            await factory.StartAsync();
+        using var peerListener = new TcpListener(localAddress, 0);
+        peerListener.Start();
+        var signedPeerEndPoint = Assert.IsType<IPEndPoint>(
+            peerListener.LocalEndpoint);
+        dns.RaiseServiceChanged(CreateDiscoverySnapshot(
+            peerIdentity,
+            signedPeerEndPoint,
+            ProtocolFeatures.ProductionSupportedVersions));
+        await WaitForCandidateAsync(session, peerIdentity.DeviceId);
+
+        await using AuthenticatedTcpControlConnection connection =
+            await AuthenticatedTcpControlConnection.ConnectAsync(
+                new IPEndPoint(localAddress, session.ListeningPort),
+                peerIdentity,
+                new TrustRecord(
+                    identity.PublicIdentity,
+                    DateTimeOffset.UtcNow,
+                    CapabilityGrant.Of(Capability.MirrorView)),
+                ProtocolFeatures.ProductionSupportedVersions);
+        AuthenticatedRemoteWindowConnectionLease lease =
+            await WaitForPeerConnectionLeaseAsync(
+                handler,
+                peerIdentity.DeviceId);
+        await using (lease)
+        {
+            Assert.NotEqual(
+                signedPeerEndPoint.Port,
+                connection.LocalEndPoint.Port);
+            Assert.Equal(
+                signedPeerEndPoint,
+                Assert.IsType<VerifiedPeerConnectionCandidate>(
+                    lease.PeerConnectionCandidate).EndPoint);
+        }
+    }
+
+    [Fact]
+    public async Task ProductionOutboundPinsSignedPeerListenerToControlGeneration()
+    {
+        using DeviceIdentity identity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Desk");
+        using DeviceIdentity peerIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Peer");
+        var store = new InMemoryTrustStore();
+        store.Register(new TrustRecord(
+            peerIdentity.PublicIdentity,
+            DateTimeOffset.UtcNow,
+            CapabilityGrant.Of(Capability.MirrorView)));
+        await using var trust = new TrustSessionCoordinator(store);
+        await using var activityRuntime = new DesktopActivityRuntime(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust));
+        AuthenticatedActivitySessionHandler handler =
+            await activityRuntime.GetSessionHandlerAsync();
+        using var decisions = new DesktopPairingDecisionSource();
+        var dns = new RecordingDnsSdTransport();
+        IPAddress localAddress = GetNonLoopbackAddress();
+        var factory = new SystemDesktopLocalPairingNetworkFactory(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust),
+            decisions,
+            () => new TcpListener(localAddress, 0),
+            () => new DesktopDnsSdTransport(dns, dns),
+            () => new BlockingAdvertisementDelay(),
+            activityRuntime);
+        await using IDesktopLocalPairingNetworkSession session =
+            await factory.StartAsync();
+        using var peerListener = new TcpListener(localAddress, 0);
+        peerListener.Start();
+        var signedPeerEndPoint = Assert.IsType<IPEndPoint>(
+            peerListener.LocalEndpoint);
+        Task<AuthenticatedTcpControlConnection> accepting =
+            AuthenticatedTcpControlConnection.AcceptAsync(
+                peerListener,
+                peerIdentity,
+                new TrustRecord(
+                    identity.PublicIdentity,
+                    DateTimeOffset.UtcNow,
+                    CapabilityGrant.Of(Capability.MirrorView)),
+                ProtocolFeatures.ProductionSupportedVersions)
+            .AsTask();
+
+        dns.RaiseServiceChanged(CreateDiscoverySnapshot(
+            peerIdentity,
+            signedPeerEndPoint,
+            ProtocolFeatures.ProductionSupportedVersions));
+
+        await using AuthenticatedTcpControlConnection peerConnection =
+            await accepting.WaitAsync(TimeSpan.FromSeconds(5));
+        AuthenticatedRemoteWindowConnectionLease lease =
+            await WaitForPeerConnectionLeaseAsync(
+                handler,
+                peerIdentity.DeviceId);
+        await using (lease)
+        {
+            Assert.Equal(
+                signedPeerEndPoint,
+                Assert.IsType<VerifiedPeerConnectionCandidate>(
+                    lease.PeerConnectionCandidate).EndPoint);
+            Assert.Equal(
+                peerConnection.LocalEndPoint.Port,
+                signedPeerEndPoint.Port);
         }
     }
 
@@ -1214,6 +1354,21 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
     private static DeviceIdentity CreateIdentity(string id, string name) =>
         DeviceIdentity.Generate(DeviceId.Parse(id), name);
 
+    private static IPAddress GetNonLoopbackAddress() =>
+        NetworkInterface.GetAllNetworkInterfaces()
+            .Where(static network =>
+                network.OperationalStatus == OperationalStatus.Up
+                && network.NetworkInterfaceType
+                    != NetworkInterfaceType.Loopback)
+            .SelectMany(static network =>
+                network.GetIPProperties().UnicastAddresses)
+            .Select(static address => address.Address)
+            .FirstOrDefault(static address =>
+                address.AddressFamily == AddressFamily.InterNetwork
+                && !IPAddress.IsLoopback(address))
+        ?? throw Xunit.Sdk.SkipException.ForSkip(
+            "A bindable non-loopback IPv4 address is required for the production DNS-SD endpoint test.");
+
     private static DnsSdServiceSnapshot CreateDiscoverySnapshot(
         DeviceIdentity peerIdentity)
     {
@@ -1229,6 +1384,55 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
             offer.Port,
             [IPAddress.Parse("192.168.50.20")],
             DnsSdDiscoveryOfferTxtCodec.Encode(offer));
+    }
+
+    private static DnsSdServiceSnapshot CreateDiscoverySnapshot(
+        DeviceIdentity peerIdentity,
+        IPEndPoint endPoint,
+        IEnumerable<ProtocolVersion> versions)
+    {
+        SignedDiscoveryOffer offer = SignedDiscoveryOffer.Create(
+            peerIdentity,
+            endPoint.Port,
+            versions,
+            DateTimeOffset.UtcNow,
+            TimeSpan.FromSeconds(30),
+            Enumerable.Repeat((byte)0x34, SignedDiscoveryOffer.NonceLength)
+                .ToArray());
+        return DnsSdServiceSnapshot.Create(
+            "peer-remote-window._flowspan._tcp.local",
+            offer.Port,
+            [endPoint.Address],
+            DnsSdDiscoveryOfferTxtCodec.Encode(offer));
+    }
+
+    private static async Task WaitForCandidateAsync(
+        IDesktopLocalPairingNetworkSession session,
+        DeviceId peerDeviceId)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!session.GetCandidates().Any(candidate =>
+                   candidate.Offer.DeviceId == peerDeviceId))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
+        }
+    }
+
+    private static async Task<AuthenticatedRemoteWindowConnectionLease>
+        WaitForPeerConnectionLeaseAsync(
+        AuthenticatedActivitySessionHandler handler,
+        DeviceId peerDeviceId)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        AuthenticatedRemoteWindowConnectionLease? lease;
+        while (!handler.TryAcquireRemoteWindowPeerConnection(
+            peerDeviceId,
+            out lease))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
+        }
+
+        return Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(lease);
     }
 
     private static UnverifiedPairingCandidate CreateCandidate(

@@ -1,10 +1,48 @@
+using System.Runtime.ExceptionServices;
 using Flowspan.Domain;
 using Flowspan.Protocol;
 
 namespace Flowspan.Transport;
 
+internal interface IRemoteWindowPeerStreamConnector
+{
+    public ValueTask<Stream> ConnectAsync(
+        System.Net.IPEndPoint remoteEndPoint,
+        CancellationToken cancellationToken);
+}
+
+internal sealed class SystemRemoteWindowPeerStreamConnector :
+    IRemoteWindowPeerStreamConnector
+{
+    private SystemRemoteWindowPeerStreamConnector()
+    {
+    }
+
+    public static SystemRemoteWindowPeerStreamConnector Instance { get; } = new();
+
+    public async ValueTask<Stream> ConnectAsync(
+        System.Net.IPEndPoint remoteEndPoint,
+        CancellationToken cancellationToken)
+    {
+        DirectTcpPeerConnection connection =
+            await DirectTcpPeerConnection.ConnectAsync(
+                    remoteEndPoint,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        try
+        {
+            return connection.TakeRemoteWindowMediaStream();
+        }
+        finally
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+}
+
 public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
 {
+    private readonly Func<ValueTask> failClose;
     private readonly RemoteWindowConnectionGeneration generation;
     private readonly AuthenticatedRemoteWindowMediaSession mediaSession;
     private readonly IRemoteWindowPreparationChannel preparationChannel;
@@ -13,7 +51,8 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
     internal AuthenticatedRemoteWindowConnectionLease(
         RemoteWindowConnectionGeneration generation,
         IRemoteWindowPreparationChannel preparationChannel,
-        AuthenticatedRemoteWindowMediaSession mediaSession)
+        AuthenticatedRemoteWindowMediaSession mediaSession,
+        Func<ValueTask> failClose)
     {
         this.generation = generation
             ?? throw new ArgumentNullException(nameof(generation));
@@ -21,10 +60,13 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
             ?? throw new ArgumentNullException(nameof(preparationChannel));
         this.mediaSession = mediaSession
             ?? throw new ArgumentNullException(nameof(mediaSession));
+        this.failClose = failClose
+            ?? throw new ArgumentNullException(nameof(failClose));
         Generation = generation.Value;
         LocalDeviceId = mediaSession.LocalDeviceId;
         PeerDeviceId = mediaSession.PeerDeviceId;
         ProtocolVersion = mediaSession.ProtocolVersion;
+        PeerConnectionCandidate = generation.PeerConnectionCandidate;
     }
 
     public long Generation { get; }
@@ -37,6 +79,8 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
 
     public DeviceId PeerDeviceId { get; }
 
+    public VerifiedPeerConnectionCandidate? PeerConnectionCandidate { get; }
+
     public ProtocolVersion ProtocolVersion { get; }
 
     public bool IsRevoked => generation.IsRevoked;
@@ -47,6 +91,12 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(callback);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         return generation.RegisterRevocationCallback(callback);
+    }
+
+    public ValueTask FailCloseAsync()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        return FailCloseAdmittedOperationAsync();
     }
 
     public RemoteWindowMediaRouteBinding PrepareResponderRoute(
@@ -100,19 +150,131 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
     }
 
     public async ValueTask ConnectInitiatorAsync(
+        RemoteWindowPreparationRequest request,
+        CancellationToken cancellationToken = default) =>
+        await ConnectInitiatorAsync(
+                request,
+                SystemRemoteWindowPeerStreamConnector.Instance,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal async ValueTask ConnectInitiatorAsync(
+        RemoteWindowPreparationRequest request,
+        IRemoteWindowPeerStreamConnector connector,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connector);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        ValidateInitiatorRequest(request);
+        RemoteWindowPeerConnectionOperation? operation = null;
+        Stream? ownedStream = null;
+        Exception? primaryFailure = null;
+        Exception? failCloseFailure = null;
+        Task? failCloseTask = null;
+        try
+        {
+            operation = generation.BeginPeerConnectionOperation(
+                cancellationToken);
+            VerifiedPeerConnectionCandidate candidate =
+                generation.GetCurrentPeerConnectionCandidate(ProtocolVersion);
+            ownedStream = await connector.ConnectAsync(
+                        candidate.EndPoint,
+                        operation.Token)
+                    .ConfigureAwait(false);
+            _ = generation.GetCurrentPeerConnectionCandidate(ProtocolVersion);
+            ValueTask attaching = mediaSession.ConnectInitiatorAsync(
+                    ownedStream,
+                    request.SessionId,
+                    request.ActivityId,
+                    operation.Token);
+            ownedStream = null;
+            await attaching.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            StartFailClose();
+        }
+        finally
+        {
+            Exception? operationCleanupFailure = null;
+            if (ownedStream is not null)
+            {
+                try
+                {
+                    await ownedStream.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    operationCleanupFailure = exception;
+                }
+            }
+
+            if (operation is not null)
+            {
+                operationCleanupFailure = CombineFailures(
+                    operationCleanupFailure,
+                    operation.Complete());
+            }
+
+            primaryFailure = CombineFailures(
+                primaryFailure,
+                operationCleanupFailure);
+        }
+
+        if (primaryFailure is null)
+        {
+            return;
+        }
+
+        StartFailClose();
+        if (failCloseTask is not null)
+        {
+            try
+            {
+                await failCloseTask.ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failCloseFailure = CombineFailures(
+                    failCloseFailure,
+                    exception);
+            }
+        }
+
+        Exception failure = failCloseFailure is null
+            ? primaryFailure!
+            : new AggregateException(
+                "The verified Remote Window peer connection and fail-close cleanup both failed.",
+                primaryFailure!,
+                failCloseFailure);
+        ExceptionDispatchInfo.Capture(failure).Throw();
+
+        void StartFailClose()
+        {
+            if (failCloseTask is not null || failCloseFailure is not null)
+            {
+                return;
+            }
+
+            try
+            {
+                failCloseTask = FailCloseAdmittedOperationAsync().AsTask();
+            }
+            catch (Exception exception)
+            {
+                failCloseFailure = exception;
+            }
+        }
+    }
+
+    internal async ValueTask ConnectInitiatorAsync(
         Stream stream,
         RemoteWindowPreparationRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        ArgumentNullException.ThrowIfNull(request);
-        if (request.HostDeviceId != PeerDeviceId
-            || request.ParticipantDeviceId != LocalDeviceId)
-        {
-            throw new ArgumentException(
-                "A participant attachment must match this authenticated connection generation.",
-                nameof(request));
-        }
+        ValidateInitiatorRequest(request);
 
         using CancellationTokenSource linked = CreateLinkedCancellation(
             cancellationToken);
@@ -122,6 +284,19 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
                 request.ActivityId,
                 linked.Token)
             .ConfigureAwait(false);
+    }
+
+    private void ValidateInitiatorRequest(
+        RemoteWindowPreparationRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.HostDeviceId != PeerDeviceId
+            || request.ParticipantDeviceId != LocalDeviceId)
+        {
+            throw new ArgumentException(
+                "A participant attachment must match this authenticated connection generation.",
+                nameof(request));
+        }
     }
 
     public async ValueTask WaitForMediaAttachmentAsync(
@@ -177,6 +352,24 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
                 "The authenticated Remote Window connection generation was revoked.");
         }
     }
+
+    private ValueTask FailCloseAdmittedOperationAsync() =>
+        generation.IsActiveRevocationCallback()
+            ? ValueTask.CompletedTask
+            : failClose();
+
+    private static Exception? CombineFailures(
+        Exception? primary,
+        Exception? secondary) => (primary, secondary) switch
+        {
+            (null, null) => null,
+            (not null, null) => primary,
+            (null, not null) => secondary,
+            _ => new AggregateException(
+                "Remote Window peer connection cleanup failed.",
+                primary!,
+                secondary!),
+        };
 }
 
 internal sealed class RemoteWindowConnectionGeneration : IDisposable
@@ -186,20 +379,35 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     private readonly object gate = new();
     private readonly CancellationTokenSource revocation = new();
     private readonly object? revocationCallbackOwner;
+    private readonly IVerifiedPeerConnectionCandidateValidator? candidateValidator;
+    private readonly VerifiedPeerConnectionCandidate? peerConnectionCandidate;
     private int activeLeases;
+    private int activePeerConnections;
     private bool cancellationCompleted;
     private bool ownerReleased;
     private int registrationOperations;
     private bool revoked;
     private bool revocationDisposed;
+    private TaskCompletionSource peerConnectionsDrained =
+        CreateCompletedSignal();
 
     internal RemoteWindowConnectionGeneration(
         long value,
-        object? revocationCallbackOwner = null)
+        object? revocationCallbackOwner = null,
+        VerifiedPeerConnectionCandidate? peerConnectionCandidate = null,
+        IVerifiedPeerConnectionCandidateValidator? candidateValidator = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(value, 1);
+        if ((peerConnectionCandidate is null) != (candidateValidator is null))
+        {
+            throw new ArgumentException(
+                "A verified peer candidate and validator must be supplied together.");
+        }
+
         Value = value;
         this.revocationCallbackOwner = revocationCallbackOwner;
+        this.peerConnectionCandidate = peerConnectionCandidate;
+        this.candidateValidator = candidateValidator;
     }
 
     internal bool IsCurrent
@@ -225,6 +433,9 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     }
 
     internal long Value { get; }
+
+    internal VerifiedPeerConnectionCandidate? PeerConnectionCandidate =>
+        peerConnectionCandidate;
 
     internal CancellationTokenRegistration RegisterRevocationCallback(
         Action callback)
@@ -281,11 +492,48 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         return false;
     }
 
+    internal bool IsActiveRevocationCallback()
+    {
+        for (RevocationCallbackAncestry? ancestry =
+                 revocationCallbackAncestry.Value;
+            ancestry is not null;
+            ancestry = ancestry.Previous)
+        {
+            if (ancestry.Marker.IsActive
+                && ReferenceEquals(ancestry.Marker.Generation, this))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     internal bool TryAcquire(
         IRemoteWindowPreparationChannel preparationChannel,
         AuthenticatedRemoteWindowMediaSession mediaSession,
+        Func<ValueTask> failClose,
+        out AuthenticatedRemoteWindowConnectionLease? lease) => TryAcquire(
+            preparationChannel,
+            mediaSession,
+            failClose,
+            requireVerifiedPeer: false,
+            out lease);
+
+    internal bool TryAcquire(
+        IRemoteWindowPreparationChannel preparationChannel,
+        AuthenticatedRemoteWindowMediaSession mediaSession,
+        Func<ValueTask> failClose,
+        bool requireVerifiedPeer,
         out AuthenticatedRemoteWindowConnectionLease? lease)
     {
+        if (requireVerifiedPeer
+            && !IsPeerConnectionCandidateCurrent(mediaSession.ProtocolVersion))
+        {
+            lease = null;
+            return false;
+        }
+
         lock (gate)
         {
             if (revoked || ownerReleased || !mediaSession.IsCurrent)
@@ -298,8 +546,131 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             lease = new AuthenticatedRemoteWindowConnectionLease(
                 this,
                 preparationChannel,
-                mediaSession);
+                mediaSession,
+                failClose);
             return true;
+        }
+    }
+
+    internal bool IsPeerConnectionCandidateCurrent(
+        ProtocolVersion protocolVersion)
+    {
+        VerifiedPeerConnectionCandidate? candidate = peerConnectionCandidate;
+        IVerifiedPeerConnectionCandidateValidator? validator = candidateValidator;
+        lock (gate)
+        {
+            if (revoked
+                || ownerReleased
+                || candidate is null
+                || validator is null)
+            {
+                return false;
+            }
+        }
+
+        try
+        {
+            return validator.IsCurrent(candidate, protocolVersion);
+        }
+        catch (Exception exception) when (
+            exception is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
+
+    internal VerifiedPeerConnectionCandidate GetCurrentPeerConnectionCandidate(
+        ProtocolVersion protocolVersion)
+    {
+        if (!IsPeerConnectionCandidateCurrent(protocolVersion))
+        {
+            throw new InvalidOperationException(
+                "The verified Remote Window peer endpoint is no longer current for this connection generation.");
+        }
+
+        return peerConnectionCandidate!;
+    }
+
+    internal RemoteWindowPeerConnectionOperation BeginPeerConnectionOperation(
+        CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            if (revoked || ownerReleased)
+            {
+                throw new InvalidOperationException(
+                    "The authenticated Remote Window connection generation was revoked.");
+            }
+
+            if (peerConnectionCandidate is null || candidateValidator is null)
+            {
+                throw new InvalidOperationException(
+                    "The authenticated Remote Window connection generation has no verified peer endpoint.");
+            }
+
+            if (activePeerConnections != 0)
+            {
+                throw new InvalidOperationException(
+                    "The authenticated Remote Window connection generation already has a pending peer connection.");
+            }
+
+            peerConnectionsDrained = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            activePeerConnections = 1;
+            try
+            {
+                return new RemoteWindowPeerConnectionOperation(
+                    this,
+                    CancellationTokenSource.CreateLinkedTokenSource(
+                        cancellationToken,
+                        revocation.Token));
+            }
+            catch
+            {
+                activePeerConnections = 0;
+                peerConnectionsDrained.TrySetResult();
+                throw;
+            }
+        }
+    }
+
+    internal Task WaitForPeerConnectionsAsync()
+    {
+        lock (gate)
+        {
+            return peerConnectionsDrained.Task;
+        }
+    }
+
+    internal void CompletePeerConnection(Exception? cleanupFailure)
+    {
+        TaskCompletionSource completion;
+        bool dispose;
+        lock (gate)
+        {
+            if (activePeerConnections != 1)
+            {
+                throw new InvalidOperationException(
+                    "A Remote Window peer connection operation completed more than once.");
+            }
+
+            activePeerConnections = 0;
+            completion = peerConnectionsDrained;
+            dispose = ClaimRevocationDisposalIfReady();
+        }
+
+        if (cleanupFailure is null)
+        {
+            completion.TrySetResult();
+        }
+        else
+        {
+            completion.TrySetException(cleanupFailure);
+        }
+
+        if (dispose)
+        {
+            revocation.Dispose();
         }
     }
 
@@ -416,7 +787,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             return;
         }
 
-        var marker = new RevocationCallbackMarker(owner);
+        var marker = new RevocationCallbackMarker(this, owner);
         RevocationCallbackAncestry? inherited =
             revocationCallbackAncestry.Value;
         revocationCallbackAncestry.Value = new RevocationCallbackAncestry(
@@ -447,11 +818,15 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         public RevocationCallbackAncestry? Previous { get; } = previous;
     }
 
-    private sealed class RevocationCallbackMarker(object owner)
+    private sealed class RevocationCallbackMarker(
+        RemoteWindowConnectionGeneration generation,
+        object owner)
     {
         private int active;
 
         public bool IsActive => Volatile.Read(ref active) > 0;
+
+        public RemoteWindowConnectionGeneration Generation { get; } = generation;
 
         public object Owner { get; } = owner;
 
@@ -466,6 +841,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             || !ownerReleased
             || !cancellationCompleted
             || registrationOperations != 0
+            || activePeerConnections != 0
             || activeLeases != 0)
         {
             return false;
@@ -473,5 +849,54 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
 
         revocationDisposed = true;
         return true;
+    }
+
+    private static TaskCompletionSource CreateCompletedSignal()
+    {
+        var completion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        completion.TrySetResult();
+        return completion;
+    }
+}
+
+internal sealed class RemoteWindowPeerConnectionOperation
+{
+    private readonly CancellationTokenSource cancellation;
+    private RemoteWindowConnectionGeneration? generation;
+
+    internal RemoteWindowPeerConnectionOperation(
+        RemoteWindowConnectionGeneration generation,
+        CancellationTokenSource cancellation)
+    {
+        this.generation = generation;
+        this.cancellation = cancellation;
+    }
+
+    internal CancellationToken Token => cancellation.Token;
+
+    internal Exception? Complete()
+    {
+        RemoteWindowConnectionGeneration? owner = Interlocked.Exchange(
+            ref generation,
+            null);
+        if (owner is null)
+        {
+            throw new InvalidOperationException(
+                "A Remote Window peer connection operation completed more than once.");
+        }
+
+        Exception? cleanupFailure = null;
+        try
+        {
+            cancellation.Dispose();
+        }
+        catch (Exception exception)
+        {
+            cleanupFailure = exception;
+        }
+
+        owner.CompletePeerConnection(cleanupFailure);
+        return cleanupFailure;
     }
 }
