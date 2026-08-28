@@ -2,17 +2,19 @@
 
 ## Evidence boundary
 
-Classification: **local portable protocol and managed-session candidate**.
+Classification: **local portable protocol and managed-session candidate**,
+**hosted portable contract**, and **unsigned package**.
 
 Branch: `codex/v1-foundation`
 
-Verified base commit: `b00caa7317610f4bc761cdd68ec9fb357f0b98e7`.
+Implementation commit: `33b39bb374b9b1a49bd10a272eb08a62331cfcd9`,
+based on `b00caa7317610f4bc761cdd68ec9fb357f0b98e7`.
 
-The candidate tree is the commit containing this evidence file. The commands
-below ran on its content immediately before commit. They prove managed contracts
-on the local macOS host only. They are not Windows, Linux, native API, physical
-Device, packaged accessibility, signed release, or production Remote Window
-evidence.
+The local commands below ran on the implementation content immediately before
+commit. Exact-commit hosted results are recorded separately below. Together they
+prove portable managed contracts on the named local and hosted runners. They are
+not native API, physical Device, packaged accessibility, signed release, or
+production Remote Window evidence.
 
 Task 5.5a remains open. The production Desktop now gives its authenticated
 control handler and published listener the same media directory, and the handler
@@ -154,6 +156,70 @@ test-only listener-slot race: all four frame/plaintext-by-direction cases passed
 on every iteration (`80/80`). This is same-host managed loopback evidence, not a
 physical network claim.
 
+## Hosted exact-commit evidence
+
+Implementation commit `33b39bb374b9b1a49bd10a272eb08a62331cfcd9`
+passed [CI run `33135891925`](https://github.com/happys2333/flowspan/actions/runs/33135891925),
+attempt 1:
+
+- macOS test job
+  [`98735658238`](https://github.com/happys2333/flowspan/actions/runs/33135891925/job/98735658238);
+- Windows test job
+  [`98735658266`](https://github.com/happys2333/flowspan/actions/runs/33135891925/job/98735658266);
+- Ubuntu test job
+  [`98735658394`](https://github.com/happys2333/flowspan/actions/runs/33135891925/job/98735658394);
+- Secret Scan job
+  [`98735658175`](https://github.com/happys2333/flowspan/actions/runs/33135891925/job/98735658175);
+- `osx-arm64` package job
+  [`98736235201`](https://github.com/happys2333/flowspan/actions/runs/33135891925/job/98736235201);
+- `linux-x64` package job
+  [`98736235219`](https://github.com/happys2333/flowspan/actions/runs/33135891925/job/98736235219); and
+- `win-x64` package job
+  [`98736235247`](https://github.com/happys2333/flowspan/actions/runs/33135891925/job/98736235247).
+
+Every test job restored locked dependencies, verified formatting, built with
+warnings as errors, ran all tests, validated Desktop composition in explicit
+TEST MODE, ran the protocol-1.7 simulator, and uploaded TRX evidence. Every
+package job verified content-locked tooling, published and smoke-tested a
+self-contained target, sealed and compared two reproducible unsigned outputs,
+audited direct/transitive dependencies, and uploaded one test package.
+
+Downloaded TRX and Secret Scan artifacts were parsed with XML and JSON parsers.
+Artifact digests are the SHA-256 values reported by the GitHub artifact API, and
+every artifact is bound to the exact implementation SHA.
+
+| Artifact | ID | Artifact digest | Parsed result |
+| --- | ---: | --- | --- |
+| Windows TRX | `9672063938` | `6ee5e23b3cce1bca630f9dcdcbb88814193468e684a3f7173b24924bdc622273` | 12 files, 2096/2096 passed |
+| macOS TRX | `9672047778` | `0efd3075bcb9a258b3c74b2b05db1601288a84d63acfd5aa5cdc45159a65c821` | 12 files, 2096/2096 passed |
+| Linux TRX | `9672058047` | `5437301c8eb412874c913cef11d155e5abfa6e0354686212f8816252261832a9` | 12 files, 2096/2096 passed |
+| Gitleaks SARIF | `9672001388` | `87b4867b855ece19b2cd2b899382fab0be8e498962deb006e759f1141221fb0f` | SARIF 2.1.0, 208 rules, 0 results |
+
+Each platform aggregate reported `2096` total, executed, and passed tests, with
+every unsuccessful or indeterminate counter zero. Per-project counts were
+Desktop 449, Transport 660, Integration 338, Platform 219, Security 131,
+Release 71, Domain 60, Protocol 75, Platform.Windows 27, Platform.Linux 27,
+Platform.macOS 25, and mDNS 14.
+
+The reproducible version `0.1.147` unsigned-package artifacts are also bound to
+that workflow SHA:
+
+| Artifact | ID | Artifact digest |
+| --- | ---: | --- |
+| `win-x64` unsigned test package | `9672118174` | `111b5e064d2ad25725323b2808ae83d4511161d48862d8b87e02ae8062139285` |
+| `linux-x64` unsigned test package | `9672092284` | `f140b98519a2a35ecf1ae202e56b6097e524b8cdd338a503cc72cc2d2a80e774` |
+| `osx-arm64` unsigned test package | `9672095676` | `ca624819e946886d7a1475d7870734286364ddadab2aa71b481108f0ca91feaa` |
+
+[CodeQL run `33135891896`](https://github.com/happys2333/flowspan/actions/runs/33135891896),
+job [`98735658050`](https://github.com/happys2333/flowspan/actions/runs/33135891896/job/98735658050),
+also passed for the exact implementation SHA. CodeQL 2.26.4 analysis
+`1685306607` evaluated 52 rules and reported 0 results and 0 open branch alerts.
+
+These hosted results prove portable builds, managed contract behavior, Secret
+Scan, CodeQL, and reproducible unsigned packaging on the named runner images.
+They do not prove native capture, input, protection, permission, physical-device,
+packaged accessibility, signing, notarization, or release readiness.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -191,8 +257,7 @@ Still required before Task 5.5a can close:
   the trust-bound Preparation boundary;
 - the complete managed two-node tracer through final state, one rendered frame,
   authorized Driver input, Emergency Stop, and zero-owner cleanup;
-- combined failure injection across every production owner; and
-- exact-commit Windows/macOS/Linux CI evidence for this candidate.
+- combined failure injection across every production owner.
 
 Native adapters, real permissions, protected surfaces, physical two-Device
 quality, packaged accessibility, signing/notarization, Tasks 5.5 and 6-10, v1

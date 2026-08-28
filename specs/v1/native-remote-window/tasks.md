@@ -111,7 +111,9 @@
     and generation-lease regressions run outside those focused filters. Desktop
     networking now shares one media directory between the authenticated handler
     and listener and exposes an atomic generation-bound Preparation/media lease.
-    The verified
+    Implementation commit `33b39bb` passed exact-commit CI `33135891925` and
+    CodeQL `33135891896`: each hosted OS passed all 2096 tests, Secret Scan
+    passed, and all three reproducible unsigned-package jobs passed. The verified
     peer-endpoint connector, production coordinator, complementary grant matrix,
     complete production tracer, and native/runtime evidence remain open. Exact
     local results and limits are in

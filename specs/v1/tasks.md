@@ -396,7 +396,10 @@ Detailed native contracts, platform slices, and evidence gates are tracked in
     generation-bound Preparation/media lease. No production coordinator yet uses
     it with a verified peer-endpoint connector, responder/initiator attachment,
     renderer, controller, or native boundaries, so Task 5.5a, production Remote
-    Window, and this parent task remain open.
+    Window, and this parent task remain open. Implementation commit `33b39bb`
+    passed exact-commit CI `33135891925` and CodeQL `33135891896`, including all
+    2096 tests on each hosted OS, Secret Scan, and three reproducible unsigned
+    package jobs.
   - Clipboard and file-content transfer remain open. They require a separate
     content policy, consent model, protocol, resource contract, and evidence;
     the Remote Window media implementation does not satisfy that scope.

@@ -131,7 +131,10 @@
     filters exclude additional dispatcher, registration, shared-disposal, and
     generation-lease regressions. Desktop networking now shares one media
     directory between the authenticated handler and listener and exposes an
-    atomic generation-bound Preparation/media lease. The verified peer-endpoint
+    atomic generation-bound Preparation/media lease. Implementation commit
+    `33b39bb` passed exact-commit CI `33135891925` and CodeQL `33135891896`:
+    each hosted OS passed all 2096 tests, Secret Scan passed, and all three
+    reproducible unsigned-package jobs passed. The verified peer-endpoint
     connector, production
     coordinator, complementary grant matrix, complete production tracer, and
     native/runtime evidence remain open, so this task remains unchecked. Exact
