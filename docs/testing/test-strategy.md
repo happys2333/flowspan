@@ -610,33 +610,44 @@ direct or `Task.Run` disposal cannot self-wait, while a returned callback's copi
 context cannot bypass cleanup even while a sibling callback remains active.
 Registration/disposal races keep the cancellation source alive until cancellation,
 registration establishment, and all leases have drained; a weak-reference test
-proves completed generations are not retained in the caller's context. The
-still-required production coordinator must use that lease with a verified
-peer-endpoint connector, prepare the host responder
-route before Prepare, and complete participant initiator `FSM1` plus renderer
-readiness before Ready. Route locators must never appear in control JSON.
+proves completed generations are not retained in the caller's context.
+Implementation commit `7255f04` adds a host/participant coordinator that uses
+that lease with a verified peer-endpoint connector, prepares the host responder
+route before Prepare, and completes participant initiator `FSM1` plus renderer
+readiness before Ready. The shipped composition root still keeps Remote Window
+unavailable while native boundaries are absent. Route locators must never appear
+in control JSON.
 
-The still-required production-composed managed two-node tracer must use real
-authenticated TCP and the shared `FSM1` listener with deterministic host
-source/capture/input/protection/Emergency doubles and participant renderer. It
-must assert capture call count zero before Ready plus attachment acknowledgement,
-then order current revalidation, safety registration, controller Start, and exact
-AddParticipant with frame admission closed. Ready must not create a known
-binding. Only a correlated `remote-window.state` with Admission action, Applied
-or AlreadyApplied outcome, exact effective role, and current media binding may
-open rendering. The tracer must then carry one exact source frame through JPEG
-encode, encrypted chunking, decode, and renderer; return one authorized Driver
-input to the exact host boundary; and prove Emergency Stop closes capture/input/
-frame admission without network or UI acknowledgement.
+Implementation commit `7255f04` has a narrow production-composed managed
+two-node tracer over real authenticated loopback TCP and the shared `FSM1`
+listener, with deterministic host source/capture/input/protection/Emergency
+doubles and a participant renderer. It covers exactly four scenarios: a
+successful DriverEligible capture/frame/input/Emergency Stop cleanup; reverse-only
+Mirror-grant rejection; active authenticated control disconnect cleanup; and
+same-session Mirror capability downgrade with active-session cleanup. The
+success scenario asserts capture remains closed before Ready plus attachment
+acknowledgement, orders current revalidation, safety registration, controller
+Start, and exact AddParticipant with frame admission closed, then carries one
+source frame through JPEG encode, encrypted chunking, decode, and renderer and
+returns one authorized Driver input to the exact host boundary.
 
-Each tracer boundary has reject, throw, cancel, timeout, revoke, disconnect, and
-cleanup-fault cases. Teardown must close new admission first, attempt every
-renderer, active/pending frame, queue, attachment, route, media-directory,
-controller, protection, Emergency Stop, and control owner, and preserve combined
-failures. Success and every fault end with zero retained owner/budget counts.
-These are managed protocol/runtime contracts only; they do not close Task 5/5.5,
-native platform, physical-device, accessibility, interactive-quality, signed
-release, release-criterion, or Goal evidence.
+The release criterion still requires each tracer boundary to have reject, throw,
+cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
+current four scenarios are not the required matrix; its per-boundary
+reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
+open. Teardown requirements remain to close new admission first, attempt every
+renderer, active/pending frame,
+queue, attachment, route, media-directory, controller, protection, Emergency
+Stop, and control owner, and preserve combined failures. Success and every fault
+must end with zero retained owner/budget counts.
+
+This evidence is local managed loopback on the current macOS host only. It is not
+evidence for Windows or Linux, native platform APIs, two physical devices,
+accessibility, interactive quality, package signing, or macOS notarization.
+`CreateProduction()` must keep Remote Window unavailable until the native and
+authenticated runtime is composed into it. The tracer does not close Task 5,
+Task 5.5a, Task 5.5, any native/physical/release gate, release criterion, or the
+long-term Goal.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/

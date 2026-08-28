@@ -16,13 +16,19 @@ prove portable managed contracts on the named local and hosted runners. They are
 not native API, physical Device, packaged accessibility, signed release, or
 production Remote Window evidence.
 
-Task 5.5a remains open. The production Desktop now gives its authenticated
-control handler and published listener the same media directory, and the handler
-can atomically lease the current generation's Preparation channel and media
-session. No production Preparation coordinator yet consumes that lease with a
-verified peer-endpoint connector, prepares the responder route before Prepare,
-completes initiator `FSM1` before Ready, owns a participant renderer, or joins the
-exact source/capture/input/protection owners in complete two-node cleanup.
+Task 5.5a remains open. At this exact commit, the production Desktop gave its
+authenticated control handler and published listener the same media directory,
+and the handler could atomically lease the current generation's Preparation
+channel and media session. It did not yet include a coordinator or managed
+two-node tracer that consumed the lease.
+
+The later implementation commit `7255f04` adds the verified peer-endpoint
+connector, host/participant Preparation components, host coordinator, fixed host
+control router, and four deliberately narrow managed two-node tracer scenarios.
+That extension is recorded separately in
+`docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; it is not
+part of this exact-commit evidence. The complete per-boundary fault matrix,
+native adapters, physical-device proof, and release evidence remain absent.
 `CreateProduction()` therefore continues to report `native_adapters_unavailable`.
 
 ## Candidate scope
@@ -249,15 +255,18 @@ codec/managed-session scope.
 
 Still required before Task 5.5a can close:
 
-- a production host/participant Preparation coordinator that consumes the
-  generation-bound Preparation/media lease, obtains a verified peer-endpoint
-  connector, creates the responder route before Prepare, and completes initiator
-  `FSM1` plus renderer readiness before Ready;
-- explicit complementary one-way-grant and reversed-grant-negative coverage at
-  the trust-bound Preparation boundary;
-- the complete managed two-node tracer through final state, one rendered frame,
-  authorized Driver input, Emergency Stop, and zero-owner cleanup;
-- combined failure injection across every production owner.
+- bind implementation commit `7255f04`, including the coordinator, connector,
+  complementary one-way grant coverage, and four tracer scenarios, to a hosted
+  CI result;
+- complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
+  coverage at every applicable production boundary rather than extrapolating
+  from the success, reversed-grant-negative, terminal-disconnect, and
+  same-session capability-revocation scenarios;
+- add combined failure injection across every production owner and prove all
+  cleanup failures remain observable; and
+- keep the shipped composition unavailable until Task 5.5 supplies the native
+  source, capture, input, protection, renderer, visible sharing, and Emergency
+  Stop path.
 
 Native adapters, real permissions, protected surfaces, physical two-Device
 quality, packaged accessibility, signing/notarization, Tasks 5.5 and 6-10, v1

@@ -118,6 +118,17 @@
     complete production tracer, and native/runtime evidence remain open. Exact
     local results and limits are in
     `docs/evidence/2026-08-28-protocol-1-7-remote-window-preparation.md`.
+    Implementation commit `7255f04` also has a deliberately narrow managed
+    production-composition tracer over real loopback TCP, authenticated protocol
+    1.7, a signed peer endpoint, and the shared `FSM1` listener. Its only tracer
+    scenarios are: successful DriverEligible capture/frame/input/Emergency Stop
+    cleanup; a reverse-only Mirror-grant rejection; an active authenticated
+    control disconnect; and a same-session Mirror capability downgrade that
+    terminates and cleans up the host session. This is reproducible exact-commit
+    managed loopback evidence on the current macOS host, not proof of the
+    complete tracer or of a native or physical-device path. The required
+    per-boundary reject, throw, cancel, timeout, revoke, disconnect, and
+    cleanup-fault matrix remains open. Therefore Task 5.5a remains unchecked.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
@@ -134,6 +145,14 @@
     and all three reproducible unsigned package jobs; CodeQL `33109385769` also
     passes. Task 5, Task 5.5, and every native, physical-device, accessibility, and
     packaged-runtime gate remain open.
+  - `CreateProduction()` must continue to expose Remote Window as unavailable:
+    this candidate does not wire the managed coordinator, native source/capture,
+    or participant renderer into the shipped composition root. It cannot be
+    treated as a product runtime merely because the managed tracer succeeds.
+  - Task 5, Task 5.5a, Task 5.5, tasks 6-10, every native/physical/release gate,
+    and the long-term Goal remain open. In particular, local macOS managed
+    loopback evidence does not represent Windows or Linux execution, native API
+    behavior, two physical devices, package signing, or macOS notarization.
   - _Requirements: NR1-NR6, NR8-NR10_
 
 - [ ] 6. Deliver the macOS native vertical slice
