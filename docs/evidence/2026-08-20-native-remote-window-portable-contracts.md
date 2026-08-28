@@ -179,8 +179,54 @@ Window and local-pairing safety disposal delegates through shared-pool
 blocking external prefixes to dedicated `LongRunning | DenyChildAttach` workers
 and adds deterministic assertions that both safety paths start outside the
 shared pool. Local focused tests passed `3/3`, Desktop passed `449/449`, and the
-Release solution passed `2096/2096`. Hosted exact-commit evidence for the
-correction remains pending.
+Release solution passed `2096/2096`.
+
+Corrective implementation commit
+`67edf5f481120ef61021ed2337bafbe2293d5c4e` passed
+[CI run `33138101972`](https://github.com/happys2333/flowspan/actions/runs/33138101972),
+attempt 1. Test jobs
+[`98742598576`](https://github.com/happys2333/flowspan/actions/runs/33138101972/job/98742598576)
+on Windows,
+[`98742598564`](https://github.com/happys2333/flowspan/actions/runs/33138101972/job/98742598564)
+on macOS, and
+[`98742598772`](https://github.com/happys2333/flowspan/actions/runs/33138101972/job/98742598772)
+on Ubuntu each passed formatting, build, all tests, Desktop composition in
+explicit TEST MODE, and the simulator. Downloaded TRX artifacts were parsed with
+an XML parser: every platform contained 12 files and reported `2096` total,
+executed, and passed tests, with every unsuccessful or indeterminate counter
+zero.
+
+| TRX artifact | ID | GitHub SHA-256 digest |
+| --- | ---: | --- |
+| Windows | `9672887810` | `3aa10ddfdc2f46f901716e0a8230d80e38c190524aba2a2a0719ad342c8d00fe` |
+| Linux | `9672868958` | `7654e0f598121378626ffbd1380a3bb57a45bf8e3a433dc365e4ff411d4fb34d` |
+| macOS | `9672851227` | `a6a9e31a8163ef7a0d086163f54a5047ec97e7b02a1451c9e57efb597c8e40d3` |
+
+Secret Scan job
+[`98742598431`](https://github.com/happys2333/flowspan/actions/runs/33138101972/job/98742598431)
+passed. Its artifact `9672812401`, digest
+`e98bda936a55b44bbb5da67db3215d7356e61cab8dfa117163ad34f27c135c69`,
+parsed as SARIF 2.1.0 with 208 rules and 0 results. Reproducible unsigned package
+jobs also passed for
+[`win-x64`](https://github.com/happys2333/flowspan/actions/runs/33138101972/job/98743245639),
+[`linux-x64`](https://github.com/happys2333/flowspan/actions/runs/33138101972/job/98743245640),
+and
+[`osx-arm64`](https://github.com/happys2333/flowspan/actions/runs/33138101972/job/98743245671).
+
+| Unsigned package artifact | ID | GitHub SHA-256 digest |
+| --- | ---: | --- |
+| `win-x64` | `9672927047` | `35fa1e2a40502c604312f546279e9a0cfafea597f5d915539b704e686ee95dc8` |
+| `linux-x64` | `9672915922` | `266dc86c4b1d1e45ddc27cb5b84e19b4e80c08b6960542781f21045941fc44e5` |
+| `osx-arm64` | `9672917739` | `cba16aca3fb663f8586c722245c22a2dc34ae63d3a648a8c28d00894a57a1332` |
+
+[CodeQL run `33138101975`](https://github.com/happys2333/flowspan/actions/runs/33138101975),
+job
+[`98742595882`](https://github.com/happys2333/flowspan/actions/runs/33138101975/job/98742595882),
+passed for the same commit. CodeQL 2.26.4 analysis `1685420735` evaluated 52
+rules and reported 0 results and 0 open branch alerts. These hosted results prove
+portable managed behavior and unsigned packaging on the named runners; they do
+not add native API, physical Device, signed release, or production Remote Window
+evidence.
 
 ## Hosted exact-commit evidence
 
