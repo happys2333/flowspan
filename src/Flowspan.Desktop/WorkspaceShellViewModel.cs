@@ -544,8 +544,11 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     {
         try
         {
-            return Task.Run(async () =>
-                await dispose().ConfigureAwait(false));
+            return Task.Factory.StartNew(
+                async () => await dispose().ConfigureAwait(false),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default).Unwrap();
         }
         catch (Exception exception)
         {

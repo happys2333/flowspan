@@ -170,6 +170,7 @@ public sealed class WorkspaceShellViewModelTests
         {
             await networkFactory.Session.Stopped.Task
                 .WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.False(networkFactory.Session.DisposeStartedOnThreadPool);
             Assert.False(disposing.IsCompleted);
             Assert.DoesNotContain("trust", order);
         }
@@ -201,6 +202,7 @@ public sealed class WorkspaceShellViewModelTests
             () => viewModel.DisposeAsync().AsTask());
         await remoteWindowService.DisposeEntered.Task
             .WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(remoteWindowService.DisposeStartedOnThreadPool);
 
         try
         {
@@ -1055,6 +1057,8 @@ public sealed class WorkspaceShellViewModelTests
 
         public bool IsAvailable => true;
 
+        public bool DisposeStartedOnThreadPool { get; private set; }
+
         public string UnavailableReasonCode => "none";
 
         public RemoteWindowEmergencyStopResult EmergencyStop() =>
@@ -1064,6 +1068,7 @@ public sealed class WorkspaceShellViewModelTests
 
         public ValueTask DisposeAsync()
         {
+            DisposeStartedOnThreadPool = Thread.CurrentThread.IsThreadPoolThread;
             lock (order)
             {
                 order.Add("remote-window");
@@ -1782,6 +1787,8 @@ public sealed class WorkspaceShellViewModelTests
 
         public int ListeningPort => 4747;
 
+        public bool DisposeStartedOnThreadPool { get; private set; }
+
         public TaskCompletionSource Stopped { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -1795,6 +1802,7 @@ public sealed class WorkspaceShellViewModelTests
 
         public ValueTask DisposeAsync()
         {
+            DisposeStartedOnThreadPool = Thread.CurrentThread.IsThreadPoolThread;
             lock (order)
             {
                 order.Add("network");

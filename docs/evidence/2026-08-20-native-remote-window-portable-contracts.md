@@ -12,10 +12,11 @@ Feature implementation commit:
 `4fb5d61b6af9b8b1f33271cacb0ff13bc2d10f37`. Final verified commit:
 `5cf76ff6d3621cd61f2f248ecc498e8941c73a74`.
 
-The final commit changes only seven deliberately blocking Desktop test paths.
-It moves their workers from the shared thread pool to the repository's existing
-dedicated `LongRunning` test helper pattern. It does not change production code
-or relax the two-second lifecycle assertions.
+The final commit for this evidence record changes only seven deliberately
+blocking Desktop test paths. It moves their workers from the shared thread pool
+to the repository's existing dedicated `LongRunning` test helper pattern. It
+does not change production code or relax the two-second lifecycle assertions.
+A later production scheduling correction is recorded below.
 
 This record is scoped to task 2 in
 `specs/v1/native-remote-window/tasks.md`. It proves portable contracts,
@@ -148,13 +149,38 @@ timed out in
 Ubuntu and macOS passed, and a retry on the same source commit passed, but the
 transient retry was not treated as sufficient evidence.
 
-The failure occurred because the test intentionally blocked thread-pool work
+The initial finding was that the test intentionally blocked thread-pool work
 while waiting for another thread-pool continuation on the constrained Windows
 runner. Commit `5cf76ff6d3621cd61f2f248ecc498e8941c73a74` moved that path and
 the six related blocking Shell lifecycle paths to dedicated test threads. The
 production implementation and two-second assertions were unchanged. The fresh
 30-process local stress gate and the all-new hosted exact-commit run below then
 passed.
+
+### 2026-08-28 correction
+
+The narrower causal conclusion above was incomplete. Docs-only branch head
+`d38d6833f6e45171928158cf49eb39d1d1bc09c3` left production behavior unchanged,
+but Windows job
+[`98738334203`](https://github.com/happys2333/flowspan/actions/runs/33136757827/job/98738334203)
+in CI run
+[`33136757827`](https://github.com/happys2333/flowspan/actions/runs/33136757827)
+again timed out before
+`DisposeStartsPairingTeardownWhenRemoteWindowDisposeBlocksSynchronously`
+observed the Remote Window disposal boundary. macOS and Ubuntu passed that run,
+and exact-head CodeQL run
+[`33136757788`](https://github.com/happys2333/flowspan/actions/runs/33136757788)
+passed.
+
+Commit `5cf76ff6d3621cd61f2f248ecc498e8941c73a74` isolated the blocking
+test callers, but the production Shell still scheduled both one-time Remote
+Window and local-pairing safety disposal delegates through shared-pool
+`Task.Run`. The corrective candidate moves those two potentially synchronously
+blocking external prefixes to dedicated `LongRunning | DenyChildAttach` workers
+and adds deterministic assertions that both safety paths start outside the
+shared pool. Local focused tests passed `3/3`, Desktop passed `449/449`, and the
+Release solution passed `2096/2096`. Hosted exact-commit evidence for the
+correction remains pending.
 
 ## Hosted exact-commit evidence
 
