@@ -99,6 +99,16 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         return FailCloseAdmittedOperationAsync();
     }
 
+    public bool TryDeferFailCloseUntilPreparationDeadline(
+        RemoteWindowPreparationRequest request)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        ValidateInitiatorRequest(request);
+        return generation.TryDeferFailCloseUntilPreparationDeadline(
+            request,
+            failClose);
+    }
+
     public RemoteWindowMediaRouteBinding PrepareResponderRoute(
         RemoteWindowSessionId sessionId,
         ActivityId activityId,
@@ -205,6 +215,9 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         Exception? primaryFailure = null;
         Exception? failCloseFailure = null;
         Task? failCloseTask = null;
+        bool failCloseDeferred = false;
+        bool failCloseDeferralAttempted = false;
+        bool failCloseDeferralEligible = !failCloseImmediately;
         try
         {
             operation = generation.BeginPeerConnectionOperation(
@@ -233,8 +246,20 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         catch (Exception exception)
         {
             primaryFailure = exception;
-            generation.MarkFailClosePending();
-            if (failCloseImmediately)
+            bool cancellationMatched = exception is OperationCanceledException
+                && (cancellationToken.IsCancellationRequested
+                    || operation?.Token.IsCancellationRequested == true);
+            failCloseDeferralEligible &= !cancellationMatched;
+            if (failCloseDeferralEligible)
+            {
+                failCloseDeferralAttempted = true;
+                failCloseDeferred =
+                    generation.TryDeferFailCloseUntilPreparationDeadline(
+                        request,
+                        failClose);
+            }
+
+            if (failCloseImmediately || !failCloseDeferred)
             {
                 StartFailClose();
             }
@@ -271,8 +296,16 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
             return;
         }
 
-        generation.MarkFailClosePending();
-        if (failCloseImmediately)
+        if (failCloseDeferralEligible && !failCloseDeferralAttempted)
+        {
+            failCloseDeferralAttempted = true;
+            failCloseDeferred =
+                generation.TryDeferFailCloseUntilPreparationDeadline(
+                    request,
+                    failClose);
+        }
+
+        if (failCloseImmediately || !failCloseDeferred)
         {
             StartFailClose();
             if (failCloseTask is not null)
@@ -404,7 +437,7 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
     private ValueTask FailCloseAdmittedOperationAsync() =>
         generation.IsActiveRevocationCallback()
             ? ValueTask.CompletedTask
-            : failClose();
+            : generation.FailCloseAsync(failClose);
 
     private static Exception? CombineFailures(
         Exception? primary,
@@ -429,9 +462,14 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     private readonly object? revocationCallbackOwner;
     private readonly IVerifiedPeerConnectionCandidateValidator? candidateValidator;
     private readonly VerifiedPeerConnectionCandidate? peerConnectionCandidate;
+    private readonly TimeProvider timeProvider;
     private int activeLeases;
     private int activePeerConnections;
     private bool cancellationCompleted;
+    private RemoteWindowPreparationRequest? deferredFailCloseRequest;
+    private Func<ValueTask>? deferredFailCloseOperation;
+    private ITimer? deferredFailCloseTimer;
+    private Task? failCloseTask;
     private bool ownerReleased;
     private int registrationOperations;
     private bool failClosePending;
@@ -444,7 +482,8 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         long value,
         object? revocationCallbackOwner = null,
         VerifiedPeerConnectionCandidate? peerConnectionCandidate = null,
-        IVerifiedPeerConnectionCandidateValidator? candidateValidator = null)
+        IVerifiedPeerConnectionCandidateValidator? candidateValidator = null,
+        TimeProvider? timeProvider = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(value, 1);
         if ((peerConnectionCandidate is null) != (candidateValidator is null))
@@ -457,6 +496,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         this.revocationCallbackOwner = revocationCallbackOwner;
         this.peerConnectionCandidate = peerConnectionCandidate;
         this.candidateValidator = candidateValidator;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     internal bool IsCurrent
@@ -755,6 +795,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     internal Exception? RevokeAndReleaseOwner()
     {
         bool cancel;
+        ITimer? deferredTimer;
         lock (gate)
         {
             if (ownerReleased)
@@ -765,9 +806,13 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             cancel = !revoked;
             revoked = true;
             ownerReleased = true;
+            deferredTimer = deferredFailCloseTimer;
+            deferredFailCloseTimer = null;
         }
 
-        Exception? failure = null;
+        Exception? failure = deferredTimer is null
+            ? null
+            : CaptureFailure(deferredTimer.Dispose);
         if (cancel)
         {
             try
@@ -776,7 +821,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             }
             catch (Exception exception)
             {
-                failure = exception;
+                failure = CombineGenerationFailures(failure, exception);
             }
         }
 
@@ -807,14 +852,181 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         return failure;
     }
 
-    internal void MarkFailClosePending()
+    internal bool TryDeferFailCloseUntilPreparationDeadline(
+        RemoteWindowPreparationRequest request,
+        Func<ValueTask> failClose)
     {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(failClose);
         lock (gate)
         {
-            if (!revoked && !ownerReleased)
+            if (revoked || ownerReleased)
+            {
+                return false;
+            }
+
+            if (deferredFailCloseRequest is not null)
+            {
+                return deferredFailCloseRequest == request;
+            }
+
+            if (failClosePending || failCloseTask is not null)
+            {
+                return false;
+            }
+
+            try
+            {
+                DateTimeOffset now = timeProvider.GetUtcNow();
+                TimeSpan remaining = request.Deadline - now;
+                if (remaining <= TimeSpan.Zero
+                    || remaining
+                        > RemoteWindowControlMessageCodec.MaximumCommandTimeToLive)
+                {
+                    return false;
+                }
+
+                failClosePending = true;
+                deferredFailCloseRequest = request;
+                deferredFailCloseOperation = failClose;
+                ITimer? timer = timeProvider.CreateTimer(
+                    static state =>
+                        ((RemoteWindowConnectionGeneration)state!)
+                        .OnDeferredFailCloseDeadline(),
+                    this,
+                    remaining,
+                    Timeout.InfiniteTimeSpan);
+                if (timer is null)
+                {
+                    deferredFailCloseRequest = null;
+                    deferredFailCloseOperation = null;
+                    failClosePending = false;
+                    return false;
+                }
+
+                deferredFailCloseTimer = timer;
+                return true;
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                deferredFailCloseRequest = null;
+                deferredFailCloseOperation = null;
+                failClosePending = false;
+                return false;
+            }
+        }
+    }
+
+    internal ValueTask FailCloseAsync(Func<ValueTask> failClose)
+    {
+        ArgumentNullException.ThrowIfNull(failClose);
+        Task task;
+        TaskCompletionSource? completion = null;
+        ITimer? deferredTimer = null;
+        lock (gate)
+        {
+            if (failCloseTask is null)
             {
                 failClosePending = true;
+                completion = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                failCloseTask = completion.Task;
+                deferredTimer = deferredFailCloseTimer;
+                deferredFailCloseTimer = null;
             }
+
+            task = failCloseTask;
+        }
+
+        Exception? timerFailure = deferredTimer is null
+            ? null
+            : CaptureFailure(deferredTimer.Dispose);
+        if (completion is not null)
+        {
+            _ = CompleteFailCloseAsync(
+                completion,
+                failClose,
+                timerFailure);
+        }
+
+        return new ValueTask(task);
+    }
+
+    private void OnDeferredFailCloseDeadline()
+    {
+        Func<ValueTask>? operation;
+        lock (gate)
+        {
+            operation = revoked || ownerReleased
+                ? null
+                : deferredFailCloseOperation;
+        }
+
+        if (operation is not null)
+        {
+            Task failClosing = FailCloseAsync(operation).AsTask();
+            _ = failClosing.ContinueWith(
+                static completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted
+                    | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+    }
+
+    private static async Task CompleteFailCloseAsync(
+        TaskCompletionSource completion,
+        Func<ValueTask> failClose,
+        Exception? timerFailure)
+    {
+        Exception? failure = timerFailure;
+        try
+        {
+            await failClose().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = CombineGenerationFailures(failure, exception);
+        }
+
+        if (failure is null)
+        {
+            completion.TrySetResult();
+        }
+        else
+        {
+            completion.TrySetException(failure);
+        }
+    }
+
+    private static Exception? CombineGenerationFailures(
+        Exception? first,
+        Exception? second) => (first, second) switch
+        {
+            (null, null) => null,
+            (not null, null) => first,
+            (null, not null) => second,
+            _ => new AggregateException(
+                "Remote Window generation cleanup failed.",
+                first!,
+                second!),
+        };
+
+    private static Exception? CaptureFailure(Action? action)
+    {
+        if (action is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            action();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
         }
     }
 

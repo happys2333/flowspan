@@ -995,7 +995,8 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
                     ResponderDeviceId,
                     InitiatorDeviceId,
                     MirrorParticipantRole.ViewOnly,
-                    deadline.AddMinutes(1));
+                    deadline.Add(
+                        RemoteWindowControlMessageCodec.MaximumCommandTimeToLive));
             Task connecting = lease.ConnectInitiatorForPreparationAsync(
                     request,
                     connector,
@@ -1122,7 +1123,8 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
                     ResponderDeviceId,
                     InitiatorDeviceId,
                     MirrorParticipantRole.ViewOnly,
-                    deadline.AddMinutes(1));
+                    deadline.Add(
+                        RemoteWindowControlMessageCodec.MaximumCommandTimeToLive));
 
             IOException failure = await Assert.ThrowsAsync<IOException>(() =>
                 lease.ConnectInitiatorForPreparationAsync(

@@ -272,8 +272,18 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
             new FailingPreparationAndCancellationRendererFactory(),
             async context =>
             {
+                (_, RemoteWindowPreparationResponse response) =
+                    await context.PrepareAsync();
+                Assert.Equal(
+                    RemoteWindowPreparationOutcome.Rejected,
+                    response.Outcome);
+                Assert.Equal("renderer_start_failed", response.ReasonCode);
+
                 Exception failure = await Assert.ThrowsAnyAsync<Exception>(() =>
-                    context.PrepareAsync());
+                    context.PreparationPeer.CompletePreparationResponseAsync(
+                            response,
+                            responseCommitted: false)
+                        .AsTask());
 
                 Assert.Contains(
                     "test renderer preparation failed",
@@ -284,6 +294,171 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                     failure.ToString(),
                     StringComparison.Ordinal);
             });
+    }
+
+    [Fact]
+    public async Task RendererFailurePoisonsAttachedGenerationUntilResponseCompletion()
+    {
+        var rendererFactory = new ThrowingRendererFactory();
+        AuthenticatedRemoteWindowConnectionLease? participantLease = null;
+        TryAcquireDesktopRemoteWindowPeerConnection? acquireConnection = null;
+        await RunConnectedScenarioAsync(
+            rendererFactory,
+            async context =>
+            {
+                (RemoteWindowPreparationRequest request,
+                    RemoteWindowPreparationResponse response) =
+                    await context.PrepareAsync();
+
+                Assert.Equal(
+                    RemoteWindowPreparationOutcome.Rejected,
+                    response.Outcome);
+                Assert.Equal("renderer_start_failed", response.ReasonCode);
+                Assert.Equal(1, rendererFactory.PrepareCount);
+                AuthenticatedRemoteWindowConnectionLease lease = Assert.IsType<
+                    AuthenticatedRemoteWindowConnectionLease>(participantLease);
+                Assert.False(lease.IsCurrent);
+                Assert.False(lease.IsRevoked);
+                Assert.True(context.HostLeaseIsCurrent);
+                Assert.NotNull(acquireConnection);
+                Assert.False(acquireConnection(
+                    HostDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? replacement));
+                Assert.Null(replacement);
+                var connector = new CountingPeerStreamConnector();
+
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    lease.ConnectInitiatorForPreparationAsync(
+                            request,
+                            connector,
+                            default)
+                        .AsTask());
+
+                Assert.Equal(0, connector.ConnectCount);
+
+                await context.PreparationPeer.CompletePreparationResponseAsync(
+                    response,
+                    responseCommitted: true);
+                await context.FailCloseHostAsync();
+            },
+            decorateConnectionAcquirer: acquire =>
+            {
+                acquireConnection = acquire;
+                return (DeviceId peerDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                {
+                    bool acquired = acquire(peerDeviceId, out lease);
+                    participantLease = lease;
+                    return acquired;
+                };
+            });
+    }
+
+    [Fact]
+    public async Task ForeignRendererCancellationDefersFailCloseUntilResponseCompletion()
+    {
+        AuthenticatedRemoteWindowConnectionLease? participantLease = null;
+        await RunConnectedScenarioAsync(
+            new ThrowingOperationCanceledRendererFactory(),
+            async context =>
+            {
+                (_, RemoteWindowPreparationResponse response) =
+                    await context.PrepareAsync();
+
+                Assert.Equal(
+                    RemoteWindowPreparationOutcome.Rejected,
+                    response.Outcome);
+                Assert.Equal("renderer_start_failed", response.ReasonCode);
+                AuthenticatedRemoteWindowConnectionLease lease = Assert.IsType<
+                    AuthenticatedRemoteWindowConnectionLease>(participantLease);
+                Assert.False(lease.IsCurrent);
+                Assert.False(lease.IsRevoked);
+                Assert.True(context.HostLeaseIsCurrent);
+
+                await context.PreparationPeer.CompletePreparationResponseAsync(
+                    response,
+                    responseCommitted: true);
+                await context.FailCloseHostAsync();
+            },
+            decorateConnectionAcquirer: acquire =>
+                (DeviceId peerDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                {
+                    bool acquired = acquire(peerDeviceId, out lease);
+                    participantLease = lease;
+                    return acquired;
+                });
+    }
+
+    [Fact]
+    public async Task MissingRendererDefersFailCloseUntilResponseCompletion()
+    {
+        AuthenticatedRemoteWindowConnectionLease? participantLease = null;
+        await RunConnectedScenarioAsync(
+            UnavailableDesktopRemoteWindowParticipantRendererFactory.Instance,
+            async context =>
+            {
+                (_, RemoteWindowPreparationResponse response) =
+                    await context.PrepareAsync();
+
+                Assert.Equal(
+                    RemoteWindowPreparationOutcome.Rejected,
+                    response.Outcome);
+                Assert.Equal("renderer_unavailable", response.ReasonCode);
+                AuthenticatedRemoteWindowConnectionLease lease = Assert.IsType<
+                    AuthenticatedRemoteWindowConnectionLease>(participantLease);
+                Assert.False(lease.IsCurrent);
+                Assert.False(lease.IsRevoked);
+                Assert.True(context.HostLeaseIsCurrent);
+
+                await context.PreparationPeer.CompletePreparationResponseAsync(
+                    response,
+                    responseCommitted: true);
+                await context.FailCloseHostAsync();
+            },
+            decorateConnectionAcquirer: acquire =>
+                (DeviceId peerDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                {
+                    bool acquired = acquire(peerDeviceId, out lease);
+                    participantLease = lease;
+                    return acquired;
+                });
+    }
+
+    [Fact]
+    public async Task PendingRendererPrimaryAndDisposeCancellationFailureRemainObservable()
+    {
+        await RunConnectedScenarioAsync(
+            new FailingPreparationAndCancellationRendererFactory(),
+            async context =>
+            {
+                (_, RemoteWindowPreparationResponse response) =
+                    await context.PrepareAsync();
+                Assert.Equal("renderer_start_failed", response.ReasonCode);
+
+                Exception failure = await Assert.ThrowsAnyAsync<Exception>(() =>
+                    context.PreparationPeer.DisposeAsync().AsTask());
+
+                Assert.Contains(
+                    "test renderer preparation failed",
+                    failure.ToString(),
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "test preparation cleanup failed",
+                    failure.ToString(),
+                    StringComparison.Ordinal);
+                Assert.Equal(
+                    1,
+                    CountMatchingFailures(
+                        failure,
+                        "test renderer preparation failed"));
+
+                await context.PreparationPeer.CompletePreparationResponseAsync(
+                    response,
+                    responseCommitted: true);
+            },
+            ignorePreparationPeerDisposalFailure: true);
     }
 
     [Theory]
@@ -349,6 +524,72 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                         return acquired;
                     },
                 useUnavailableMediaEndpoint: true);
+        }
+        finally
+        {
+            cleanupFailureRegistration.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PendingRendererAndCleanupFailuresRemainObservableWhenTerminalCleanupWins(
+        bool disposeParticipant)
+    {
+        CancellationTokenRegistration cleanupFailureRegistration = default;
+        try
+        {
+            await RunConnectedScenarioAsync(
+                new ThrowingRendererFactory(),
+                async context =>
+                {
+                    (_, RemoteWindowPreparationResponse response) =
+                        await context.PrepareAsync();
+                    Assert.Equal(
+                        RemoteWindowPreparationOutcome.Rejected,
+                        response.Outcome);
+                    Assert.Equal("renderer_start_failed", response.ReasonCode);
+
+                    Exception failure = disposeParticipant
+                        ? await Assert.ThrowsAnyAsync<Exception>(() =>
+                            context.PreparationPeer.DisposeAsync().AsTask())
+                        : await Assert.ThrowsAnyAsync<Exception>(() =>
+                            context.PreparationPeer.PeerDisconnectedAsync(
+                                    HostDeviceId,
+                                    default)
+                                .AsTask());
+
+                    await context.PreparationPeer
+                        .CompletePreparationResponseAsync(
+                            response,
+                            responseCommitted: true);
+
+                    Assert.Contains(
+                        "test renderer preparation failed",
+                        failure.ToString(),
+                        StringComparison.Ordinal);
+                    Assert.Contains(
+                        "test pending renderer cleanup failed",
+                        failure.ToString(),
+                        StringComparison.Ordinal);
+                },
+                ignorePreparationPeerDisposalFailure: true,
+                decorateConnectionAcquirer: acquire =>
+                    (DeviceId peerDeviceId,
+                        out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                    {
+                        bool acquired = acquire(peerDeviceId, out lease);
+                        if (lease is not null)
+                        {
+                            cleanupFailureRegistration =
+                                lease.RegisterRevocationCallback(
+                                    static () => throw new InvalidOperationException(
+                                        "test pending renderer cleanup failed"));
+                        }
+
+                        return acquired;
+                    });
         }
         finally
         {
@@ -585,6 +826,15 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
             ProtectionKind.Safe,
             revision: 1);
 
+    private static int CountMatchingFailures(
+        Exception failure,
+        string pattern) => failure is AggregateException aggregate
+        ? aggregate.InnerExceptions.Sum(
+            inner => CountMatchingFailures(inner, pattern))
+        : failure.Message.Contains(pattern, StringComparison.Ordinal)
+            ? 1
+            : 0;
+
     private static async Task AcceptOwnedMediaAsync(
         TcpListener listener,
         RemoteWindowMediaRouteRegistry routes,
@@ -707,6 +957,8 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
     {
         public Task? AcceptingMedia { get; private set; }
 
+        public bool HostLeaseIsCurrent => hostLease.IsCurrent;
+
         public DesktopRemoteWindowPreparationPeer PreparationPeer
         {
             get;
@@ -753,6 +1005,8 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                 jpeg);
             await hostLease.SendMediaAsync(frame);
         }
+
+        public ValueTask FailCloseHostAsync() => hostLease.FailCloseAsync();
     }
 
     private sealed class AsyncDisposal(
@@ -787,6 +1041,52 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
             Interlocked.Increment(ref prepareCount);
             return ValueTask.FromResult<
                 IDesktopRemoteWindowParticipantRenderer?>(renderer);
+        }
+    }
+
+    private sealed class ThrowingRendererFactory :
+        IDesktopRemoteWindowParticipantRendererFactory
+    {
+        private int prepareCount;
+
+        public int PrepareCount => Volatile.Read(ref prepareCount);
+
+        public ValueTask<IDesktopRemoteWindowParticipantRenderer?> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref prepareCount);
+            throw new InvalidOperationException(
+                "test renderer preparation failed");
+        }
+    }
+
+    private sealed class ThrowingOperationCanceledRendererFactory :
+        IDesktopRemoteWindowParticipantRendererFactory
+    {
+        public ValueTask<IDesktopRemoteWindowParticipantRenderer?> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken) =>
+            throw new OperationCanceledException(
+                "test renderer preparation cancellation");
+    }
+
+    private sealed class CountingPeerStreamConnector :
+        IRemoteWindowPeerStreamConnector
+    {
+        private int connectCount;
+
+        public int ConnectCount => Volatile.Read(ref connectCount);
+
+        public ValueTask<Stream> ConnectAsync(
+            IPEndPoint remoteEndPoint,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref connectCount);
+            return ValueTask.FromException<Stream>(
+                new InvalidOperationException(
+                    "The poisoned generation reached the connector."));
         }
     }
 

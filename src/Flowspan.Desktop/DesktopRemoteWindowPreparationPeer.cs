@@ -209,9 +209,17 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
                     .ConfigureAwait(false);
             if (renderer is null)
             {
-                await CleanupGenerationAsync(
+                var unavailable = new InvalidOperationException(
+                    "The Remote Window renderer factory returned no renderer.");
+                if (TryDeferResponseCleanup(generation, unavailable))
+                {
+                    return Rejected(request, "renderer_unavailable");
+                }
+
+                await CleanupGenerationAfterFailureAsync(
                     generation,
-                    failClose: true).ConfigureAwait(false);
+                    failClose: true,
+                    unavailable).ConfigureAwait(false);
                 return Rejected(request, "renderer_unavailable");
             }
 
@@ -238,7 +246,8 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         }
         catch (OperationCanceledException exception) when (
             generation.Token.IsCancellationRequested
-            || cancellationToken.IsCancellationRequested)
+            || cancellationToken.IsCancellationRequested
+            || timeProvider.GetUtcNow() >= request.Deadline)
         {
             string reason = GetCancellationReason(request);
             await CleanupGenerationAfterFailureAsync(
@@ -254,7 +263,8 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
                 : stage is PreparationStage.AttachingMedia
                     ? "media_attachment_failed"
                     : "media_unavailable";
-            if (stage is PreparationStage.AttachingMedia
+            if ((stage is PreparationStage.AttachingMedia
+                    or PreparationStage.PreparingRenderer)
                 && TryDeferResponseCleanup(generation, exception))
             {
                 return Rejected(request, reason);
@@ -506,6 +516,8 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
     {
         Exception? failure = CaptureCleanupFailure(lifetimeCancellation.Cancel);
         ParticipantGeneration? generation;
+        Exception? preparationFailure = null;
+        bool terminalCleanupFailed = false;
         lock (gate)
         {
             generation = active[0] ?? pendingResponseCleanup;
@@ -518,6 +530,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
 
         if (generation is not null)
         {
+            preparationFailure = generation.PreparationFailure;
             try
             {
                 await CleanupTerminalGenerationAsync(generation)
@@ -525,13 +538,21 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
             }
             catch (Exception exception)
             {
+                terminalCleanupFailed = true;
                 failure = CombineFailures(failure, exception);
             }
+
         }
 
         failure = CombineFailures(
             failure,
             CaptureCleanupFailure(lifetimeCancellation.Dispose));
+        if (!terminalCleanupFailed
+            && preparationFailure is not null
+            && failure is not null)
+        {
+            failure = CombineFailures(preparationFailure, failure);
+        }
 
         if (failure is null)
         {
@@ -685,7 +706,11 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
             if (disposed != 0
                 || !ReferenceEquals(active[0], generation)
                 || generation.Token.IsCancellationRequested
-                || pendingResponseCleanup is not null)
+                || timeProvider.GetUtcNow() >= generation.Request.Deadline
+                || pendingResponseCleanup is not null
+                || generation.Lease is not { } lease
+                || !lease.TryDeferFailCloseUntilPreparationDeadline(
+                    generation.Request))
             {
                 return false;
             }

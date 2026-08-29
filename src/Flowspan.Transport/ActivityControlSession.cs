@@ -2611,7 +2611,8 @@ public sealed class AuthenticatedActivitySessionHandler :
                     remoteWindowConnectionGeneration,
                     owner.revocationCallbackOwner,
                     remoteWindowPeerCandidate,
-                    candidateValidator)
+                    candidateValidator,
+                    owner.timeProvider)
                 : null;
         private Task? ownedCleanup;
         private int ready;
