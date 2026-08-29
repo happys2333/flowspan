@@ -1,0 +1,414 @@
+using Flowspan.Transport;
+
+namespace Flowspan.Desktop;
+
+internal enum RemoteWindowHostPreparationFact
+{
+    Source,
+    Permission,
+    Authorization,
+    Connection,
+    EmergencyStop,
+    Protection,
+}
+
+internal sealed class RemoteWindowHostPreparationFactEpoch
+{
+    internal RemoteWindowHostPreparationFactEpoch()
+    {
+    }
+
+    public override string ToString() => "host-preparation-fact-epoch";
+}
+
+internal sealed class RemoteWindowHostPreparationEpochBundle
+{
+    private readonly RemoteWindowHostPreparationFactEpoch[] epochs;
+    private int claimed;
+
+    private RemoteWindowHostPreparationEpochBundle(
+        RemoteWindowHostPreparationFactEpoch[] epochs) => this.epochs = epochs;
+
+    public static RemoteWindowHostPreparationEpochBundle Create() => new(
+        Enum.GetValues<RemoteWindowHostPreparationFact>()
+            .Select(static _ => new RemoteWindowHostPreparationFactEpoch())
+            .ToArray());
+
+    public RemoteWindowHostPreparationFactEpoch Get(
+        RemoteWindowHostPreparationFact fact)
+    {
+        if (!Enum.IsDefined(fact))
+        {
+            throw new ArgumentOutOfRangeException(nameof(fact));
+        }
+
+        return epochs[(int)fact];
+    }
+
+    internal bool Matches(
+        RemoteWindowHostPreparationFact fact,
+        RemoteWindowHostPreparationFactEpoch epoch) =>
+        ReferenceEquals(Get(fact), epoch);
+
+    internal bool TryClaim() => Interlocked.CompareExchange(
+        ref claimed,
+        1,
+        0) == 0;
+
+    public override string ToString() => "host-preparation-epoch-bundle";
+}
+
+internal enum RemoteWindowHostPreparationCleanupScope
+{
+    PreRoute,
+    ConsumeConnection,
+}
+
+internal sealed record RemoteWindowHostPreparationTermination(
+    string ReasonCode,
+    RemoteWindowHostPreparationCleanupScope CleanupScope,
+    RemoteWindowHostPreparationFact? Fact = null);
+
+internal enum RemoteWindowHostPreparationPhase
+{
+    Collecting,
+    Armed,
+    RouteAdmitted,
+    RouteSelected,
+    PrepareSending,
+    ReadyMatched,
+    Promoted,
+    Terminal,
+}
+
+internal sealed record RemoteWindowHostPreparationSnapshot(
+    long HostGeneration,
+    RemoteWindowHostPreparationPhase Phase,
+    bool RouteMayBeOwned,
+    bool PrepareSendAdmitted);
+
+internal sealed class RemoteWindowHostPreparationReservation : IDisposable
+{
+    private readonly RemoteWindowHostPreparationEpochBundle epochs;
+    private readonly object gate = new();
+    private readonly long hostGeneration;
+    private readonly RemoteWindowPreparationRequest request;
+    private readonly TaskCompletionSource<RemoteWindowHostPreparationTermination>
+        terminalCompletion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool prepareSendAdmitted;
+    private RemoteWindowHostPreparationPhase phase =
+        RemoteWindowHostPreparationPhase.Collecting;
+    private bool routeMayBeOwned;
+    private RemoteWindowHostPreparationTermination? termination;
+
+    public RemoteWindowHostPreparationReservation(
+        long hostGeneration,
+        RemoteWindowPreparationRequest request,
+        RemoteWindowHostPreparationEpochBundle epochs)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(hostGeneration, 1);
+        this.hostGeneration = hostGeneration;
+        this.request = request ?? throw new ArgumentNullException(nameof(request));
+        this.epochs = epochs ?? throw new ArgumentNullException(nameof(epochs));
+        if (!this.epochs.TryClaim())
+        {
+            throw new ArgumentException(
+                "A host Preparation epoch bundle can bind only one reservation generation.",
+                nameof(epochs));
+        }
+    }
+
+    public RemoteWindowHostPreparationSnapshot Snapshot
+    {
+        get
+        {
+            lock (gate)
+            {
+                return new RemoteWindowHostPreparationSnapshot(
+                    hostGeneration,
+                    phase,
+                    routeMayBeOwned,
+                    prepareSendAdmitted);
+            }
+        }
+    }
+
+    public Task<RemoteWindowHostPreparationTermination> Terminal =>
+        terminalCompletion.Task;
+
+    public bool TryArm(DateTimeOffset now)
+    {
+        RemoteWindowHostPreparationTermination? expired = null;
+        lock (gate)
+        {
+            if (termination is not null
+                || phase != RemoteWindowHostPreparationPhase.Collecting)
+            {
+                return false;
+            }
+
+            if (now < request.Deadline)
+            {
+                phase = RemoteWindowHostPreparationPhase.Armed;
+                return true;
+            }
+
+            expired = new RemoteWindowHostPreparationTermination(
+                "preparation_expired",
+                RemoteWindowHostPreparationCleanupScope.PreRoute);
+            termination = expired;
+            phase = RemoteWindowHostPreparationPhase.Terminal;
+        }
+
+        terminalCompletion.TrySetResult(expired);
+        return false;
+    }
+
+    public bool TryAdmitRouteSelection(DateTimeOffset now)
+    {
+        RemoteWindowHostPreparationTermination? expired = null;
+        lock (gate)
+        {
+            if (termination is not null
+                || phase != RemoteWindowHostPreparationPhase.Armed)
+            {
+                return false;
+            }
+
+            if (now < request.Deadline)
+            {
+                routeMayBeOwned = true;
+                phase = RemoteWindowHostPreparationPhase.RouteAdmitted;
+                return true;
+            }
+
+            expired = new RemoteWindowHostPreparationTermination(
+                "preparation_expired",
+                RemoteWindowHostPreparationCleanupScope.PreRoute);
+            termination = expired;
+            phase = RemoteWindowHostPreparationPhase.Terminal;
+        }
+
+        terminalCompletion.TrySetResult(expired);
+        return false;
+    }
+
+    public bool CompleteRouteSelection()
+    {
+        lock (gate)
+        {
+            if (!routeMayBeOwned)
+            {
+                throw new InvalidOperationException(
+                    "A host Preparation route cannot complete before admission.");
+            }
+
+            if (termination is not null
+                || phase != RemoteWindowHostPreparationPhase.RouteAdmitted)
+            {
+                return false;
+            }
+
+            phase = RemoteWindowHostPreparationPhase.RouteSelected;
+            return true;
+        }
+    }
+
+    public bool TryFailRouteSelection()
+    {
+        RemoteWindowHostPreparationTermination? completed = null;
+        lock (gate)
+        {
+            if (termination is not null
+                || phase != RemoteWindowHostPreparationPhase.RouteAdmitted)
+            {
+                return false;
+            }
+
+            completed = new RemoteWindowHostPreparationTermination(
+                "responder_route_failed",
+                RemoteWindowHostPreparationCleanupScope.ConsumeConnection);
+            termination = completed;
+            phase = RemoteWindowHostPreparationPhase.Terminal;
+        }
+
+        terminalCompletion.TrySetResult(completed);
+        return true;
+    }
+
+    public bool TryAdmitPrepareSend(
+        RemoteWindowPreparationRequest candidate,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        RemoteWindowHostPreparationTermination? expired = null;
+        lock (gate)
+        {
+            if (termination is not null
+                || phase != RemoteWindowHostPreparationPhase.RouteSelected
+                || prepareSendAdmitted
+                || candidate != request)
+            {
+                return false;
+            }
+
+            if (now < request.Deadline)
+            {
+                prepareSendAdmitted = true;
+                phase = RemoteWindowHostPreparationPhase.PrepareSending;
+                return true;
+            }
+
+            expired = new RemoteWindowHostPreparationTermination(
+                "preparation_expired",
+                RemoteWindowHostPreparationCleanupScope.ConsumeConnection);
+            termination = expired;
+            phase = RemoteWindowHostPreparationPhase.Terminal;
+        }
+
+        terminalCompletion.TrySetResult(expired);
+        return false;
+    }
+
+    public bool TryMatchReady(
+        RemoteWindowPreparationResponse response,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        RemoteWindowHostPreparationTermination? failed = null;
+        lock (gate)
+        {
+            if (termination is not null
+                || phase != RemoteWindowHostPreparationPhase.PrepareSending)
+            {
+                return false;
+            }
+
+            string? failureReason = response.Request != request
+                ? "remote_window_ready_mismatch"
+                : now >= request.Deadline
+                    ? "preparation_expired"
+                    : response.Outcome != RemoteWindowPreparationOutcome.Ready
+                        ? response.ReasonCode
+                        : null;
+            if (failureReason is null)
+            {
+                phase = RemoteWindowHostPreparationPhase.ReadyMatched;
+                return true;
+            }
+
+            failed = new RemoteWindowHostPreparationTermination(
+                failureReason,
+                RemoteWindowHostPreparationCleanupScope.ConsumeConnection);
+            termination = failed;
+            phase = RemoteWindowHostPreparationPhase.Terminal;
+        }
+
+        terminalCompletion.TrySetResult(failed);
+        return false;
+    }
+
+    public bool TryPromote(DateTimeOffset now)
+    {
+        RemoteWindowHostPreparationTermination? expired = null;
+        lock (gate)
+        {
+            if (termination is not null
+                || phase != RemoteWindowHostPreparationPhase.ReadyMatched)
+            {
+                return false;
+            }
+
+            if (now < request.Deadline)
+            {
+                phase = RemoteWindowHostPreparationPhase.Promoted;
+                return true;
+            }
+
+            expired = new RemoteWindowHostPreparationTermination(
+                "preparation_expired",
+                RemoteWindowHostPreparationCleanupScope.ConsumeConnection);
+            termination = expired;
+            phase = RemoteWindowHostPreparationPhase.Terminal;
+        }
+
+        terminalCompletion.TrySetResult(expired);
+        return false;
+    }
+
+    public bool TryInvalidate(
+        long expectedHostGeneration,
+        RemoteWindowHostPreparationFact fact,
+        RemoteWindowHostPreparationFactEpoch epoch)
+    {
+        ArgumentNullException.ThrowIfNull(epoch);
+        RemoteWindowHostPreparationTermination? completed = null;
+        lock (gate)
+        {
+            if (expectedHostGeneration != hostGeneration
+                || termination is not null
+                || phase == RemoteWindowHostPreparationPhase.Promoted)
+            {
+                return false;
+            }
+
+            if (!epochs.Matches(fact, epoch))
+            {
+                return false;
+            }
+
+            completed = new RemoteWindowHostPreparationTermination(
+                GetInvalidationReason(fact),
+                routeMayBeOwned
+                    ? RemoteWindowHostPreparationCleanupScope.ConsumeConnection
+                    : RemoteWindowHostPreparationCleanupScope.PreRoute,
+                fact);
+            termination = completed;
+            phase = RemoteWindowHostPreparationPhase.Terminal;
+        }
+
+        terminalCompletion.TrySetResult(completed);
+        return true;
+    }
+
+    private static string GetInvalidationReason(
+        RemoteWindowHostPreparationFact fact) => fact switch
+        {
+            RemoteWindowHostPreparationFact.Source => "native_source_stale",
+            RemoteWindowHostPreparationFact.Permission =>
+                "native_permission_denied",
+            RemoteWindowHostPreparationFact.Authorization =>
+                "mirror_capability_denied",
+            RemoteWindowHostPreparationFact.Connection =>
+                "authenticated_connection_stale",
+            RemoteWindowHostPreparationFact.EmergencyStop =>
+                "emergency_stop_readiness_unavailable",
+            RemoteWindowHostPreparationFact.Protection =>
+                "native_protection_not_safe",
+            _ => throw new ArgumentOutOfRangeException(nameof(fact)),
+        };
+
+    public void Dispose()
+    {
+        RemoteWindowHostPreparationTermination? completed = null;
+        lock (gate)
+        {
+            if (termination is not null
+                || phase == RemoteWindowHostPreparationPhase.Promoted)
+            {
+                return;
+            }
+
+            completed = new RemoteWindowHostPreparationTermination(
+                "host_preparation_disposed",
+                routeMayBeOwned
+                    ? RemoteWindowHostPreparationCleanupScope.ConsumeConnection
+                    : RemoteWindowHostPreparationCleanupScope.PreRoute);
+            termination = completed;
+            phase = RemoteWindowHostPreparationPhase.Terminal;
+        }
+
+        terminalCompletion.TrySetResult(completed);
+    }
+}
