@@ -216,7 +216,13 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
                         operation.Token)
                     .ConfigureAwait(false);
             _ = generation.GetCurrentPeerConnectionCandidate(ProtocolVersion);
-            ValueTask attaching = mediaSession.ConnectInitiatorAsync(
+            ValueTask attaching = failCloseImmediately
+                ? mediaSession.ConnectInitiatorAsync(
+                    ownedStream,
+                    request.SessionId,
+                    request.ActivityId,
+                    operation.Token)
+                : mediaSession.ConnectInitiatorForPreparationAsync(
                     ownedStream,
                     request.SessionId,
                     request.ActivityId,

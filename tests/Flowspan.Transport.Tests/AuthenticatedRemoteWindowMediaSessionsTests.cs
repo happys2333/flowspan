@@ -1058,6 +1058,104 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
     }
 
     [Fact]
+    public async Task FailedPreparationMediaAttachmentWaitsForExplicitFailClose()
+    {
+        using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Participant");
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Host");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(InitiatorDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        ProtocolVersion version =
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+        (AuthenticatedTcpControlConnection participantConnection,
+            AuthenticatedTcpControlConnection hostConnection) =
+            await CreateControlPairAsync(
+                participantIdentity,
+                hostIdentity,
+                version);
+        VerifiedPeerConnectionCandidate candidate = CreateVerifiedCandidate(
+            hostIdentity,
+            IPAddress.Loopback,
+            listenerPort: 4747,
+            version);
+        var validator = new RecordingCandidateValidator(isCurrent: true);
+        var connector = new FailingAttachmentPeerStreamConnector();
+        await using (participantConnection)
+        await using (hostConnection)
+        {
+            Task running = handler.RunWithRemoteWindowPeerAsync(
+                    participantConnection,
+                    candidate,
+                    validator)
+                .AsTask();
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                await WaitForPeerConnectionLeaseAsync(
+                    handler,
+                    ResponderDeviceId);
+            Assert.True(mediaSessions.TryGet(
+                ResponderDeviceId,
+                out AuthenticatedRemoteWindowMediaSession? currentSession));
+            AuthenticatedRemoteWindowMediaSession mediaSession = Assert.IsType<
+                AuthenticatedRemoteWindowMediaSession>(currentSession);
+            int revocationCount = 0;
+            using CancellationTokenRegistration registration =
+                lease.RegisterRevocationCallback(
+                    () => Interlocked.Increment(ref revocationCount));
+            DateTimeOffset deadline = DateTimeOffset.UtcNow;
+            deadline = deadline.AddTicks(
+                -(deadline.Ticks % TimeSpan.TicksPerMillisecond));
+            RemoteWindowPreparationRequest request =
+                RemoteWindowPreparationRequest.Create(
+                    CorrelationId.From(Guid.NewGuid()),
+                    SessionId,
+                    ActivityId,
+                    ResponderDeviceId,
+                    InitiatorDeviceId,
+                    MirrorParticipantRole.ViewOnly,
+                    deadline.AddMinutes(1));
+
+            IOException failure = await Assert.ThrowsAsync<IOException>(() =>
+                lease.ConnectInitiatorForPreparationAsync(
+                        request,
+                        connector,
+                        CancellationToken.None)
+                    .AsTask());
+
+            Assert.Same(connector.Failure, failure);
+            Assert.False(mediaSession.ControlStopToken.IsCancellationRequested);
+            Assert.False(lease.IsCurrent);
+            Assert.False(lease.IsRevoked);
+            Assert.False(running.IsCompleted);
+            Assert.Equal(0, Volatile.Read(ref revocationCount));
+            Assert.True(handler.TryGetChannel(ResponderDeviceId, out _));
+            Assert.True(mediaSessions.TryGet(ResponderDeviceId, out _));
+            Assert.False(handler.TryAcquireRemoteWindowPeerConnection(
+                ResponderDeviceId,
+                out _));
+
+            await lease.FailCloseAsync().AsTask().WaitAsync(
+                TimeSpan.FromSeconds(5));
+
+            Assert.True(lease.IsRevoked);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(1, Volatile.Read(ref revocationCount));
+            Assert.False(mediaSessions.TryGet(ResponderDeviceId, out _));
+            Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
     public async Task FailCloseCancelsAndJoinsPendingVerifiedPeerConnect()
     {
         using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
@@ -1982,6 +2080,30 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
             await Release.Task;
             throw Failure;
         }
+    }
+
+    private sealed class FailingAttachmentPeerStreamConnector :
+        IRemoteWindowPeerStreamConnector
+    {
+        public IOException Failure { get; } = new("CANARY_ATTACHMENT_FAILURE");
+
+        public ValueTask<Stream> ConnectAsync(
+            IPEndPoint remoteEndPoint,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<Stream>(
+                new FailingAttachmentStream(Failure));
+        }
+    }
+
+    private sealed class FailingAttachmentStream(IOException failure) :
+        MemoryStream
+    {
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(failure);
     }
 
     private sealed class CountingPeerStreamConnector :

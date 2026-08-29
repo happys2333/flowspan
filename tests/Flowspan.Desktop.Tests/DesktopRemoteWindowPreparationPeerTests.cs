@@ -430,6 +430,16 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                     : null;
             unavailableMediaSocket?.Bind(
                 new IPEndPoint(IPAddress.Loopback, 0));
+            unavailableMediaSocket?.Listen(backlog: 1);
+            using CancellationTokenSource? rejectingMediaCancellation =
+                unavailableMediaSocket is null
+                    ? null
+                    : new CancellationTokenSource();
+            Task? rejectingMediaConnection = unavailableMediaSocket is null
+                ? null
+                : AcceptAndResetMediaConnectionAsync(
+                    unavailableMediaSocket,
+                    rejectingMediaCancellation!.Token);
             IPEndPoint candidateEndPoint = unavailableMediaSocket is null
                 ? mediaEndPoint
                 : Assert.IsType<IPEndPoint>(
@@ -439,67 +449,79 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                 candidateEndPoint,
                 version);
             var validator = new CurrentCandidateValidator();
-            await using (participantConnection)
-            await using (hostConnection)
+            try
             {
-                Task participantRunning = participantHandler
-                    .RunWithRemoteWindowPeerAsync(
-                        participantConnection,
-                        candidate,
-                        validator)
-                    .AsTask();
-                Task hostRunning = hostHandler.RunAsync(hostConnection).AsTask();
-                await using AuthenticatedRemoteWindowConnectionLease hostLease =
-                    await WaitForConnectionLeaseAsync(
-                        hostHandler,
-                        ParticipantDeviceId);
-                _ = hostLease.PrepareResponderRoute(SessionId, ActivityId);
-                var context = new ConnectedScenario(
-                    preparationPeer,
-                    hostLease,
-                    mediaListener,
-                    hostRoutes,
-                    hostMedia);
-
-                await test(context);
-
-                if (verifyPeerDisconnectCleanup)
+                await using (participantConnection)
+                await using (hostConnection)
                 {
-                    await preparationPeer.PeerDisconnectedAsync(
-                        HostDeviceId,
-                        default);
-                    if (renderer is not null)
-                    {
-                        Assert.True(renderer.IsDisposed);
-                    }
+                    Task participantRunning = participantHandler
+                        .RunWithRemoteWindowPeerAsync(
+                            participantConnection,
+                            candidate,
+                            validator)
+                        .AsTask();
+                    Task hostRunning = hostHandler.RunAsync(hostConnection).AsTask();
+                    await using AuthenticatedRemoteWindowConnectionLease hostLease =
+                        await WaitForConnectionLeaseAsync(
+                            hostHandler,
+                            ParticipantDeviceId);
+                    _ = hostLease.PrepareResponderRoute(SessionId, ActivityId);
+                    var context = new ConnectedScenario(
+                        preparationPeer,
+                        hostLease,
+                        mediaListener,
+                        hostRoutes,
+                        hostMedia);
 
-                    await Assert.ThrowsAnyAsync<Exception>(() =>
-                        participantRunning.WaitAsync(TimeSpan.FromSeconds(5)));
-                    await Assert.ThrowsAnyAsync<Exception>(() =>
-                        hostRunning.WaitAsync(TimeSpan.FromSeconds(5)));
-                    if (context.AcceptingMedia is not null)
-                    {
-                        await context.AcceptingMedia.WaitAsync(
-                            TimeSpan.FromSeconds(5));
-                    }
+                    await test(context);
 
-                    Assert.False(
-                        participantHandler.TryAcquireRemoteWindowPeerConnection(
+                    if (verifyPeerDisconnectCleanup)
+                    {
+                        await preparationPeer.PeerDisconnectedAsync(
                             HostDeviceId,
-                            out _));
-                    Assert.False(participantMedia.TryGet(HostDeviceId, out _));
-                    Assert.False(hostMedia.TryGet(ParticipantDeviceId, out _));
-                    Assert.Equal(0, participantRoutes.Count);
-                    Assert.Equal(0, hostRoutes.Count);
+                            default);
+                        if (renderer is not null)
+                        {
+                            Assert.True(renderer.IsDisposed);
+                        }
+
+                        await Assert.ThrowsAnyAsync<Exception>(() =>
+                            participantRunning.WaitAsync(TimeSpan.FromSeconds(5)));
+                        await Assert.ThrowsAnyAsync<Exception>(() =>
+                            hostRunning.WaitAsync(TimeSpan.FromSeconds(5)));
+                        if (context.AcceptingMedia is not null)
+                        {
+                            await context.AcceptingMedia.WaitAsync(
+                                TimeSpan.FromSeconds(5));
+                        }
+
+                        Assert.False(
+                            participantHandler.TryAcquireRemoteWindowPeerConnection(
+                                HostDeviceId,
+                                out _));
+                        Assert.False(participantMedia.TryGet(HostDeviceId, out _));
+                        Assert.False(hostMedia.TryGet(ParticipantDeviceId, out _));
+                        Assert.Equal(0, participantRoutes.Count);
+                        Assert.Equal(0, hostRoutes.Count);
+                    }
+                    else
+                    {
+                        await participantConnection.DisposeAsync();
+                        await hostConnection.DisposeAsync();
+                        await Assert.ThrowsAnyAsync<Exception>(() =>
+                            participantRunning.WaitAsync(TimeSpan.FromSeconds(5)));
+                        await Assert.ThrowsAnyAsync<Exception>(() =>
+                            hostRunning.WaitAsync(TimeSpan.FromSeconds(5)));
+                    }
                 }
-                else
+            }
+            finally
+            {
+                rejectingMediaCancellation?.Cancel();
+                if (rejectingMediaConnection is not null)
                 {
-                    await participantConnection.DisposeAsync();
-                    await hostConnection.DisposeAsync();
-                    await Assert.ThrowsAnyAsync<Exception>(() =>
-                        participantRunning.WaitAsync(TimeSpan.FromSeconds(5)));
-                    await Assert.ThrowsAnyAsync<Exception>(() =>
-                        hostRunning.WaitAsync(TimeSpan.FromSeconds(5)));
+                    await rejectingMediaConnection.WaitAsync(
+                        TimeSpan.FromSeconds(5));
                 }
             }
         }
@@ -510,6 +532,21 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
             participantHandler!.TryAcquireRemoteWindowPeerConnection(
                 peerDeviceId,
                 out lease);
+    }
+
+    private static async Task AcceptAndResetMediaConnectionAsync(
+        Socket listener,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using Socket accepted = await listener.AcceptAsync(cancellationToken);
+            accepted.LingerState = new LingerOption(true, 0);
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private static RemoteWindowPreparationRequest CreateRequest()

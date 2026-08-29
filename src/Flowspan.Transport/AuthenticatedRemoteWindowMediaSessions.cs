@@ -411,7 +411,32 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         Stream stream,
         RemoteWindowSessionId sessionId,
         ActivityId activityId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ConnectInitiatorCoreAsync(
+            stream,
+            sessionId,
+            activityId,
+            requestControlStopOnFailure: true,
+            cancellationToken);
+
+    internal ValueTask ConnectInitiatorForPreparationAsync(
+        Stream stream,
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        CancellationToken cancellationToken = default) =>
+        ConnectInitiatorCoreAsync(
+            stream,
+            sessionId,
+            activityId,
+            requestControlStopOnFailure: false,
+            cancellationToken);
+
+    private ValueTask ConnectInitiatorCoreAsync(
+        Stream stream,
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        bool requestControlStopOnFailure,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(sessionId);
@@ -442,6 +467,7 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
             operation,
             owned,
             prepared,
+            requestControlStopOnFailure,
             cancellationToken));
     }
 
@@ -449,6 +475,7 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         InitiatorConnectOperation operation,
         SecureFrameSession owned,
         RemoteWindowMediaRouteBinding prepared,
+        bool requestControlStopOnFailure,
         CancellationToken cancellationToken)
     {
         RemoteWindowMediaAttachment? connected = null;
@@ -477,7 +504,10 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         catch (Exception connectFailure)
         {
             failure = connectFailure;
-            RequestControlStop();
+            if (requestControlStopOnFailure)
+            {
+                RequestControlStop();
+            }
         }
         finally
         {
