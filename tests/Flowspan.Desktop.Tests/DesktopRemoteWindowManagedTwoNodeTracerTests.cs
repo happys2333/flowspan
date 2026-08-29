@@ -813,9 +813,21 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     }
 
     [Fact]
-    public async Task VerifiedFsm1AttachmentThenPreparationExpiryFailsClosedBeforeAdmissionOrCapture()
+    public Task VerifiedFsm1AttachmentThenCallerCancellationFailsClosedBeforeAdmissionOrCapture() =>
+        RunVerifiedFsm1AttachmentThenPreAdmissionFailureAsync(
+            PreAdmissionFailureTrigger.CallerCancellation);
+
+    [Fact]
+    public Task VerifiedFsm1AttachmentThenPreparationExpiryFailsClosedBeforeAdmissionOrCapture() =>
+        RunVerifiedFsm1AttachmentThenPreAdmissionFailureAsync(
+            PreAdmissionFailureTrigger.HostDeadline);
+
+    private static async Task RunVerifiedFsm1AttachmentThenPreAdmissionFailureAsync(
+        PreAdmissionFailureTrigger trigger)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var harnessDeadline = new CancellationTokenSource(
+            TimeSpan.FromSeconds(20));
+        using var callerCancellation = new CancellationTokenSource();
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
             HostDeviceId,
             "Host");
@@ -925,6 +937,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         ObservingHostConnection? hostConnection = null;
         MediaAttachmentObservation? attachment = null;
         VerifiedPeerConnectionCandidate? signedCandidate = null;
+        DateTimeOffset clockObservedBeforeTrigger = default;
+        var clockWasBeforeDeadline = false;
         var participantLeaseObserved = false;
 
         try
@@ -938,17 +952,17 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                         Now,
                         participantToHost),
                     [Version],
-                    cancellationToken: deadline.Token);
+                    cancellationToken: harnessDeadline.Token);
             Assert.Equal(new ProtocolVersion(1, 7), participantConnection.ProtocolVersion);
             participantRun = participantSessionHandler
-                .RunAsync(participantConnection, deadline.Token)
+                .RunAsync(participantConnection, harnessDeadline.Token)
                 .AsTask();
             AuthenticatedRemoteWindowConnectionLease hostLease =
                 await WaitForConnectionLeaseAsync(
                     hostHandler,
                     ParticipantDeviceId,
                     requireVerifiedPeer: false,
-                    deadline.Token);
+                    harnessDeadline.Token);
             Assert.Null(hostLease.PeerConnectionCandidate);
             hostConnection = new ObservingHostConnection(
                 new AuthenticatedDesktopRemoteWindowHostConnection(hostLease),
@@ -972,7 +986,17 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                         await lease.DisposeAsync();
                     }
 
-                    clock.UtcNow = request.Deadline;
+                    clockObservedBeforeTrigger = clock.UtcNow;
+                    clockWasBeforeDeadline =
+                        clockObservedBeforeTrigger < request.Deadline;
+                    if (trigger == PreAdmissionFailureTrigger.HostDeadline)
+                    {
+                        clock.UtcNow = request.Deadline;
+                    }
+                    else
+                    {
+                        callerCancellation.Cancel();
+                    }
                 });
             var request = new DesktopRemoteWindowHostStartRequest(
                 sourceLease,
@@ -981,14 +1005,35 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 protection,
                 MirrorParticipantRole.DriverEligible);
 
-            InvalidOperationException failure = await Assert.ThrowsAsync<
-                InvalidOperationException>(async () =>
-                    await coordinator.StartAsync(request, deadline.Token));
+            CancellationToken startCancellationToken = trigger is
+                PreAdmissionFailureTrigger.CallerCancellation
+                    ? callerCancellation.Token
+                    : harnessDeadline.Token;
+            if (trigger == PreAdmissionFailureTrigger.HostDeadline)
+            {
+                InvalidOperationException failure = await Assert.ThrowsAsync<
+                    InvalidOperationException>(async () =>
+                        await coordinator.StartAsync(
+                            request,
+                            startCancellationToken));
+                Assert.Equal(
+                    "Remote Window host start failed (preparation_expired).",
+                    failure.Message);
+                Assert.Null(failure.InnerException);
+            }
+            else
+            {
+                OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+                    OperationCanceledException>(async () =>
+                        await coordinator.StartAsync(
+                            request,
+                            startCancellationToken));
+                Assert.Equal(
+                    callerCancellation.Token,
+                    failure.CancellationToken);
+            }
 
-            Assert.Equal(
-                "Remote Window host start failed (preparation_expired).",
-                failure.Message);
-            Assert.Null(failure.InnerException);
+            Assert.False(harnessDeadline.IsCancellationRequested);
             Assert.Equal(new ProtocolVersion(1, 7), hostConnection.ProtocolVersion);
             Assert.True(participantLeaseObserved);
             VerifiedPeerConnectionCandidate candidate = Assert.IsType<
@@ -1014,7 +1059,19 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             MediaAttachmentObservation observed = Assert.IsType<
                 MediaAttachmentObservation>(attachment);
             Assert.Equal(Now.AddSeconds(10), observed.Request.Deadline);
-            Assert.Equal(observed.Request.Deadline, clock.UtcNow);
+            Assert.True(clockWasBeforeDeadline);
+            Assert.Equal(Now, clockObservedBeforeTrigger);
+            if (trigger == PreAdmissionFailureTrigger.HostDeadline)
+            {
+                Assert.Equal(observed.Request.Deadline, clock.UtcNow);
+                Assert.False(callerCancellation.IsCancellationRequested);
+            }
+            else
+            {
+                Assert.Equal(clockObservedBeforeTrigger, clock.UtcNow);
+                Assert.True(callerCancellation.IsCancellationRequested);
+            }
+
             Assert.Equal(HostDeviceId, observed.Request.HostDeviceId);
             Assert.Equal(ParticipantDeviceId, observed.Request.ParticipantDeviceId);
             Assert.Equal(
@@ -1060,7 +1117,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 participantHandler,
                 hostMedia,
                 participantMedia,
-                deadline.Token);
+                harnessDeadline.Token);
 
             Assert.True(renderer.IsDisposed);
             Assert.True(capture.StopCount >= 1);
@@ -1100,6 +1157,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             participantHandler!.TryAcquireRemoteWindowPeerConnection(
                 peerDeviceId,
                 out lease);
+    }
+
+    private enum PreAdmissionFailureTrigger
+    {
+        HostDeadline,
+        CallerCancellation,
     }
 
     private static async Task AcceptAndResetFsm1ConnectionAsync(
