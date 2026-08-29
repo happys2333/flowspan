@@ -152,15 +152,49 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
     public async ValueTask ConnectInitiatorAsync(
         RemoteWindowPreparationRequest request,
         CancellationToken cancellationToken = default) =>
-        await ConnectInitiatorAsync(
+        await ConnectInitiatorCoreAsync(
                 request,
                 SystemRemoteWindowPeerStreamConnector.Instance,
+                failCloseImmediately: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public async ValueTask ConnectInitiatorForPreparationAsync(
+        RemoteWindowPreparationRequest request,
+        CancellationToken cancellationToken = default) =>
+        await ConnectInitiatorCoreAsync(
+                request,
+                SystemRemoteWindowPeerStreamConnector.Instance,
+                failCloseImmediately: false,
                 cancellationToken)
             .ConfigureAwait(false);
 
     internal async ValueTask ConnectInitiatorAsync(
         RemoteWindowPreparationRequest request,
         IRemoteWindowPeerStreamConnector connector,
+        CancellationToken cancellationToken) =>
+        await ConnectInitiatorCoreAsync(
+                request,
+                connector,
+                failCloseImmediately: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal async ValueTask ConnectInitiatorForPreparationAsync(
+        RemoteWindowPreparationRequest request,
+        IRemoteWindowPeerStreamConnector connector,
+        CancellationToken cancellationToken) =>
+        await ConnectInitiatorCoreAsync(
+                request,
+                connector,
+                failCloseImmediately: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    private async ValueTask ConnectInitiatorCoreAsync(
+        RemoteWindowPreparationRequest request,
+        IRemoteWindowPeerStreamConnector connector,
+        bool failCloseImmediately,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(connector);
@@ -193,7 +227,11 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         catch (Exception exception)
         {
             primaryFailure = exception;
-            StartFailClose();
+            generation.MarkFailClosePending();
+            if (failCloseImmediately)
+            {
+                StartFailClose();
+            }
         }
         finally
         {
@@ -227,18 +265,22 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
             return;
         }
 
-        StartFailClose();
-        if (failCloseTask is not null)
+        generation.MarkFailClosePending();
+        if (failCloseImmediately)
         {
-            try
+            StartFailClose();
+            if (failCloseTask is not null)
             {
-                await failCloseTask.ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                failCloseFailure = CombineFailures(
-                    failCloseFailure,
-                    exception);
+                try
+                {
+                    await failCloseTask.ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    failCloseFailure = CombineFailures(
+                        failCloseFailure,
+                        exception);
+                }
             }
         }
 
@@ -349,7 +391,7 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         if (!generation.IsCurrent || !mediaSession.IsCurrent)
         {
             throw new InvalidOperationException(
-                "The authenticated Remote Window connection generation was revoked.");
+                "The authenticated Remote Window connection generation is no longer current.");
         }
     }
 
@@ -386,6 +428,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     private bool cancellationCompleted;
     private bool ownerReleased;
     private int registrationOperations;
+    private bool failClosePending;
     private bool revoked;
     private bool revocationDisposed;
     private TaskCompletionSource peerConnectionsDrained =
@@ -416,7 +459,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         {
             lock (gate)
             {
-                return !revoked;
+                return !revoked && !failClosePending;
             }
         }
     }
@@ -536,7 +579,10 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
 
         lock (gate)
         {
-            if (revoked || ownerReleased || !mediaSession.IsCurrent)
+            if (revoked
+                || failClosePending
+                || ownerReleased
+                || !mediaSession.IsCurrent)
             {
                 lease = null;
                 return false;
@@ -560,6 +606,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         lock (gate)
         {
             if (revoked
+                || failClosePending
                 || ownerReleased
                 || candidate is null
                 || validator is null)
@@ -570,7 +617,15 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
 
         try
         {
-            return validator.IsCurrent(candidate, protocolVersion);
+            if (!validator.IsCurrent(candidate, protocolVersion))
+            {
+                return false;
+            }
+
+            lock (gate)
+            {
+                return !revoked && !failClosePending && !ownerReleased;
+            }
         }
         catch (Exception exception) when (
             exception is not OutOfMemoryException)
@@ -596,10 +651,10 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     {
         lock (gate)
         {
-            if (revoked || ownerReleased)
+            if (revoked || failClosePending || ownerReleased)
             {
                 throw new InvalidOperationException(
-                    "The authenticated Remote Window connection generation was revoked.");
+                    "The authenticated Remote Window connection generation is no longer current.");
             }
 
             if (peerConnectionCandidate is null || candidateValidator is null)
@@ -679,10 +734,10 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     {
         lock (gate)
         {
-            if (revoked || ownerReleased)
+            if (revoked || failClosePending || ownerReleased)
             {
                 throw new InvalidOperationException(
-                    "The authenticated Remote Window connection generation was revoked.");
+                    "The authenticated Remote Window connection generation is no longer current.");
             }
 
             return CancellationTokenSource.CreateLinkedTokenSource(
@@ -744,6 +799,17 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         }
 
         return failure;
+    }
+
+    internal void MarkFailClosePending()
+    {
+        lock (gate)
+        {
+            if (!revoked && !ownerReleased)
+            {
+                failClosePending = true;
+            }
+        }
     }
 
     public void Dispose()

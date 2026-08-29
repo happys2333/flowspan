@@ -409,6 +409,237 @@ public sealed class RemoteWindowControlSessionConcurrencyTests
         await session.StopDispatchAsync();
     }
 
+    [Theory]
+    [InlineData(RemoteWindowPreparationOutcome.Ready)]
+    [InlineData(RemoteWindowPreparationOutcome.Rejected)]
+    public async Task PreparationResponseCompletionRunsAfterWireSendCommits(
+        RemoteWindowPreparationOutcome outcome)
+    {
+        var connection = new PreparationConnection(ParticipantId, HostId);
+        var peer = new ResponseCompletionPreparationPeer(ParticipantId, outcome);
+        await using var session = new RemoteWindowControlSession(
+            connection,
+            timeProvider: new FixedTimeProvider(Now),
+            preparationPeer: peer);
+        session.StartDispatch();
+        var sendStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSend = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int sendReturned = 0;
+        connection.SendCallback = async (_, cancellationToken) =>
+        {
+            sendStarted.TrySetResult();
+            await releaseSend.Task.WaitAsync(cancellationToken);
+            Volatile.Write(ref sendReturned, 1);
+        };
+        peer.ResponseCompletionCallback = (_, responseCommitted) =>
+        {
+            peer.SendReturnedAtCompletion = Volatile.Read(ref sendReturned) != 0;
+            peer.ResponseCommittedAtCompletion = responseCommitted;
+            return ValueTask.CompletedTask;
+        };
+
+        await session.DispatchAsync(
+            RemoteWindowControlMessageCodec.CreatePrepare(
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+                HostId,
+                CreatePreparation(),
+                Now),
+            CancellationToken.None);
+        await sendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(peer.ResponseCompletionCalled.Task.IsCompleted);
+        releaseSend.TrySetResult();
+        await peer.ResponseCompletionCalled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(peer.SendReturnedAtCompletion);
+        Assert.True(peer.ResponseCommittedAtCompletion);
+        Assert.Equal(1, peer.ResponseCompletionCount);
+        session.Cancel();
+        await session.StopDispatchAsync();
+    }
+
+    [Fact]
+    public async Task CommittedPreparationRejectionWaitsForPeerToCloseConnection()
+    {
+        var connection = new PreparationConnection(ParticipantId, HostId);
+        var peer = new ResponseCompletionPreparationPeer(
+            ParticipantId,
+            RemoteWindowPreparationOutcome.Rejected);
+        await using var session = new RemoteWindowControlSession(
+            connection,
+            timeProvider: new FixedTimeProvider(Now),
+            preparationPeer: peer);
+        session.StartDispatch();
+
+        await session.DispatchAsync(
+            RemoteWindowControlMessageCodec.CreatePrepare(
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+                HostId,
+                CreatePreparation(),
+                Now),
+            CancellationToken.None);
+        await peer.ResponseCompletionCalled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(peer.ResponseCommittedAtCompletion);
+        Assert.False(session.LifetimeCancellationToken.IsCancellationRequested);
+        session.Cancel();
+        await session.StopDispatchAsync();
+    }
+
+    [Fact]
+    public async Task CommittedPreparationRejectionCancelsAtOriginalDeadline()
+    {
+        var time = new ManualTimeProvider(Now);
+        var connection = new PreparationConnection(ParticipantId, HostId);
+        var peer = new ResponseCompletionPreparationPeer(
+            ParticipantId,
+            RemoteWindowPreparationOutcome.Rejected);
+        await using var session = new RemoteWindowControlSession(
+            connection,
+            timeProvider: time,
+            preparationPeer: peer);
+        var cancellationObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration cancellationRegistration =
+            session.LifetimeCancellationToken.Register(
+                () => cancellationObserved.TrySetResult());
+        session.StartDispatch();
+
+        try
+        {
+            await session.DispatchAsync(
+                RemoteWindowControlMessageCodec.CreatePrepare(
+                    ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+                    HostId,
+                    CreatePreparation(deadline: Now.AddSeconds(1)),
+                    Now),
+                CancellationToken.None);
+            await peer.ResponseCompletionCalled.Task.WaitAsync(
+                TimeSpan.FromSeconds(5));
+
+            Assert.True(peer.ResponseCommittedAtCompletion);
+            Assert.False(session.LifetimeCancellationToken.IsCancellationRequested);
+            time.Advance(TimeSpan.FromSeconds(1));
+            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(session.LifetimeCancellationToken.IsCancellationRequested);
+        }
+        finally
+        {
+            session.Cancel();
+            await session.StopDispatchAsync().AsTask().WaitAsync(
+                TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task PreparationResponseCompletionRunsWhenSendIsNotAdmitted()
+    {
+        var connection = new PreparationConnection(ParticipantId, HostId);
+        var peer = new ResponseCompletionPreparationPeer(
+            ParticipantId,
+            RemoteWindowPreparationOutcome.Ready);
+        await using var session = new RemoteWindowControlSession(
+            connection,
+            timeProvider: new FixedTimeProvider(Now),
+            preparationPeer: peer);
+        peer.PrepareCallback = session.Cancel;
+        session.StartDispatch();
+
+        await session.DispatchAsync(
+            RemoteWindowControlMessageCodec.CreatePrepare(
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+                HostId,
+                CreatePreparation(),
+                Now),
+            CancellationToken.None);
+        await peer.ResponseCompletionCalled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(peer.ResponseCommittedAtCompletion);
+        Assert.Equal(1, peer.ResponseCompletionCount);
+        Assert.Equal(0, connection.SendCount);
+        await session.StopDispatchAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task PreparationSendAndResponseCompletionFailuresAreBothObserved()
+    {
+        var connection = new PreparationConnection(ParticipantId, HostId);
+        var peer = new ResponseCompletionPreparationPeer(
+            ParticipantId,
+            RemoteWindowPreparationOutcome.Ready);
+        var sendFailure = new IOException("CANARY_RESPONSE_SEND_FAILURE");
+        var completionFailure = new InvalidOperationException(
+            "CANARY_RESPONSE_COMPLETION_FAILURE");
+        connection.SendCallback = (_, _) => ValueTask.FromException(sendFailure);
+        peer.ResponseCompletionCallback = (_, responseCommitted) =>
+        {
+            peer.ResponseCommittedAtCompletion = responseCommitted;
+            return ValueTask.FromException(completionFailure);
+        };
+        var session = new RemoteWindowControlSession(
+            connection,
+            timeProvider: new FixedTimeProvider(Now),
+            preparationPeer: peer);
+        session.StartDispatch();
+
+        await session.DispatchAsync(
+            RemoteWindowControlMessageCodec.CreatePrepare(
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+                HostId,
+                CreatePreparation(),
+                Now),
+            CancellationToken.None);
+        await peer.ResponseCompletionCalled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        AggregateException failure = await Assert.ThrowsAsync<AggregateException>(
+            () => session.StopDispatchAsync().AsTask());
+        Assert.False(peer.ResponseCommittedAtCompletion);
+        Assert.Equal(1, peer.ResponseCompletionCount);
+        Assert.Contains(sendFailure, failure.Flatten().InnerExceptions);
+        Assert.Contains(completionFailure, failure.Flatten().InnerExceptions);
+        await Assert.ThrowsAsync<AggregateException>(
+            () => session.DisposeAsync().AsTask());
+    }
+
+    [Theory]
+    [InlineData(RemoteWindowPreparationOutcome.Ready)]
+    [InlineData(RemoteWindowPreparationOutcome.Rejected)]
+    public async Task PreparationResponseCompletionCanStopOwningSessionWithoutSelfWaiting(
+        RemoteWindowPreparationOutcome outcome)
+    {
+        var connection = new PreparationConnection(ParticipantId, HostId);
+        var peer = new ResponseCompletionPreparationPeer(
+            ParticipantId,
+            outcome);
+        var session = new RemoteWindowControlSession(
+            connection,
+            timeProvider: new FixedTimeProvider(Now),
+            preparationPeer: peer);
+        var stopReturned = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        peer.ResponseCompletionCallback = async (_, _) =>
+        {
+            await session.StopDispatchAsync();
+            stopReturned.TrySetResult();
+        };
+        session.StartDispatch();
+
+        await session.DispatchAsync(
+            RemoteWindowControlMessageCodec.CreatePrepare(
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+                HostId,
+                CreatePreparation(),
+                Now),
+            CancellationToken.None);
+
+        await stopReturned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await session.StopDispatchAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, peer.ResponseCompletionCount);
+        await session.DisposeAsync();
+    }
+
     [Fact]
     public async Task PreparationDeadlineCancelsBlockedParticipantBoundary()
     {
@@ -2092,7 +2323,7 @@ public sealed class RemoteWindowControlSessionConcurrencyTests
     }
 
     [Fact]
-    public async Task RejectionDuringPrepareSendRemainsAcknowledgedWhileClosingConnection()
+    public async Task RejectionDuringPrepareSendReturnsBeforeExplicitConnectionClose()
     {
         var connection = new PreparationConnection(HostId, ParticipantId);
         var session = new RemoteWindowControlSession(
@@ -2120,20 +2351,84 @@ public sealed class RemoteWindowControlSessionConcurrencyTests
                         "participant_busy"),
                     Now),
                 CancellationToken.None);
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
         };
 
-        RemoteWindowPreparationDeliveryResult result = await session.PrepareAsync(
-            preparation,
-            CancellationToken.None);
+        try
+        {
+            RemoteWindowPreparationDeliveryResult result = await session.PrepareAsync(
+                preparation,
+                CancellationToken.None);
 
-        Assert.Equal(RemoteWindowControlDeliveryStatus.Acknowledged, result.Status);
-        RemoteWindowPreparationResponse response =
-            Assert.IsType<RemoteWindowPreparationResponse>(result.Response);
-        Assert.Equal(RemoteWindowPreparationOutcome.Rejected, response.Outcome);
-        Assert.Equal("participant_busy", response.ReasonCode);
-        await session.StopDispatchAsync();
-        await session.DisposeAsync();
+            Assert.Equal(RemoteWindowControlDeliveryStatus.Acknowledged, result.Status);
+            RemoteWindowPreparationResponse response =
+                Assert.IsType<RemoteWindowPreparationResponse>(result.Response);
+            Assert.Equal(RemoteWindowPreparationOutcome.Rejected, response.Outcome);
+            Assert.Equal("participant_busy", response.ReasonCode);
+            Assert.False(session.LifetimeCancellationToken.IsCancellationRequested);
+        }
+        finally
+        {
+            session.Cancel();
+            await session.StopDispatchAsync();
+            await session.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task CommittedOutboundRejectionNeverCancelsBeforeCallerObservesResponse()
+    {
+        const int attempts = 64;
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            var connection = new PreparationConnection(HostId, ParticipantId);
+            var session = new RemoteWindowControlSession(
+                connection,
+                timeProvider: new FixedTimeProvider(Now));
+            session.StartDispatch();
+            RemoteWindowPreparationRequest preparation =
+                RemoteWindowPreparationRequest.Create(
+                    CorrelationId.From(Guid.NewGuid()),
+                    SessionId,
+                    ActivityId,
+                    HostId,
+                    ParticipantId,
+                    MirrorParticipantRole.ViewOnly,
+                    Now.AddSeconds(10));
+            Task<RemoteWindowPreparationDeliveryResult> preparing =
+                session.PrepareAsync(preparation, CancellationToken.None).AsTask();
+            await connection.Sent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            try
+            {
+                await Task.Run(async () => await session.DispatchAsync(
+                    RemoteWindowControlMessageCodec.CreateReady(
+                        ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+                        ParticipantId,
+                        RemoteWindowPreparationResponse.Create(
+                            preparation,
+                            RemoteWindowPreparationOutcome.Rejected,
+                            "participant_busy"),
+                        Now),
+                    CancellationToken.None));
+                RemoteWindowPreparationDeliveryResult result =
+                    await preparing.WaitAsync(TimeSpan.FromSeconds(5));
+
+                Assert.Equal(
+                    RemoteWindowControlDeliveryStatus.Acknowledged,
+                    result.Status);
+                Assert.Equal(
+                    RemoteWindowPreparationOutcome.Rejected,
+                    Assert.IsType<RemoteWindowPreparationResponse>(result.Response)
+                        .Outcome);
+                Assert.False(session.LifetimeCancellationToken.IsCancellationRequested);
+            }
+            finally
+            {
+                session.Cancel();
+                await session.StopDispatchAsync();
+                await session.DisposeAsync();
+            }
+        }
     }
 
     [Fact]
@@ -3305,6 +3600,73 @@ public sealed class RemoteWindowControlSessionConcurrencyTests
             AdmissionCompleted.TrySetResult();
             return ValueTask.CompletedTask;
         }
+
+        public ValueTask PeerDisconnectedAsync(
+            DeviceId hostDeviceId,
+            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+    }
+
+    private sealed class ResponseCompletionPreparationPeer(
+        DeviceId participantDeviceId,
+        RemoteWindowPreparationOutcome outcome) : IRemoteWindowPreparationPeer
+    {
+        private int responseCompletionCount;
+
+        public DeviceId ParticipantDeviceId { get; } = participantDeviceId;
+
+        public Action? PrepareCallback { get; set; }
+
+        public Func<RemoteWindowPreparationResponse, bool, ValueTask>?
+            ResponseCompletionCallback
+        { get; set; }
+
+        public TaskCompletionSource ResponseCompletionCalled { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ResponseCompletionCount =>
+            Volatile.Read(ref responseCompletionCount);
+
+        public bool ResponseCommittedAtCompletion { get; set; }
+
+        public bool SendReturnedAtCompletion { get; set; }
+
+        public ValueTask<RemoteWindowPreparationResponse> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken)
+        {
+            PrepareCallback?.Invoke();
+            return ValueTask.FromResult(
+                RemoteWindowPreparationResponse.Create(
+                    request,
+                    outcome,
+                    outcome is RemoteWindowPreparationOutcome.Ready
+                        ? "participant_ready"
+                        : "participant_busy"));
+        }
+
+        public async ValueTask CompletePreparationResponseAsync(
+            RemoteWindowPreparationResponse response,
+            bool responseCommitted)
+        {
+            Interlocked.Increment(ref responseCompletionCount);
+            ResponseCommittedAtCompletion = responseCommitted;
+            try
+            {
+                if (ResponseCompletionCallback is not null)
+                {
+                    await ResponseCompletionCallback(response, responseCommitted);
+                }
+            }
+            finally
+            {
+                ResponseCompletionCalled.TrySetResult();
+            }
+        }
+
+        public ValueTask CompleteAdmissionAsync(
+            RemoteWindowPreparationRequest request,
+            RemoteWindowParticipantState state,
+            CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask PeerDisconnectedAsync(
             DeviceId hostDeviceId,

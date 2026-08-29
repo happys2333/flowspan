@@ -229,6 +229,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private readonly IMirrorAuthorizationSource authorization;
     private readonly INativeRemoteWindowCaptureBoundary capture;
     private readonly IClock clock;
+    private readonly object callbackOwner = new();
     private readonly DesktopRemoteWindowHostControlPeer controlPeer;
     private readonly TaskCompletionSource disposalCompletion = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
@@ -326,8 +327,10 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 throw StartFailure("host_session_busy");
             }
 
-            NativeRemoteWindowSourceSnapshot source =
-                ValidateCurrentHostFacts(request);
+            NativeRemoteWindowSourceSnapshot source = ValidateCurrentHostFacts(
+                request,
+                generation: null,
+                out NativeRemoteWindowPermissionSnapshot initialPermission);
             DateTimeOffset now = CanonicalUtc(clock.UtcNow);
             RemoteWindowSessionId sessionId = RemoteWindowSessionId.From(
                 Guid.NewGuid());
@@ -380,7 +383,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 mediaBudget,
                 sessionId,
                 correlationId,
-                deadline);
+                deadline,
+                initialPermission,
+                callbackOwner);
             RemoteWindowSessionController controller = pendingController;
             pendingController = null;
             pendingAdmission = null;
@@ -415,7 +420,10 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 .ConfigureAwait(false);
 
             EnsurePreparationIsCurrent(generation);
-            source = ValidateCurrentHostFacts(request);
+            source = ValidateCurrentHostFacts(
+                request,
+                generation,
+                out _);
             RegisterProtectionObserver(generation);
             ProtectionSnapshot initialProtection =
                 ReadCurrentSafeProtection(generation, source);
@@ -454,14 +462,14 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             RemoteWindowParticipantState admissionState = CreateAdmissionState(
                 generation,
                 admitted);
-            _ = ValidateCurrentHostFacts(request);
+            _ = ValidateCurrentHostFacts(request, generation, out _);
             _ = ReadCurrentSafeProtection(generation, source);
             EnsureFinalAdmissionIsCurrent(generation);
             await request.Connection.PublishAdmissionStateAsync(
                     admissionState,
                     cancellationToken)
                 .ConfigureAwait(false);
-            _ = ValidateCurrentHostFacts(request);
+            _ = ValidateCurrentHostFacts(request, generation, out _);
             _ = ReadCurrentSafeProtection(generation, source);
             EnsureFinalAdmissionIsCurrent(generation);
             if (!generation.Admission.TryOpen())
@@ -528,6 +536,12 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     public async ValueTask<RemoteWindowStopResult> StopAsync(
         CancellationToken cancellationToken = default)
     {
+        if (RuntimeGeneration.HasActiveCallbackAncestry(callbackOwner))
+        {
+            throw new InvalidOperationException(
+                "A Remote Window host stop cannot wait from a generation callback.");
+        }
+
         ThrowIfDisposed();
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -595,12 +609,16 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
+        bool calledFromCallback = RuntimeGeneration.HasActiveCallbackAncestry(
+            callbackOwner);
         if (Interlocked.Exchange(ref disposed, 1) == 0)
         {
             _ = CompleteDisposalAsync();
         }
 
-        return new ValueTask(disposalCompletion.Task);
+        return calledFromCallback
+            ? ValueTask.CompletedTask
+            : new ValueTask(disposalCompletion.Task);
     }
 
     private async Task CompleteDisposalAsync()
@@ -648,15 +666,44 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     {
         generation.PermissionChanged = snapshot =>
         {
-            if (snapshot.OwnerGeneration != generation.Request.OwnerGeneration
-                || PermissionsAllow(snapshot, generation.Request.Role))
+            if (!generation.TryEnterCallback(
+                    out RuntimeGeneration.CallbackLease? callback)
+                || callback is null)
             {
                 return;
             }
 
-            RequestTerminalShutdown(
-                generation,
-                failCloseImmediately: true);
+            using (callback)
+            {
+                if (snapshot.OwnerGeneration
+                    != generation.Request.OwnerGeneration)
+                {
+                    try
+                    {
+                        snapshot = permissions.GetSnapshot();
+                    }
+                    catch (Exception exception) when (
+                        exception is not OutOfMemoryException)
+                    {
+                        RequestTerminalShutdown(
+                            generation,
+                            failCloseImmediately: true);
+                        return;
+                    }
+                }
+
+                if (!generation.TryAcceptPermissionSnapshot(
+                        snapshot,
+                        out bool permissionsAllow)
+                    || permissionsAllow)
+                {
+                    return;
+                }
+
+                RequestTerminalShutdown(
+                    generation,
+                    failCloseImmediately: true);
+            }
         };
         permissions.Changed += generation.PermissionChanged;
         generation.PermissionObserverRegistered = true;
@@ -664,8 +711,20 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             .RegisterRevocationCallback(() => OnConnectionRevoked(generation));
     }
 
-    private void OnConnectionRevoked(RuntimeGeneration generation) =>
-        RequestTerminalShutdown(generation, failCloseImmediately: false);
+    private void OnConnectionRevoked(RuntimeGeneration generation)
+    {
+        if (!generation.TryEnterCallback(
+                out RuntimeGeneration.CallbackLease? callback)
+            || callback is null)
+        {
+            return;
+        }
+
+        using (callback)
+        {
+            RequestTerminalShutdown(generation, failCloseImmediately: false);
+        }
+    }
 
     private void OnMediaFault(
         RuntimeGeneration? generation,
@@ -677,7 +736,17 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             return;
         }
 
-        RequestTerminalShutdown(generation, failCloseImmediately: true);
+        if (!generation.TryEnterCallback(
+                out RuntimeGeneration.CallbackLease? callback)
+            || callback is null)
+        {
+            return;
+        }
+
+        using (callback)
+        {
+            RequestTerminalShutdown(generation, failCloseImmediately: true);
+        }
     }
 
     private void RequestTerminalShutdown(
@@ -769,19 +838,30 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     {
         generation.ProtectionChanged = observation =>
         {
-            if (!MatchesProtectionIdentity(generation, observation)
-                || !generation.TryAcceptProtectionRevision(observation.Revision))
+            if (!generation.TryEnterCallback(
+                    out RuntimeGeneration.CallbackLease? callback)
+                || callback is null)
             {
                 return;
             }
 
-            if (!IsFreshSafe(observation.Protection, clock.UtcNow))
+            using (callback)
             {
-                generation.CloseAdmissionNow();
-            }
+                if (!MatchesProtectionIdentity(generation, observation)
+                    || !generation.TryAcceptProtectionRevision(
+                        observation.Revision))
+                {
+                    return;
+                }
 
-            _ = generation.Controller.ApplyProtectionSnapshot(
-                observation.Protection);
+                if (!IsFreshSafe(observation.Protection, clock.UtcNow))
+                {
+                    generation.CloseAdmissionNow();
+                }
+
+                _ = generation.Controller.ApplyProtectionSnapshot(
+                    observation.Protection);
+            }
         };
         generation.Request.Protection.Changed += generation.ProtectionChanged;
         generation.ProtectionObserverRegistered = true;
@@ -795,16 +875,26 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 FirstSessionGeneration,
                 activation =>
                 {
-                    if (activation.OwnerGeneration
-                            != generation.Request.OwnerGeneration
-                        || activation.SessionGeneration
-                            != FirstSessionGeneration)
+                    if (!generation.TryEnterCallback(
+                            out RuntimeGeneration.CallbackLease? callback)
+                        || callback is null)
                     {
                         return;
                     }
 
-                    generation.CloseAdmissionNow();
-                    _ = generation.Controller.EmergencyStop();
+                    using (callback)
+                    {
+                        if (activation.OwnerGeneration
+                                != generation.Request.OwnerGeneration
+                            || activation.SessionGeneration
+                                != FirstSessionGeneration)
+                        {
+                            return;
+                        }
+
+                        generation.CloseAdmissionNow();
+                        _ = generation.Controller.EmergencyStop();
+                    }
                 });
         if (!registration.Registered || registration.Registration is null)
         {
@@ -816,7 +906,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     }
 
     private NativeRemoteWindowSourceSnapshot ValidateCurrentHostFacts(
-        DesktopRemoteWindowHostStartRequest request)
+        DesktopRemoteWindowHostStartRequest request,
+        RuntimeGeneration? generation,
+        out NativeRemoteWindowPermissionSnapshot permission)
     {
         if (!request.SourceLease.TryGetCurrentSnapshot(
                 out NativeRemoteWindowSourceSnapshot? current)
@@ -851,10 +943,22 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     : "authenticated_connection_stale");
         }
 
-        NativeRemoteWindowPermissionSnapshot permission =
-            permissions.GetSnapshot();
-        if (permission.OwnerGeneration != request.OwnerGeneration
-            || !PermissionsAllow(permission, request.Role))
+        permission = permissions.GetSnapshot();
+        bool permissionsAllow;
+        if (generation is null)
+        {
+            permissionsAllow = permission.OwnerGeneration
+                    == request.OwnerGeneration
+                && PermissionsAllow(permission, request.Role);
+        }
+        else
+        {
+            _ = generation.TryAcceptPermissionSnapshot(
+                permission,
+                out permissionsAllow);
+        }
+
+        if (!permissionsAllow)
         {
             throw StartFailure("native_permission_denied");
         }
@@ -1009,6 +1113,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         RuntimeGeneration generation,
         bool controllerAlreadyStopped)
     {
+        Task callbackDrain = generation.RetireCallbacks();
         var failures = new List<Exception>();
         CaptureFailure(failures, generation.CloseAdmissionNow);
         CaptureFailure(failures, () => generation.ConnectionRevocation?.Dispose());
@@ -1029,6 +1134,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 failures,
                 () => permissions.Changed -= generation.PermissionChanged);
         }
+
+        await callbackDrain.ConfigureAwait(false);
 
         if (!controllerAlreadyStopped)
         {
@@ -1202,11 +1309,21 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         RemoteWindowMediaSessionBudget mediaBudget,
         RemoteWindowSessionId sessionId,
         CorrelationId correlationId,
-        DateTimeOffset deadline)
+        DateTimeOffset deadline,
+        NativeRemoteWindowPermissionSnapshot initialPermission,
+        object callbackOwner)
     {
+        private static readonly AsyncLocal<CallbackScope?> CallbackAncestry = new();
+        private NativeRemoteWindowPermissionSnapshot acceptedPermission =
+            initialPermission;
+        private readonly HashSet<CallbackLease> activeCallbacks = [];
+        private readonly object callbackGate = new();
+        private readonly object callbackOwner = callbackOwner;
         private readonly object protectionGate = new();
+        private readonly object permissionGate = new();
         private readonly object connectionFailCloseGate = new();
         private readonly object cleanupGate = new();
+        private bool callbacksRetired;
         private Task<Exception?>? cleanup;
         private Task<Exception?>? connectionFailClose;
         private long protectionRevision;
@@ -1268,6 +1385,81 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             ControlRegistration?.CloseNow();
             Admission.CloseNow();
             Media.StopNow();
+        }
+
+        public bool TryEnterCallback(out CallbackLease? callback)
+        {
+            lock (callbackGate)
+            {
+                if (callbacksRetired)
+                {
+                    callback = null;
+                    return false;
+                }
+
+                callback = new CallbackLease(this);
+                callback.Activate();
+                _ = activeCallbacks.Add(callback);
+                return true;
+            }
+        }
+
+        public Task RetireCallbacks()
+        {
+            CallbackLease[] callbacks;
+            lock (callbackGate)
+            {
+                callbacksRetired = true;
+                callbacks = [.. activeCallbacks];
+            }
+
+            return callbacks.Length == 0
+                ? Task.CompletedTask
+                : Task.WhenAll(callbacks.Select(
+                    static callback => callback.Completion));
+        }
+
+        public static bool HasActiveCallbackAncestry(object owner)
+        {
+            ArgumentNullException.ThrowIfNull(owner);
+            for (CallbackScope? scope = CallbackAncestry.Value;
+                scope is not null;
+                scope = scope.Previous)
+            {
+                if (scope.IsActive && ReferenceEquals(scope.Owner, owner))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool TryAcceptPermissionSnapshot(
+            NativeRemoteWindowPermissionSnapshot snapshot,
+            out bool permissionsAllow)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+            lock (permissionGate)
+            {
+                if (snapshot.OwnerGeneration != Request.OwnerGeneration)
+                {
+                    permissionsAllow = false;
+                    return true;
+                }
+
+                if (snapshot.Revision < acceptedPermission.Revision)
+                {
+                    permissionsAllow = PermissionsAllow(
+                        acceptedPermission,
+                        Request.Role);
+                    return false;
+                }
+
+                acceptedPermission = snapshot;
+                permissionsAllow = PermissionsAllow(snapshot, Request.Role);
+                return true;
+            }
         }
 
         public bool TryAcceptProtectionRevision(long revision)
@@ -1339,6 +1531,69 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             {
                 return exception;
             }
+        }
+
+        private void ExitCallback(CallbackLease callback)
+        {
+            lock (callbackGate)
+            {
+                _ = activeCallbacks.Remove(callback);
+            }
+        }
+
+        public sealed class CallbackLease(RuntimeGeneration owner) : IDisposable
+        {
+            private readonly TaskCompletionSource completion = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly CallbackScope scope = new(
+                owner.callbackOwner,
+                CallbackAncestry.Value);
+            private RuntimeGeneration? owner = owner;
+
+            public Task Completion => completion.Task;
+
+            public void Dispose()
+            {
+                RuntimeGeneration? current = Interlocked.Exchange(
+                    ref owner,
+                    null);
+                if (current is null)
+                {
+                    return;
+                }
+
+                scope.Deactivate();
+                if (ReferenceEquals(CallbackAncestry.Value, scope))
+                {
+                    CallbackAncestry.Value = scope.Previous;
+                }
+
+                current.ExitCallback(this);
+                completion.TrySetResult();
+            }
+
+            public void Activate()
+            {
+                scope.Activate();
+                CallbackAncestry.Value = scope;
+            }
+        }
+
+        private sealed class CallbackScope(
+            object owner,
+            CallbackScope? previous)
+        {
+            private int active;
+
+            public bool IsActive => Volatile.Read(ref active) != 0;
+
+            public object Owner { get; } = owner;
+
+            public CallbackScope? Previous { get; } = previous;
+
+            public void Activate() => Volatile.Write(ref active, 1);
+
+            public void Deactivate() => Volatile.Write(ref active, 0);
         }
     }
 

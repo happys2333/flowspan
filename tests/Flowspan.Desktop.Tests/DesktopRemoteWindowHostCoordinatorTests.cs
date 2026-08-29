@@ -547,6 +547,182 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task ChangedPermissionOwnerInvalidatesTheActiveGeneration()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        Assert.True((await host.StartAsync()).Succeeded);
+
+        host.Permissions.Notify(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 2,
+                revision: 1));
+        Assert.NotNull(coordinator.Snapshot);
+        Assert.Equal(0, host.Capture.EmergencyStopCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+
+        host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 2,
+                revision: 1));
+
+        await host.Connection.WaitForDisposeAsync();
+        Assert.Null(coordinator.Snapshot);
+        Assert.Null(coordinator.TerminalFailure);
+        Assert.Equal(1, host.Capture.EmergencyStopCount);
+        Assert.Equal(1, host.Input.EmergencyStopCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.True(host.Protection.IsDisposed);
+    }
+
+    [Fact]
+    public async Task StalePermissionRevisionCannotStopTheActiveGeneration()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        Assert.True((await host.StartAsync()).Succeeded);
+        host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Granted,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 3));
+
+        host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 2));
+
+        Assert.NotNull(coordinator.Snapshot);
+        Assert.Equal(0, host.Capture.EmergencyStopCount);
+        Assert.Equal(0, host.Input.EmergencyStopCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(0, host.Connection.DisposeCount);
+
+        host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 4));
+
+        await host.Connection.WaitForDisposeAsync();
+        Assert.Null(coordinator.Snapshot);
+        Assert.Null(coordinator.TerminalFailure);
+        Assert.Equal(1, host.Capture.EmergencyStopCount);
+        Assert.Equal(1, host.Input.EmergencyStopCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+    }
+
+    [Fact]
+    public async Task CapturedPermissionCallbackFromStoppedGenerationCannotPoisonReplacement()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        Assert.True((await host.StartAsync()).Succeeded);
+        Action<NativeRemoteWindowPermissionSnapshot> staleCallback =
+            host.Permissions.CaptureObservers();
+
+        Assert.True((await coordinator.StopAsync()).FullyStopped);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        host.Permissions.ReplaceCurrent(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Granted,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 3));
+        var replacementConnection = new RecordingHostConnection(
+            host.Timeline,
+            HostDeviceId,
+            ParticipantDeviceId)
+        {
+            PrepareResponse = ReadyPreparation,
+        };
+        RecordingProtectionSource replacementProtection =
+            host.CreateProtection();
+        Assert.True((await coordinator.StartAsync(host.CreateRequest(
+            replacementConnection,
+            replacementProtection))).Succeeded);
+
+        staleCallback(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 4));
+
+        Assert.NotNull(coordinator.Snapshot);
+        Assert.Null(coordinator.TerminalFailure);
+        Assert.Equal(0, replacementConnection.FailCloseCount);
+        Assert.Equal(0, replacementConnection.DisposeCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+
+        Assert.True((await coordinator.StopAsync()).FullyStopped);
+        Assert.Equal(1, replacementConnection.FailCloseCount);
+        Assert.Equal(1, replacementConnection.DisposeCount);
+        Assert.True(replacementProtection.IsDisposed);
+    }
+
+    [Fact]
+    public async Task GenerationCallbackCannotWaitForItsOwnStopOrDisposalDrain()
+    {
+        using var host = new ReadyHostHarness();
+        DesktopRemoteWindowHostCoordinator coordinator = host.Coordinator;
+        Exception? stopFailure = null;
+        var callbackDisposalReturned = false;
+        host.Capture.EmergencyStopping = () =>
+        {
+            try
+            {
+                _ = coordinator.StopAsync().AsTask().GetAwaiter().GetResult();
+            }
+            catch (Exception exception)
+            {
+                stopFailure = exception;
+            }
+
+            coordinator.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            callbackDisposalReturned = true;
+        };
+        Assert.True((await host.StartAsync()).Succeeded);
+
+        host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 2));
+        await coordinator.DisposeAsync();
+
+        InvalidOperationException rejectedStop = Assert.IsType<
+            InvalidOperationException>(stopFailure);
+        Assert.Contains("generation callback", rejectedStop.Message);
+        Assert.True(callbackDisposalReturned);
+        Assert.Null(coordinator.Snapshot);
+        Assert.Null(coordinator.TerminalFailure);
+        Assert.Equal(1, host.Capture.EmergencyStopCount);
+        Assert.Equal(1, host.Input.EmergencyStopCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.True(host.Protection.IsDisposed);
+    }
+
+    [Fact]
     public async Task ConcurrentAndLaterDisposeCallsShareCleanupFailure()
     {
         using var host = new ReadyHostHarness();
@@ -1151,6 +1327,16 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             current = snapshot;
             changed?.Invoke(snapshot);
         }
+
+        public void Notify(NativeRemoteWindowPermissionSnapshot snapshot) =>
+            changed?.Invoke(snapshot);
+
+        public Action<NativeRemoteWindowPermissionSnapshot> CaptureObservers() =>
+            changed ?? throw new InvalidOperationException(
+                "No permission observer is registered.");
+
+        public void ReplaceCurrent(
+            NativeRemoteWindowPermissionSnapshot snapshot) => current = snapshot;
     }
 
     private sealed class RecordingProtectionSource(
@@ -1247,6 +1433,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public int EmergencyStopCount { get; private set; }
 
+        public Action? EmergencyStopping { get; set; }
+
         public int StopCount { get; private set; }
 
         public LocalBoundaryResult StopResult { get; set; } =
@@ -1286,6 +1474,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public LocalBoundaryResult EmergencyStopNow()
         {
+            EmergencyStopping?.Invoke();
             EmergencyStopCount++;
             return LocalBoundaryResult.Confirmed(
                 "native_capture_emergency_stopped");

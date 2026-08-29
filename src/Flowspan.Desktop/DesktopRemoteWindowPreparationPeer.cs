@@ -98,6 +98,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
     private readonly IDesktopRemoteWindowParticipantRendererFactory rendererFactory;
     private readonly TimeProvider timeProvider;
     private readonly TryAcquireDesktopRemoteWindowPeerConnection tryAcquireConnection;
+    private ParticipantGeneration? pendingResponseCleanup;
     private int disposed;
 
     public DesktopRemoteWindowPreparationPeer(
@@ -197,7 +198,9 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
 
             stage = PreparationStage.AttachingMedia;
             generation.MarkConnectionAttempted();
-            await lease.ConnectInitiatorAsync(request, generation.Token)
+            await lease.ConnectInitiatorForPreparationAsync(
+                    request,
+                    generation.Token)
                 .ConfigureAwait(false);
 
             stage = PreparationStage.PreparingRenderer;
@@ -246,15 +249,21 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            await CleanupGenerationAfterFailureAsync(
-                generation,
-                generation.ConnectionAttempted,
-                exception).ConfigureAwait(false);
             string reason = stage is PreparationStage.PreparingRenderer
                 ? "renderer_start_failed"
                 : stage is PreparationStage.AttachingMedia
                     ? "media_attachment_failed"
                     : "media_unavailable";
+            if (stage is PreparationStage.AttachingMedia
+                && TryDeferResponseCleanup(generation, exception))
+            {
+                return Rejected(request, reason);
+            }
+
+            await CleanupGenerationAfterFailureAsync(
+                generation,
+                generation.ConnectionAttempted,
+                exception).ConfigureAwait(false);
             return Rejected(request, reason);
         }
         finally
@@ -262,6 +271,40 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
             generation.CompletePreparation();
             CurrentPreparer.Value = previousPreparer;
         }
+    }
+
+    public async ValueTask CompletePreparationResponseAsync(
+        RemoteWindowPreparationResponse response,
+        bool responseCommitted)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        ValidateParticipantBinding(response.Request);
+        ParticipantGeneration? generation;
+        lock (gate)
+        {
+            generation = pendingResponseCleanup;
+            if (generation is null || generation.Request != response.Request)
+            {
+                return;
+            }
+
+            if (response.Outcome is not RemoteWindowPreparationOutcome.Rejected)
+            {
+                throw new InvalidDataException(
+                    "A pending Remote Window preparation cleanup requires a rejected response.");
+            }
+
+            pendingResponseCleanup = null;
+        }
+
+        Exception primaryFailure = generation.PreparationFailure
+            ?? new InvalidOperationException(
+                "The rejected Remote Window preparation lost its primary failure.");
+        await CleanupGenerationAfterFailureAsync(
+                generation,
+                failClose: !responseCommitted,
+                primaryFailure)
+            .ConfigureAwait(false);
     }
 
     private async ValueTask CleanupGenerationAfterFailureAsync(
@@ -373,7 +416,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         ParticipantGeneration? generation = DetachGeneration(hostDeviceId);
         if (generation is not null)
         {
-            await CleanupGenerationAsync(generation, failClose: true)
+            await CleanupTerminalGenerationAsync(generation)
                 .ConfigureAwait(false);
         }
     }
@@ -465,15 +508,19 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         ParticipantGeneration? generation;
         lock (gate)
         {
-            generation = active[0];
+            generation = active[0] ?? pendingResponseCleanup;
             active[0] = null;
+            if (ReferenceEquals(pendingResponseCleanup, generation))
+            {
+                pendingResponseCleanup = null;
+            }
         }
 
         if (generation is not null)
         {
             try
             {
-                await CleanupGenerationAsync(generation, failClose: true)
+                await CleanupTerminalGenerationAsync(generation)
                     .ConfigureAwait(false);
             }
             catch (Exception exception)
@@ -585,17 +632,35 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         }
     }
 
+    private ValueTask CleanupTerminalGenerationAsync(
+        ParticipantGeneration generation)
+    {
+        Exception? primaryFailure = generation.PreparationFailure;
+        return primaryFailure is null
+            ? CleanupGenerationAsync(generation, failClose: true)
+            : CleanupGenerationAfterFailureAsync(
+                generation,
+                failClose: true,
+                primaryFailure);
+    }
+
     private ParticipantGeneration? DetachGeneration(DeviceId hostDeviceId)
     {
         lock (gate)
         {
-            ParticipantGeneration? generation = active[0];
+            ParticipantGeneration? generation =
+                active[0] ?? pendingResponseCleanup;
             if (generation?.Request.HostDeviceId != hostDeviceId)
             {
                 return null;
             }
 
             active[0] = null;
+            if (ReferenceEquals(pendingResponseCleanup, generation))
+            {
+                pendingResponseCleanup = null;
+            }
+
             return generation;
         }
     }
@@ -608,6 +673,26 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
             {
                 active[0] = null;
             }
+        }
+    }
+
+    private bool TryDeferResponseCleanup(
+        ParticipantGeneration generation,
+        Exception primaryFailure)
+    {
+        lock (gate)
+        {
+            if (disposed != 0
+                || !ReferenceEquals(active[0], generation)
+                || generation.Token.IsCancellationRequested
+                || pendingResponseCleanup is not null)
+            {
+                return false;
+            }
+
+            generation.RecordPreparationFailure(primaryFailure);
+            pendingResponseCleanup = generation;
+            return true;
         }
     }
 
@@ -718,6 +803,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         private int connectionAttempted;
         private int admitted;
         private int ready;
+        private Exception? preparationFailure;
         private Exception? receiveFailure;
         private CancellationTokenRegistration revocationRegistration;
         private int revocationRegistrationAttached;
@@ -747,6 +833,9 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         public Task? ReceiveTask { get; private set; }
 
         public Task PreparationCompletion => preparationCompletion.Task;
+
+        public Exception? PreparationFailure => Volatile.Read(
+            ref preparationFailure);
 
         public Exception? ReceiveFailure => Volatile.Read(ref receiveFailure);
 
@@ -828,6 +917,9 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
 
         public void RecordReceiveFailure(Exception exception) =>
             Interlocked.CompareExchange(ref receiveFailure, exception, null);
+
+        public void RecordPreparationFailure(Exception exception) =>
+            Interlocked.CompareExchange(ref preparationFailure, exception, null);
 
         public void SetReceiveTask(Task task) =>
             ReceiveTask = task ?? throw new ArgumentNullException(nameof(task));

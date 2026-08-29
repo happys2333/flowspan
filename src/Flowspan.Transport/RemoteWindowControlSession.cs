@@ -100,6 +100,10 @@ public interface IRemoteWindowPreparationPeer
         RemoteWindowPreparationRequest request,
         CancellationToken cancellationToken);
 
+    public ValueTask CompletePreparationResponseAsync(
+        RemoteWindowPreparationResponse response,
+        bool responseCommitted) => ValueTask.CompletedTask;
+
     public ValueTask CompleteAdmissionAsync(
         RemoteWindowPreparationRequest request,
         RemoteWindowParticipantState state,
@@ -1505,45 +1509,76 @@ internal sealed class RemoteWindowControlSession :
                     "The local Remote Window preparation endpoint changed its binding.");
             }
 
-            ValidateIncoming(preparation.Request.Deadline);
-            lock (preparationGate)
+            Exception? responseDeliveryFailure = null;
+            bool responseCommitted = false;
+            try
             {
-                if (!ReferenceEquals(inboundPreparation, preparation)
-                    || preparation.State != InboundPreparationState.Preparing)
+                ValidateIncoming(preparation.Request.Deadline);
+                lock (preparationGate)
                 {
-                    throw new InvalidDataException(
-                        "The Remote Window preparation raced a terminal state.");
+                    if (!ReferenceEquals(inboundPreparation, preparation)
+                        || preparation.State != InboundPreparationState.Preparing)
+                    {
+                        throw new InvalidDataException(
+                            "The Remote Window preparation raced a terminal state.");
+                    }
+
+                    preparation.Response = response;
+                    if (response.Outcome is RemoteWindowPreparationOutcome.Rejected)
+                    {
+                        preparation.State = InboundPreparationState.Rejected;
+                    }
                 }
 
-                preparation.Response = response;
-                if (response.Outcome is RemoteWindowPreparationOutcome.Rejected)
+                ControlMessage ready = RemoteWindowControlMessageCodec.CreateReady(
+                    connection.ProtocolVersion,
+                    connection.LocalDeviceId,
+                    response,
+                    timeProvider.GetUtcNow());
+                responseCommitted = response.Outcome is
+                    RemoteWindowPreparationOutcome.Ready
+                    ? await TrySendReadyMessageAsync(ready, preparation)
+                        .ConfigureAwait(false)
+                    : await TrySendMessageAsync(
+                            ready,
+                            preparation.Cancellation.Token,
+                            preparation.Request.Deadline)
+                        .ConfigureAwait(false);
+                if (!responseCommitted)
                 {
-                    preparation.State = InboundPreparationState.Rejected;
+                    throw new OperationCanceledException(
+                        "The Remote Window readiness result could not be sent.");
                 }
             }
-
-            ControlMessage ready = RemoteWindowControlMessageCodec.CreateReady(
-                connection.ProtocolVersion,
-                connection.LocalDeviceId,
-                response,
-                timeProvider.GetUtcNow());
-            bool readySent = response.Outcome is RemoteWindowPreparationOutcome.Ready
-                ? await TrySendReadyMessageAsync(ready, preparation).ConfigureAwait(false)
-                : await TrySendMessageAsync(
-                    ready,
-                    preparation.Cancellation.Token,
-                    preparation.Request.Deadline).ConfigureAwait(false);
-            if (!readySent)
+            catch (Exception exception)
             {
-                throw new OperationCanceledException(
-                    "The Remote Window readiness result could not be sent.");
+                responseDeliveryFailure = exception;
             }
 
-            if (response.Outcome is RemoteWindowPreparationOutcome.Rejected)
+            try
             {
-                Cancel();
+                using SessionCallLease sessionCall = EnterSessionCall(
+                    activePreparationCall);
+                await target.CompletePreparationResponseAsync(
+                        response,
+                        responseCommitted)
+                    .ConfigureAwait(false);
             }
-            else
+            catch (Exception exception)
+            {
+                responseDeliveryFailure = CombineResponseCompletionFailures(
+                    responseDeliveryFailure,
+                    exception);
+            }
+
+            if (responseDeliveryFailure is not null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(responseDeliveryFailure)
+                    .Throw();
+            }
+
+            if (response.Outcome is RemoteWindowPreparationOutcome.Ready)
             {
                 RemoteWindowParticipantState? bufferedAdmission;
                 bool readyCommitted;
@@ -1603,6 +1638,13 @@ internal sealed class RemoteWindowControlSession :
                     target,
                     preparation,
                     admission).ConfigureAwait(false);
+            }
+            else
+            {
+                await Task.Delay(
+                        Timeout.InfiniteTimeSpan,
+                        preparation.Cancellation.Token)
+                    .ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (
@@ -1880,10 +1922,6 @@ internal sealed class RemoteWindowControlSession :
                 "The Remote Window readiness result raced its deadline or connection stop.");
         }
 
-        if (response.Outcome is RemoteWindowPreparationOutcome.Rejected)
-        {
-            Cancel();
-        }
     }
 
     private bool TryGetAcknowledgedPreparationResponse(
@@ -2419,6 +2457,15 @@ internal sealed class RemoteWindowControlSession :
                 "Remote Window session shutdown failed.",
                 first,
                 second);
+
+    private static Exception CombineResponseCompletionFailures(
+        Exception? deliveryFailure,
+        Exception completionFailure) => deliveryFailure is null
+            ? completionFailure
+            : new AggregateException(
+                "The Remote Window preparation response delivery and completion hook both failed.",
+                deliveryFailure,
+                completionFailure);
 
     private IRemoteWindowControlPeer RequirePeer() => peer
         ?? throw new InvalidDataException(

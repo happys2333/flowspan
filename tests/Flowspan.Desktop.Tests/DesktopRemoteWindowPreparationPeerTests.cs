@@ -286,6 +286,76 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
             });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PendingAttachmentAndCleanupFailuresRemainObservableWhenTerminalCleanupWins(
+        bool disposeParticipant)
+    {
+        CancellationTokenRegistration cleanupFailureRegistration = default;
+        try
+        {
+            await RunConnectedScenarioAsync(
+                new RecordingRendererFactory(new RecordingRenderer()),
+                async context =>
+                {
+                    RemoteWindowPreparationRequest request = CreateRequest();
+                    RemoteWindowPreparationResponse response =
+                        await context.PreparationPeer.PrepareAsync(
+                            request,
+                            default);
+                    Assert.Equal(
+                        RemoteWindowPreparationOutcome.Rejected,
+                        response.Outcome);
+                    Assert.Equal("media_attachment_failed", response.ReasonCode);
+
+                    Exception failure = disposeParticipant
+                        ? await Assert.ThrowsAnyAsync<Exception>(() =>
+                            context.PreparationPeer.DisposeAsync().AsTask())
+                        : await Assert.ThrowsAnyAsync<Exception>(() =>
+                            context.PreparationPeer.PeerDisconnectedAsync(
+                                    HostDeviceId,
+                                    default)
+                                .AsTask());
+
+                    await context.PreparationPeer
+                        .CompletePreparationResponseAsync(
+                            response,
+                            responseCommitted: true);
+
+                    Assert.Contains(
+                        typeof(SocketException).FullName!,
+                        failure.ToString(),
+                        StringComparison.Ordinal);
+                    Assert.Contains(
+                        "test pending attachment cleanup failed",
+                        failure.ToString(),
+                        StringComparison.Ordinal);
+                },
+                ignorePreparationPeerDisposalFailure: true,
+                decorateConnectionAcquirer: acquire =>
+                    (DeviceId peerDeviceId,
+                        out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                    {
+                        bool acquired = acquire(peerDeviceId, out lease);
+                        if (lease is not null)
+                        {
+                            cleanupFailureRegistration =
+                                lease.RegisterRevocationCallback(
+                                    static () => throw new InvalidOperationException(
+                                        "test pending attachment cleanup failed"));
+                        }
+
+                        return acquired;
+                    },
+                useUnavailableMediaEndpoint: true);
+        }
+        finally
+        {
+            cleanupFailureRegistration.Dispose();
+        }
+    }
+
     private static async Task RunConnectedScenarioAsync(
         IDesktopRemoteWindowParticipantRendererFactory rendererFactory,
         Func<ConnectedScenario, Task> test,
@@ -295,7 +365,8 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
         Func<TryAcquireDesktopRemoteWindowPeerConnection,
             TryAcquireDesktopRemoteWindowPeerConnection>?
             decorateConnectionAcquirer = null,
-        bool verifyPeerDisconnectCleanup = true)
+        bool verifyPeerDisconnectCleanup = true,
+        bool useUnavailableMediaEndpoint = false)
     {
         using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
             ParticipantDeviceId,
@@ -350,9 +421,22 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
             mediaListener.Start(backlog: 1);
             var mediaEndPoint = Assert.IsType<IPEndPoint>(
                 mediaListener.LocalEndpoint);
+            using Socket? unavailableMediaSocket =
+                useUnavailableMediaEndpoint
+                    ? new Socket(
+                        AddressFamily.InterNetwork,
+                        SocketType.Stream,
+                        ProtocolType.Tcp)
+                    : null;
+            unavailableMediaSocket?.Bind(
+                new IPEndPoint(IPAddress.Loopback, 0));
+            IPEndPoint candidateEndPoint = unavailableMediaSocket is null
+                ? mediaEndPoint
+                : Assert.IsType<IPEndPoint>(
+                    unavailableMediaSocket.LocalEndPoint);
             VerifiedPeerConnectionCandidate candidate = CreateVerifiedCandidate(
                 hostIdentity,
-                mediaEndPoint,
+                candidateEndPoint,
                 version);
             var validator = new CurrentCandidateValidator();
             await using (participantConnection)
