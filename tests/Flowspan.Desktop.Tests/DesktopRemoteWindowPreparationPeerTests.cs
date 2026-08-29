@@ -278,6 +278,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                     RemoteWindowPreparationOutcome.Rejected,
                     response.Outcome);
                 Assert.Equal("renderer_start_failed", response.ReasonCode);
+                await context.WaitForHostMediaAttachmentAsync();
 
                 Exception failure = await Assert.ThrowsAnyAsync<Exception>(() =>
                     context.PreparationPeer.CompletePreparationResponseAsync(
@@ -314,6 +315,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                     RemoteWindowPreparationOutcome.Rejected,
                     response.Outcome);
                 Assert.Equal("renderer_start_failed", response.ReasonCode);
+                await context.WaitForHostMediaAttachmentAsync();
                 Assert.Equal(1, rendererFactory.PrepareCount);
                 AuthenticatedRemoteWindowConnectionLease lease = Assert.IsType<
                     AuthenticatedRemoteWindowConnectionLease>(participantLease);
@@ -369,6 +371,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                     RemoteWindowPreparationOutcome.Rejected,
                     response.Outcome);
                 Assert.Equal("renderer_start_failed", response.ReasonCode);
+                await context.WaitForHostMediaAttachmentAsync();
                 AuthenticatedRemoteWindowConnectionLease lease = Assert.IsType<
                     AuthenticatedRemoteWindowConnectionLease>(participantLease);
                 Assert.False(lease.IsCurrent);
@@ -405,6 +408,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                     RemoteWindowPreparationOutcome.Rejected,
                     response.Outcome);
                 Assert.Equal("renderer_unavailable", response.ReasonCode);
+                await context.WaitForHostMediaAttachmentAsync();
                 AuthenticatedRemoteWindowConnectionLease lease = Assert.IsType<
                     AuthenticatedRemoteWindowConnectionLease>(participantLease);
                 Assert.False(lease.IsCurrent);
@@ -436,6 +440,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                 (_, RemoteWindowPreparationResponse response) =
                     await context.PrepareAsync();
                 Assert.Equal("renderer_start_failed", response.ReasonCode);
+                await context.WaitForHostMediaAttachmentAsync();
 
                 Exception failure = await Assert.ThrowsAnyAsync<Exception>(() =>
                     context.PreparationPeer.DisposeAsync().AsTask());
@@ -550,6 +555,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                         RemoteWindowPreparationOutcome.Rejected,
                         response.Outcome);
                     Assert.Equal("renderer_start_failed", response.ReasonCode);
+                    await context.WaitForHostMediaAttachmentAsync();
 
                     Exception failure = disposeParticipant
                         ? await Assert.ThrowsAnyAsync<Exception>(() =>
@@ -983,10 +989,22 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
                 await PreparationPeer.PrepareAsync(request, default);
             if (response.Outcome is RemoteWindowPreparationOutcome.Ready)
             {
-                await hostLease.WaitForMediaAttachmentAsync();
+                await WaitForHostMediaAttachmentAsync();
             }
 
             return (request, response);
+        }
+
+        public async Task WaitForHostMediaAttachmentAsync()
+        {
+            if (AcceptingMedia is null)
+            {
+                throw new InvalidOperationException(
+                    "The connected test scenario has not started media attachment.");
+            }
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await hostLease.WaitForMediaAttachmentAsync(timeout.Token);
         }
 
         public async Task SendJpegAsync()
