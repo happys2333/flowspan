@@ -229,10 +229,38 @@
     `2233/2233`, including Desktop `545/545` and Transport `701/701`. Format,
     diff, dependency-vulnerability, explicit TEST MODE composition, and simulator
     checks passed. Internal strict review reported no P0/P1/P2 finding but is not
-    an external audit. This checkpoint is not pushed; exact-SHA hosted CI and
-    CodeQL remain pending and no hosted result is claimed.
-    This adds only one post-`FSM1`, pre-Admission timeout case; actual caller
-    cancellation, cleanup-fault coverage, and the full per-boundary matrix remain
+    an external audit. Superseding exact SHA
+    `e504c839cac2e45a4ca7ad17316c8278e4928c2e`, which contains the expiry test,
+    its documentation, and the CI hang-diagnostic guard, passed CI
+    `33250747660` and CodeQL `33250747671`. Windows, macOS, and Linux each passed
+    `2233/2233` with every non-success TRX counter zero; Secret Scan, CodeQL, and
+    all three reproducible unsigned package jobs also passed. These remain
+    hosted managed contract and packaging results, not native or physical proof.
+    At that expiry checkpoint, only one post-`FSM1`, pre-Admission timeout case
+    was added; actual caller cancellation, cleanup-fault coverage, and the full
+    per-boundary matrix remained open.
+    Test commits `45e2d494501167712ec4abdff69d8d232f355d14` and
+    `5bb6d0863033c3b6668335e15d6a6fe336ee46a7` add no production source change and
+    expand the tracer to eleven cases with one actual caller-cancellation path.
+    After authenticated protocol 1.7, signed endpoint verification, successful
+    `FSM1`/Ready, and exact bilateral attachment, a CTS supplied only to
+    `StartAsync` is cancelled while the harness CTS keeps connection, run, and
+    cleanup alive and the clock remains before the deadline. Production throws
+    the cancellation family (observed as `TaskCanceledException`) with the exact
+    caller token, not timeout, renderer foreign-fault, or rejection-reason
+    reduction. Admission, capture, send, and render remain zero; fail-close and
+    Dispose each occur once and all owners drain. Local focused Debug/Release
+    runs passed `1/1`, the tracer class passed `11/11`, twenty fresh Debug caller
+    processes passed `20/20`, both warning-as-error builds passed, and both
+    solutions passed `2234/2234`, including Desktop `546/546`, Platform
+    `219/219`, and Transport `701/701`. Other local gates passed and strict
+    review reported no P0/P1/P2 finding. Exact-SHA CI `33251741558` and CodeQL
+    `33251741546` for `5bb6d08` both succeeded. Windows, macOS, and Linux each
+    passed `2234/2234` with every non-success TRX counter zero; Secret Scan and
+    all three reproducible unsigned package jobs also passed. These remain
+    hosted managed contract and packaging results, not native or physical proof.
+    This covers only one post-`FSM1`, pre-Admission
+    caller cancellation; cleanup-fault and the full per-boundary matrix remain
     open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,

@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current ten scenarios are not the required matrix; its per-boundary
+current eleven scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -762,12 +762,61 @@ the complete Debug and Release solutions each passed `2233/2233`, including
 Desktop `545/545` and Transport `701/701`. Formatting, diff, direct/transitive
 NuGet vulnerability, explicit TEST MODE composition, and deterministic simulator
 checks passed. Internal strict review reported no P0, P1, or P2 finding, which is
-not an external audit. The commit has not been pushed; exact-SHA hosted CI and
-CodeQL remain pending, and no hosted result is claimed for this test-only tree.
+not an external audit. Superseding SHA
+`e504c839cac2e45a4ca7ad17316c8278e4928c2e` passed exact-SHA CI
+`33250747660` and CodeQL `33250747671`: each hosted OS passed `2233/2233`, with
+Secret Scan and all reproducible unsigned package jobs also passing.
 
-This addition covers one post-`FSM1`, pre-Admission deadline-equality timeout.
-Actual caller cancellation, cleanup-fault injection, and the complete
-per-boundary matrix remain open.
+A preceding docs-only CI run `33249644505` had one intermittent Windows testhost
+stall: attempt 1 produced no Desktop TRX before the 20-minute job timeout/cancel,
+while its other 11 TRX files passed `1688/1688`. Isolated Windows rerun job
+`99095158216` then produced all 12 TRX files at `2232/2232` and made attempt 2
+successful. This is evidence of an intermittent hang, not a deterministic
+Windows platform failure. The superseding workflow adds `--blame-hang`, a
+three-minute hang timeout, and no memory dump; its ordinary Windows test step
+passed in 51 seconds. The guard only makes a future hang fail fast with sequence
+diagnostics. It neither identifies nor fixes the unknown root cause and collects
+no memory dump.
+
+At the expiry checkpoint, this addition covered one post-`FSM1`, pre-Admission
+deadline-equality timeout. Actual caller cancellation, cleanup-fault injection,
+and the complete per-boundary matrix remained open.
+
+Test commits `45e2d494501167712ec4abdff69d8d232f355d14` and
+`5bb6d0863033c3b6668335e15d6a6fe336ee46a7` add an eleventh managed tracer case
+without production source changes. After real authenticated protocol 1.7,
+signed candidate verification, successful `FSM1` and Ready, and exact bilateral
+attachment, an independent caller CTS supplied only to `StartAsync` is cancelled
+by the final hook while the harness CTS continues to own connection, run, and
+cleanup and the clock remains strictly before the deadline. Production surfaces
+the cancellation family—observed as `TaskCanceledException`—with the exact
+caller token. It is therefore neither timeout nor a foreign renderer fault, and
+no rejection reason is produced. Admission, capture, media send, and rendering
+remain zero; host fail-close and Dispose each run once and all owners drain.
+
+Focused caller cancellation passed `1/1` in Debug and Release, the tracer class
+passed `11/11` in each, and twenty fresh Debug processes passed the caller case
+`20/20`. After the fixture reliability repair, both warning-as-error builds
+passed and the Debug and Release solutions each passed `2234/2234`, including
+Desktop `546/546`, Platform `219/219`, and Transport `701/701`. Formatting,
+diff, dependency-vulnerability, explicit TEST MODE composition, and simulator
+checks passed. Strict caller review reported no P0/P1/P2 finding. Exact-SHA
+CI `33251741558` and CodeQL `33251741546` for `5bb6d08` both succeeded. Each
+hosted OS passed `2234/2234` with every non-success TRX counter zero; Secret Scan
+and all three reproducible unsigned package jobs also passed.
+
+The first full Debug run exposed an old Platform-test fixture race: expected
+`BoundaryFailed`, actual `Applied`. The production state lock was already the
+correct linearization boundary; only the fake `RecordingCaptureBoundary` shared
+a non-atomic call count. Before repair, parallel stress failed 23 of 400 runs.
+The fixture now uses an interlocked capture count, deterministic barrier, locked
+timeline, and `finally` release/join. Post-repair stress passed `160/160` plus
+`80/80`, and strict review reported no P0/P1/P2 finding. This is a test-fixture
+reliability repair, not a product defect.
+
+The new tracer case covers only one post-`FSM1`, pre-Admission actual caller
+cancellation. Cleanup-fault injection and the complete per-boundary matrix remain
+open.
 
 The hosted matrices are cross-platform managed contract evidence,
 not evidence for native platform APIs, two physical devices, accessibility,

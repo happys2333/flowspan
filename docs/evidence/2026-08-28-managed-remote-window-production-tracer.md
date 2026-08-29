@@ -237,10 +237,58 @@ test observed a pending media budget. Renderer, route, both directories,
 handler, lease, channel, and control owners drain to zero, and the old connection
 generation cannot be reacquired.
 
-This is one deterministic post-`FSM1`, pre-Admission timeout case. It does not
-cover actual caller cancellation, cleanup-fault injection, or the complete
-per-boundary fault matrix. The commit has not been pushed; exact-SHA hosted CI
-and CodeQL remain pending and no hosted result is claimed.
+At this checkpoint, this was one deterministic post-`FSM1`, pre-Admission
+timeout case; actual caller cancellation, cleanup-fault injection, and the
+complete per-boundary fault matrix remained open. Superseding exact-SHA hosted
+evidence is recorded below.
+
+### Hosted exact-SHA verification: expiry and CI hang guard
+
+Superseding exact SHA `e504c839cac2e45a4ca7ad17316c8278e4928c2e`, which contains
+the `0f1f32d` expiry test, the subsequent documentation, and the `e504c83` CI
+diagnostic guard, passed CI run
+[`33250747660`](https://github.com/happys2333/flowspan/actions/runs/33250747660)
+and CodeQL run
+[`33250747671`](https://github.com/happys2333/flowspan/actions/runs/33250747671).
+
+- Test jobs `99095889058` (Ubuntu), `99095889178` (Windows), and `99095889190`
+  (macOS) succeeded. Downloaded artifacts contain 12 TRX files per platform,
+  each summing to `2233/2233` executed and passed tests with every non-success
+  counter zero:
+
+  | Platform | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | --- |
+  | Linux | `9714317366` | `8f6eb70ef77b1ac1acbf83a6b4a886459826f78da0f07a8560148133e9a68f28` |
+  | Windows | `9714325254` | `b1f973fd23ddf977dfb7857309db4b7bba83a436b12e37549d93f6c5fe042453` |
+  | macOS | `9714315419` | `2c6a77bb9f8da8028e2cb21ff6091b8925cfa1429fd544f1ce71155d3cc5b69f` |
+
+- Secret Scan job `99095889152` passed. Artifact `9714281655`, digest
+  `eca3b2148b0b1e0a135046a7b833319426258179cb5cbc65f3e1d9d4650f7296`,
+  is SARIF 2.1.0 with one run, 208 rules, and 0 results.
+- CodeQL job `99095889246` passed. Exact-SHA analysis `1691573225` reports 52
+  rules and 0 results; the open-alert query returned 0.
+- Reproducible unsigned package jobs all passed:
+
+  | Runtime | Job | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `osx-arm64` | `99096307082` | `9714340281` | `f6747a7a89756c52db5bb703848945cdeb1c94e491e51dfa0b3394a16852e105` |
+  | `linux-x64` | `99096307091` | `9714342742` | `f01c1337280ba1a7387ab515b7acb5cc27c49fd38d48bcff6bd2df6c2f131adc` |
+  | `win-x64` | `99096307117` | `9714351926` | `e495877ba6b43553aded654a74b836e8231e9d8740396d0832fed5d2ee4621b9` |
+
+A preceding docs-only CI run `33249644505` had an intermittent Windows testhost
+stall. Attempt 1 produced no Desktop TRX before the 20-minute job timeout and
+cancellation; the other 11 TRX files passed `1688/1688`. Isolated rerun job
+`99095158216` produced 12 TRX files at `2232/2232` and made attempt 2 successful.
+That is evidence of intermittency, not a deterministic Windows platform failure.
+The `e504c83` workflow adds `--blame-hang --blame-hang-timeout 3m
+--blame-hang-dump-type none`; its normal Windows test step completed in 51 seconds.
+The guard only makes a future hang fail fast and retain sequence diagnostics. It
+does not identify or fix the unknown root cause and intentionally collects no
+memory dump.
+
+These hosted results prove managed tests, diagnostics, Secret Scan, CodeQL, and
+reproducible unsigned packages on the named runners. They are not native API,
+physical two-Device, signed-package, notarization, or release evidence.
 
 ## Baseline proven slices
 
@@ -472,9 +520,87 @@ Formatting, diff, direct/transitive NuGet vulnerability, explicit TEST MODE
 composition, and deterministic protocol-1.7 simulator checks passed.
 
 Internal strict review reported no P0, P1, or P2 finding. That is a code-review
-result, not an external security audit. Because the commit is not pushed, there
-is no exact-SHA hosted CI, CodeQL, Secret Scan, Windows/Linux execution, or
-package result for this checkpoint; all remain pending.
+result, not an external security audit. Superseding exact-SHA hosted results are
+recorded above.
+
+### Subsequent test-only checkpoint: actual caller cancellation
+
+Test commit `45e2d494501167712ec4abdff69d8d232f355d14`, followed by
+fixture-reliability commit `5bb6d0863033c3b6668335e15d6a6fe336ee46a7`, changes no
+production source and expands the managed tracer from ten to eleven cases. The
+new caller-cancellation case uses real authenticated protocol 1.7, a signed and
+verified candidate, successful `FSM1` plus Ready, and bilateral media sessions
+attached to the exact protocol, Device pair, Session, and Activity binding.
+
+An independent caller CTS is supplied only to `StartAsync`; the harness CTS
+continues to own the connection, run, and cleanup. The final hook cancels the
+caller while the clock still satisfies `Now < request.Deadline`. Production
+surfaces the `OperationCanceledException` family—observed as
+`TaskCanceledException`—with the exact caller token. It is not deadline expiry,
+a foreign renderer cancellation, or a bounded rejection reason. Admission,
+capture, media send, and rendering remain zero. Host fail-close and Dispose each
+occur once, and every renderer, route, directory, handler, lease, channel, and
+control owner drains.
+
+Local focused caller-cancellation runs passed `1/1` in Debug and Release; the
+whole tracer class passed `11/11` in both configurations; and twenty fresh Debug
+caller processes passed `20/20`. After the fixture reliability repair, Debug and
+Release warning-as-error builds completed with zero warnings and errors, and
+both full solutions passed `2234/2234`, including Desktop `546/546`, Platform
+`219/219`, and Transport `701/701`. Format, diff, dependency-vulnerability,
+explicit TEST MODE composition, and simulator checks passed. Strict caller
+review reported no P0/P1/P2 finding and is not an external audit. Exact-SHA
+hosted results are recorded below.
+
+The first full Debug run exposed an old Platform-test fixture race: expected
+`BoundaryFailed`, actual `Applied`. Production `stateLock` already supplied the
+correct linearization; only `RecordingCaptureBoundary` used a shared non-atomic
+call count. Before repair, parallel stress failed 23 of 400 runs. The fixture now
+uses an interlocked capture count, deterministic barrier, locked timeline, and
+`finally` release/join. Post-repair stress passed `160/160` plus `80/80`, and
+strict review reported no P0/P1/P2 finding. This was a test-fixture reliability
+repair, not a product bug.
+
+### Hosted exact-SHA verification: caller cancellation and fixture reliability
+
+At exact SHA `5bb6d0863033c3b6668335e15d6a6fe336ee46a7`, CI run
+[`33251741558`](https://github.com/happys2333/flowspan/actions/runs/33251741558)
+and CodeQL run
+[`33251741546`](https://github.com/happys2333/flowspan/actions/runs/33251741546)
+both completed successfully.
+
+- Test jobs `99098481419` (Ubuntu), `99098481420` (Windows), and `99098481485`
+  (macOS) succeeded. Downloaded artifacts each contain 12 TRX files summing to
+  `2234/2234`, with every non-success counter zero:
+
+  | Platform | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | --- |
+  | Windows | `9714619720` | `9827bdc21161ab0ab0c56c9dbcd609fc9ad73e35fc06982bb97f645dc4541667` |
+  | Linux | `9714606289` | `477e8b7385ca7cb02cc517dfdc3225205e65c8718d1f807d41c688859ec87396` |
+  | macOS | `9714593978` | `f7c4d6374144f60f4984de0fd570b799900df283d7700c72c8934c1dad973316` |
+
+- Secret Scan job `99098481369` passed. Artifact `9714569328`, digest
+  `a7fe0ca862740be13e1b38ce80c2f7bc14ed587342e7980dfaf740e7b30164d9`,
+  is SARIF 2.1.0 with one run, 208 rules, and 0 results.
+- CodeQL job `99098481276` passed. Exact-SHA analysis `1691612129` reports 52
+  rules and 0 results; the open-alert query returned 0.
+- All reproducible unsigned package jobs passed:
+
+  | Runtime | Job | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `linux-x64` | `99098967284` | `9714639080` | `625b4ff6c80e6fcec9200a4e7eb658357f7944cd02b706fabe6e8bd7f80501e8` |
+  | `osx-arm64` | `99098967311` | `9714636465` | `19d51d1ae2ba401b32686743e234cf35f46bdc5f8fa1b5191a4c409cab9a7650` |
+  | `win-x64` | `99098967315` | `9714643950` | `b65b7e81ea1a174bf77ac2c1444e704f478d9e52e91b4bfb13e5cf4990700f97` |
+
+These hosted results prove the managed build, contract tests, explicit TEST MODE
+composition, simulator, Secret Scan, CodeQL, dependency audit, and reproducible
+unsigned packaging on the named runners. They do not prove native API behavior,
+physical two-Device operation, signed packages, notarization, or release
+readiness.
+
+This checkpoint covers only one post-`FSM1`, pre-Admission actual caller
+cancellation. Cleanup-fault injection and the complete per-boundary matrix
+remain open.
 
 ## Security relevance
 
@@ -490,14 +616,17 @@ package result for this checkpoint; all remain pending.
   bilateral exact-bound media attachment first, but still admits no participant,
   capture, media send, or rendering authority. The expiry case additionally
   completes Ready and one renderer Prepare before exact deadline equality, then
-  admits no participant or active generation.
+  admits no participant or active generation. The caller-cancellation case keeps
+  the harness alive but cancels the exact Start caller before deadline, with no
+  Admission, capture, send, or render.
 - **T08:** the success path carries `FSM1` and encrypted media through the real
   production listener and decodes JPEG at the participant.
 - **T10:** verified-endpoint attachment reset exposes only
   `media_attachment_failed`, not the socket exception or endpoint details.
   Renderer throw and foreign cancellation expose only `renderer_start_failed`;
   null/Missing exposes only `renderer_unavailable`; exact deadline equality
-  exposes only `preparation_expired`.
+  exposes only `preparation_expired`. Actual caller cancellation propagates the
+  cancellation family and exact caller token instead of a rejection reason.
 - **T13:** terminal authenticated-control disconnect, capability revocation,
   managed permission loss, and verified-endpoint attachment reset after TCP
   accept converge the relevant ownership graph to zero. The three renderer
@@ -510,7 +639,9 @@ package result for this checkpoint; all remain pending.
   observes one media-attachment wait, then one host fail-close and one Dispose;
   it drains renderer, route, directory, handler, lease, channel, and control
   owners without publishing Admission or an active generation, and the old
-  generation cannot be reacquired.
+  generation cannot be reacquired. Actual caller cancellation independently
+  produces one fail-close and one Dispose while the harness remains live, then
+  drains the same owner graph.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -520,18 +651,19 @@ package result for this checkpoint; all remain pending.
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the ten current cases above and does not establish that complete matrix.
+only the eleven current cases above and does not establish that complete matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every
 malformed, tampered, timeout, cancellation, listener, or cleanup-fault boundary.
-The new expiry case covers only one post-`FSM1`, pre-Admission timeout; actual
-caller cancellation and cleanup-fault coverage remain open.
+The expiry and caller-cancellation cases cover one post-`FSM1`, pre-Admission
+example each; cleanup-fault coverage and the remaining per-boundary cases remain
+open.
 
 Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows, macOS, and Linux execution at `fde38b2` is managed-loopback and
+Hosted Windows, macOS, and Linux execution through `5bb6d08` is managed-loopback and
 contract evidence only. There is no evidence here for Windows, macOS, or Linux
 native capture/input/protection APIs; physical two-Device operation; signed or
 notarized packages; package lifecycle behavior; or full release acceptance.

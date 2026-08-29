@@ -27,8 +27,10 @@ connector, host/participant Preparation components, host coordinator, fixed host
 control router, and four deliberately narrow managed two-node tracer scenarios.
 Subsequent checkpoints expand that tracer to six cases at `761ac75`, nine at
 `fde38b2bae9d02f177fd86e22a8beecb060325e9`, and ten in test-only commit
-`0f1f32d0e8ea251194755a5b4d150d3e294433ff`, including attachment, renderer,
-and exact-deadline preparation fail-close ordering. Those extensions are
+`0f1f32d0e8ea251194755a5b4d150d3e294433ff`. Test commits `45e2d49` and
+`5bb6d08` add an eleventh caller-cancellation case. These checkpoints include
+attachment, renderer, exact-deadline, and caller-cancellation fail-close
+ordering. Those extensions are
 recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
@@ -293,12 +295,41 @@ completed with zero warnings and errors, and both complete solutions passed
 `2233/2233`, including Desktop `545/545` and Transport `701/701`. Format, diff,
 direct/transitive dependency vulnerability, explicit TEST MODE composition, and
 simulator checks passed. Internal strict review reported no P0/P1/P2 finding but
-is not an external audit. The commit is not pushed; exact-SHA hosted CI and
-CodeQL remain pending and no hosted result is claimed.
+is not an external audit. Superseding SHA
+`e504c839cac2e45a4ca7ad17316c8278e4928c2e` passed exact-SHA CI
+`33250747660` and CodeQL `33250747671`: each hosted OS passed `2233/2233`, with
+Secret Scan and all reproducible unsigned package jobs also passing. These
+remain hosted managed contract and packaging results, not native or physical
+evidence.
 
-This checkpoint covers only one post-`FSM1`, pre-Admission timeout. Actual caller
-cancellation, cleanup-fault injection, and the full per-boundary matrix remain
-open.
+At this checkpoint, only one post-`FSM1`, pre-Admission timeout was covered;
+actual caller cancellation, cleanup-fault injection, and the full per-boundary
+matrix remained open.
+
+## Subsequent actual caller-cancellation checkpoint
+
+Test commit `45e2d494501167712ec4abdff69d8d232f355d14`, followed by fixture
+reliability commit `5bb6d0863033c3b6668335e15d6a6fe336ee46a7`, changes no
+production source. After authenticated protocol 1.7, signed candidate
+verification, successful `FSM1`/Ready, and exact bilateral attachment, an
+independent CTS supplied only to `StartAsync` is cancelled while the harness CTS
+keeps connection, run, and cleanup alive and the clock remains before the
+deadline. Production surfaces `TaskCanceledException` with the exact caller
+token, not timeout, foreign renderer cancellation, or a rejection reason.
+Admission, capture, send, and render remain zero; fail-close and Dispose each run
+once and all owners drain.
+
+Local focused Debug/Release passed `1/1`, the tracer class passed `11/11`, twenty
+fresh Debug processes passed `20/20`, both warning-as-error builds passed, and
+both solutions passed `2234/2234`, including Desktop `546/546`, Platform
+`219/219`, and Transport `701/701`. Other gates passed, and strict review found
+no P0/P1/P2; that is not an external audit. Exact-SHA hosted CI and CodeQL for
+`5bb6d08` succeeded in runs `33251741558` and `33251741546`. Each hosted OS
+passed `2234/2234` with every non-success counter zero; Secret Scan and all
+reproducible unsigned package jobs also passed. These remain managed contract
+and packaging results, not native or physical evidence. This covers only one
+post-`FSM1`, pre-Admission caller cancellation; cleanup-fault and the full
+per-boundary matrix remain open.
 
 ## Review and remaining evidence
 
@@ -331,7 +362,7 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current ten managed tracer cases;
+  from the current eleven managed tracer cases;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native
