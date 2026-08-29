@@ -513,6 +513,40 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task PermissionRevocationCleanupFailureRemainsObservableAfterDrain()
+    {
+        using var host = new ReadyHostHarness();
+        var injected = new IOException("injected permission cleanup failure");
+        host.Connection.DisposeFailure = injected;
+        Assert.True((await host.StartAsync()).Succeeded);
+        RemoteWindowMediaSessionBudget budget = Assert.IsType<
+            RemoteWindowMediaSessionBudget>(host.Coordinator.ActiveMediaBudget);
+
+        host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 2));
+
+        await WaitForTerminalFailureAsync(host.Coordinator);
+        Assert.Null(host.Coordinator.Snapshot);
+        Assert.Same(injected, host.Coordinator.TerminalFailure);
+        Assert.Equal(1, host.Capture.EmergencyStopCount);
+        Assert.Equal(1, host.Input.EmergencyStopCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+        Assert.Throws<InvalidOperationException>(() => host.ControlPeer.SessionId);
+        IOException disposalFailure = await Assert.ThrowsAsync<IOException>(
+            async () => await host.Coordinator.DisposeAsync());
+        Assert.Same(injected, disposalFailure);
+    }
+
+    [Fact]
     public async Task ConcurrentAndLaterDisposeCallsShareCleanupFailure()
     {
         using var host = new ReadyHostHarness();
@@ -1065,8 +1099,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         NativeRemoteWindowPermissionSnapshot snapshot) :
         INativeRemoteWindowPermissionBoundary
     {
-        private readonly NativeRemoteWindowPermissionSnapshot snapshot = snapshot;
         private Action<NativeRemoteWindowPermissionSnapshot>? changed;
+        private NativeRemoteWindowPermissionSnapshot current = snapshot;
 
         public event Action<NativeRemoteWindowPermissionSnapshot>? Changed
         {
@@ -1089,21 +1123,21 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         public NativeRemoteWindowPermissionSnapshot GetSnapshot()
         {
             SnapshotReadCount++;
-            return snapshot;
+            return current;
         }
 
         public ValueTask<NativeRemoteWindowPermissionSnapshot>
             RequestCapturePermissionAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(snapshot);
+            return ValueTask.FromResult(current);
         }
 
         public ValueTask<NativeRemoteWindowPermissionSnapshot>
             RequestInputPermissionAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(snapshot);
+            return ValueTask.FromResult(current);
         }
 
         public ValueTask DisposeAsync()
@@ -1112,7 +1146,11 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             return ValueTask.CompletedTask;
         }
 
-        public void Publish() => changed?.Invoke(snapshot);
+        public void Publish(NativeRemoteWindowPermissionSnapshot snapshot)
+        {
+            current = snapshot;
+            changed?.Invoke(snapshot);
+        }
     }
 
     private sealed class RecordingProtectionSource(

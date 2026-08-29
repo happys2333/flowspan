@@ -654,8 +654,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 return;
             }
 
-            generation.CloseAdmissionNow();
-            _ = generation.Controller.EmergencyStop();
+            RequestTerminalShutdown(
+                generation,
+                failCloseImmediately: true);
         };
         permissions.Changed += generation.PermissionChanged;
         generation.PermissionObserverRegistered = true;

@@ -345,7 +345,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     [Theory]
     [InlineData(TerminalTrigger.AuthenticatedControlDisconnect)]
     [InlineData(TerminalTrigger.MirrorCapabilityRevocation)]
-    public async Task TerminalControlLossTerminatesActiveHostSession(
+    [InlineData(TerminalTrigger.NativeCapturePermissionRevocation)]
+    public async Task TerminalAuthorityOrSafetyLossTerminatesActiveHostSession(
         TerminalTrigger trigger)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -497,6 +498,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(1, renderer.RenderCount);
             Assert.NotNull(coordinator.Snapshot);
             Assert.True(hostConnection.IsCurrent);
+            Assert.Equal(1, permissions.ObserverCount);
 
             if (trigger == TerminalTrigger.MirrorCapabilityRevocation)
             {
@@ -506,6 +508,15 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     CapabilityGrant.Of(Capability.ActivityOffer),
                     deadline.Token);
                 Assert.Equal(TrustMutationResult.Applied, mutation);
+            }
+            else if (trigger == TerminalTrigger.NativeCapturePermissionRevocation)
+            {
+                permissions.Publish(
+                    NativeRemoteWindowPermissionSnapshot.Create(
+                        NativeRemoteWindowPermissionState.Denied,
+                        NativeRemoteWindowPermissionState.Granted,
+                        ownerGeneration: 1,
+                        revision: 2));
             }
             else
             {
@@ -573,6 +584,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     {
         AuthenticatedControlDisconnect,
         MirrorCapabilityRevocation,
+        NativeCapturePermissionRevocation,
     }
 
     [Fact]
@@ -1330,6 +1342,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         INativeRemoteWindowPermissionBoundary
     {
         private Action<NativeRemoteWindowPermissionSnapshot>? changed;
+        private NativeRemoteWindowPermissionSnapshot current = snapshot;
         private int observerCount;
 
         public event Action<NativeRemoteWindowPermissionSnapshot>? Changed
@@ -1354,20 +1367,26 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             return ValueTask.CompletedTask;
         }
 
-        public NativeRemoteWindowPermissionSnapshot GetSnapshot() => snapshot;
+        public NativeRemoteWindowPermissionSnapshot GetSnapshot() => current;
+
+        public void Publish(NativeRemoteWindowPermissionSnapshot updated)
+        {
+            current = updated;
+            changed?.Invoke(updated);
+        }
 
         public ValueTask<NativeRemoteWindowPermissionSnapshot>
             RequestCapturePermissionAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(snapshot);
+            return ValueTask.FromResult(current);
         }
 
         public ValueTask<NativeRemoteWindowPermissionSnapshot>
             RequestInputPermissionAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(snapshot);
+            return ValueTask.FromResult(current);
         }
     }
 
