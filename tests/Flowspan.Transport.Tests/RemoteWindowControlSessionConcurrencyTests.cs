@@ -2174,6 +2174,175 @@ public sealed class RemoteWindowControlSessionConcurrencyTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReservedPrepareHookRejectOrThrowNeverEntersWire(
+        bool throwFromHook)
+    {
+        var connection = new PreparationConnection(HostId, ParticipantId);
+        var session = new RemoteWindowControlSession(
+            connection,
+            timeProvider: new FixedTimeProvider(Now));
+        var injected = new InvalidOperationException(
+            "prepare admission hook canary");
+        var admission = new RecordingHostPreparationAdmission
+        {
+            PrepareSendAllowed = false,
+            PrepareSendFailure = throwFromHook ? injected : null,
+        };
+        session.StartDispatch();
+        var reserved = Assert.IsAssignableFrom<
+            IReservedRemoteWindowPreparationChannel>(session);
+
+        try
+        {
+            if (throwFromHook)
+            {
+                InvalidOperationException failure = await Assert.ThrowsAsync<
+                    InvalidOperationException>(() =>
+                    reserved.PrepareReservedAsync(
+                            CreatePreparation(),
+                            admission,
+                            CancellationToken.None)
+                        .AsTask());
+                Assert.Same(injected, failure);
+            }
+            else
+            {
+                RemoteWindowPreparationDeliveryResult result =
+                    await reserved.PrepareReservedAsync(
+                        CreatePreparation(),
+                        admission,
+                        CancellationToken.None);
+                Assert.Equal(
+                    RemoteWindowControlDeliveryStatus.NotDelivered,
+                    result.Status);
+            }
+
+            Assert.Equal(1, admission.PrepareSendAdmissionCount);
+            Assert.False(admission.PrepareSendAdmitted);
+            Assert.Equal(0, connection.SendCount);
+        }
+        finally
+        {
+            session.Cancel();
+            await session.StopDispatchAsync().AsTask().WaitAsync(
+                TimeSpan.FromSeconds(5));
+            await session.DisposeAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData("deadline")]
+    [InlineData("cancel")]
+    [InlineData("stop")]
+    public async Task ReservedPreparePreAdmissionFailureSkipsHookAndWire(
+        string failureKind)
+    {
+        var time = new ReentrantTimeProvider(Now);
+        var connection = new PreparationConnection(HostId, ParticipantId);
+        var session = new RemoteWindowControlSession(connection, timeProvider: time);
+        using var cancellation = new CancellationTokenSource();
+        var admission = new RecordingHostPreparationAdmission();
+        session.StartDispatch();
+        var reserved = Assert.IsAssignableFrom<
+            IReservedRemoteWindowPreparationChannel>(session);
+        if (failureKind == "deadline")
+        {
+            time.ScheduleCallback(4, () => time.Advance(TimeSpan.FromSeconds(10)));
+        }
+        else if (failureKind == "cancel")
+        {
+            time.ScheduleCallback(4, cancellation.Cancel);
+        }
+        else
+        {
+            await session.StopDispatchAsync();
+        }
+
+        try
+        {
+            if (failureKind == "cancel")
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                    reserved.PrepareReservedAsync(
+                            CreatePreparation(),
+                            admission,
+                            cancellation.Token)
+                        .AsTask());
+            }
+            else
+            {
+                RemoteWindowPreparationDeliveryResult result =
+                    await reserved.PrepareReservedAsync(
+                        CreatePreparation(),
+                        admission,
+                        CancellationToken.None);
+                Assert.Equal(
+                    RemoteWindowControlDeliveryStatus.NotDelivered,
+                    result.Status);
+            }
+
+            Assert.Equal(0, admission.PrepareSendAdmissionCount);
+            Assert.Equal(0, connection.SendCount);
+        }
+        finally
+        {
+            session.Cancel();
+            await session.StopDispatchAsync().AsTask().WaitAsync(
+                TimeSpan.FromSeconds(5));
+            await session.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ReservedPrepareSendAdmissionBeforeMutationIsIrreversibleOnWireThrow()
+    {
+        var connection = new PreparationConnection(HostId, ParticipantId);
+        var session = new RemoteWindowControlSession(
+            connection,
+            timeProvider: new FixedTimeProvider(Now));
+        var admission = new RecordingHostPreparationAdmission();
+        var injected = new IOException("prepare wire side-effect canary");
+        connection.SendCallback = (_, _) =>
+        {
+            admission.Invalidate();
+            return ValueTask.FromException(injected);
+        };
+        session.StartDispatch();
+        var reserved = Assert.IsAssignableFrom<
+            IReservedRemoteWindowPreparationChannel>(session);
+
+        try
+        {
+            RemoteWindowPreparationDeliveryResult result =
+                await reserved.PrepareReservedAsync(
+                    CreatePreparation(),
+                    admission,
+                    CancellationToken.None);
+
+            Assert.Equal(
+                RemoteWindowControlDeliveryStatus.NotDelivered,
+                result.Status);
+            Assert.Equal(1, admission.PrepareSendAdmissionCount);
+            Assert.True(admission.PrepareSendAdmitted);
+            Assert.True(admission.Invalidated);
+            Assert.Equal(1, connection.SendCount);
+            Assert.Same(
+                injected,
+                await connection.CallbackCompleted.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            session.Cancel();
+            await session.StopDispatchAsync().AsTask().WaitAsync(
+                TimeSpan.FromSeconds(5));
+            await session.DisposeAsync();
+        }
+    }
+
     [Fact]
     public async Task PreparePropagatesCallerCancellationAtSendAdmission()
     {
@@ -3553,6 +3722,55 @@ public sealed class RemoteWindowControlSessionConcurrencyTests
                 throw;
             }
         }
+    }
+
+    private sealed class RecordingHostPreparationAdmission :
+        IRemoteWindowHostPreparationAdmission
+    {
+        private int invalidated;
+        private int prepareSendAdmitted;
+        private int prepareSendAdmissionCount;
+
+        public bool Invalidated => Volatile.Read(ref invalidated) != 0;
+
+        public bool PrepareSendAdmitted =>
+            Volatile.Read(ref prepareSendAdmitted) != 0;
+
+        public int PrepareSendAdmissionCount =>
+            Volatile.Read(ref prepareSendAdmissionCount);
+
+        public bool PrepareSendAllowed { get; init; } = true;
+
+        public Exception? PrepareSendFailure { get; init; }
+
+        public bool TryAdmitRouteSelection(DateTimeOffset now) => true;
+
+        public bool CompleteRouteSelection() => true;
+
+        public bool TryFailRouteSelection() => true;
+
+        public bool TryAdmitPrepareSend(
+            RemoteWindowPreparationRequest request,
+            DateTimeOffset now)
+        {
+            Interlocked.Increment(ref prepareSendAdmissionCount);
+            if (PrepareSendFailure is { } failure)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(failure)
+                    .Throw();
+            }
+
+            if (!PrepareSendAllowed || Invalidated)
+            {
+                return false;
+            }
+
+            Volatile.Write(ref prepareSendAdmitted, 1);
+            return true;
+        }
+
+        public void Invalidate() => Volatile.Write(ref invalidated, 1);
     }
 
     private sealed class RecordingPreparationPeer(DeviceId participantDeviceId) :

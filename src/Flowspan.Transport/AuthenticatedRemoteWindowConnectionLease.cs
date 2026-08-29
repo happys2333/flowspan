@@ -112,13 +112,72 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
     public RemoteWindowMediaRouteBinding PrepareResponderRoute(
         RemoteWindowSessionId sessionId,
         ActivityId activityId,
-        TimeSpan? lifetime = null)
-    {
-        ThrowIfUnavailable();
-        return mediaSession.PrepareResponderRoute(
+        TimeSpan? lifetime = null) => PrepareResponderRouteCore(
             sessionId,
             activityId,
-            lifetime);
+            lifetime,
+            admission: null);
+
+    internal RemoteWindowMediaRouteBinding PrepareResponderRoute(
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        IRemoteWindowHostPreparationAdmission admission,
+        TimeSpan? lifetime = null)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+        return PrepareResponderRouteCore(
+            sessionId,
+            activityId,
+            lifetime,
+            admission);
+    }
+
+    private RemoteWindowMediaRouteBinding PrepareResponderRouteCore(
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        TimeSpan? lifetime,
+        IRemoteWindowHostPreparationAdmission? admission)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        if (!generation.TryBeginResponderRouteOperation(
+                admission,
+                out RemoteWindowResponderRouteOperation? operation)
+            || operation is null)
+        {
+            throw new InvalidOperationException(
+                "The authenticated Remote Window connection generation did not admit responder route selection.");
+        }
+
+        try
+        {
+            if (!mediaSession.IsCurrent)
+            {
+                throw new InvalidOperationException(
+                    "The authenticated Remote Window media session is no longer current.");
+            }
+
+            RemoteWindowMediaRouteBinding binding =
+                mediaSession.PrepareResponderRoute(
+                    sessionId,
+                    activityId,
+                    lifetime);
+            if (admission is not null && !admission.CompleteRouteSelection())
+            {
+                throw new InvalidOperationException(
+                    "The host Preparation reservation became terminal during responder route selection.");
+            }
+
+            return binding;
+        }
+        catch
+        {
+            _ = admission?.TryFailRouteSelection();
+            throw;
+        }
+        finally
+        {
+            operation.Complete();
+        }
     }
 
     public async ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
@@ -138,6 +197,47 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
             cancellationToken);
         return await preparationChannel.PrepareAsync(request, linked.Token)
             .ConfigureAwait(false);
+    }
+
+    internal async ValueTask<RemoteWindowPreparationDeliveryResult>
+        PrepareReservedAsync(
+        RemoteWindowPreparationRequest request,
+        IRemoteWindowHostPreparationAdmission admission,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(admission);
+        if (request.HostDeviceId != LocalDeviceId
+            || request.ParticipantDeviceId != PeerDeviceId)
+        {
+            throw new ArgumentException(
+                "A host preparation must match this authenticated connection generation.",
+                nameof(request));
+        }
+
+        if (preparationChannel is not IReservedRemoteWindowPreparationChannel reserved)
+        {
+            throw new InvalidOperationException(
+                "The authenticated Remote Window preparation channel does not support host reservation admission.");
+        }
+
+        using CancellationTokenSource linked = CreateLinkedCancellation(
+            cancellationToken);
+        try
+        {
+            return await reserved.PrepareReservedAsync(
+                    request,
+                    admission,
+                    linked.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == linked.Token)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
+        }
     }
 
     public async ValueTask PublishAdmissionStateAsync(
@@ -477,6 +577,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     private readonly TimeProvider timeProvider;
     private int activeLeases;
     private int activePeerConnections;
+    private int activeResponderRoutes;
     private bool cancellationCompleted;
     private RemoteWindowPreparationRequest? deferredFailCloseRequest;
     private Func<ValueTask>? deferredFailCloseOperation;
@@ -488,6 +589,9 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     private bool revoked;
     private bool revocationDisposed;
     private TaskCompletionSource peerConnectionsDrained =
+        CreateCompletedSignal();
+    private bool responderRouteClaimed;
+    private TaskCompletionSource responderRoutesDrained =
         CreateCompletedSignal();
 
     internal RemoteWindowConnectionGeneration(
@@ -755,6 +859,58 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         }
     }
 
+    internal bool TryBeginResponderRouteOperation(
+        IRemoteWindowHostPreparationAdmission? admission,
+        out RemoteWindowResponderRouteOperation? operation)
+    {
+        var candidate = new RemoteWindowResponderRouteOperation(this);
+        var drain = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (gate)
+        {
+            if (revoked
+                || failClosePending
+                || ownerReleased
+                || responderRouteClaimed
+                || activeResponderRoutes != 0)
+            {
+                operation = null;
+                return false;
+            }
+
+            DateTimeOffset admissionTime = timeProvider.GetUtcNow();
+            if (admission is not null
+                && !admission.TryAdmitRouteSelection(admissionTime))
+            {
+                operation = null;
+                return false;
+            }
+
+            responderRouteClaimed = true;
+            activeResponderRoutes = 1;
+            responderRoutesDrained = drain;
+            operation = candidate;
+            return true;
+        }
+    }
+
+    internal Task WaitForRemoteWindowOperationsAsync()
+    {
+        Task peerConnections;
+        Task responderRoutes;
+        lock (gate)
+        {
+            peerConnections = peerConnectionsDrained.Task;
+            responderRoutes = responderRoutesDrained.Task;
+        }
+
+        return peerConnections.IsCompletedSuccessfully
+            ? responderRoutes
+            : responderRoutes.IsCompletedSuccessfully
+                ? peerConnections
+                : Task.WhenAll(peerConnections, responderRoutes);
+    }
+
     internal void CompletePeerConnection(Exception? cleanupFailure)
     {
         TaskCompletionSource completion;
@@ -781,6 +937,30 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             completion.TrySetException(cleanupFailure);
         }
 
+        if (dispose)
+        {
+            revocation.Dispose();
+        }
+    }
+
+    internal void CompleteResponderRoute()
+    {
+        TaskCompletionSource completion;
+        bool dispose;
+        lock (gate)
+        {
+            if (activeResponderRoutes != 1)
+            {
+                throw new InvalidOperationException(
+                    "A Remote Window responder route operation completed more than once.");
+            }
+
+            activeResponderRoutes = 0;
+            completion = responderRoutesDrained;
+            dispose = ClaimRevocationDisposalIfReady();
+        }
+
+        completion.TrySetResult();
         if (dispose)
         {
             revocation.Dispose();
@@ -1138,6 +1318,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             || !cancellationCompleted
             || registrationOperations != 0
             || activePeerConnections != 0
+            || activeResponderRoutes != 0
             || activeLeases != 0)
         {
             return false;
@@ -1194,5 +1375,28 @@ internal sealed class RemoteWindowPeerConnectionOperation
 
         owner.CompletePeerConnection(cleanupFailure);
         return cleanupFailure;
+    }
+}
+
+internal sealed class RemoteWindowResponderRouteOperation
+{
+    private RemoteWindowConnectionGeneration? generation;
+
+    internal RemoteWindowResponderRouteOperation(
+        RemoteWindowConnectionGeneration generation) =>
+        this.generation = generation;
+
+    internal void Complete()
+    {
+        RemoteWindowConnectionGeneration? owner = Interlocked.Exchange(
+            ref generation,
+            null);
+        if (owner is null)
+        {
+            throw new InvalidOperationException(
+                "A Remote Window responder route operation completed more than once.");
+        }
+
+        owner.CompleteResponderRoute();
     }
 }

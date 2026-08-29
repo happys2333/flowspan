@@ -49,6 +49,524 @@ public sealed class NativeRemoteWindowSourceRegistryTests
     }
 
     [Fact]
+    public void PreparationReservationIsSingleSlotAndDisposeReusesSlot()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration source =
+            registry.RegisterGeneric(
+                Metadata(NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2)));
+        using NativeRemoteWindowSourceLease lease = AcquireLease(
+            registry,
+            source.Snapshot);
+        var first = new RecordingPreparationReservation();
+        var second = new RecordingPreparationReservation();
+
+        Assert.True(
+            lease.TryRegisterPreparationReservation(
+                first,
+                out NativeRemoteWindowSourcePreparationRegistration?
+                    firstRegistration));
+        NativeRemoteWindowSourcePreparationRegistration registeredFirst =
+            Assert.IsType<NativeRemoteWindowSourcePreparationRegistration>(
+                firstRegistration);
+        Assert.True(registeredFirst.IsCurrent);
+        Assert.False(
+            lease.TryRegisterPreparationReservation(
+                second,
+                out NativeRemoteWindowSourcePreparationRegistration?
+                    rejectedRegistration));
+        Assert.Null(rejectedRegistration);
+
+        registeredFirst.Dispose();
+        registeredFirst.Dispose();
+
+        Assert.False(registeredFirst.IsCurrent);
+        Assert.True(
+            lease.TryRegisterPreparationReservation(
+                second,
+                out NativeRemoteWindowSourcePreparationRegistration?
+                    secondRegistration));
+        using NativeRemoteWindowSourcePreparationRegistration registeredSecond =
+            Assert.IsType<NativeRemoteWindowSourcePreparationRegistration>(
+                secondRegistration);
+        Assert.True(registeredSecond.IsCurrent);
+        registeredFirst.Dispose();
+        Assert.True(registeredSecond.IsCurrent);
+        Assert.Equal(0, first.InvalidationCount);
+        Assert.Equal(0, second.InvalidationCount);
+    }
+
+    [Fact]
+    public async Task SourceInvalidationPrecedesOrdinaryCallbackAndRejectsLateSlot()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration source = registry.RegisterGeneric(
+            Metadata(NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2)));
+        using NativeRemoteWindowSourceLease lease = AcquireLease(
+            registry,
+            source.Snapshot);
+        var preparation = new RecordingPreparationReservation();
+        Assert.True(
+            lease.TryRegisterPreparationReservation(
+                preparation,
+                out NativeRemoteWindowSourcePreparationRegistration?
+                    preparationRegistration));
+        using NativeRemoteWindowSourcePreparationRegistration atomic =
+            Assert.IsType<NativeRemoteWindowSourcePreparationRegistration>(
+                preparationRegistration);
+        using var ordinaryEntered = new ManualResetEventSlim();
+        using var releaseOrdinary = new ManualResetEventSlim();
+        int observedAtomicCount = -1;
+        Assert.True(
+            lease.TryRegisterInvalidationCallback(
+                () =>
+                {
+                    observedAtomicCount = preparation.InvalidationCount;
+                    ordinaryEntered.Set();
+                    _ = releaseOrdinary.Wait(TimeSpan.FromSeconds(5));
+                },
+                out NativeRemoteWindowSourceInvalidationRegistration?
+                    callbackRegistration));
+        using NativeRemoteWindowSourceInvalidationRegistration callback =
+            Assert.IsType<NativeRemoteWindowSourceInvalidationRegistration>(
+                callbackRegistration);
+        Task closing = RunOnDedicatedThread(source.Dispose);
+        Assert.True(ordinaryEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        try
+        {
+            Assert.Equal(1, observedAtomicCount);
+            Assert.Equal(1, preparation.InvalidationCount);
+            Assert.False(atomic.IsCurrent);
+            Assert.False(lease.IsCurrent);
+            Assert.False(
+                lease.TryRegisterPreparationReservation(
+                    new RecordingPreparationReservation(),
+                    out NativeRemoteWindowSourcePreparationRegistration?
+                        lateRegistration));
+            Assert.Null(lateRegistration);
+        }
+        finally
+        {
+            releaseOrdinary.Set();
+        }
+
+        await closing.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, preparation.InvalidationCount);
+    }
+
+    [Theory]
+    [InlineData(PreparationInvalidationPath.Unregister)]
+    [InlineData(PreparationInvalidationPath.SecurityBindingMutation)]
+    [InlineData(PreparationInvalidationPath.RegistryDispose)]
+    public void EverySourceInvalidationPathInvalidatesPreparationExactlyOnce(
+        PreparationInvalidationPath path)
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration source = registry.RegisterGeneric(
+            Metadata(NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2)));
+        using NativeRemoteWindowSourceLease lease = AcquireLease(
+            registry,
+            source.Snapshot);
+        var preparation = new RecordingPreparationReservation();
+        Assert.True(
+            lease.TryRegisterPreparationReservation(
+                preparation,
+                out NativeRemoteWindowSourcePreparationRegistration?
+                    preparationRegistration));
+        using NativeRemoteWindowSourcePreparationRegistration atomic =
+            Assert.IsType<NativeRemoteWindowSourcePreparationRegistration>(
+                preparationRegistration);
+        int ordinaryObservedAtomicCount = -1;
+        Assert.True(
+            lease.TryRegisterInvalidationCallback(
+                () => ordinaryObservedAtomicCount =
+                    preparation.InvalidationCount,
+                out NativeRemoteWindowSourceInvalidationRegistration?
+                    callbackRegistration));
+        using NativeRemoteWindowSourceInvalidationRegistration callback =
+            Assert.IsType<NativeRemoteWindowSourceInvalidationRegistration>(
+                callbackRegistration);
+
+        switch (path)
+        {
+            case PreparationInvalidationPath.Unregister:
+                source.Dispose();
+                break;
+            case PreparationInvalidationPath.SecurityBindingMutation:
+                Assert.False(
+                    source.TryUpdate(
+                        Metadata(
+                            NativeRemoteWindowGeometry.Create(
+                                0,
+                                0,
+                                1280,
+                                720,
+                                2),
+                            owningApplicationName: "Replacement application")));
+                break;
+            case PreparationInvalidationPath.RegistryDispose:
+                registry.Dispose();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(path));
+        }
+
+        Assert.Equal(1, ordinaryObservedAtomicCount);
+        Assert.Equal(1, preparation.InvalidationCount);
+        Assert.False(atomic.IsCurrent);
+        Assert.False(lease.IsCurrent);
+
+        source.Dispose();
+        registry.Dispose();
+        Assert.Equal(1, preparation.InvalidationCount);
+    }
+
+    [Fact]
+    public async Task PreparationInvalidationDoesNotWaitForActiveUseScope()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration source = registry.RegisterGeneric(
+            Metadata(NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2)));
+        NativeRemoteWindowSourceSnapshot snapshot = source.Snapshot;
+        using NativeRemoteWindowSourceLease lease = AcquireLease(registry, snapshot);
+        Assert.True(
+            lease.TryAcquireUseScope(
+                snapshot.Source.SourceGeneration,
+                snapshot.GeometryRevision,
+                out NativeRemoteWindowSourceUseScope? acquiredScope));
+        NativeRemoteWindowSourceUseScope scope = Assert.IsType<
+            NativeRemoteWindowSourceUseScope>(acquiredScope);
+        var preparation = new RecordingPreparationReservation();
+        Assert.True(
+            lease.TryRegisterPreparationReservation(
+                preparation,
+                out NativeRemoteWindowSourcePreparationRegistration?
+                    preparationRegistration));
+        using NativeRemoteWindowSourcePreparationRegistration atomic =
+            Assert.IsType<NativeRemoteWindowSourcePreparationRegistration>(
+                preparationRegistration);
+        using var ordinaryInvoked = new ManualResetEventSlim();
+        Assert.True(
+            lease.TryRegisterInvalidationCallback(
+                ordinaryInvoked.Set,
+                out NativeRemoteWindowSourceInvalidationRegistration?
+                    callbackRegistration));
+        using NativeRemoteWindowSourceInvalidationRegistration callback =
+            Assert.IsType<NativeRemoteWindowSourceInvalidationRegistration>(
+                callbackRegistration);
+        Task closing = RunOnDedicatedThread(source.Dispose);
+
+        try
+        {
+            await preparation.Invalidated.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(lease.IsCurrent);
+            Assert.False(atomic.IsCurrent);
+            Assert.False(ordinaryInvoked.IsSet);
+            Assert.False(closing.IsCompleted);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+
+        await closing.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(ordinaryInvoked.IsSet);
+        Assert.Equal(1, preparation.InvalidationCount);
+    }
+
+    [Fact]
+    public void SecurityBindingInvalidationDrainsBeforeRethrowingSinkFailure()
+    {
+        var injected = new IOException("security-binding-sink-canary");
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration source =
+            registry.RegisterGeneric(
+                Metadata(NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2)));
+        using NativeRemoteWindowSourceLease lease = AcquireLease(
+            registry,
+            source.Snapshot);
+        var preparation = new RecordingPreparationReservation
+        {
+            Failure = injected,
+        };
+        Assert.True(
+            lease.TryRegisterPreparationReservation(
+                preparation,
+                out NativeRemoteWindowSourcePreparationRegistration?
+                    preparationRegistration));
+        using NativeRemoteWindowSourcePreparationRegistration atomic =
+            Assert.IsType<NativeRemoteWindowSourcePreparationRegistration>(
+                preparationRegistration);
+        int ordinaryCallbacks = 0;
+        Assert.True(
+            lease.TryRegisterInvalidationCallback(
+                () => ordinaryCallbacks++,
+                out NativeRemoteWindowSourceInvalidationRegistration?
+                    callbackRegistration));
+        using NativeRemoteWindowSourceInvalidationRegistration callback =
+            Assert.IsType<NativeRemoteWindowSourceInvalidationRegistration>(
+                callbackRegistration);
+
+        IOException failure = Assert.Throws<IOException>(() =>
+            _ = source.TryUpdate(
+                Metadata(
+                    NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2),
+                    owningApplicationName: "Replacement application")));
+
+        Assert.Same(injected, failure);
+        Assert.False(lease.IsCurrent);
+        Assert.False(atomic.IsCurrent);
+        Assert.Equal(1, preparation.InvalidationCount);
+        Assert.Equal(1, ordinaryCallbacks);
+        Assert.Empty(registry.GetSnapshot());
+        Assert.False(
+            source.TryUpdate(
+                Metadata(
+                    NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2),
+                    owningApplicationName: "Another application")));
+    }
+
+    [Fact]
+    public void SourceUnregisterDrainsBeforeRethrowingSinkFailure()
+    {
+        var injected = new IOException("source-unregister-sink-canary");
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration source = registry.RegisterGeneric(
+            Metadata(NativeRemoteWindowGeometry.Create(0, 0, 1280, 720, 2)));
+        using NativeRemoteWindowSourceLease lease = AcquireLease(
+            registry,
+            source.Snapshot);
+        var preparation = new RecordingPreparationReservation
+        {
+            Failure = injected,
+        };
+        Assert.True(
+            lease.TryRegisterPreparationReservation(
+                preparation,
+                out NativeRemoteWindowSourcePreparationRegistration?
+                    preparationRegistration));
+        using NativeRemoteWindowSourcePreparationRegistration atomic =
+            Assert.IsType<NativeRemoteWindowSourcePreparationRegistration>(
+                preparationRegistration);
+        int ordinaryCallbacks = 0;
+        Assert.True(
+            lease.TryRegisterInvalidationCallback(
+                () => ordinaryCallbacks++,
+                out NativeRemoteWindowSourceInvalidationRegistration?
+                    callbackRegistration));
+        using NativeRemoteWindowSourceInvalidationRegistration callback =
+            Assert.IsType<NativeRemoteWindowSourceInvalidationRegistration>(
+                callbackRegistration);
+
+        IOException failure = Assert.Throws<IOException>(source.Dispose);
+
+        Assert.Same(injected, failure);
+        Assert.False(lease.IsCurrent);
+        Assert.False(atomic.IsCurrent);
+        Assert.Equal(1, preparation.InvalidationCount);
+        Assert.Equal(1, ordinaryCallbacks);
+        Assert.Empty(registry.GetSnapshot());
+
+        source.Dispose();
+        Assert.Equal(1, preparation.InvalidationCount);
+        Assert.Equal(1, ordinaryCallbacks);
+    }
+
+    [Fact]
+    public void RegistryDisposeDrainsEverySourceBeforeRethrowingRetainedFailure()
+    {
+        var injected = new IOException("registry-dispose-sink-canary");
+        var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration[] sources = Enumerable.Range(0, 3)
+            .Select(index => registry.RegisterGeneric(
+                Metadata(
+                    NativeRemoteWindowGeometry.Create(
+                        index * 10,
+                        0,
+                        1280,
+                        720,
+                        2))))
+            .ToArray();
+        NativeRemoteWindowSourceLease[] leases = sources
+            .Select(source => AcquireLease(registry, source.Snapshot))
+            .ToArray();
+        RecordingPreparationReservation[] preparations =
+        [
+            new RecordingPreparationReservation { Failure = injected },
+            new RecordingPreparationReservation(),
+            new RecordingPreparationReservation(),
+        ];
+        var atomicRegistrations =
+            new List<NativeRemoteWindowSourcePreparationRegistration>();
+        var callbackRegistrations =
+            new List<NativeRemoteWindowSourceInvalidationRegistration>();
+        int[] ordinaryCallbacks = new int[preparations.Length];
+        try
+        {
+            for (int index = 0; index < preparations.Length; index++)
+            {
+                Assert.True(
+                    leases[index].TryRegisterPreparationReservation(
+                        preparations[index],
+                        out NativeRemoteWindowSourcePreparationRegistration?
+                            preparationRegistration));
+                atomicRegistrations.Add(
+                    Assert.IsType<
+                        NativeRemoteWindowSourcePreparationRegistration>(
+                        preparationRegistration));
+                int callbackIndex = index;
+                Assert.True(
+                    leases[index].TryRegisterInvalidationCallback(
+                        () => ordinaryCallbacks[callbackIndex]++,
+                        out NativeRemoteWindowSourceInvalidationRegistration?
+                            callbackRegistration));
+                callbackRegistrations.Add(
+                    Assert.IsType<
+                        NativeRemoteWindowSourceInvalidationRegistration>(
+                        callbackRegistration));
+            }
+
+            IOException first = Assert.Throws<IOException>(registry.Dispose);
+
+            Assert.Same(injected, first);
+            Assert.All(leases, static lease => Assert.False(lease.IsCurrent));
+            Assert.All(
+                atomicRegistrations,
+                static registration => Assert.False(registration.IsCurrent));
+            Assert.All(
+                preparations,
+                static preparation =>
+                    Assert.Equal(1, preparation.InvalidationCount));
+            Assert.Equal([1, 1, 1], ordinaryCallbacks);
+
+            IOException repeated = Assert.Throws<IOException>(registry.Dispose);
+            Assert.Same(injected, repeated);
+            Assert.Equal([1, 1, 1], ordinaryCallbacks);
+        }
+        finally
+        {
+            foreach (
+                NativeRemoteWindowSourceInvalidationRegistration registration in
+                callbackRegistrations)
+            {
+                registration.Dispose();
+            }
+
+            foreach (
+                NativeRemoteWindowSourcePreparationRegistration registration in
+                atomicRegistrations)
+            {
+                registration.Dispose();
+            }
+
+            foreach (NativeRemoteWindowSourceLease lease in leases)
+            {
+                lease.Dispose();
+            }
+
+            foreach (NativeRemoteWindowSourceRegistration source in sources)
+            {
+                source.Dispose();
+            }
+
+            try
+            {
+                registry.Dispose();
+            }
+            catch (IOException exception) when (ReferenceEquals(exception, injected))
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void RegistryDisposeRetainsDeterministicallyOrderedSinkAggregate()
+    {
+        Exception[] injected =
+        [
+            new IOException("first-ordered-sink-canary"),
+            new InvalidOperationException("second-ordered-sink-canary"),
+        ];
+        var registry = new NativeRemoteWindowSourceRegistry(Host);
+        NativeRemoteWindowSourceRegistration[] sources = Enumerable.Range(0, 2)
+            .Select(index => registry.RegisterGeneric(
+                Metadata(
+                    NativeRemoteWindowGeometry.Create(
+                        index * 10,
+                        0,
+                        1280,
+                        720,
+                        2))))
+            .OrderBy(
+                static source => source.Source.ActivityId.ToString(),
+                StringComparer.Ordinal)
+            .ToArray();
+        var leases = new List<NativeRemoteWindowSourceLease>();
+        var registrations =
+            new List<NativeRemoteWindowSourcePreparationRegistration>();
+        try
+        {
+            for (int index = 0; index < sources.Length; index++)
+            {
+                NativeRemoteWindowSourceLease lease = AcquireLease(
+                    registry,
+                    sources[index].Snapshot);
+                leases.Add(lease);
+                Assert.True(
+                    lease.TryRegisterPreparationReservation(
+                        new RecordingPreparationReservation
+                        {
+                            Failure = injected[index],
+                        },
+                        out NativeRemoteWindowSourcePreparationRegistration?
+                            registration));
+                registrations.Add(
+                    Assert.IsType<
+                        NativeRemoteWindowSourcePreparationRegistration>(
+                        registration));
+            }
+
+            AggregateException failure =
+                Assert.Throws<AggregateException>(registry.Dispose);
+
+            Assert.Equal(injected, failure.InnerExceptions);
+            Assert.All(leases, static lease => Assert.False(lease.IsCurrent));
+            AggregateException repeated =
+                Assert.Throws<AggregateException>(registry.Dispose);
+            Assert.Same(failure, repeated);
+        }
+        finally
+        {
+            foreach (
+                NativeRemoteWindowSourcePreparationRegistration registration in
+                registrations)
+            {
+                registration.Dispose();
+            }
+
+            foreach (NativeRemoteWindowSourceLease lease in leases)
+            {
+                lease.Dispose();
+            }
+
+            foreach (NativeRemoteWindowSourceRegistration source in sources)
+            {
+                source.Dispose();
+            }
+
+            try
+            {
+                registry.Dispose();
+            }
+            catch (AggregateException exception) when (
+                exception.InnerExceptions.SequenceEqual(injected))
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void InvalidationCommitsBeforeCallbacksAndIsolatesObserverFailure()
     {
         using var registry = new NativeRemoteWindowSourceRegistry(Host);
@@ -1679,5 +2197,36 @@ public sealed class NativeRemoteWindowSourceRegistryTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
         }
+    }
+
+    private sealed class RecordingPreparationReservation :
+        INativeRemoteWindowSourcePreparationReservation
+    {
+        private int invalidationCount;
+        private readonly TaskCompletionSource invalidated = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int InvalidationCount => Volatile.Read(ref invalidationCount);
+
+        public Exception? Failure { get; init; }
+
+        public Task Invalidated => invalidated.Task;
+
+        public void InvalidateSourcePreparationNow()
+        {
+            _ = Interlocked.Increment(ref invalidationCount);
+            invalidated.TrySetResult();
+            if (Failure is not null)
+            {
+                throw Failure;
+            }
+        }
+    }
+
+    public enum PreparationInvalidationPath
+    {
+        Unregister,
+        SecurityBindingMutation,
+        RegistryDispose,
     }
 }

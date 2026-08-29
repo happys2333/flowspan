@@ -25,6 +25,165 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
         Guid.Parse("44444444-4444-4444-4444-444444444444"));
 
     [Fact]
+    public async Task ConnectionRevocationBeforeRouteAdmissionDoesNotCrossRegistry()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var admission = new RecordingHostPreparationAdmission();
+            Assert.Null(generation.RevokeAndReleaseOwner());
+
+            Assert.Throws<InvalidOperationException>(() =>
+                lease.PrepareResponderRoute(SessionId, ActivityId, admission));
+
+            Assert.Equal(0, admission.RouteAdmissionCount);
+            Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
+    public async Task AdmittedRouteOperationDrainsBeforeMediaCleanup()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var admission = new RecordingHostPreparationAdmission
+            {
+                BlockRouteCompletion = true,
+            };
+            Task<RemoteWindowMediaRouteBinding> selecting = Task.Run(() =>
+                lease.PrepareResponderRoute(SessionId, ActivityId, admission));
+            await admission.RouteCompletionEntered.Task.WaitAsync(
+                TimeSpan.FromSeconds(5));
+
+            Assert.Null(generation.RevokeAndReleaseOwner());
+            Task draining = generation.WaitForRemoteWindowOperationsAsync();
+            try
+            {
+                Assert.False(draining.IsCompleted);
+                Assert.Equal(1, routes.Count);
+            }
+            finally
+            {
+                admission.ReleaseRouteCompletion.TrySetResult();
+            }
+
+            _ = await selecting.WaitAsync(TimeSpan.FromSeconds(5));
+            await draining.WaitAsync(TimeSpan.FromSeconds(5));
+            await mediaSession.DisposeAsync();
+            Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
+    public async Task RouteSideEffectThenCompletionThrowRetainsFailureAndDrains()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var injected = new IOException("route completion canary");
+            var admission = new RecordingHostPreparationAdmission
+            {
+                RouteCompletionFailure = injected,
+            };
+
+            IOException failure = Assert.Throws<IOException>(() =>
+                lease.PrepareResponderRoute(SessionId, ActivityId, admission));
+
+            Assert.Same(injected, failure);
+            Assert.Equal(1, admission.RouteFailureCount);
+            Assert.Equal(1, routes.Count);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+            await generation.WaitForRemoteWindowOperationsAsync().WaitAsync(
+                TimeSpan.FromSeconds(5));
+            await mediaSession.DisposeAsync();
+            Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
+    public async Task PublicRouteOperationCannotBeClaimedTwice()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+
+            _ = lease.PrepareResponderRoute(SessionId, ActivityId);
+            Assert.Throws<InvalidOperationException>(() =>
+                lease.PrepareResponderRoute(SessionId, ActivityId));
+
+            Assert.Equal(1, routes.Count);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+            await generation.WaitForRemoteWindowOperationsAsync().WaitAsync(
+                TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
     public async Task AdmissionCallerCancellationRestoresOriginalTokenAcrossLease()
     {
         (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
@@ -63,6 +222,223 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
 
             Assert.Equal(cancellation.Token, failure.CancellationToken);
             Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task ReservedPrepareCallerCancellationRestoresOriginalTokenAcrossLease()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var channel = new BlockingReservedPreparationChannel();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                channel,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            using var cancellation = new CancellationTokenSource();
+
+            Task preparing = lease.PrepareReservedAsync(
+                    CreateHostPreparation(),
+                    new RecordingHostPreparationAdmission(),
+                    cancellation.Token)
+                .AsTask();
+            CancellationToken linkedToken = await channel.Entered.Task.WaitAsync(
+                TimeSpan.FromSeconds(5));
+            Assert.NotEqual(cancellation.Token, linkedToken);
+            cancellation.Cancel();
+
+            OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+                OperationCanceledException>(async () => await preparing);
+
+            Assert.Equal(cancellation.Token, failure.CancellationToken);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task ReservedPrepareForeignCancellationIsNotRelabeled()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            using var callerCancellation = new CancellationTokenSource();
+            using var foreignCancellation = new CancellationTokenSource();
+            var injected = new OperationCanceledException(
+                "reserved prepare foreign cancellation canary",
+                innerException: null,
+                foreignCancellation.Token);
+            var channel = new ThrowingReservedPreparationChannel(
+                callerCancellation,
+                injected);
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                channel,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+
+            OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+                OperationCanceledException>(async () =>
+                await lease.PrepareReservedAsync(
+                    CreateHostPreparation(),
+                    new RecordingHostPreparationAdmission(),
+                    callerCancellation.Token));
+
+            Assert.Same(injected, failure);
+            Assert.True(callerCancellation.IsCancellationRequested);
+            Assert.Equal(foreignCancellation.Token, failure.CancellationToken);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task ReservedPrepareCallerCancellationSurvivesRealSessionWireLinks()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var wire = new LeasePreparationWireConnection(
+                LocalDeviceId,
+                PeerDeviceId)
+            {
+                BlockUntilCancelled = true,
+            };
+            var session = new RemoteWindowControlSession(
+                wire,
+                timeProvider: TimeProvider.System);
+            session.StartDispatch();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                session,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            using var cancellation = new CancellationTokenSource();
+
+            try
+            {
+                Task preparing = lease.PrepareReservedAsync(
+                        CreateHostPreparation(),
+                        new RecordingHostPreparationAdmission(),
+                        cancellation.Token)
+                    .AsTask();
+                CancellationToken wireToken = await wire.Entered.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                Assert.NotEqual(cancellation.Token, wireToken);
+                cancellation.Cancel();
+
+                OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+                    OperationCanceledException>(async () => await preparing);
+
+                Assert.Equal(cancellation.Token, failure.CancellationToken);
+                Assert.Equal(1, wire.SendCount);
+            }
+            finally
+            {
+                session.Cancel();
+                await session.StopDispatchAsync().AsTask().WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                await session.DisposeAsync();
+                Assert.Null(generation.RevokeAndReleaseOwner());
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ReservedPrepareForeignWireCancellationKeepsIdentity()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            using var callerCancellation = new CancellationTokenSource();
+            using var foreignCancellation = new CancellationTokenSource();
+            var injected = new OperationCanceledException(
+                "real session foreign wire cancellation canary",
+                innerException: null,
+                foreignCancellation.Token);
+            var wire = new LeasePreparationWireConnection(
+                LocalDeviceId,
+                PeerDeviceId)
+            {
+                CallerCancellation = callerCancellation,
+                Failure = injected,
+            };
+            var session = new RemoteWindowControlSession(
+                wire,
+                timeProvider: TimeProvider.System);
+            session.StartDispatch();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                session,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+
+            try
+            {
+                OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+                    OperationCanceledException>(async () =>
+                    await lease.PrepareReservedAsync(
+                        CreateHostPreparation(),
+                        new RecordingHostPreparationAdmission(),
+                        callerCancellation.Token));
+
+                Assert.Same(injected, failure);
+                Assert.Equal(foreignCancellation.Token, failure.CancellationToken);
+                Assert.True(callerCancellation.IsCancellationRequested);
+                Assert.Equal(1, wire.SendCount);
+            }
+            finally
+            {
+                session.Cancel();
+                await session.StopDispatchAsync().AsTask().WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                await session.DisposeAsync();
+                Assert.Null(generation.RevokeAndReleaseOwner());
+            }
         }
     }
 
@@ -781,6 +1157,22 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
         MirrorParticipantRole.ViewOnly,
         deadline);
 
+    private static RemoteWindowPreparationRequest CreateHostPreparation()
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        deadline = deadline.AddTicks(
+            -(deadline.Ticks % TimeSpan.TicksPerMillisecond));
+        return RemoteWindowPreparationRequest.Create(
+            CorrelationId.From(
+                Guid.Parse("66666666-6666-6666-6666-666666666666")),
+            SessionId,
+            ActivityId,
+            LocalDeviceId,
+            PeerDeviceId,
+            MirrorParticipantRole.ViewOnly,
+            deadline);
+    }
+
     private static RemoteWindowParticipantState CreateAdmissionState() =>
         RemoteWindowParticipantState.Create(
             CorrelationId.From(
@@ -940,6 +1332,171 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             RemoteWindowParticipantState state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class RecordingHostPreparationAdmission :
+        IRemoteWindowHostPreparationAdmission
+    {
+        private int routeAdmissionCount;
+        private int routeFailureCount;
+
+        public bool BlockRouteCompletion { get; init; }
+
+        public TaskCompletionSource RouteCompletionEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseRouteCompletion { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Exception? RouteCompletionFailure { get; init; }
+
+        public int RouteAdmissionCount => Volatile.Read(ref routeAdmissionCount);
+
+        public int RouteFailureCount => Volatile.Read(ref routeFailureCount);
+
+        public bool TryAdmitRouteSelection(DateTimeOffset now)
+        {
+            Interlocked.Increment(ref routeAdmissionCount);
+            return true;
+        }
+
+        public bool CompleteRouteSelection()
+        {
+            RouteCompletionEntered.TrySetResult();
+            if (BlockRouteCompletion)
+            {
+                ReleaseRouteCompletion.Task.GetAwaiter().GetResult();
+            }
+
+            if (RouteCompletionFailure is { } failure)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(failure)
+                    .Throw();
+            }
+
+            return true;
+        }
+
+        public bool TryFailRouteSelection()
+        {
+            Interlocked.Increment(ref routeFailureCount);
+            return true;
+        }
+
+        public bool TryAdmitPrepareSend(
+            RemoteWindowPreparationRequest request,
+            DateTimeOffset now) => true;
+    }
+
+    private sealed class BlockingReservedPreparationChannel :
+        IRemoteWindowPreparationChannel,
+        IReservedRemoteWindowPreparationChannel
+    {
+        public TaskCompletionSource<CancellationToken> Entered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public DeviceId ParticipantDeviceId => PeerDeviceId;
+
+        public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public async ValueTask<RemoteWindowPreparationDeliveryResult>
+            PrepareReservedAsync(
+            RemoteWindowPreparationRequest request,
+            IRemoteWindowHostPreparationAdmission admission,
+            CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult(cancellationToken);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return RemoteWindowPreparationDeliveryResult.NotDelivered;
+        }
+
+        public ValueTask PublishAdmissionStateAsync(
+            RemoteWindowParticipantState state,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingReservedPreparationChannel(
+        CancellationTokenSource callerCancellation,
+        OperationCanceledException failure) :
+        IRemoteWindowPreparationChannel,
+        IReservedRemoteWindowPreparationChannel
+    {
+        public DeviceId ParticipantDeviceId => PeerDeviceId;
+
+        public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<RemoteWindowPreparationDeliveryResult>
+            PrepareReservedAsync(
+            RemoteWindowPreparationRequest request,
+            IRemoteWindowHostPreparationAdmission admission,
+            CancellationToken cancellationToken)
+        {
+            callerCancellation.Cancel();
+            return ValueTask.FromException<RemoteWindowPreparationDeliveryResult>(
+                failure);
+        }
+
+        public ValueTask PublishAdmissionStateAsync(
+            RemoteWindowParticipantState state,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class LeasePreparationWireConnection(
+        DeviceId localDeviceId,
+        DeviceId peerDeviceId) : IRemoteWindowControlConnection
+    {
+        private int sendCount;
+
+        public bool BlockUntilCancelled { get; init; }
+
+        public CancellationTokenSource? CallerCancellation { get; init; }
+
+        public TaskCompletionSource<CancellationToken> Entered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Exception? Failure { get; init; }
+
+        public DeviceId LocalDeviceId { get; } = localDeviceId;
+
+        public DeviceId PeerDeviceId { get; } = peerDeviceId;
+
+        public ProtocolVersion ProtocolVersion { get; } =
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
+
+        public int SendCount => Volatile.Read(ref sendCount);
+
+        public ValueTask<ControlMessage> ReadAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<ControlMessage>(new NotSupportedException());
+
+        public async ValueTask SendAsync(
+            ControlMessage message,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref sendCount);
+            Entered.TrySetResult(cancellationToken);
+            CallerCancellation?.Cancel();
+            if (Failure is { } failure)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(failure)
+                    .Throw();
+            }
+
+            if (BlockUntilCancelled)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+        }
     }
 
     private sealed class BlockingAdmissionPreparationChannel :

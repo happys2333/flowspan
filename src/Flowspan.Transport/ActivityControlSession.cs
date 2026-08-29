@@ -2719,7 +2719,7 @@ public sealed class AuthenticatedActivitySessionHandler :
                 {
                     try
                     {
-                        await remoteWindowGeneration.WaitForPeerConnectionsAsync()
+                        await remoteWindowGeneration.WaitForRemoteWindowOperationsAsync()
                             .ConfigureAwait(false);
                     }
                     catch (Exception exception)

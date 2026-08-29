@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 using System.Text.Json.Serialization;
 using Flowspan.Domain;
 
@@ -12,6 +13,14 @@ public interface INativeRemoteWindowSourceCatalog
         NativeRemoteWindowSourceToken token,
         long sourceGeneration,
         out NativeRemoteWindowSourceLease? lease);
+}
+
+// This friend-only sink runs while a source mutation owns its state gate. Its
+// implementation must be bounded, non-blocking, non-throwing, and must not call
+// external code or re-enter a native source.
+internal interface INativeRemoteWindowSourcePreparationReservation
+{
+    public void InvalidateSourcePreparationNow();
 }
 
 public sealed class NativeRemoteWindowSourceToken :
@@ -138,6 +147,30 @@ public sealed class NativeRemoteWindowSourceLease : IDisposable
         return false;
     }
 
+    internal bool TryRegisterPreparationReservation(
+        INativeRemoteWindowSourcePreparationReservation reservation,
+        out NativeRemoteWindowSourcePreparationRegistration? registration)
+    {
+        ArgumentNullException.ThrowIfNull(reservation);
+        if (Volatile.Read(ref disposed) != 0
+            || !state.TryRegisterPreparationReservation(
+                reservation,
+                out registration))
+        {
+            registration = null;
+            return false;
+        }
+
+        if (Volatile.Read(ref disposed) == 0)
+        {
+            return true;
+        }
+
+        registration?.Dispose();
+        registration = null;
+        return false;
+    }
+
     public bool TryAcquireUseScope(
         long sourceGeneration,
         long? geometryRevision,
@@ -205,6 +238,46 @@ public sealed class NativeRemoteWindowSourceUseScope : IDisposable
 
     public override string ToString() =>
         "Native Remote Window source use scope";
+}
+
+internal sealed class NativeRemoteWindowSourcePreparationRegistration :
+    IDisposable
+{
+    private readonly NativeRemoteWindowSourceLeaseState state;
+    private INativeRemoteWindowSourcePreparationReservation? reservation;
+    private bool disposed;
+
+    internal NativeRemoteWindowSourcePreparationRegistration(
+        NativeRemoteWindowSourceLeaseState state,
+        INativeRemoteWindowSourcePreparationReservation reservation)
+    {
+        this.state = state;
+        this.reservation = reservation;
+    }
+
+    public bool IsCurrent => state.IsPreparationRegistrationCurrent(this);
+
+    public void Dispose() => state.UnregisterPreparationReservation(this);
+
+    internal bool Disposed => disposed;
+
+    internal void Deactivate()
+    {
+        disposed = true;
+        reservation = null;
+    }
+
+    internal void InvalidateNow()
+    {
+        if (disposed || reservation is null)
+        {
+            return;
+        }
+
+        INativeRemoteWindowSourcePreparationReservation target = reservation;
+        Deactivate();
+        target.InvalidateSourcePreparationNow();
+    }
 }
 
 public sealed class NativeRemoteWindowSourceInvalidationRegistration : IDisposable
@@ -327,6 +400,7 @@ public sealed class NativeRemoteWindowSourceRegistry :
     private readonly DeviceId hostDeviceId;
     private readonly HashSet<NativeRemoteWindowSourceLeaseState>
         invalidatingStates = [];
+    private Exception? disposalFailure;
     private NativeRemoteWindowSourceLeaseState[] disposalStates = [];
     private int disposed;
     private long nextGeneration;
@@ -406,33 +480,65 @@ public sealed class NativeRemoteWindowSourceRegistry :
 
     public void Dispose()
     {
+        Exception? failure;
         NativeRemoteWindowSourceLeaseState[] states;
         lock (gate)
         {
             if (Volatile.Read(ref disposed) == 0)
             {
                 Volatile.Write(ref disposed, 1);
-                foreach (NativeRemoteWindowSourceLeaseState state in entries.Values)
+                states = entries.Values
+                    .OrderBy(
+                        static state =>
+                            state.Snapshot.Source.ActivityId.ToString(),
+                        StringComparer.Ordinal)
+                    .ToArray();
+                var failures = new List<Exception>();
+                foreach (NativeRemoteWindowSourceLeaseState state in states)
                 {
                     invalidatingStates.Add(state);
-                    state.BeginInvalidation();
+                    Exception? stateFailure = state.BeginInvalidation();
+                    if (stateFailure is not null)
+                    {
+                        failures.Add(stateFailure);
+                    }
                 }
 
                 entries.Clear();
-                disposalStates = invalidatingStates.ToArray();
+                disposalStates = invalidatingStates
+                    .OrderBy(
+                        static state =>
+                            state.Snapshot.Source.ActivityId.ToString(),
+                        StringComparer.Ordinal)
+                    .ToArray();
+                disposalFailure = failures.Count switch
+                {
+                    0 => null,
+                    1 => failures[0],
+                    _ => new AggregateException(
+                        "Native Remote Window source registry invalidation failed.",
+                        failures),
+                };
             }
 
             states = disposalStates;
+            failure = disposalFailure;
         }
 
         foreach (NativeRemoteWindowSourceLeaseState state in states)
         {
             state.DrainInvalidation();
         }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
     }
 
     internal void Unregister(NativeRemoteWindowSourceLeaseState state)
     {
+        Exception? invalidationFailure = null;
         lock (gate)
         {
             if (entries.TryGetValue(
@@ -441,12 +547,16 @@ public sealed class NativeRemoteWindowSourceRegistry :
                 && ReferenceEquals(current, state))
             {
                 invalidatingStates.Add(state);
-                state.BeginInvalidation();
+                invalidationFailure = state.BeginInvalidation();
                 entries.Remove(state.Snapshot.Token);
             }
         }
 
         state.DrainInvalidation();
+        if (invalidationFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(invalidationFailure).Throw();
+        }
     }
 
     internal bool TryUpdate(
@@ -454,6 +564,7 @@ public sealed class NativeRemoteWindowSourceRegistry :
         NativeRemoteWindowSourceMetadata metadata)
     {
         ArgumentNullException.ThrowIfNull(metadata);
+        Exception? invalidationFailure = null;
         bool securityBindingChanged = false;
         lock (gate)
         {
@@ -483,7 +594,7 @@ public sealed class NativeRemoteWindowSourceRegistry :
             if (securityBindingChanged)
             {
                 invalidatingStates.Add(state);
-                state.BeginInvalidation();
+                invalidationFailure = state.BeginInvalidation();
                 entries.Remove(current.Token);
             }
         }
@@ -491,6 +602,11 @@ public sealed class NativeRemoteWindowSourceRegistry :
         if (securityBindingChanged)
         {
             state.DrainInvalidation();
+            if (invalidationFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(invalidationFailure).Throw();
+            }
+
             return false;
         }
 
@@ -517,6 +633,8 @@ internal sealed class NativeRemoteWindowSourceLeaseState
         invalidationRegistrations = [];
     private readonly Action<NativeRemoteWindowSourceLeaseState>
         invalidationDrained;
+    private NativeRemoteWindowSourcePreparationRegistration?
+        preparationRegistration;
     private int activeUseScopes;
     private object? activeInvalidationCallbackToken;
     private int current = 1;
@@ -622,6 +740,52 @@ internal sealed class NativeRemoteWindowSourceLeaseState
         }
     }
 
+    public bool TryRegisterPreparationReservation(
+        INativeRemoteWindowSourcePreparationReservation reservation,
+        out NativeRemoteWindowSourcePreparationRegistration? registration)
+    {
+        lock (gate)
+        {
+            if (Volatile.Read(ref current) == 0
+                || preparationRegistration is not null)
+            {
+                registration = null;
+                return false;
+            }
+
+            registration = new NativeRemoteWindowSourcePreparationRegistration(
+                this,
+                reservation);
+            preparationRegistration = registration;
+            return true;
+        }
+    }
+
+    public bool IsPreparationRegistrationCurrent(
+        NativeRemoteWindowSourcePreparationRegistration registration)
+    {
+        lock (gate)
+        {
+            return Volatile.Read(ref current) != 0
+                && !registration.Disposed
+                && ReferenceEquals(preparationRegistration, registration);
+        }
+    }
+
+    public void UnregisterPreparationReservation(
+        NativeRemoteWindowSourcePreparationRegistration registration)
+    {
+        lock (gate)
+        {
+            if (ReferenceEquals(preparationRegistration, registration))
+            {
+                preparationRegistration = null;
+            }
+
+            registration.Deactivate();
+        }
+    }
+
     public bool IsInvalidationRegistrationCurrent(
         NativeRemoteWindowSourceInvalidationRegistration registration)
     {
@@ -665,24 +829,45 @@ internal sealed class NativeRemoteWindowSourceLeaseState
 
     public void Invalidate()
     {
-        BeginInvalidation();
+        Exception? failure = BeginInvalidation();
         DrainInvalidation();
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
     }
 
-    public void BeginInvalidation()
+    public Exception? BeginInvalidation()
     {
+        Exception? failure = null;
         lock (gate)
         {
             if (Volatile.Read(ref current) == 0)
             {
-                return;
+                return null;
             }
 
             Volatile.Write(ref current, 0);
             useAdmissionBlocked = true;
             invalidationDraining = true;
-            Monitor.PulseAll(gate);
+            NativeRemoteWindowSourcePreparationRegistration? preparation =
+                preparationRegistration;
+            preparationRegistration = null;
+            try
+            {
+                preparation?.InvalidateNow();
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                failure = exception;
+            }
+            finally
+            {
+                Monitor.PulseAll(gate);
+            }
         }
+
+        return failure;
     }
 
     public void DrainInvalidation()

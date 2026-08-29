@@ -92,6 +92,27 @@ public interface IRemoteWindowPreparationChannel
         CancellationToken cancellationToken);
 }
 
+internal interface IRemoteWindowHostPreparationAdmission
+{
+    public bool TryAdmitRouteSelection(DateTimeOffset now);
+
+    public bool CompleteRouteSelection();
+
+    public bool TryFailRouteSelection();
+
+    public bool TryAdmitPrepareSend(
+        RemoteWindowPreparationRequest request,
+        DateTimeOffset now);
+}
+
+internal interface IReservedRemoteWindowPreparationChannel
+{
+    public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareReservedAsync(
+        RemoteWindowPreparationRequest request,
+        IRemoteWindowHostPreparationAdmission admission,
+        CancellationToken cancellationToken);
+}
+
 public interface IRemoteWindowPreparationPeer
 {
     public DeviceId ParticipantDeviceId { get; }
@@ -385,6 +406,7 @@ internal interface IRemoteWindowControlConnection
 internal sealed class RemoteWindowControlSession :
     IRemoteWindowControlChannel,
     IRemoteWindowPreparationChannel,
+    IReservedRemoteWindowPreparationChannel,
     IAsyncDisposable
 {
     [ThreadStatic]
@@ -719,8 +741,25 @@ internal sealed class RemoteWindowControlSession :
         }
     }
 
-    public async ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
+    public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
         RemoteWindowPreparationRequest request,
+        CancellationToken cancellationToken) => PrepareCoreAsync(
+            request,
+            admission: null,
+            cancellationToken);
+
+    public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareReservedAsync(
+        RemoteWindowPreparationRequest request,
+        IRemoteWindowHostPreparationAdmission admission,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+        return PrepareCoreAsync(request, admission, cancellationToken);
+    }
+
+    private async ValueTask<RemoteWindowPreparationDeliveryResult> PrepareCoreAsync(
+        RemoteWindowPreparationRequest request,
+        IRemoteWindowHostPreparationAdmission? admission,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -798,6 +837,7 @@ internal sealed class RemoteWindowControlSession :
             if (!await TrySendPrepareMessageAsync(
                     message,
                     preparation,
+                    admission,
                     cancellationToken)
                 .ConfigureAwait(false))
             {
@@ -2237,13 +2277,20 @@ internal sealed class RemoteWindowControlSession :
     private ValueTask<bool> TrySendPrepareMessageAsync(
         ControlMessage message,
         OutboundPreparation preparation,
+        IRemoteWindowHostPreparationAdmission? admission,
         CancellationToken cancellationToken) => TrySendMessageAsync(
             message,
             cancellationToken,
             preparation.Request.Deadline,
-            () => AdmitPrepareSend(preparation));
+            admissionTime => AdmitPrepareSend(
+                preparation,
+                admission,
+                admissionTime));
 
-    private void AdmitPrepareSend(OutboundPreparation preparation)
+    private bool AdmitPrepareSend(
+        OutboundPreparation preparation,
+        IRemoteWindowHostPreparationAdmission? admission,
+        DateTimeOffset admissionTime)
     {
         lock (preparationGate)
         {
@@ -2254,7 +2301,16 @@ internal sealed class RemoteWindowControlSession :
                     "The Remote Window preparation send raced a terminal state.");
             }
 
+            if (admission is not null
+                && !admission.TryAdmitPrepareSend(
+                    preparation.Request,
+                    admissionTime))
+            {
+                return false;
+            }
+
             preparation.State = OutboundPreparationState.PrepareSending;
+            return true;
         }
     }
 
@@ -2264,7 +2320,11 @@ internal sealed class RemoteWindowControlSession :
             message,
             preparation.Cancellation.Token,
             preparation.Request.Deadline,
-            () => AdmitReadySend(preparation));
+            _ =>
+            {
+                AdmitReadySend(preparation);
+                return true;
+            });
 
     private void AdmitReadySend(InboundPreparation preparation)
     {
@@ -2286,7 +2346,7 @@ internal sealed class RemoteWindowControlSession :
         ControlMessage message,
         CancellationToken cancellationToken,
         DateTimeOffset? sendDeadline = null,
-        Action? admitSend = null)
+        Func<DateTimeOffset, bool>? admitSend = null)
     {
         CancellationTokenSource linked;
         SessionCallScope? inheritedScope = activeSendCall.Value;
@@ -2308,7 +2368,12 @@ internal sealed class RemoteWindowControlSession :
                 lifetimeCancellation.Token);
             try
             {
-                admitSend?.Invoke();
+                if (admitSend is not null && !admitSend(admissionTime))
+                {
+                    linked.Dispose();
+                    return false;
+                }
+
                 activeSends++;
             }
             catch
@@ -2321,7 +2386,19 @@ internal sealed class RemoteWindowControlSession :
         activeSendCall.Value = currentScope;
         try
         {
-            await connection.SendAsync(message, linked.Token).ConfigureAwait(false);
+            try
+            {
+                await connection.SendAsync(message, linked.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception) when (
+                cancellationToken.IsCancellationRequested
+                && exception.CancellationToken == linked.Token)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw;
+            }
+
             return true;
         }
         finally
