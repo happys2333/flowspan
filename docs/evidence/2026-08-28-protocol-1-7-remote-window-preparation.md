@@ -444,6 +444,39 @@ managed tracer evidence. This checkpoint closes only the cleanup-before-
 publication renderer row; the full fault matrix and every native, physical,
 signed/notarized, and release gate remain open.
 
+## Subsequent exact-binding ABA Transport checkpoint
+
+Test-only commit `ba58562aff020e3cd9fcc5c8066bcfe74d692b8b` adds no
+production source and does not expand the thirteen-case managed Desktop tracer.
+It independently exercises the protocol-1.7 authenticated media directory after
+an accepted old `FSM1` attachment is blocked between route attachment and
+directory publication. The old control generation fully drains; the same Device
+pair reconnects with higher generations, prepares a replacement route for the
+same Session and Activity with a fresh Route ID, and completes real `FSM1`
+acceptance so that route is Attached while directory publication remains gated.
+Releasing only the old gate rejects its stale exact binding without attaching to
+or stopping the replacement. The replacement gate can then publish the new
+binding and exchange one encrypted media frame before all owners drain.
+
+The correct two-gate harness was GREEN against the existing production guard.
+A separate fixture RED with one shared gate failed with expected 1/actual 2, and
+removing the exact-binding inequality guard made the bounded focused test fail;
+these prove harness capability and mutation sensitivity, not a production defect.
+Final local results were focused `1/1`, class `29/29`, Transport `702/702`, 80
+fresh Debug processes `80/80`, and both solutions `2237/2237`. Exact-SHA CI
+[`33261748925`](https://github.com/happys2333/flowspan/actions/runs/33261748925)
+attempt 1 records a macOS runner exit 137 at format before any build or tests.
+Attempt 2 reran the unchanged SHA and passed `2237/2237` on every hosted OS,
+Secret Scan, and every unsigned package job. CodeQL
+[`33261748927`](https://github.com/happys2333/flowspan/actions/runs/33261748927)
+also passed with 52 rules, 0 results, and 0 open alerts. Full job, artifact, and
+digest evidence is in the Transport candidate document.
+
+This closes one Transport exact-binding replacement-generation row only. It is
+not a full Desktop renderer-to-replacement trace, and the remaining replacement/
+ABA, per-boundary, combined-failure, native, physical, and release evidence stays
+open.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -475,7 +508,8 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current thirteen managed tracer cases;
+  from the current thirteen managed tracer cases and one exact-binding Transport
+  replacement-generation row;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native

@@ -1036,9 +1036,43 @@ both completed successfully.
 
 This checkpoint closes only the fail-close-before-host-directory-publication
 renderer row. The remaining per-boundary reject, throw, cancel, timeout, revoke,
-disconnect, and cleanup-fault matrix remains open, including replacement/ABA
-variants of this boundary. It supplies no native, physical-Device,
+disconnect, and cleanup-fault matrix remains open, including the remaining
+replacement/ABA variants of this boundary. It supplies no native, physical-Device,
 signed-package, notarization, or release evidence.
+
+### Companion exact-binding replacement-generation Transport checkpoint
+
+Test-only commit `ba58562aff020e3cd9fcc5c8066bcfe74d692b8b` leaves this
+managed Desktop tracer at thirteen cases and changes no production source. Its
+separate Transport contract drains the old authenticated control generation
+while one accepted `FSM1` attachment remains blocked after route attachment but
+before directory publication. The same Device pair then reconnects with higher
+control generations, prepares a replacement route for the same Session and
+Activity with a fresh Route ID, and completes real `FSM1` acceptance so that
+route is Attached while directory publication remains gated. Releasing only the
+old gate must reject that stale exact binding with `InvalidDataException`; it
+cannot attach to, stop, or consume the prepared replacement. Releasing the
+replacement gate then
+attaches the new binding and transfers an encrypted media frame before final
+complete cleanup.
+
+This contract complements the fifth renderer row's cleanup-before-publication
+evidence. It does not combine those facts into a full Desktop renderer-to-
+replacement trace, does not add a fourteenth managed tracer case, and does not
+cover the remaining replacement/ABA or cleanup-fault matrix. Local verification
+passed the focused fact `1/1`, its containing class `29/29`, 80 fresh Debug
+processes `80/80`, Transport `702/702`, and both complete solutions `2237/2237`.
+
+Exact-SHA CI
+[`33261748925`](https://github.com/happys2333/flowspan/actions/runs/33261748925)
+is transparent about a failed first macOS attempt: job `99124771411` was killed
+with exit 137 immediately after format began, before build, tests, or TRX. One
+unchanged-SHA rerun succeeded on Ubuntu, Windows, and macOS with `2237/2237`
+each, plus Secret Scan and all three reproducible unsigned package jobs. CodeQL
+run [`33261748927`](https://github.com/happys2333/flowspan/actions/runs/33261748927)
+also passed; analysis `1692023991` evaluated 52 rules with 0 results and the
+branch had 0 open alerts. Exact job, artifact, and digest evidence is recorded in
+the Transport candidate document.
 
 ## Security relevance
 
@@ -1088,7 +1122,9 @@ signed-package, notarization, or release evidence.
   owners without publishing Admission or an active generation, and the old
   generation cannot be reacquired. Actual caller cancellation independently
   produces one fail-close and one Dispose while the harness remains live, then
-  drains the same owner graph.
+  drains the same owner graph. The companion Transport contract separately proves
+  one exact-binding replacement-generation row: a late accepted old attachment
+  cannot retarget one already Attached replacement route.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -1111,7 +1147,7 @@ Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows, macOS, and Linux execution through `0e57390` is managed-loopback
+Hosted Windows, macOS, and Linux execution through `ba58562` is managed-loopback
 and contract evidence only. It is not evidence for Windows, macOS, or Linux native
 capture/input/protection APIs; physical two-Device operation; signed or
 notarized packages; package lifecycle behavior; or full release acceptance.

@@ -941,9 +941,50 @@ and CodeQL
 completed successfully. Each hosted OS passed `2236/2236` with every non-success
 counter zero; Secret Scan, CodeQL analysis, and all three reproducible unsigned
 package jobs passed. The new renderer row closes only that one cleanup-race
-boundary. Replacement/ABA, the remaining complete fault matrix, Tasks 5, 5.5a,
-and 5.5, all native/physical/release gates, and the Goal remain open;
+boundary. The remaining replacement/ABA matrix, the remaining complete fault
+matrix, Tasks 5, 5.5a, and 5.5, all native/physical/release gates, and the Goal
+remain open;
 `CreateProduction()` remains unavailable.
+
+Test-only commit `ba58562aff020e3cd9fcc5c8066bcfe74d692b8b` adds one
+independent Transport ABA contract without changing production source or the
+thirteen-case managed Desktop tracer. The fact must use two independently
+releasable gates after real route acceptance and before authenticated-directory
+publication. It first drains the old control generation, then proves a higher
+replacement generation for the same Device pair has an Attached route for the
+same Session and Activity with a distinct Route ID. Releasing only the old gate
+must yield the expected stale-owner `InvalidDataException` while the replacement
+remains current, unattached in the host directory, not stopped, and owns exactly
+one route. Releasing the new gate must attach only the replacement binding,
+transfer one encrypted frame, and permit complete final cleanup.
+
+One deliberately shared gate failed the fixture capability check with expected
+forward count 1 and actual 2 after about 62 ms. The correct two-gate test was
+GREEN against current production. Removing only the exact-binding inequality
+guard then made the bounded test fail after about five seconds because the old
+attachment polluted the replacement; restoring the guard returned it to GREEN.
+Final focused Debug/Release passed `1/1`, the class passed `29/29`, 80 fresh
+Debug processes at eight-way concurrency passed `80/80`, Transport Debug/Release
+passed `702/702`, and both complete solutions passed `2237/2237`. Both warning-
+as-error builds, format, diff, dependency-vulnerability, TEST MODE composition,
+and simulator gates passed.
+
+Exact-SHA CI
+[`33261748925`](https://github.com/happys2333/flowspan/actions/runs/33261748925)
+attempt 1 retained a macOS exit-137 runner failure during format, before build,
+test, or TRX. Attempt 2 reran the unchanged SHA successfully: all three hosted OS
+artifacts contained 12 TRX files and `2237/2237` passing tests; Secret Scan and
+all reproducible unsigned package jobs passed. CodeQL
+[`33261748927`](https://github.com/happys2333/flowspan/actions/runs/33261748927)
+evaluated 52 rules with 0 results and 0 open alerts. Exact job, artifact, and
+digest records are in the Transport candidate evidence.
+
+This closes only the old-exact-binding-versus-prepared-replacement row. Required
+coverage still includes a full Desktop renderer-to-replacement trace; the other
+Session, Activity, Device, reconnect, reject, throw, cancellation, timeout,
+revocation, disconnect, and cleanup-fault combinations; their combined-failure
+cross-products; and native/physical execution. Tests must not infer any of those
+from this isolated row.
 
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
 actual caller cancellation. Cleanup-fault injection and the complete

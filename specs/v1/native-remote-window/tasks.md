@@ -331,9 +331,35 @@
     OS passed `2236/2236`; Secret Scan, CodeQL analysis, and all three
     reproducible unsigned package jobs passed. This closes only the
     fail-close-before-publication row. The remaining fault
-    matrix, replacement/ABA evidence, Task 5, Task 5.5a, Task 5.5, all
+    matrix, remaining replacement/ABA evidence, Task 5, Task 5.5a, Task 5.5, all
     native/physical/release gates, and the Goal remain open; `CreateProduction()`
     remains unavailable.
+    Test-only commit `ba58562aff020e3cd9fcc5c8066bcfe74d692b8b` adds one
+    independent Transport exact-binding replacement-generation contract with no
+    production source change and leaves the managed Desktop tracer at thirteen
+    cases. The old authenticated generation and published owners drain while one
+    accepted attachment stays blocked after route attachment but before directory
+    publication. The same Device pair then reconnects with higher generations and
+    prepares a replacement route for the same Session and Activity with a fresh
+    Route ID, then completes real `FSM1` acceptance so the route is Attached while
+    directory publication remains gated. Releasing only the old gate rejects the
+    stale exact binding without attaching to, stopping, or consuming the
+    replacement. Releasing the replacement gate attaches it and transfers one
+    encrypted frame before final zero-owner cleanup.
+    A shared-gate fixture RED failed expected 1/actual 2, while removing the
+    exact-binding inequality guard made the bounded focused test fail; the final
+    two-gate test passed `1/1` Debug/Release, its class `29/29`, 80 fresh Debug
+    processes `80/80`, Transport `702/702`, and both solutions `2237/2237`.
+    Exact-SHA CI `33261748925` attempt 1 records a macOS exit-137 format failure
+    before build/tests/TRX; attempt 2 reran the unchanged SHA and passed
+    `2237/2237` on all three hosted OSes, Secret Scan, and all unsigned package
+    jobs. CodeQL `33261748927` passed 52 rules with 0 results and 0 open alerts.
+    Exact artifacts and digests are in the Transport candidate evidence.
+    This closes one Transport row only, not a full Desktop renderer-to-replacement
+    trace or the other Session/Activity/Device/reconnect/fault and cleanup-fault
+    combinations. The remaining fault and replacement/ABA matrices, Task 5,
+    Task 5.5a, Task 5.5, Tasks 6-10, every native/physical/release gate, and the
+    Goal remain open; `CreateProduction()` remains unavailable.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

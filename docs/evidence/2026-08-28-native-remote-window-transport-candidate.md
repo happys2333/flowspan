@@ -200,6 +200,92 @@ They do not prove that a native Remote Window adapter was constructed or used,
 nor do they prove physical networking, packaged accessibility, or release
 readiness.
 
+## Subsequent exact-binding replacement-generation checkpoint
+
+Test-only commit `ba58562aff020e3cd9fcc5c8066bcfe74d692b8b` adds one
+production Transport boundary contract without changing production source. It
+creates a real authenticated protocol-1.7 control generation and a signed,
+verified loopback endpoint, completes `FSM1` route acceptance, and blocks the old
+attachment after
+the route registry has marked it Attached but before the authenticated media
+directory publishes it. The old host lease then fail-closes. Both control run
+loops stop, directory, route, and registered-peer ownership drains, and retained
+leases become non-current while that accepted attachment remains blocked.
+
+The same Device pair reconnects through strictly higher control generations and
+reuses the same Session and Activity with a fresh Route ID. A second independent
+gate proves that the replacement route is Attached, its participant side is
+attached, and its current host directory entry remains unattached. At the media-
+binding level, only the Route ID differs. Releasing only the old gate produces the
+expected `InvalidDataException` because the old exact binding has no live owning
+control connection. The current replacement generation remains current and
+unattached, retains exactly one live route, and neither control stop token is
+cancelled. Releasing the replacement gate then attaches the exact new binding and
+transfers one encrypted media frame successfully. Explicit replacement fail-close
+drains the replacement generation and all published owners. Bounded final
+teardown then disposes every retained connection, lease, handler, directory,
+route registry, and frame owner.
+
+This is one isolated exact-binding ABA row. Composed with the Desktop tracer's
+cleanup-before-publication row, it proves that a delayed accepted attachment
+cannot retarget one already prepared replacement generation. It is not a full
+Desktop renderer-to-replacement trace and does not cover every Session, Activity,
+Device, reconnect, cleanup-fault, or boundary-failure combination. The managed
+Desktop tracer therefore remains thirteen cases.
+
+The first fixture RED deliberately reused one gate for both generations. It
+failed deterministically after about 62 ms with expected forward count 1 and
+actual 2, demonstrating that the fixture could not independently release the old
+attachment. The two-gate harness was GREEN against the existing production
+guard; this was not a production defect. Mutation verification then removed only
+the production exact-binding inequality check. The focused test failed after its
+five-second bound because the old attachment polluted the replacement, and the
+guard was immediately restored. Final local macOS verification recorded:
+
+- focused Debug and Release `1/1`;
+- the containing media-session class Debug and Release `29/29`;
+- Transport Debug and Release `702/702`;
+- 80 fresh Debug processes at eight-way concurrency, `80/80`;
+- complete Debug and Release solutions, `2237/2237` each, including Desktop
+  `548/548`;
+- Debug and Release warning-as-error builds with 0 warnings and 0 errors; and
+- format, diff, direct/transitive NuGet vulnerability, explicit TEST MODE
+  composition, and protocol-1.7 simulator gates passed.
+
+Exact-SHA CI run
+[`33261748925`](https://github.com/happys2333/flowspan/actions/runs/33261748925)
+has two attempts. Attempt 1's Ubuntu, Windows, and Secret Scan jobs succeeded,
+but macOS job
+[`99124771411`](https://github.com/happys2333/flowspan/actions/runs/33261748925/job/99124771411)
+was terminated with exit 137 about 0.15 seconds after `dotnet format` began. Its
+locked restore had completed, but it did not build, run tests, or publish TRX;
+dependent package jobs were skipped. The unchanged exact SHA was rerun once.
+Attempt 2 completed successfully:
+
+| Job | Job ID | Artifact ID | Artifact SHA-256 | Parsed result |
+| --- | ---: | ---: | --- | --- |
+| Ubuntu tests | `99125319147` | `9717487931` | `0fac27eba022bdbe29f3880ab9de86914eca6fd77d057002a3881d6db0626e53` | 12 TRX, 2237/2237 |
+| Windows tests | `99125334605` | `9717494099` | `21d4b30c91035a302797fc5c4013e8419443d658164fe29b07727c739de964ae` | 12 TRX, 2237/2237 |
+| macOS tests | `99125318578` | `9717537994` | `db2ccb9915eca9dcc3334b05aea3d6e735d5dce7aa9b206491d5cfd6771afb51` | 12 TRX, 2237/2237 |
+| Secret Scan | `99125335087` | `9717446010` | `a024907b129157fccff49855133c95b122afb9155a2f5d8709f64ea404aef222` | SARIF 2.1.0, 208 rules, 0 results |
+
+All parsed test artifacts had zero failed, error, timeout, aborted, or other
+non-success results. Attempt 2's reproducible unsigned package jobs also passed:
+
+| Runtime | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| `win-x64` | `99125685608` | `9717564252` | `ed15ecb1479fff5977b6609533342065df466a8f61dba0ce605143bff532cd95` |
+| `osx-arm64` | `99125685611` | `9717563836` | `2f7e251fa955190e43d7dbc7096e55639052f9b2afc152173c1a7b97c6934d4f` |
+| `linux-x64` | `99125685639` | `9717557925` | `ed949325734ee47ded9d3bc8f8aa5e34571f727f7d14edbc5b6c260c96b95aa6` |
+
+[CodeQL run `33261748927`](https://github.com/happys2333/flowspan/actions/runs/33261748927),
+job [`99124771368`](https://github.com/happys2333/flowspan/actions/runs/33261748927/job/99124771368),
+also passed for the exact SHA. Analysis `1692023991` evaluated 52 rules with 0
+results, and the branch open-alert query returned 0. The successful unchanged-SHA
+rerun supports the diagnosis that the first macOS termination was a transient
+runner/resource failure; the failed attempt remains part of the record and is not
+a test result.
+
 ## Independent review
 
 Two read-only reviews of the initial Transport tree identified no P0 and one P1:
@@ -235,6 +321,9 @@ owners, or budget.
 - Budget exhaustion and cleanup-fault handling are each covered, but their full
   cross-product is not. A simultaneous budget-bound failure plus an injected
   throwing cleanup stage remains an explicit fault-injection combination to add.
+- One exact-binding replacement-generation ABA row is covered. The complete
+  replacement/ABA matrix, including a full Desktop renderer-to-replacement trace
+  and cleanup-fault cross-products, remains open.
 - Physical two-device loss/reconnect/load/latency, native accessibility, signed or
   notarized package lifecycle, Tasks 6-10, affected release criteria, and the
   long-term Goal remain open.
