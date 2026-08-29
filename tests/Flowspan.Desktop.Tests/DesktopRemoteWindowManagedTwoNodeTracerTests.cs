@@ -2360,7 +2360,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         EmergencyStopRegistration,
         CaptureEmergencyStop,
         InputEmergencyStop,
+        HostFailClose,
         HostConnectionDispose,
+        EmergencyStopRegistrationAndHostConnectionDispose,
         CaptureEmergencyStopAndEmergencyStopRegistration,
     }
 
@@ -2368,7 +2370,10 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     [InlineData(TerminalCleanupFault.EmergencyStopRegistration)]
     [InlineData(TerminalCleanupFault.CaptureEmergencyStop)]
     [InlineData(TerminalCleanupFault.InputEmergencyStop)]
+    [InlineData(TerminalCleanupFault.HostFailClose)]
     [InlineData(TerminalCleanupFault.HostConnectionDispose)]
+    [InlineData(
+        TerminalCleanupFault.EmergencyStopRegistrationAndHostConnectionDispose)]
     [InlineData(
         TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration)]
     public async Task AuthenticatedControlDisconnectCleanupFaultDrainsAndRemainsObservable(
@@ -2448,6 +2453,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             "injected capture Emergency Stop cleanup failure");
         var inputInjected = new IOException(
             "injected input Emergency Stop cleanup failure");
+        var failCloseInjected = new IOException(
+            "injected host fail-close cleanup failure");
         var connectionDisposeInjected = new IOException(
             "injected host connection disposal cleanup failure");
         var registrationInjected = new IOException(
@@ -2456,10 +2463,15 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             TerminalCleanupFault.CaptureEmergencyStop
             or TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration;
         bool injectInput = cleanupFault == TerminalCleanupFault.InputEmergencyStop;
-        bool injectConnectionDispose =
-            cleanupFault == TerminalCleanupFault.HostConnectionDispose;
+        bool injectFailClose = cleanupFault == TerminalCleanupFault.HostFailClose;
+        bool injectConnectionDispose = cleanupFault is
+            TerminalCleanupFault.HostConnectionDispose
+            or TerminalCleanupFault
+                .EmergencyStopRegistrationAndHostConnectionDispose;
         bool injectRegistration = cleanupFault is
             TerminalCleanupFault.EmergencyStopRegistration
+            or TerminalCleanupFault
+                .EmergencyStopRegistrationAndHostConnectionDispose
             or TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration;
         var capture = new RecordingCaptureBoundary
         {
@@ -2536,6 +2548,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 capture,
                 renderer,
                 rendererFactory,
+                injectedFailCloseFailure: injectFailClose
+                    ? failCloseInjected
+                    : null,
                 injectedDisposeFailure: injectConnectionDispose
                     ? connectionDisposeInjected
                     : null);
@@ -2617,9 +2632,27 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             {
                 AssertInputProjection(expectedTerminalFailure, inputInjected);
             }
+            else if (cleanupFault == TerminalCleanupFault.HostFailClose)
+            {
+                Assert.Same(failCloseInjected, expectedTerminalFailure);
+            }
             else if (cleanupFault == TerminalCleanupFault.HostConnectionDispose)
             {
                 Assert.Same(connectionDisposeInjected, expectedTerminalFailure);
+            }
+            else if (cleanupFault
+                == TerminalCleanupFault
+                    .EmergencyStopRegistrationAndHostConnectionDispose)
+            {
+                AggregateException combinedFailure = Assert.IsType<
+                    AggregateException>(expectedTerminalFailure);
+                Assert.Equal(2, combinedFailure.InnerExceptions.Count);
+                Assert.Same(
+                    registrationInjected,
+                    combinedFailure.InnerExceptions[0]);
+                Assert.Same(
+                    connectionDisposeInjected,
+                    combinedFailure.InnerExceptions[1]);
             }
             else
             {
@@ -2665,6 +2698,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(1, emergencyStops.RegistrationDisposeCount);
             Assert.False(hostConnection.IsCurrent);
             Assert.Equal(1, hostConnection.FailCloseCount);
+            Assert.Equal(
+                injectFailClose ? 1 : 0,
+                hostConnection.FailCloseFailureCount);
             Assert.Equal(1, hostConnection.DisposeCount);
             Assert.Equal(
                 injectConnectionDispose ? 1 : 0,
@@ -3263,6 +3299,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         RecordingRendererFactory rendererFactory,
         Func<RemoteWindowPreparationRequest, ValueTask>?
             afterMediaAttachment = null,
+        Exception? injectedFailCloseFailure = null,
         Exception? injectedDisposeFailure = null) :
         IDesktopRemoteWindowHostConnection
     {
@@ -3273,6 +3310,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         private Exception? disposeFailure = injectedDisposeFailure;
         private int disposeFailureCount;
         private int failCloseCount;
+        private Exception? failCloseFailure = injectedFailCloseFailure;
+        private int failCloseFailureCount;
         private int mediaSendCount;
         private int mediaSentBeforeAdmissionCount;
         private RemoteWindowPreparationRequest? preparationRequest;
@@ -3292,6 +3331,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         public int DisposeFailureCount => Volatile.Read(ref disposeFailureCount);
 
         public int FailCloseCount => Volatile.Read(ref failCloseCount);
+
+        public int FailCloseFailureCount =>
+            Volatile.Read(ref failCloseFailureCount);
 
         public DeviceId LocalDeviceId => inner.LocalDeviceId;
 
@@ -3321,10 +3363,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             }
         }
 
-        public ValueTask FailCloseAsync()
+        public async ValueTask FailCloseAsync()
         {
             Interlocked.Increment(ref failCloseCount);
-            return inner.FailCloseAsync();
+            await inner.FailCloseAsync().ConfigureAwait(false);
+            Exception? failure = Interlocked.Exchange(ref failCloseFailure, null);
+            if (failure is not null)
+            {
+                Interlocked.Increment(ref failCloseFailureCount);
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            }
         }
 
         public void PrepareResponderRoute(
