@@ -8,15 +8,16 @@ Committed baseline: `7f4ec4dba0158dd16e1856eb5012e69d91540b61`
 
 Implementation commit: `eb2e2ad9da18163604fdb2d5fa484acfad70a507`
 
+Hosted evidence commit: `92edfffced6cf7b73bc2d91ec31d253bbc71c0c1`
+
 Available local environment: macOS 26.6.2 arm64, Xcode 26.6 with macOS
 26.5 SDK headers, .NET SDK 10.0.301
 
 ## Evidence status
 
 This describes the implementation commit above with completed local
-verification. It claims no hosted CI, CodeQL, Secret Scan, package, or native
-product result. The
-final evidence owner must append hosted artifacts.
+verification and the hosted evidence commit above. It claims no packaged
+real-machine native, physical-device, signing, notarization, or release result.
 
 The finite acceptance inventory is
 [`remote-window-production-boundary-matrix.md`](../testing/remote-window-production-boundary-matrix.md).
@@ -117,10 +118,10 @@ dotnet run --project src/Flowspan.Desktop/Flowspan.Desktop.csproj --configuratio
 dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj --configuration Release --no-build --no-restore
 ```
 
-The evidence branch head must then receive Windows, macOS, and Linux CI, Secret
-Scan, CodeQL, and reproducible unsigned-package jobs. Hosted success would
-remain managed contract/build evidence, not packaged real-machine native,
-physical, signing, or notarization evidence.
+The hosted evidence commit received Windows, macOS, and Linux CI, Secret Scan,
+CodeQL, and reproducible unsigned-package jobs. Their success remains managed
+contract/build evidence, not packaged real-machine native, physical, signing,
+or notarization evidence.
 
 Local results on the environment above:
 
@@ -139,11 +140,43 @@ Local results on the environment above:
 - matching-host CoreGraphics smoke: passed without calling Request or displaying
   a permission prompt.
 
-Hosted evidence still to append:
+Final independent review first found and blocked one pre-route asynchronous
+fail-close cleanup escape. The added blocking/failing regression and shared-task
+cleanup repair closed it; re-review returned APPROVE with 0 P0, 0 P1, and 0 P2
+findings for this checkpoint.
 
-- Implementation SHA: `eb2e2ad9da18163604fdb2d5fa484acfad70a507`
-- Exact-SHA Windows/macOS/Linux CI and unsigned-package artifacts: pending
-- Exact-SHA Secret Scan and CodeQL results: pending
+## Hosted exact-SHA evidence
+
+[CI run `33275235290`](https://github.com/happys2333/flowspan/actions/runs/33275235290)
+completed successfully for hosted evidence commit
+`92edfffced6cf7b73bc2d91ec31d253bbc71c0c1`. Each downloaded platform artifact
+contains exactly 12 TRX files with `2286/2286` total, executed, and passed, and
+every failed, error, timeout, aborted, inconclusive, passed-but-run-aborted,
+not-executed, disconnected, warning, completed, in-progress, and pending counter
+is zero:
+
+| Platform | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| macOS | `99160667448` | `9721329113` | `a6b6ff5fdee29997eb4049befe479edb3e78c64f2ff1a0645d92f98d9fe3b5a8` |
+| Windows | `99160667488` | `9721342698` | `c71738164dc88773a91eadfcc97aeb4bae18e1886c83116079159491716ee8df` |
+| Linux | `99160667552` | `9721323183` | `1b5bff6caca9290c5d21180b76d69fd761be8cb7da3f39542f3ad751ed845a6e` |
+
+Secret Scan job `99160667385` passed. Artifact `9721286733`, digest
+`dc09b09be6367b19741f368fe3cae9a362ec4039100b64b0f78e259678b4686c`,
+contains SARIF 2.1.0 with 208 Gitleaks rules and 0 results. Every reproducible
+unsigned package job passed its content lock, explicit TEST MODE composition,
+seal verification, dependency audit, and artifact upload:
+
+| Runtime | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| `win-x64` | `99161227701` | `9721371228` | `906d9b943b05d928253bbf2a70ae09042d41340140cf8958e25b188cdb578a19` |
+| `osx-arm64` | `99161227709` | `9721368316` | `82cd226210c84e1257968f82872e97100859c38a6e3217bbceef3508263c42a3` |
+| `linux-x64` | `99161227667` | `9721361904` | `4c3aace40057bfbd64f27f25061c5c6fdef377b82883edf3a64cc2ed6ac97d28` |
+
+[CodeQL run `33275235305`](https://github.com/happys2333/flowspan/actions/runs/33275235305),
+job `99160667435`, completed successfully. Exact-SHA analysis `1692553645`
+evaluated 52 rules with 0 results, and the exact-commit branch query returned 0
+open alerts.
 
 Tasks 5, 5.5a, 5.5, Tasks 6-10, all native/physical/release gates, and the Goal
 remain open. `CreateProduction()` must continue to report Remote Window

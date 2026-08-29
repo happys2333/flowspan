@@ -755,8 +755,8 @@ secure-input/protected-surface detection, persistent native Emergency Stop,
 physical peer, packaged TCC, signing, or notarization claim.
 
 Local Debug/Release solution verification passes `2286/2286` tests with zero
-build warnings/errors; hosted exact-SHA results remain pending. Scope and
-verification details are in
+build warnings/errors. Exact-SHA CI `33275235290` and CodeQL `33275235305` pass
+on evidence commit `92edfff`. Scope and verification details are in
 [`2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`](../evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md).
 Tasks 5, 5.5a, 5.5, every native/physical/release gate, and the Goal remain open.
 

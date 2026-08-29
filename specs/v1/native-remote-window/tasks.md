@@ -527,7 +527,8 @@
     callback and preserves its ordered failure even though no route was selected.
     Local Debug/Release solution verification passes `2286/2286` tests with
     zero build warnings/errors; implementation SHA `eb2e2ad9` is recorded, and
-    hosted exact-SHA CI remains pending.
+    exact-SHA CI `33275235290` plus CodeQL `33275235305` pass on evidence commit
+    `92edfff`.
     These synchronous seams do not prove absolute TOCTOU linearization against
     arbitrary concurrent mutation. `CheckReadiness()` does not reserve the later
     Emergency Stop registration, so an atomic readiness-to-registration
@@ -537,8 +538,8 @@
     isolation, and disposal tests cover stale concurrent facts and late
     publication; input remains `Unsupported`. It is not
     composed by `CreateProduction()` and is not capture, input, protection,
-    physical-device, packaged, signing, or notarization evidence. Scope and
-    pending commands are recorded in
+    physical-device, packaged, signing, or notarization evidence. Scope,
+    commands, results, artifact digests, and limitations are recorded in
     `docs/evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`.
     Task 5.5a remains unchecked.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,

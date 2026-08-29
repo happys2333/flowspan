@@ -1265,8 +1265,9 @@ capture, input, protection, physical two-Device operation, packaged TCC,
 signing, or notarization. The adapter is not wired into `CreateProduction()`.
 
 Local Debug/Release solution verification passes `2286/2286` tests with zero
-build warnings/errors; hosted exact-SHA CI remains pending. Candidate scope,
-commands, and limitations are in
+build warnings/errors. Exact-SHA CI `33275235290` and CodeQL `33275235305` pass
+on evidence commit `92edfff`; candidate scope, commands, artifact digests, and
+limitations are in
 [`2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`](../evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md).
 Tasks 5, 5.5a, and 5.5 and every native, physical, and release gate remain open.
 
