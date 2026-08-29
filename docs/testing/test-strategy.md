@@ -618,11 +618,40 @@ readiness before Ready. The shipped composition root still keeps Remote Window
 unavailable while native boundaries are absent. Route locators must never appear
 in control JSON.
 
-Implementation commit `7255f04` has a narrow production-composed managed
-two-node tracer over real authenticated loopback TCP and the shared `FSM1`
-listener, with deterministic host source/capture/input/protection/Emergency
-doubles and a participant renderer. It covers exactly four scenarios: a
-successful DriverEligible capture/frame/input/Emergency Stop cleanup; reverse-only
+Implementation commit `80191d6` adds an explicit Preparation response-completion
+boundary. `CompletePreparationResponseAsync` runs exactly once after the
+Ready/Rejected wire-send attempt, and its `responseCommitted` argument
+distinguishes a committed response from a send that was not admitted or threw.
+An `FSM1` attachment failure marks the participant connection generation
+`failClosePending`; that generation immediately rejects retry, reacquisition,
+peer-route operations, and media acquisition or use. After a committed Rejected
+response, the participant completes local non-fail-close cleanup and the host
+closes the owning connection after observing the result. If response delivery
+did not commit, including a send throw, the participant fail-closes itself. A
+committed inbound rejection retains the original Preparation deadline, providing
+a bounded participant fail-close fallback if the host crashes or does not close
+the connection. Tests also prove that response-delivery and completion-hook
+failures are aggregated, and that an attachment primary failure remains
+observable with cleanup failure even when Dispose or disconnect wins the
+response-completion race.
+
+The same commit hardens active host permission generations. An event with a
+changed permission owner triggers current-snapshot revalidation; an authoritative
+owner change invalidates the active generation, while a same-owner revision
+watermark ignores stale lower revisions. Cleanup retires a generation's
+callbacks before draining callbacks already admitted, so a captured callback
+from a stopped generation cannot poison a replacement or `TerminalFailure`.
+Callback-owned Stop fails promptly instead of waiting on its own lease;
+callback-owned Dispose starts the shared full cleanup without self-wait, while
+external callers still join and observe that same completion. A copied or stale
+callback context loses that exemption after its callback token retires.
+
+Implementation commit `7255f04`, as documented by evidence commit `81b9008`,
+established a narrow production-composed managed two-node tracer over real
+authenticated loopback TCP and the shared `FSM1` listener, with deterministic
+host source/capture/input/protection/Emergency doubles and a participant renderer.
+That historical evidence covers exactly four scenarios: a successful
+DriverEligible capture/frame/input/Emergency Stop cleanup; reverse-only
 Mirror-grant rejection; active authenticated control disconnect cleanup; and
 same-session Mirror capability downgrade with active-session cleanup. The
 success scenario asserts capture remains closed before Ready plus attachment
@@ -631,15 +660,31 @@ Start, and exact AddParticipant with frame admission closed, then carries one
 source frame through JPEG encode, encrypted chunking, decode, and renderer and
 returns one authorized Driver input to the exact host boundary.
 
+At implementation commit `80191d6`, the current tracer retains those four
+historical scenarios and adds managed native-capture permission revocation plus
+verified `FSM1` endpoint-connection failure. It therefore covers exactly six
+scenarios: success, reversed-grant rejection, authenticated-control disconnect,
+Mirror capability revocation, managed native-capture permission revocation, and
+`FSM1` attachment failure. The attachment-failure tracer rejects before
+Admission, capture, media send, or rendering, then clears route, media, control,
+protection, permission-observer, and connection owners.
+
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current four scenarios are not the required matrix; its per-boundary
+current six scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame,
 queue, attachment, route, media-directory, controller, protection, Emergency
 Stop, and control owner, and preserve combined failures. Success and every fault
 must end with zero retained owner/budget counts.
+
+Exact-implementation local macOS verification at `80191d6` passed the complete
+Debug and Release solutions at `2209/2209` in each configuration, including
+Desktop `535/535` and Transport `687/687` in each. These are local managed,
+loopback, and contract results. Earlier hosted Windows/macOS/Linux checkpoints
+remain bound to `81b9008` and `579c9cd`; neither is hosted or cross-platform
+verification of `80191d6`.
 
 This evidence is local managed loopback on the current macOS host only. It is not
 evidence for Windows or Linux, native platform APIs, two physical devices,

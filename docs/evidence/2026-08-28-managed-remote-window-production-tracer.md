@@ -58,7 +58,43 @@ evidence proves the checked managed build/test/package workflow, not native
 capture, input, protection, or accessibility API behavior; physical two-Device
 operation; signed packages; macOS notarization; or release acceptance.
 
-## Proven slices
+### Subsequent exact-SHA checkpoint: permission revocation
+
+Commit `579c9cd1b39ac790ca21980cb646d205f501464b` extends the managed
+tracer with active native-capture permission revocation. CI run
+[`33242809777`](https://github.com/happys2333/flowspan/actions/runs/33242809777)
+and CodeQL run
+[`33242809786`](https://github.com/happys2333/flowspan/actions/runs/33242809786)
+both completed successfully at that exact SHA on 2026-08-29.
+
+- Test jobs `99074918618` (ubuntu-latest), `99074918581`
+  (windows-latest), and `99074918623` (macos-latest) each passed
+  `2192/2192`. Their retained test-result artifacts are `9711896727`,
+  `9711910710`, and `9711893418`, respectively.
+- Secret Scan job `99074918491` passed. Its SARIF artifact is `9711859872`
+  with GitHub digest
+  `sha256:f97946a362df1a63a6349312deb8a5fc67c4554011c6ccf2d0cf75ec14f8ff6d`.
+- Reproducible unsigned package jobs `99075385945` (linux-x64),
+  `99075385946` (win-x64), and `99075385947` (osx-arm64) passed and uploaded
+  artifacts `9711930381`, `9711942289`, and `9711930664`.
+- CodeQL job `99074918438` completed its locked restore, analyzed build, and
+  analysis steps successfully.
+
+This is hosted managed contract and packaging evidence only. The injected
+permission boundary is not a real Windows, macOS, or Linux permission-revocation
+result.
+
+### Current implementation checkpoint
+
+Commit `80191d6208b8eb942ff71c894cd5d067471d6499` adds the verified `FSM1`
+endpoint connection-failure tracer and hardens response-commit ordering,
+deadline fallback, failed-generation isolation, permission revision handling,
+callback retirement, and terminal cleanup failure preservation. The local
+results below are bound to that implementation commit. Hosted exact-SHA CI and
+CodeQL for this commit remain pending until the branch is pushed and the
+workflows complete.
+
+## Baseline proven slices
 
 `DesktopRemoteWindowManagedTwoNodeTracerTests` contains four authenticated
 managed loopback paths:
@@ -89,6 +125,36 @@ managed loopback paths:
 These are success, reversed-grant negative, terminal disconnect cleanup, and
 same-session capability-revocation cleanup slices. They are not the complete
 boundary fault matrix required by the test strategy.
+
+## Current proven slices
+
+At `80191d6208b8eb942ff71c894cd5d067471d6499`, the same test class contains
+six test cases:
+
+- the success and reversed-grant cases above;
+- `TerminalAuthorityOrSafetyLossTerminatesActiveHostSession`, parameterized for
+  authenticated control disconnect, same-session Mirror capability revocation,
+  and managed native-capture permission revocation; and
+- `VerifiedFsm1EndpointConnectionFailureRejectsWithoutAdmissionOrCapture`,
+  which uses real authenticated control and a signed, verified endpoint whose
+  loopback TCP socket is deliberately unavailable. It returns only the
+  allowlisted `media_attachment_failed` reason, never waits for media Admission,
+  and starts neither capture nor rendering.
+
+The failed attachment generation becomes non-current immediately: retry, lease
+reacquisition, endpoint validation, route preparation, linked operations, and
+media attachment are rejected before response delivery finishes. A committed
+Rejected response is observable by the host before the owning control
+generation closes; if the host does not close it, the original Preparation
+deadline supplies the participant-side fail-close fallback. If the response is
+not committed, the participant fail-closes. Terminal Dispose or Disconnect
+retains the original attachment failure together with any cleanup failure.
+
+The permission scenario uses a deterministic managed permission source. The
+endpoint-failure scenario covers TCP connection refusal after endpoint
+verification; it is not malformed, tampered, timed-out, or cancelled `FSM1`
+attachment traffic. These six cases still do not form the complete boundary
+fault matrix.
 
 ## Local verification
 
@@ -156,6 +222,40 @@ checked exact-implementation artifacts, not a clean restore or hosted CI run.
 `git diff --check` does not inspect untracked files; the new tracer source and
 this evidence were checked separately for trailing whitespace.
 
+### Current local verification: `80191d6`
+
+The 2026-08-29 implementation checkpoint used the same macOS 26.6.2 arm64 host
+and .NET SDK 10.0.301. Debug and Release were built independently with
+`-warnaserror`; every test command then used `--no-build --no-restore` against
+the immediately preceding build.
+
+Observed results:
+
+- the current tracer passed `6/6` in focused Debug and `6/6` in focused
+  Release;
+- twenty additional fresh Debug processes passed all six cases, for
+  `120/120` case executions;
+- the complete Debug and Release solutions each passed `2209/2209` across 12
+  test projects with no failed or skipped tests, including Desktop `535/535`
+  and Transport `687/687`;
+- the new committed-Rejected deadline fallback passed 10 fresh processes
+  (`10/10`), and the attachment-primary plus terminal-cleanup-failure theory
+  passed three fresh processes (`6/6` case executions) after retaining a bound,
+  non-listening endpoint socket for deterministic refusal;
+- both solution builds completed with 0 warnings and 0 errors;
+- `dotnet format --verify-no-changes`, `git diff --check`, the explicit
+  trailing-whitespace search, and the direct/transitive NuGet vulnerability
+  audit passed;
+- Desktop composition passed only in explicit TEST MODE; and
+- the simulator reported protocol 1.7, source preserved, target resumed, and
+  atomic Swap committed.
+
+This checkpoint has no local `gitleaks` result. Secret Scan and CodeQL remain
+hosted gates for the exact commit, and were still pending when this local
+evidence was written. No Windows or Linux execution, native platform API,
+physical two-Device, signed package, or notarization result is inferred from
+these macOS managed-loopback tests.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -163,12 +263,18 @@ this evidence were checked separately for trailing whitespace.
   same-session grant downgrade drains the active session.
 - **T06:** capture remains closed before Prepare/Ready and attachment complete;
   media/rendering remain closed until final Admission; Driver input and local
-  Emergency Stop are exercised.
+  Emergency Stop are exercised. The managed permission-revocation case closes
+  admission, invokes local Emergency Stop, and converges the host owner graph to
+  zero; it is not evidence of a real operating-system permission transition.
 - **T08:** the success path carries `FSM1` and encrypted media through the real
   production listener and decodes JPEG at the participant.
-- **T13:** terminal authenticated-control disconnect automatically converges
-  active host ownership, route, directory, budget, renderer, and leases to zero
-  without a terminal cleanup failure.
+- **T10:** verified-endpoint TCP refusal exposes only
+  `media_attachment_failed`, not the socket exception or endpoint details.
+- **T13:** terminal authenticated-control disconnect, capability revocation,
+  permission revocation, and verified-endpoint connection refusal converge the
+  relevant ownership graph to zero. Rejected-response cleanup is ordered after
+  response commit, retains the original deadline as a bounded fallback, and
+  preserves attachment and cleanup failures together.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -178,9 +284,12 @@ this evidence were checked separately for trailing whitespace.
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the four slices above and does not establish that complete matrix.
+only the six current cases above and does not establish that complete matrix.
+In particular, the `FSM1` failure case covers verified-endpoint TCP connection
+refusal, not every malformed, tampered, timeout, cancellation, listener, or
+cleanup-fault boundary.
 
-Tasks 5, 5.5a, and 5.5 remain open, as does the long-term Flowspan Goal.
+Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
