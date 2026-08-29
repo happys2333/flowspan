@@ -1,3 +1,4 @@
+using Flowspan.Platform;
 using Flowspan.Transport;
 
 namespace Flowspan.Desktop;
@@ -85,9 +86,13 @@ internal sealed record RemoteWindowHostPreparationSnapshot(
     long HostGeneration,
     RemoteWindowHostPreparationPhase Phase,
     bool RouteMayBeOwned,
-    bool PrepareSendAdmitted);
+    bool PrepareSendAdmitted,
+    RemoteWindowHostPreparationTermination? Termination);
 
-internal sealed class RemoteWindowHostPreparationReservation : IDisposable
+internal sealed class RemoteWindowHostPreparationReservation :
+    IDisposable,
+    INativeRemoteWindowSourcePreparationReservation,
+    IRemoteWindowHostPreparationAdmission
 {
     private readonly RemoteWindowHostPreparationEpochBundle epochs;
     private readonly object gate = new();
@@ -129,7 +134,8 @@ internal sealed class RemoteWindowHostPreparationReservation : IDisposable
                     hostGeneration,
                     phase,
                     routeMayBeOwned,
-                    prepareSendAdmitted);
+                    prepareSendAdmitted,
+                    termination);
             }
         }
     }
@@ -371,6 +377,13 @@ internal sealed class RemoteWindowHostPreparationReservation : IDisposable
         terminalCompletion.TrySetResult(completed);
         return true;
     }
+
+    internal bool TryInvalidate(RemoteWindowHostPreparationFact fact) =>
+        TryInvalidate(hostGeneration, fact, epochs.Get(fact));
+
+    void INativeRemoteWindowSourcePreparationReservation
+        .InvalidateSourcePreparationNow() =>
+        _ = TryInvalidate(RemoteWindowHostPreparationFact.Source);
 
     private static string GetInvalidationReason(
         RemoteWindowHostPreparationFact fact) => fact switch

@@ -536,6 +536,128 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task SourceInvalidationAfterRouteAdmissionPreventsPrepareAndCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.RouteAdmitted = host.InvalidateSource;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_source_stale", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task SourceInvalidationDuringRouteFailureReportsStableReason()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.RouteAdmitted = host.InvalidateSource;
+        host.Connection.RouteSelectionFailure = new IOException(
+            "route failed after claiming ownership");
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_source_stale", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task SourceInvalidationAfterPrepareSendPreventsReadyAuthority()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.PrepareSendAdmitted = host.InvalidateSource;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_source_stale", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.Contains("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task SourceInvalidationDuringPrepareFailureReportsStableReason()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.PrepareSendAdmitted = host.InvalidateSource;
+        host.Connection.PrepareResponse = _ => throw new IOException(
+            "wire failed after admitting Prepare");
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_source_stale", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.Contains("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ExactCallerCancellationWinsConcurrentSourceInvalidation()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        var injected = new OperationCanceledException(cancellation.Token);
+        host.Connection.PrepareSendAdmitted = () =>
+        {
+            host.InvalidateSource();
+            cancellation.Cancel();
+        };
+        host.Connection.PrepareResponse = _ => throw injected;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Same(injected, failure);
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.Contains("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
     public async Task CapturePermissionRevocationDuringProtectionPreflightRejectsBeforeRouteOrPrepare()
     {
         using var host = new ReadyHostHarness();
@@ -2336,6 +2458,10 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public Exception? RouteSelectionFailure { get; set; }
 
+        public Action? RouteAdmitted { get; set; }
+
+        public Action? PrepareSendAdmitted { get; set; }
+
         public ProtocolVersion ProtocolVersion { get; set; } =
             ProtocolFeatures.RemoteWindowPreparationMinimumVersion;
 
@@ -2385,21 +2511,51 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         public void PrepareResponderRoute(
             RemoteWindowSessionId sessionId,
             ActivityId activityId,
+            IRemoteWindowHostPreparationAdmission admission,
             TimeSpan lifetime)
         {
-            timeline.Add("connection.route");
-            if (RouteSelectionFailure is { } failure)
+            if (!admission.TryAdmitRouteSelection(Now))
             {
-                throw failure;
+                throw new InvalidOperationException(
+                    "The test host Preparation reservation rejected route admission.");
+            }
+
+            try
+            {
+                timeline.Add("connection.route");
+                RouteAdmitted?.Invoke();
+                if (RouteSelectionFailure is { } failure)
+                {
+                    throw failure;
+                }
+
+                if (!admission.CompleteRouteSelection())
+                {
+                    throw new InvalidOperationException(
+                        "The test host Preparation reservation became terminal during route selection.");
+                }
+            }
+            catch
+            {
+                _ = admission.TryFailRouteSelection();
+                throw;
             }
         }
 
         public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
             RemoteWindowPreparationRequest request,
+            IRemoteWindowHostPreparationAdmission admission,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!admission.TryAdmitPrepareSend(request, Now))
+            {
+                return ValueTask.FromResult(
+                    RemoteWindowPreparationDeliveryResult.NotDelivered);
+            }
+
             timeline.Add("connection.prepare");
+            PrepareSendAdmitted?.Invoke();
             return ValueTask.FromResult(PrepareResponse!(request));
         }
 

@@ -24,10 +24,12 @@ internal interface IDesktopRemoteWindowHostConnection :
     public void PrepareResponderRoute(
         RemoteWindowSessionId sessionId,
         ActivityId activityId,
+        IRemoteWindowHostPreparationAdmission admission,
         TimeSpan lifetime);
 
     public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
         RemoteWindowPreparationRequest request,
+        IRemoteWindowHostPreparationAdmission admission,
         CancellationToken cancellationToken);
 
     public ValueTask WaitForMediaAttachmentAsync(
@@ -61,13 +63,19 @@ internal sealed class AuthenticatedDesktopRemoteWindowHostConnection(
     public void PrepareResponderRoute(
         RemoteWindowSessionId sessionId,
         ActivityId activityId,
+        IRemoteWindowHostPreparationAdmission admission,
         TimeSpan lifetime) =>
-        _ = lease.PrepareResponderRoute(sessionId, activityId, lifetime);
+        _ = lease.PrepareResponderRoute(
+            sessionId,
+            activityId,
+            admission,
+            lifetime);
 
     public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
         RemoteWindowPreparationRequest request,
+        IRemoteWindowHostPreparationAdmission admission,
         CancellationToken cancellationToken) =>
-        lease.PrepareAsync(request, cancellationToken);
+        lease.PrepareReservedAsync(request, admission, cancellationToken);
 
     public ValueTask WaitForMediaAttachmentAsync(
         CancellationToken cancellationToken) =>
@@ -244,6 +252,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private RuntimeGeneration? active;
     private int disposed;
     private long nextControlGeneration;
+    private long nextPreparationGeneration;
     private Exception? terminalFailure;
 
     public DesktopRemoteWindowHostCoordinator(
@@ -337,6 +346,15 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 Guid.NewGuid());
             CorrelationId correlationId = CorrelationId.From(Guid.NewGuid());
             DateTimeOffset deadline = now.Add(preparationLifetime);
+            RemoteWindowPreparationRequest preparation =
+                RemoteWindowPreparationRequest.Create(
+                    correlationId,
+                    sessionId,
+                    source.Source.ActivityId,
+                    source.Source.HostDeviceId,
+                    request.Connection.PeerDeviceId,
+                    request.Role,
+                    deadline);
             RuntimeGeneration? mediaFaultGeneration = null;
             var mediaBudget = new RemoteWindowMediaSessionBudget();
             var mediaSender = new RemoteWindowLogicalVideoFrameSender(
@@ -386,12 +404,24 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 correlationId,
                 deadline,
                 initialPermission,
+                GetNextPreparationGeneration(),
+                preparation,
                 callbackOwner);
             RemoteWindowSessionController controller = pendingController;
             pendingController = null;
             pendingAdmission = null;
             pendingMedia = null;
             mediaFaultGeneration = generation;
+            if (!request.SourceLease.TryRegisterPreparationReservation(
+                    generation.PreparationReservation,
+                    out NativeRemoteWindowSourcePreparationRegistration?
+                        sourcePreparation)
+                || sourcePreparation is null)
+            {
+                throw StartFailure("native_source_stale");
+            }
+
+            generation.SourcePreparationRegistration = sourcePreparation;
             RegisterEarlySafetyObservers(generation);
             _ = ReadCurrentSafeProtection(generation, source);
             cancellationToken.ThrowIfCancellationRequested();
@@ -402,30 +432,68 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             _ = ValidateCurrentHostFacts(request, generation, out _);
             cancellationToken.ThrowIfCancellationRequested();
             EnsurePreparationIsCurrent(generation);
+            if (!generation.PreparationReservation.TryArm(
+                    CanonicalUtc(clock.UtcNow)))
+            {
+                throw StartFailure(GetPreparationReason(generation));
+            }
 
-            generation.RouteSelected = true;
-            request.Connection.PrepareResponderRoute(
-                sessionId,
-                source.Source.ActivityId,
-                preparationLifetime);
-            RemoteWindowPreparationRequest preparation =
-                RemoteWindowPreparationRequest.Create(
-                    correlationId,
+            try
+            {
+                request.Connection.PrepareResponderRoute(
                     sessionId,
                     source.Source.ActivityId,
-                    source.Source.HostDeviceId,
-                    request.Connection.PeerDeviceId,
-                    request.Role,
-                    deadline);
-            RemoteWindowPreparationDeliveryResult delivery =
-                await request.Connection.PrepareAsync(
-                        preparation,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            RemoteWindowPreparationResponse ready = RequireReady(
+                    generation.PreparationReservation,
+                    preparationLifetime);
+            }
+            catch (Exception exception) when (
+                exception is not OutOfMemoryException
+                && IsPreparationTerminatedBy(
+                    generation,
+                    RemoteWindowHostPreparationFact.Source))
+            {
+                throw StartFailure(GetPreparationReason(generation));
+            }
+
+            RemoteWindowPreparationDeliveryResult delivery;
+            try
+            {
+                delivery = await request.Connection.PrepareAsync(
+                            preparation,
+                            generation.PreparationReservation,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception) when (
+                cancellationToken.IsCancellationRequested
+                && exception.CancellationToken == cancellationToken)
+            {
+                throw;
+            }
+            catch (Exception exception) when (
+                exception is not OutOfMemoryException
+                && IsPreparationTerminatedBy(
+                    generation,
+                    RemoteWindowHostPreparationFact.Source))
+            {
+                throw StartFailure(GetPreparationReason(generation));
+            }
+
+            if (generation.PreparationReservation.Snapshot.Termination is not null)
+            {
+                throw StartFailure(GetPreparationReason(generation));
+            }
+
+            RemoteWindowPreparationResponse ready = RequirePreparationResponse(
                 preparation,
                 delivery);
-            _ = ready;
+            if (!generation.PreparationReservation.TryMatchReady(
+                    ready,
+                    CanonicalUtc(clock.UtcNow)))
+            {
+                throw StartFailure(GetPreparationReason(generation));
+            }
+
             await request.Connection.WaitForMediaAttachmentAsync(cancellationToken)
                 .ConfigureAwait(false);
 
@@ -438,6 +506,25 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             ProtectionSnapshot initialProtection =
                 ReadCurrentSafeProtection(generation, source);
             RegisterEmergencyStop(generation);
+            source = ValidateCurrentHostFacts(request, generation, out _);
+            initialProtection = ReadCurrentSafeProtection(generation, source);
+            NativeRemoteWindowSourcePreparationRegistration sourceReservation =
+                generation.SourcePreparationRegistration
+                ?? throw StartFailure("native_source_stale");
+            if (!sourceReservation.IsCurrent)
+            {
+                _ = generation.PreparationReservation.TryInvalidate(
+                    RemoteWindowHostPreparationFact.Source);
+            }
+
+            if (!generation.PreparationReservation.TryPromote(
+                    CanonicalUtc(clock.UtcNow)))
+            {
+                throw StartFailure(GetPreparationReason(generation));
+            }
+
+            sourceReservation.Dispose();
+            generation.SourcePreparationRegistration = null;
 
             RemoteWindowCommandResult started = await controller.StartAsync(
                     initialProtection,
@@ -710,6 +797,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     catch (Exception exception) when (
                         exception is not OutOfMemoryException)
                     {
+                        _ = generation.PreparationReservation.TryInvalidate(
+                            RemoteWindowHostPreparationFact.Permission);
                         RequestTerminalShutdown(
                             generation,
                             failCloseImmediately: true);
@@ -725,6 +814,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     return;
                 }
 
+                _ = generation.PreparationReservation.TryInvalidate(
+                    RemoteWindowHostPreparationFact.Permission);
                 RequestTerminalShutdown(
                     generation,
                     failCloseImmediately: true);
@@ -747,6 +838,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         using (callback)
         {
+            _ = generation.PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Connection);
             RequestTerminalShutdown(generation, failCloseImmediately: false);
         }
     }
@@ -1106,7 +1199,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         && snapshot.ObservedAt <= now.Add(RemoteInputPolicy.MaximumFutureClockSkew)
         && now - snapshot.ObservedAt <= RemoteInputPolicy.MaximumProtectionAge;
 
-    private static RemoteWindowPreparationResponse RequireReady(
+    private static RemoteWindowPreparationResponse RequirePreparationResponse(
         RemoteWindowPreparationRequest request,
         RemoteWindowPreparationDeliveryResult delivery)
     {
@@ -1117,13 +1210,17 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             throw StartFailure("remote_window_prepare_not_acknowledged");
         }
 
-        if (response.Outcome != RemoteWindowPreparationOutcome.Ready)
-        {
-            throw StartFailure(response.ReasonCode);
-        }
-
         return response;
     }
+
+    private static string GetPreparationReason(RuntimeGeneration generation) =>
+        generation.PreparationReservation.Snapshot.Termination?.ReasonCode
+        ?? "host_preparation_stale";
+
+    private static bool IsPreparationTerminatedBy(
+        RuntimeGeneration generation,
+        RemoteWindowHostPreparationFact fact) =>
+        generation.PreparationReservation.Snapshot.Termination?.Fact == fact;
 
     private static RemoteWindowParticipantState CreateAdmissionState(
         RuntimeGeneration generation,
@@ -1197,6 +1294,10 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         Task callbackDrain = generation.RetireCallbacks();
         var failures = new List<Exception>();
         CaptureFailure(failures, generation.CloseAdmissionNow);
+        CaptureFailure(
+            failures,
+            () => generation.SourcePreparationRegistration?.Dispose());
+        CaptureFailure(failures, generation.PreparationReservation.Dispose);
         CaptureFailure(failures, () => generation.ConnectionRevocation?.Dispose());
         CaptureFailure(
             failures,
@@ -1241,7 +1342,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         Task<Exception?>? failClose =
             generation.GetStartedConnectionFailCloseTask();
-        if (generation.RouteSelected)
+        if (generation.PreparationReservation.Snapshot.RouteMayBeOwned)
         {
             failClose ??= generation.EnsureConnectionFailClosedAsync();
         }
@@ -1381,6 +1482,18 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         return generation;
     }
 
+    private long GetNextPreparationGeneration()
+    {
+        long generation = Interlocked.Increment(ref nextPreparationGeneration);
+        if (generation < 1)
+        {
+            throw new InvalidOperationException(
+                "Remote Window host Preparation generation capacity was exhausted.");
+        }
+
+        return generation;
+    }
+
     private static InvalidOperationException StartFailure(string reasonCode) =>
         new($"Remote Window host start failed ({reasonCode}).");
 
@@ -1398,6 +1511,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         CorrelationId correlationId,
         DateTimeOffset deadline,
         NativeRemoteWindowPermissionSnapshot initialPermission,
+        long preparationGeneration,
+        RemoteWindowPreparationRequest preparation,
         object callbackOwner)
     {
         private static readonly AsyncLocal<CallbackScope?> CallbackAncestry = new();
@@ -1445,6 +1560,14 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         public RemoteWindowMediaSessionBudget MediaBudget { get; } = mediaBudget;
 
+        public RemoteWindowHostPreparationReservation PreparationReservation
+        {
+            get;
+        } = new(
+            preparationGeneration,
+            preparation,
+            RemoteWindowHostPreparationEpochBundle.Create());
+
         public Action<NativeRemoteWindowPermissionSnapshot>? PermissionChanged
         {
             get;
@@ -1463,7 +1586,12 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         public DesktopRemoteWindowHostStartRequest Request { get; } = request;
 
-        public bool RouteSelected { get; set; }
+        public NativeRemoteWindowSourcePreparationRegistration?
+            SourcePreparationRegistration
+        {
+            get;
+            set;
+        }
 
         public RemoteWindowSessionId SessionId { get; } = sessionId;
 
