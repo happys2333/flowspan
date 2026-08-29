@@ -740,8 +740,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(0, rendererFactory.RenderCountAtPrepare);
             Assert.True(rendererFactory.HostSessionObserved);
             Assert.True(rendererFactory.ParticipantSessionObserved);
-            Assert.True(rendererFactory.HostSessionAttached);
-            Assert.True(rendererFactory.ParticipantSessionAttached);
+            Assert.True(rendererFactory.AttachmentBarrierCompleted);
+            Assert.True(rendererFactory.HostSessionAttachedAtInjectedFailure);
+            Assert.True(rendererFactory.ParticipantSessionAttachedAtInjectedFailure);
             Assert.Equal(HostDeviceId, rendererFactory.HostLocalDeviceId);
             Assert.Equal(ParticipantDeviceId, rendererFactory.HostPeerDeviceId);
             Assert.Equal(
@@ -2322,7 +2323,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         AuthenticatedRemoteWindowMediaSessionDirectory participantMedia) :
         IDesktopRemoteWindowParticipantRendererFactory
     {
+        private int attachmentBarrierCompleted;
         private int prepareCount;
+
+        public bool AttachmentBarrierCompleted =>
+            Volatile.Read(ref attachmentBarrierCompleted) != 0;
 
         public RemoteWindowMediaRouteBinding? HostBinding { get; private set; }
 
@@ -2332,7 +2337,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public ProtocolVersion? HostProtocolVersion { get; private set; }
 
-        public bool HostSessionAttached { get; private set; }
+        public bool HostSessionAttachedAtInjectedFailure { get; private set; }
 
         public bool HostSessionObserved { get; private set; }
 
@@ -2348,7 +2353,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public ProtocolVersion? ParticipantProtocolVersion { get; private set; }
 
-        public bool ParticipantSessionAttached { get; private set; }
+        public bool ParticipantSessionAttachedAtInjectedFailure { get; private set; }
 
         public bool ParticipantSessionObserved { get; private set; }
 
@@ -2360,11 +2365,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public RemoteWindowSessionId? RequestSessionId { get; private set; }
 
-        public ValueTask<IDesktopRemoteWindowParticipantRenderer?> PrepareAsync(
+        public async ValueTask<IDesktopRemoteWindowParticipantRenderer?> PrepareAsync(
             RemoteWindowPreparationRequest request,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref prepareCount);
             RenderCountAtPrepare = renderer.RenderCount;
             RequestActivityId = request.ActivityId;
             RequestSessionId = request.SessionId;
@@ -2374,9 +2380,13 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             ParticipantSessionObserved = participantMedia.TryGet(
                 HostDeviceId,
                 out AuthenticatedRemoteWindowMediaSession? participantSession);
+            // The initiator can receive FSM1 acknowledgement before the responder
+            // directory publishes its attached session. This test owns the bilateral
+            // barrier so its induced renderer failure stays after that exact boundary.
             if (hostSession is not null)
             {
-                HostSessionAttached = hostSession.IsAttached;
+                await hostSession.WaitForAttachmentAsync(cancellationToken);
+                HostSessionAttachedAtInjectedFailure = hostSession.IsAttached;
                 HostLocalDeviceId = hostSession.LocalDeviceId;
                 HostPeerDeviceId = hostSession.PeerDeviceId;
                 HostProtocolVersion = hostSession.ProtocolVersion;
@@ -2385,18 +2395,23 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
             if (participantSession is not null)
             {
-                ParticipantSessionAttached = participantSession.IsAttached;
+                await participantSession.WaitForAttachmentAsync(cancellationToken);
+                ParticipantSessionAttachedAtInjectedFailure = participantSession.IsAttached;
                 ParticipantLocalDeviceId = participantSession.LocalDeviceId;
                 ParticipantPeerDeviceId = participantSession.PeerDeviceId;
                 ParticipantProtocolVersion = participantSession.ProtocolVersion;
                 ParticipantBinding = participantSession.Binding;
             }
 
-            Interlocked.Increment(ref prepareCount);
+            if (HostSessionAttachedAtInjectedFailure
+                && ParticipantSessionAttachedAtInjectedFailure)
+            {
+                Volatile.Write(ref attachmentBarrierCompleted, 1);
+            }
+
             return failure switch
             {
-                RendererPreparationFailure.Missing => ValueTask.FromResult<
-                    IDesktopRemoteWindowParticipantRenderer?>(null),
+                RendererPreparationFailure.Missing => null,
                 RendererPreparationFailure.ForeignCancellation =>
                     throw new OperationCanceledException(
                         "test managed foreign renderer cancellation"),
