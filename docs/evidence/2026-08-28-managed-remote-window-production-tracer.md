@@ -1662,6 +1662,33 @@ package-lifecycle, or release-acceptance evidence. Tasks 5, 5.5a, 5.5, and 6-10
 and the long-term Flowspan Goal remain open; `CreateProduction()` must continue
 to report Remote Window unavailable.
 
+## 2026-08-30 final Admission side-effect-then-throw row
+
+Implementation `113fce0edafda4206c40419a69a1372d7cb4e303` adds the 22nd
+production-composed case. It uses real authenticated loopback TCP, protocol 1.7
+and bilateral `FSM1`, waits until the participant endpoint commits the known
+binding and publishes `StateChanged`, then injects one host-wrapper exception
+after the inner Admission publication completes.
+
+The coordinator exposes only `host_admission_publish_failed`; the injected
+canary and inner exception are absent. Host frame admission remains closed, so
+the pre-Admission frame is disposed and media-send/render counts remain zero.
+Host fail-close and connection disposal each run once. The directly asserted
+capture, input, renderer, protection, permission-observer, Emergency Stop,
+control, route, directory, connection and handler owners across both nodes
+drain, and neither old handler can reacquire the authenticated generation.
+
+The new row passes alone `1/1` and the complete tracer passes `22/22` in Debug
+and Release. Desktop passes `581/581`; complete Debug and Release solutions pass
+`2295/2295`; warning-as-error builds, format, diff, dependency vulnerability
+audit, explicit TEST MODE composition, simulator, and final strict review pass.
+Hosted exact-SHA evidence is pending.
+
+This row does not prove participant-endpoint throw, authority revocation,
+authenticated disconnect at every final-Admission phase, or all cleanup-fault
+combinations. It adds no native or physical evidence, and does not close Task
+5.5a or any later gate.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -1744,7 +1771,10 @@ to report Remote Window unavailable.
   remains stable through complete cleanup and terminal observation. The twenty-
   first row combines registration and connection-disposal faults in one cleanup
   result, preserving one flat two-inner aggregate in fixed owner order without
-  partial-terminal publication.
+  partial-terminal publication. The twenty-second row fails after final
+  Admission has committed the participant known binding but before the host
+  frame gate opens, then drains the directly asserted cross-node owners without
+  sending or rendering media.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -1754,7 +1784,7 @@ to report Remote Window unavailable.
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the twenty-one current cases above and does not establish that complete
+only the twenty-two current cases above and does not establish that complete
 matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every

@@ -532,7 +532,10 @@
     These synchronous seams do not prove absolute TOCTOU linearization against
     arbitrary concurrent mutation. `CheckReadiness()` does not reserve the later
     Emergency Stop registration, so an atomic readiness-to-registration
-    reservation remains a Task 5.5a blocker. The accompanying macOS candidate
+    reservation remains a Task 5.5a blocker. The proposed exact epoch and
+    route/send admission contract is recorded in
+    `docs/adr/0027-remote-window-host-preparation-reservation.md`. The
+    accompanying macOS candidate
     implements only prompt-free CoreGraphics capture-permission preflight and an
     explicit capture-permission request; operation sequencing, observer
     isolation, and disposal tests cover stale concurrent facts and late
@@ -542,6 +545,19 @@
     commands, results, artifact digests, and limitations are recorded in
     `docs/evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`.
     Task 5.5a remains unchecked.
+    Follow-up implementation `113fce0` advances only P0/AD/HC: policy reasons
+    and throws are bounded before connection/renderer ownership; final Admission
+    publication preserves exact caller cancellation through the real linked-token
+    lease while reducing unexpected/foreign failures to
+    `host_admission_publish_failed`; and a 22nd managed tracer case fails after
+    participant known-binding publication while frame admission remains closed.
+    Focused Desktop rows pass `81/81`, focused lease rows `18/18`, Desktop
+    `581/581`, Transport `704/704`, and both solutions `2295/2295` in Debug and
+    Release with zero build warnings/errors. Format, diff, vulnerability,
+    composition, simulator, and strict review pass; hosted exact-SHA evidence is
+    pending. P0, AD, HC and Task 5.5a remain partial/open. Scope and limitations
+    are recorded in
+    `docs/evidence/2026-08-30-participant-policy-and-final-admission-faults.md`.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

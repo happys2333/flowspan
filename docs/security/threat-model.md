@@ -760,6 +760,31 @@ on evidence commit `92edfff`. Scope and verification details are in
 [`2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`](../evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md).
 Tasks 5, 5.5a, 5.5, every native/physical/release gate, and the Goal remain open.
 
+### 5.17 2026-08-30 participant policy and final Admission faults
+
+For T10, a participant receive-policy reason is not trusted protocol text. Only
+`renderer_unavailable` and `role_unsupported` cross that boundary; unknown text
+and non-fatal policy exceptions reduce to `renderer_unavailable` before any
+connection or renderer owner exists.
+
+Final Admission publication similarly exposes only
+`host_admission_publish_failed` for unexpected or foreign-token failures. Exact
+caller cancellation remains distinguishable only after the production lease
+maps its linked token back to the original caller token. A foreign-token OCE
+cannot become caller cancellation merely because cancellation races it.
+
+For T06/T13, the production-composed side-effect-then-throw row waits until the
+participant endpoint has committed the known binding, then fails the host-side
+publication wrapper. The host frame gate never opens, no media or render occurs,
+fail-close and connection disposal execute once, and the directly asserted
+owners across both nodes drain. This does not cover participant-endpoint throw,
+authority revoke, authenticated disconnect, or every AD/HC cleanup variant.
+
+Local Debug/Release solutions pass `2295/2295` with zero build warnings/errors;
+format, vulnerability, explicit composition, simulator, diff, and final strict
+review pass. Hosted exact-SHA evidence is pending. Task 5.5a and all native,
+physical, signing/notarization, and release gates remain open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

@@ -1271,6 +1271,32 @@ limitations are in
 [`2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`](../evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md).
 Tasks 5, 5.5a, and 5.5 and every native, physical, and release gate remain open.
 
+### 2026-08-30 participant policy and final Admission faults
+
+The P0 receive-policy contract now tests bounded valid rejection, unknown reason
+reduction, and unexpected-throw redaction before any connection, renderer, Ready,
+Admission, or render authority. A recovered policy must use a fresh request and
+complete real loopback `FSM1` preparation before the tested owners drain.
+
+At final Admission, the Host coordinator projects unexpected and foreign-token
+publication failures to `host_admission_publish_failed`; only an OCE carrying the
+exact caller token is propagated. The production authenticated lease separately
+normalizes its linked cancellation back to the original caller token and proves
+that a foreign token cannot be relabelled during a caller-cancellation race.
+
+The 22nd production-composed tracer case waits for the participant endpoint to
+commit its known binding and publish `StateChanged`, then injects a host wrapper
+failure after the Admission wire side effect. Frame admission remains closed,
+media/render remain zero, and the directly asserted owners across both nodes
+drain before the old authenticated generation is rejected.
+
+Focused Desktop host/participant/tracer tests pass `81/81` and focused lease
+tests pass `18/18` in Debug and Release. Desktop passes `581/581`, Transport
+passes `704/704`, and both complete solutions pass `2295/2295`; warning-as-error
+builds, format, diff, vulnerability, composition, simulator, and final strict
+review pass. Hosted exact-SHA evidence remains pending. P0, AD, and HC stay
+partial in the finite matrix, so Task 5.5a remains open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

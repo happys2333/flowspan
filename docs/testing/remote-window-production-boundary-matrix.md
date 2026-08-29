@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **21 xUnit case executions**, not 21
+The current production-composed tracer has **22 xUnit case executions**, not 22
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -24,7 +24,9 @@ complete boundary families:
 - one exact caller cancellation after verified attachment;
 - one exact deadline-equality expiry after verified attachment;
 - three active authority/safety-loss cases;
-- seven authenticated-disconnect cleanup-fault cases; and
+- seven authenticated-disconnect cleanup-fault cases;
+- one final-Admission side-effect-then-throw case after participant known
+  binding publication; and
 - one reverse-only Mirror-grant rejection.
 
 The decomposition and exact commands are recorded in the
@@ -99,12 +101,12 @@ similar coverage.
 | **H0** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **N/A** [N2] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
 | **H1** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
 | **TX** | **C** [E-TX] | **P** [E-TX] | **C** [E-TX] | **C** [E-TX] | **P** [E-TX] | **P** [E-TX] | **P** [E-TX, E-CL] |
-| **P0** | **P** [E-P0] | **M** | **P** [E-P0] | **P** [E-P0, E-TX] | **M** | **M** | **P** [E-P0, E-CL] |
+| **P0** | **P** [E-P0] | **P** [E-P0] | **P** [E-P0] | **P** [E-P0, E-TX] | **M** | **M** | **P** [E-P0, E-CL] |
 | **P1** | **P** [E-P1] | **P** [E-P1] | **P** [E-P1] | **P** [E-P1, E-TX] | **P** [E-P1] | **P** [E-P1, E-TRACE] | **P** [E-P1, E-CL] |
 | **P2** | **C** [E-P2] | **C** [E-P2] | **P** [E-P2] | **M** | **M** | **P** [E-P2] | **P** [E-P2, E-CL] |
 | **RS** | **C** [E-RS] | **P** [E-RS] | **C** [E-RS] | **C** [E-RS] | **P** [E-RS] | **P** [E-RS] | **P** [E-RS, E-CL] |
-| **AD** | **C** [E-AD] | **M** | **C** [E-AD] | **C** [E-AD] | **M** | **M** | **P** [E-AD, E-CL] |
-| **HC** | **M** | **M** | **M** | **P** [E-HC] | **M** | **M** | **P** [E-HC, E-CL] |
+| **AD** | **C** [E-AD] | **P** [E-AD, E-TRACE] | **C** [E-AD] | **C** [E-AD] | **M** | **M** | **P** [E-AD, E-CL] |
+| **HC** | **M** | **P** [E-HC, E-TRACE] | **M** | **P** [E-HC] | **M** | **M** | **P** [E-HC, E-CL] |
 | **CL** | **P** [E-CL] | **P** [E-CL] | **P** [E-CL] | **M** | **P** [E-CL] | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] |
 
 ### N/A rationale
@@ -170,14 +172,16 @@ cells therefore remain P.
 ### E-P0 — participant policy and current connection lease
 
 - [`DesktopRemoteWindowPreparationPeerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowPreparationPeerTests.cs)
-  directly covers stopping/busy state, failed current-lease acquisition, linked
-  cancellation, prepared-owner release, peer disconnect, and primary-plus-
-  cleanup preservation.
+  directly covers bounded local receive-policy rejection, unknown policy reason
+  reduction, policy-throw redaction, stopping/busy state, failed current-lease
+  acquisition, linked cancellation, prepared-owner release, peer disconnect,
+  and primary-plus-cleanup preservation. The policy reject/throw rows prove zero
+  connection acquisition and renderer authority, then recover with a fresh
+  request through real loopback `FSM1` Ready.
 
-There is no direct production-peer injection for an explicit local receive-
-policy rejection or receive-policy throw, nor a complete pending Trust revoke
-or authenticated disconnect matrix. P0 cannot be promoted on the strength of
-codec allowlist tests.
+Current-lease collaborator throws, pending Trust/connection revocation,
+authenticated disconnect, and cleanup-fault combinations remain incomplete;
+P0 therefore remains partial.
 
 ### E-P1 — verified connector and FSM1 attachment
 
@@ -232,9 +236,22 @@ owner combinations keep the non-C cells partial.
 - [`DesktopRemoteWindowPreparationPeerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowPreparationPeerTests.cs)
   proves no rendering before exact Admission, role mismatch rejection, exact
   caller cancellation, and prepared-owner release.
+- [`DesktopRemoteWindowHostCoordinatorTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowHostCoordinatorTests.cs)
+  proves unexpected and foreign-token Admission publication failures reduce to
+  `host_admission_publish_failed`, while exact caller cancellation retains its
+  original token and the asserted host owner graph fails closed.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.AdFinalAdmissionSideEffectThenThrowFailsClosedAndDrainsBothNodes`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  waits until the participant endpoint commits and publishes its known binding,
+  then injects a host-side publication throw. Frame admission remains closed,
+  media/render stay zero, the asserted owners across both nodes drain, and the
+  old generation cannot be reacquired.
+- [`AuthenticatedRemoteWindowConnectionLeaseTests`](../../tests/Flowspan.Transport.Tests/AuthenticatedRemoteWindowConnectionLeaseTests.cs)
+  proves linked Admission cancellation is normalized back to the exact caller
+  token without relabelling a foreign cancellation.
 
-There is no direct final-Admission send/endpoint throw, authority revocation, or
-authenticated disconnect injection at that exact phase. Those cells remain M.
+A participant endpoint throw, authority revocation, authenticated disconnect,
+and remaining wire/cleanup phase variants are still missing; the Throw cell is
+therefore partial rather than complete.
 
 ### E-HC — host commit after Ready
 
@@ -243,13 +260,15 @@ authenticated disconnect injection at that exact phase. Those cells remain M.
 - The same test file's `ExpiredPreparationAfterMediaAttachmentNeverStartsCapture`
   proves one post-attachment deadline failure and its cleanup.
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  proves the admitted success and one cancellation/expiry before Admission, but
-  does not inject the individual HC commit calls.
+  proves the admitted success, one cancellation/expiry before Admission, and a
+  final state publication side-effect-then-throw after participant known binding,
+  but does not inject every individual HC commit call.
 
 Direct negative/throw/cancel/revoke/disconnect cases are still required for each
 post-Ready host revalidation, protection registration, Emergency Stop
-registration, controller `Start`, exact `AddParticipant`, state publication,
-and final open. In particular, a failure before HC is not HC evidence.
+registration, controller `Start`, exact `AddParticipant`, and final open. State
+publication Throw now has direct evidence, but its revoke/disconnect and cleanup
+variants remain partial. In particular, a failure before HC is not HC evidence.
 
 ### E-CL — terminal cleanup and failure identity
 
@@ -280,7 +299,7 @@ defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is the executable 21-case class.
+  is the executable 22-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records its exact local/hosted commands, artifacts, results, and limitations.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
@@ -291,6 +310,11 @@ boundary. Its successful end-to-end route cannot fill the other cells by
 inference.
 
 ## Remaining implementation and evidence work
+
+The cross-thread H0/H1 ordering contract is frozen in
+[ADR 0027](../adr/0027-remote-window-host-preparation-reservation.md). Its
+implementation and deterministic two-order evidence remain required; the ADR
+does not promote any matrix cell by itself.
 
 The next tests must use the family IDs in their names or evidence notes and add
 one direct row for each applicable gap. The presently known gaps are:
@@ -306,21 +330,22 @@ one direct row for each applicable gap. The presently known gaps are:
 3. **TX/RS:** cover throw, revoke, disconnect, and cleanup failure at every
    distinct send-admission, buffered-response, terminal-commit, completion-hook,
    and tombstone phase rather than treating Stop as every terminal cause.
-4. **P0:** direct local receive-policy reject and throw; current Trust/connection
-   revoke and disconnect while participant preparation is pending; exact
-   cleanup and retry denial.
+4. **P0:** current-lease collaborator throw; current Trust/connection revoke and
+   disconnect while participant preparation is pending; exact cleanup and retry
+   denial.
 5. **P1:** malformed/tampered `FSM1`, blocked-handshake cancellation and exact
    timeout, endpoint/listener disconnect variants, generation revocation at
    each attach phase, and remaining handler/route/directory cleanup failures.
 6. **P2:** exact deadline cancellation while renderer preparation is blocked;
    authoritative lease/Trust revocation at that boundary; disconnect and all
    renderer cleanup combinations.
-7. **AD:** final Admission send or participant-endpoint throw, authority revoke,
-   authenticated disconnect, and cleanup failure at the exact buffered/send/
-   commit phases.
+7. **AD:** participant-endpoint throw, authority revoke, authenticated
+   disconnect, and remaining cleanup failures at the exact buffered/send/commit
+   phases.
 8. **HC:** independent rejection and throw injection for every revalidation,
    protection/Emergency owner registration, controller `Start`,
-   `AddParticipant`, Admission state send, and final open; cancellation,
+   `AddParticipant`, remaining Admission state-send variants, and final open;
+   cancellation,
    deadline, revoke, and disconnect races between each step.
 9. **CL:** remaining single-owner cleanup faults; meaningful ordered combined
    failures; active versus pending owner variants; stable shared completion;

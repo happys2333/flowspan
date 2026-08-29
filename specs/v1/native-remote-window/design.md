@@ -234,6 +234,13 @@ frame admission closed, add the exact participant, and return final Admission
 state. Only that exact accepted state opens participant rendering. Any failure
 unwinds in reverse order and retains no participant or Driver authority.
 
+[ADR 0027](../../../docs/adr/0027-remote-window-host-preparation-reservation.md)
+defines the still-proposed exact epoch bundle, route/send admission ordering,
+Emergency Stop readiness promotion, and deterministic concurrency acceptance
+needed to make that pre-Prepare order linearizable across arbitrary threads.
+Point-in-time revalidation remains defense in depth but does not satisfy that
+Task 5.5a contract by itself.
+
 The media directory must be the same instance passed to the authenticated
 control handler and the shared `FlowspanTcpInboundListener`; a Desktop-only or
 second directory cannot find the transferred media session. The connector lease

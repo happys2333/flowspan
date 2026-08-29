@@ -905,6 +905,25 @@ limitations are in
 Tasks 5, 5.5a, 5.5, every native/physical/release gate, and the Goal remain open;
 `CreateProduction()` must continue to report Remote Window unavailable.
 
+## 2026-08-30 participant policy and final Admission fault candidate
+
+Implementation `113fce0` bounds participant receive-policy reasons and throws
+before any connection/renderer owner, preserves exact caller cancellation across
+the production lease's linked token, projects other Admission publication faults
+as `host_admission_publish_failed`, and adds a 22nd managed two-node tracer row.
+That row waits for participant known-binding publication before injecting a host
+side-effect-then-throw; frame admission stays closed, media/render stay zero, and
+the directly asserted owners drain.
+
+Focused Desktop host/participant/tracer rows pass `81/81`, focused lease rows
+pass `18/18`, Desktop passes `581/581`, Transport passes `704/704`, and complete
+Debug/Release solutions pass `2295/2295`. Warning-as-error builds, format, diff,
+vulnerability audit, explicit TEST MODE composition, simulator, and final strict
+review pass. Hosted exact-SHA evidence is pending and no native/physical/release
+result is claimed. The finite matrix keeps P0, AD, HC, Task 5.5a and all later
+gates open. Full scope and limitations are in
+[`2026-08-30-participant-policy-and-final-admission-faults.md`](2026-08-30-participant-policy-and-final-admission-faults.md).
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
