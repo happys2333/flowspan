@@ -869,6 +869,41 @@ signing/notarization, release acceptance, Tasks 5, 5.5a, 5.5 and 6-10, and the
 long-term Flowspan Goal remain open. `CreateProduction()` must continue to
 report `native_adapters_unavailable`.
 
+## 2026-08-30 pending pre-Prepare safety candidate
+
+The current worktree candidate makes the host prerequisite order match the
+approved boundary before route selection or Prepare: fresh exact-source `Safe`
+protection, a first host-fact revalidation, pure Emergency Stop readiness, a
+second host-fact revalidation, exact caller-cancellation barriers, and canonical
+deadline currentness. Candidate tests inject unsafe/throwing protection,
+unavailable/throwing readiness, cancellation, deadline equality, source or
+permission/grant revocation, and authenticated-connection loss at the named
+synchronous seams.
+
+Permission, authenticated-connection, protection-read, and readiness throws
+reduce to stable canary-free reasons. The finite matrix and current partial or
+missing status are in
+[`remote-window-production-boundary-matrix.md`](../testing/remote-window-production-boundary-matrix.md).
+The synchronous seams do not prove absolute TOCTOU linearization against every
+concurrent thread. `CheckReadiness()` also does not reserve the later Emergency
+Stop registration, so closing that race remains a Task 5.5a blocker.
+
+The same worktree contains a first macOS permission adapter candidate. Its
+prompt-free snapshot calls only `CGPreflightScreenCaptureAccess`; only the
+explicit request calls `CGRequestScreenCaptureAccess`. Input remains
+`Unsupported`, and the adapter is not composed by `CreateProduction()`.
+Operation sequencing, observer isolation, and disposal tests prevent stale
+concurrent facts, blocked safety notification, and late publication. It is not
+capture, input, protection, physical two-Device, packaged TCC, signing, or
+notarization evidence.
+
+Local Debug/Release solution verification passes `2286/2286` tests with zero
+build warnings/errors. No hosted exact-SHA result is yet claimed for this
+checkpoint. Scope, commands, results, and limitations are in
+[`2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`](2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md).
+Tasks 5, 5.5a, 5.5, every native/physical/release gate, and the Goal remain open;
+`CreateProduction()` must continue to report Remote Window unavailable.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes

@@ -717,6 +717,49 @@ or protection behavior, and no v1 release criterion is closed by this slice
 alone.
 `CreateProduction()` must continue to report Remote Window unavailable.
 
+### 5.16 2026-08-30 pre-Prepare safety and macOS permission candidate
+
+The H0/H1 rows in the finite
+[`Remote Window production-boundary matrix`](../testing/remote-window-production-boundary-matrix.md)
+now name this candidate boundary precisely. Before route selection or Prepare,
+the source host must observe fresh exact-source `Safe` protection, revalidate
+source/connection/permission/grant facts, observe a pure Emergency Stop readiness
+fact, revalidate the host facts again, then cross caller-cancellation and
+canonical-deadline barriers. A negative or changed fact keeps route, Prepare,
+capture, controller, participant, Driver, input, rendering, and final Admission
+authority closed.
+
+For T10, non-fatal permission, authenticated-connection, protection, and
+readiness exceptions reduce to `native_permission_unavailable`,
+`authenticated_connection_stale`, `native_protection_not_safe`, and
+`emergency_stop_readiness_unavailable`. Injected exception text and inner
+exceptions must not cross the public failure surface; `OutOfMemoryException`
+remains a fatal runtime condition. Cleanup joins any fail-close already started
+by a pre-route safety callback, so connection disposal cannot race ahead and a
+fail-close failure cannot escape terminal-failure accounting.
+
+This narrows but does not eliminate T06/T07/T13 races. Synchronous callbacks do
+not prove absolute TOCTOU linearization against an arbitrary concurrent thread.
+The current readiness operation also does not reserve the eventual Emergency
+Stop registration, so an atomic reservation or equivalent generation-bound
+ownership proof remains a Task 5.5a blocker.
+
+The macOS candidate maps CoreGraphics screen-capture preflight and explicit
+request into bounded permission facts. Prompt-free snapshot reads never call the
+request API, input remains `Unsupported`, and the adapter is not wired into
+`CreateProduction()`. Late concurrent observations cannot overwrite newer
+facts, one throwing observer cannot block later safety observers, and disposal
+rejects late publication or new native calls. It proves no ScreenCaptureKit
+capture, CoreGraphics input,
+secure-input/protected-surface detection, persistent native Emergency Stop,
+physical peer, packaged TCC, signing, or notarization claim.
+
+Local Debug/Release solution verification passes `2286/2286` tests with zero
+build warnings/errors; hosted exact-SHA results remain pending. Scope and
+verification details are in
+[`2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`](../evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md).
+Tasks 5, 5.5a, 5.5, every native/physical/release gate, and the Goal remain open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

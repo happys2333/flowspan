@@ -1225,6 +1225,51 @@ authenticated runtime is composed into it. The tracer does not close Task 5,
 Task 5.5a, Task 5.5, any native/physical/release gate, release criterion, or the
 long-term Goal.
 
+### 2026-08-30 pre-Prepare safety candidate
+
+The finite production-boundary inventory is maintained in
+[`remote-window-production-boundary-matrix.md`](remote-window-production-boundary-matrix.md).
+The current worktree candidate advances only its H0/H1 pre-Prepare rows. The
+required order is: initial source/connection/permission/grant facts; one fresh,
+exact-source `Safe` protection observation; host-fact revalidation; a pure,
+prompt-free Emergency Stop readiness check; a second host-fact revalidation;
+caller-cancellation and canonical-deadline barriers; then responder route
+selection and Prepare.
+
+Deterministic tests inject caller cancellation, deadline equality, source
+invalidation, permission/grant revocation, and connection revocation at those
+synchronous seams. They require route selection, Prepare, capture, controller,
+participant, and Admission authority to remain closed. Non-fatal exceptions
+from permission, authenticated-connection, protection, and readiness reads must
+project respectively as `native_permission_unavailable`,
+`authenticated_connection_stale`, `native_protection_not_safe`, and
+`emergency_stop_readiness_unavailable`, without canary, native exception text,
+or inner exceptions. `OutOfMemoryException` is not converted to a product
+rejection. A pre-route safety callback that already started fail-close must be
+joined by cleanup even when route selection never occurred; blocked and failing
+test doubles freeze that completion and ordered failure identity.
+
+These tests prove the named callback order, not absolute TOCTOU linearization
+against an arbitrary concurrent thread. Readiness is observational and does not
+reserve the later Emergency Stop registration; an atomic readiness-to-
+registration reservation remains required before Task 5.5a can close.
+
+The accompanying macOS adapter candidate calls
+`CGPreflightScreenCaptureAccess` for prompt-free facts and crosses
+`CGRequestScreenCaptureAccess` only from an explicit request. Input remains
+`Unsupported`. Operation-sequenced commits discard late concurrent native
+results, revisions advance only on changed facts, observers are isolated and
+invoked outside the state lock, and disposal rejects late publication and new
+native calls. The matching-host smoke is preflight only and does not prove
+capture, input, protection, physical two-Device operation, packaged TCC,
+signing, or notarization. The adapter is not wired into `CreateProduction()`.
+
+Local Debug/Release solution verification passes `2286/2286` tests with zero
+build warnings/errors; hosted exact-SHA CI remains pending. Candidate scope,
+commands, and limitations are in
+[`2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`](../evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md).
+Tasks 5, 5.5a, and 5.5 and every native, physical, and release gate remain open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

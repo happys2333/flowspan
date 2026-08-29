@@ -514,6 +514,33 @@
     cross-product only. All remaining owners/combinations, matrices, Tasks 5,
     5.5a, 5.5, 6-10, native/physical/release gates, and the Goal remain open;
     `CreateProduction()` remains unavailable.
+    A 2026-08-30 worktree candidate advances only the H0/H1 pre-Prepare portion
+    of `docs/testing/remote-window-production-boundary-matrix.md`. Before route
+    selection or Prepare, the host now requires fresh exact-source `Safe`
+    protection, revalidates source/connection/permission/grant facts, performs a
+    pure non-registering Emergency Stop readiness check, then revalidates those
+    host facts again. Exact caller-cancellation barriers separate the synchronous
+    boundaries, and the canonical Preparation deadline is rechecked before route
+    selection. Permission, authenticated-connection, protection-read, and
+    readiness throws reduce to stable reason codes without native exception text.
+    Cleanup also joins a fail-close already started by a pre-route safety
+    callback and preserves its ordered failure even though no route was selected.
+    Local Debug/Release solution verification passes `2286/2286` tests with
+    zero build warnings/errors; implementation SHA `eb2e2ad9` is recorded, and
+    hosted exact-SHA CI remains pending.
+    These synchronous seams do not prove absolute TOCTOU linearization against
+    arbitrary concurrent mutation. `CheckReadiness()` does not reserve the later
+    Emergency Stop registration, so an atomic readiness-to-registration
+    reservation remains a Task 5.5a blocker. The accompanying macOS candidate
+    implements only prompt-free CoreGraphics capture-permission preflight and an
+    explicit capture-permission request; operation sequencing, observer
+    isolation, and disposal tests cover stale concurrent facts and late
+    publication; input remains `Unsupported`. It is not
+    composed by `CreateProduction()` and is not capture, input, protection,
+    physical-device, packaged, signing, or notarization evidence. Scope and
+    pending commands are recorded in
+    `docs/evidence/2026-08-30-pre-prepare-safety-and-macos-permission-preflight.md`.
+    Task 5.5a remains unchecked.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
