@@ -32,8 +32,10 @@ Subsequent checkpoints expand that tracer to six cases at `761ac75`, nine at
 attachment, renderer, exact-deadline, and caller-cancellation fail-close
 ordering. Test-only commit `ac48ec3` adds no case; it makes the renderer
 fixture's bilateral-attachment-before-injected-failure boundary explicit rather
-than assuming responder directory publication precedes renderer entry. Those
-extensions are recorded separately in
+than assuming responder directory publication precedes renderer entry. Test-only
+commit `58569be` adds a twelfth case that freezes the valid earlier window after
+the initiator validates the FSM1 acknowledgement but before the host directory
+publication. Those extensions are recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
 native adapters, physical-device proof, and release evidence remain absent.
@@ -358,7 +360,38 @@ macOS, and Linux each passed `2234/2234`; Secret Scan and all three reproducible
 unsigned package jobs passed. This restores the advertised post-bilateral-
 attachment renderer-failure evidence. It does not cover immediate renderer
 failure after initiator acknowledgement but before host directory publication;
-that concurrency row and the complete fault matrix remain open.
+that concurrency row remained open at this checkpoint.
+
+## Subsequent pre-directory renderer-failure checkpoint
+
+Test-only commit `58569be3215bbb38a6767398d28c3f428130601a` adds no
+production source and expands the managed tracer to twelve cases. A test wrapper
+blocks the production listener handler after the authenticated FSM1
+acknowledgement and route attachment but before it forwards the attachment to
+the real host directory. The participant is attached while the exact host
+session is observed but remains unattached. Immediate renderer failure then
+commits a real allowlisted Rejected response; a second test gate proves the host
+has validated that response while coordinator fail-close and Dispose remain
+zero. The test publishes the real host attachment before allowing the response
+to return, after which fail-close and Dispose each run once and every tracked
+owner drains. Admission, capture, media send, and rendering remain zero. This
+does not claim that fail-close itself occurs before host publication; that is a
+separate cleanup-race boundary.
+
+The TDD RED timed out only the new row at 258 ms while the existing three
+renderer rows passed. Final local Debug and Release solutions passed
+`2235/2235`, including Desktop `547/547`; the four-row renderer theory passed 40
+fresh Debug processes at eight-way concurrency for `160/160`. Format, diff,
+direct/transitive NuGet vulnerability, explicit TEST MODE composition, and
+simulator checks passed. Strict review reported no P0/P1/P2; that is not an
+external security audit.
+
+Exact-SHA CI `33256672974` and CodeQL `33256672962` succeeded. Windows, macOS,
+and Linux each passed `2235/2235` with every non-success counter zero. Secret
+Scan, CodeQL analysis, and all three reproducible unsigned package jobs passed.
+These remain managed-loopback contract and packaging results, not native,
+physical-Device, signed, notarized, or release evidence. This closes only the
+pre-directory renderer-failure row; the complete fault matrix remains open.
 
 ## Review and remaining evidence
 
@@ -391,7 +424,7 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current eleven managed tracer cases;
+  from the current twelve managed tracer cases;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native

@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current eleven scenarios are not the required matrix; its per-boundary
+current twelve scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -879,7 +879,27 @@ eight-way concurrent processes; and strict review found no P0/P1/P2. Exact-SHA
 CI `33254883850` and CodeQL `33254883851` succeeded, with each hosted OS at
 `2234/2234`, Secret Scan and all three unsigned package jobs passing. Immediate
 renderer failure after initiator acknowledgement but before host directory
-publication remains a separate open fault-matrix row.
+publication was the next separate fault-matrix row.
+
+Test-only commit `58569be3215bbb38a6767398d28c3f428130601a` closes that one
+row without changing production source. A wrapper around the real listener media
+handler blocks after authenticated FSM1 acknowledgement and route attachment but
+before forwarding to the host directory. The participant session is attached;
+the exact host session and binding are visible but unattached. Renderer failure
+then produces a real Rejected response while the host wrapper still reports zero
+fail-close/Dispose. The test releases the media gate, waits for real host
+attachment, and only then returns the Rejected response; all owners converge to
+zero with no Admission, capture, send, or render. The TDD RED timed out only the
+new row at 258 ms while the other three passed; the final GREEN theory passed
+`160/160` under eight-way fresh-process pressure. Debug and Release solutions
+passed `2235/2235`, including Desktop `547/547`, and strict review found no
+P0/P1/P2.
+
+Exact-SHA CI `33256672974` and CodeQL `33256672962` succeeded. Every hosted OS
+passed `2235/2235`; Secret Scan and all three reproducible unsigned package jobs
+passed. This closes only the pre-directory renderer-failure row. The complete
+per-boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix
+remains open.
 
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
 actual caller cancellation. Cleanup-fault injection and the complete

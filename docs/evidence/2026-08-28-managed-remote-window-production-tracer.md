@@ -843,12 +843,114 @@ both completed successfully.
   | `win-x64` | `99107259811` | `9715574283` | `e2a81901fd0153bed0a35479186c983c050f6424c67cc8a595e322abd0fa0b04` |
   | `osx-arm64` | `99107259839` | `9715574944` | `3b2782b96ca4fb9ca13b40bc7aa13b8cdeb579cec64c95862ee440762b85a7b0` |
 
-These results close the bilateral-attachment tracer's sampling race only. A
-renderer failure injected immediately after initiator acknowledgement but before
-host directory publication is a distinct concurrency row and remains open,
-along with the rest of the complete fault matrix. Nothing in this checkpoint
-proves native APIs, physical Devices, signed packages, notarization, or release
-acceptance.
+These results close the bilateral-attachment tracer's sampling race only.
+Nothing in this checkpoint proves native APIs, physical Devices, signed
+packages, notarization, or release acceptance.
+
+### Subsequent pre-directory renderer-failure checkpoint
+
+Test-only commit `58569be3215bbb38a6767398d28c3f428130601a` changes no
+production source and expands the managed tracer from eleven to twelve cases.
+The fourth renderer theory row deterministically injects failure after the
+initiator has validated the authenticated FSM1 acknowledgement, while the host
+listener has accepted and attached the route but has not yet called the real
+host media-session directory.
+
+Two test-only gates expose and freeze exact production checkpoints. The media
+handler wrapper records the accepted attachment and blocks before forwarding to
+`AuthenticatedRemoteWindowMediaSessionDirectory.HandleAsync`. At that point the
+participant session is attached, the exact host session and binding are visible
+but the host session is not attached, and Admission, capture, media send, and
+rendering remain zero. The renderer factory immediately throws; the participant
+commits an allowlisted `renderer_start_failed` Rejected response. A host wrapper
+observes and validates that real response but does not return it to the
+coordinator, proving fail-close and Dispose are still zero while the media
+handler remains unforwarded. The test then releases the media handler, waits for
+the real host attachment, and only then returns Rejected to the coordinator.
+Fail-close and Dispose each run once, both attachment handlers settle, and all
+renderer, route, directory, handler, lease, channel, control, protection,
+permission-observer, Emergency Stop, capture, and media-budget owners converge
+to zero. The exact generation cannot be reacquired.
+
+The TDD RED used a new test wrapper over the existing production-listener
+injection seam while the old fixture still waited for bilateral attachment: only
+the new pre-directory row timed out after 258 ms, while the existing three rows
+passed. The minimal GREEN made that row wait only for listener-handler entry and
+inject failure before host directory publication; all four rows then passed.
+This RED was a missing deterministic test capability, not a production defect.
+Final teardown uses bounded waits and nested cleanup so a future fail-close
+regression cannot prevent participant or listener shutdown.
+
+Representative local commands:
+
+```sh
+dotnet build Flowspan.slnx --configuration Debug --no-restore -warnaserror
+dotnet test Flowspan.slnx --configuration Debug --no-build --no-restore
+dotnet build Flowspan.slnx --configuration Release --no-restore -warnaserror
+dotnet test Flowspan.slnx --configuration Release --no-build --no-restore
+dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
+  --configuration Debug --no-build --no-restore \
+  --filter 'FullyQualifiedName~VerifiedFsm1AttachmentThenRendererFailureCommitsRejectionBeforeFailClose'
+seq 1 40 | xargs -P 8 -I{} sh -c \
+  'dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
+    --configuration Debug --no-build --no-restore \
+    --filter "FullyQualifiedName~VerifiedFsm1AttachmentThenRendererFailureCommitsRejectionBeforeFailClose" \
+    --logger "console;verbosity=quiet" >/dev/null'
+dotnet format Flowspan.slnx --verify-no-changes --no-restore
+git diff --check
+dotnet list Flowspan.slnx package --vulnerable --include-transitive --no-restore
+dotnet run --project src/Flowspan.Desktop/Flowspan.Desktop.csproj \
+  --configuration Release --no-build --no-restore -- --validate-composition
+dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
+  --configuration Release --no-build --no-restore
+```
+
+Debug and Release warning-as-error builds each completed with zero warnings and
+errors. Both complete solutions passed `2235/2235`, including Desktop `547/547`,
+Platform `219/219`, and Transport `701/701`. The Release tracer class passed
+`12/12`; the final four-row renderer theory passed 40 fresh Debug processes,
+eight at a time, for `160/160` case executions in ten seconds. Format, diff,
+direct/transitive NuGet vulnerability, explicit TEST MODE composition, and the
+deterministic protocol-1.7 simulator passed. Strict concurrency review found no
+P0/P1/P2 in the final change.
+
+At exact SHA `58569be3215bbb38a6767398d28c3f428130601a`, CI run
+[`33256672974`](https://github.com/happys2333/flowspan/actions/runs/33256672974)
+and CodeQL run
+[`33256672962`](https://github.com/happys2333/flowspan/actions/runs/33256672962)
+both completed successfully.
+
+- Test jobs `99111509925` (Ubuntu), `99111509774` (Windows), and `99111509852`
+  (macOS) succeeded. Downloaded artifacts each contain 12 TRX files summing to
+  `2235/2235`, with failed, error, timeout, and aborted counters all zero:
+
+  | Platform | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | --- |
+  | Linux | `9716051767` | `289285c772868f160ad5a047636fa86d358168d9d94b0648f62085443b870937` |
+  | Windows | `9716058609` | `79c80337bb74cd46ebd6b9f9d6271defa394eee14ed6c4cc15f930c3c1eefb20` |
+  | macOS | `9716040256` | `1b1f540b4c4323d5791fce8eb01e78820097ef05fb06302b124fa6c889c8ebb8` |
+
+- Secret Scan job `99111509855` passed. Artifact `9716009828`, digest
+  `2e72785b7112256a92051a630f5962476ccf44f29a0fc6d46b19ed8eec104844`,
+  is SARIF 2.1.0 with one run, 208 rules, and 0 results.
+- CodeQL job `99111509610` passed. Exact-SHA analysis `1691829208` reports 52
+  rules and 0 results; the branch open-alert query returned 0.
+- All reproducible unsigned package jobs passed:
+
+  | Runtime | Job | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `win-x64` | `99111979228` | `9716087915` | `255b9a02964c7ece829733202f5410395027e33477de5cd345a61da267267ac7` |
+  | `linux-x64` | `99111979244` | `9716082818` | `077ac8b035bb7ddc32e283fd3c0757e0ece119b1233dafc4b18e1d76fd8ffcfd` |
+  | `osx-arm64` | `99111979245` | `9716077155` | `68464e38af50df0a3bc644e7ed6c6eae4d80cc704f255a0b13060d40d3a980c5` |
+
+This checkpoint closes only the immediate renderer-failure row between
+initiator acknowledgement and host directory publication. The remaining
+per-boundary reject, throw, cancel, timeout, revoke, disconnect, and
+cleanup-fault matrix remains open. In particular, it does not cover fail-close
+while the media handler remains unforwarded: host attachment is deliberately
+published before Rejected returns to the coordinator. It is managed loopback
+and test infrastructure evidence, not native, physical-Device, signed-package,
+notarization, or release evidence.
 
 ## Security relevance
 
@@ -860,9 +962,11 @@ acceptance.
   Emergency Stop are exercised. The managed permission-loss case closes
   admission, invokes local Emergency Stop, and converges the host owner graph to
   zero; it drives `Granted` to `Denied` and is not evidence of a real
-  operating-system permission transition. The renderer-preparation theory uses
+  operating-system permission transition. Three renderer-preparation rows use
   a test-owned wait for bilateral exact-bound media attachment before injecting
-  failure, but still admits no participant, capture, media send, or rendering
+  failure. A fourth row injects failure after initiator acknowledgement but
+  before host directory publication, then proves Rejected precedes fail-close;
+  neither path admits a participant, capture, media send, or rendering
   authority. The expiry case additionally
   completes Ready and one renderer Prepare before exact deadline equality, then
   admits no participant or active generation. The caller-cancellation case keeps
@@ -878,9 +982,10 @@ acceptance.
   cancellation family and exact caller token instead of a rejection reason.
 - **T13:** terminal authenticated-control disconnect, capability revocation,
   managed permission loss, and verified-endpoint attachment reset after TCP
-  accept converge the relevant ownership graph to zero. The three renderer
-  failures do the same after successful `FSM1`, with Admission/capture/send/
-  render all at zero. Rejected-response cleanup is ordered after response
+  accept converge the relevant ownership graph to zero. The four renderer
+  failures do the same after successful `FSM1`, including the handler-gated
+  pre-directory case, with Admission/capture/send/render all at zero.
+  Rejected-response cleanup is ordered after response
   commit, retains the request deadline through a maximum-10-second watchdog,
   survives lease disposal, and preserves primary plus cleanup/lifecycle
   failures. Explicit and deadline close share one cleanup; actual linked
@@ -900,7 +1005,7 @@ acceptance.
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the eleven current cases above and does not establish that complete matrix.
+only the twelve current cases above and does not establish that complete matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every
 malformed, tampered, timeout, cancellation, listener, or cleanup-fault boundary.
@@ -912,8 +1017,8 @@ Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows, macOS, and Linux execution through `ac48ec3` is managed-loopback and
-contract evidence only. There is no evidence here for Windows, macOS, or Linux
+Hosted Windows, macOS, and Linux execution through `58569be` is managed-loopback
+and contract evidence only. There is no evidence here for Windows, macOS, or Linux
 native capture/input/protection APIs; physical two-Device operation; signed or
 notarized packages; package lifecycle behavior; or full release acceptance.
 Those gates require native platform or physical evidence without extrapolating

@@ -289,10 +289,20 @@
     review found no P0/P1/P2. Exact-SHA CI `33254883850` and CodeQL
     `33254883851` succeeded; all three hosted OSes passed `2234/2234`, and
     Secret Scan plus all reproducible unsigned package jobs passed. The barrier
-    is test-owned and adds no production ordering. Immediate renderer failure
-    between initiator acknowledgement and host directory publication remains an
-    open fault-matrix row, so this closes no Task, native/physical gate, release
-    criterion, or Goal.
+    is test-owned and adds no production ordering. Test-only commit
+    `58569be3215bbb38a6767398d28c3f428130601a` then adds a fourth renderer row
+    that freezes the real listener after initiator acknowledgement and route
+    attachment but before host directory publication. It proves participant
+    attached/host unattached at failure, Rejected committed before fail-close,
+    real host attachment after gate release, zero Admission/capture/send/render,
+    and complete cleanup. The final four-row pressure passed `160/160`; local
+    Debug/Release solutions passed `2235/2235`, including Desktop `547/547`, and
+    strict review found no P0/P1/P2. Exact-SHA CI `33256672974` and CodeQL
+    `33256672962` succeeded; every hosted OS passed `2235/2235`, and Secret Scan
+    plus all reproducible unsigned package jobs passed. This closes only that
+    pre-directory renderer-failure row. The rest of the fault matrix remains
+    open, and this closes no Task, native/physical gate, release criterion, or
+    Goal.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
