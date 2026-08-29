@@ -2462,17 +2462,43 @@ public sealed class RemoteWindowSessionControllerTests
     {
         var capture = new RecordingCaptureBoundary();
         capture.BlockEmergencyStopCall(1);
+        var firstBeforeBlockCheck = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstBlockCheck = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        capture.OnEmergencyStopBeforeBlockCheck = call =>
+        {
+            if (call == 1)
+            {
+                firstBeforeBlockCheck.TrySetResult();
+                releaseFirstBlockCheck.Task.GetAwaiter().GetResult();
+            }
+        };
         using RemoteWindowSessionController controller = CreateController(capture);
         _ = await controller.StartAsync(SafeAt(Now));
 
         Task<RemoteWindowEmergencyStopResult> olderStop = Task.Run(
             controller.EmergencyStop);
-        await capture.EmergencyStopEntered.Task;
-        RemoteWindowEmergencyStopResult retry = controller.EmergencyStop();
-        RemoteWindowCommandResult prematureReset =
-            await controller.ResetAfterLocalConfirmationAsync();
+        RemoteWindowEmergencyStopResult retry;
+        RemoteWindowCommandResult prematureReset;
+        try
+        {
+            await firstBeforeBlockCheck.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            retry = controller.EmergencyStop();
+            releaseFirstBlockCheck.TrySetResult();
+            Task firstBlocked = capture.BlockedEmergencyStopEntered.Task;
+            Task firstBoundary = await Task.WhenAny(firstBlocked, olderStop)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Same(firstBlocked, firstBoundary);
+            prematureReset = await controller.ResetAfterLocalConfirmationAsync();
+        }
+        finally
+        {
+            releaseFirstBlockCheck.TrySetResult();
+            capture.ReleaseEmergencyStop();
+            _ = await olderStop.WaitAsync(TimeSpan.FromSeconds(5));
+        }
 
-        capture.ReleaseEmergencyStop();
         RemoteWindowEmergencyStopResult completedOlderStop = await olderStop;
         RemoteWindowCommandResult reset =
             await controller.ResetAfterLocalConfirmationAsync();
@@ -4369,11 +4395,14 @@ public sealed class RemoteWindowSessionControllerTests
 
     private sealed class RecordingCaptureBoundary : IRemoteWindowCaptureBoundary
     {
+        private readonly object observationLock = new();
         private int? blockedEmergencyStopCall;
+        private int emergencyStopCallCount;
         private TaskCompletionSource? releaseEmergencyStop;
         private TaskCompletionSource? releaseResume;
         private TaskCompletionSource? releaseStart;
         private int resumeCallCount;
+        private int stopCallCount;
 
         public List<string> Events { get; } = [];
 
@@ -4383,6 +4412,9 @@ public sealed class RemoteWindowSessionControllerTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public TaskCompletionSource EmergencyStopEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource BlockedEmergencyStopEntered { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public TaskCompletionSource ResumeEntered { get; } =
@@ -4400,13 +4432,16 @@ public sealed class RemoteWindowSessionControllerTests
 
         public Action? OnEmergencyStop { get; set; }
 
+        public Action<int>? OnEmergencyStopBeforeBlockCheck { get; set; }
+
         public Action? OnPause { get; set; }
 
         public Action? OnStartReturning { get; set; }
 
         public Exception? EmergencyFailure { get; set; }
 
-        public int EmergencyStopCallCount { get; private set; }
+        public int EmergencyStopCallCount =>
+            Volatile.Read(ref emergencyStopCallCount);
 
         public Exception? StartFailure { get; set; }
 
@@ -4422,7 +4457,7 @@ public sealed class RemoteWindowSessionControllerTests
         public LocalBoundaryResult StopResult { get; set; } =
             LocalBoundaryResult.Confirmed("capture_stopped");
 
-        public int StopCallCount { get; private set; }
+        public int StopCallCount => Volatile.Read(ref stopCallCount);
 
         public bool IsCapturing { get; private set; }
 
@@ -4434,7 +4469,7 @@ public sealed class RemoteWindowSessionControllerTests
             ActivityId activityId,
             CancellationToken cancellationToken)
         {
-            Events.Add("capture.start");
+            RecordEvent("capture.start");
             LifecycleObservedAtStart = Snapshot?.Invoke().Lifecycle;
             StartEntered.TrySetResult();
             if (releaseStart is not null)
@@ -4473,7 +4508,7 @@ public sealed class RemoteWindowSessionControllerTests
 
         public LocalBoundaryResult PauseNow(MirrorPauseReason reason)
         {
-            Events.Add("capture.pause");
+            RecordEvent("capture.pause");
             LifecycleObservedAtPause = Snapshot?.Invoke().Lifecycle;
             IsCapturing = false;
             OnPause?.Invoke();
@@ -4482,8 +4517,8 @@ public sealed class RemoteWindowSessionControllerTests
 
         public LocalBoundaryResult ResumeNow()
         {
-            Events.Add("capture.resume");
-            BoundaryTimeline.Add("capture.resume.enter");
+            RecordEvent("capture.resume");
+            RecordBoundary("capture.resume.enter");
             int currentResumeCall = Interlocked.Increment(ref resumeCallCount);
             ResumeEntered.TrySetResult();
             if (currentResumeCall >= 2)
@@ -4493,18 +4528,20 @@ public sealed class RemoteWindowSessionControllerTests
 
             releaseResume?.Task.GetAwaiter().GetResult();
             IsCapturing = true;
-            BoundaryTimeline.Add("capture.resume.return");
+            RecordBoundary("capture.resume.return");
             OnResume?.Invoke();
             return LocalBoundaryResult.Confirmed("capture_resumed");
         }
 
         public LocalBoundaryResult EmergencyStopNow()
         {
-            EmergencyStopCallCount++;
-            BoundaryTimeline.Add("capture.emergency_stop");
+            int currentCall = Interlocked.Increment(ref emergencyStopCallCount);
+            RecordBoundary("capture.emergency_stop");
             EmergencyStopEntered.TrySetResult();
-            if (EmergencyStopCallCount == blockedEmergencyStopCall)
+            OnEmergencyStopBeforeBlockCheck?.Invoke(currentCall);
+            if (currentCall == blockedEmergencyStopCall)
             {
+                BlockedEmergencyStopEntered.TrySetResult();
                 releaseEmergencyStop?.Task.GetAwaiter().GetResult();
             }
 
@@ -4520,8 +4557,8 @@ public sealed class RemoteWindowSessionControllerTests
 
         public LocalBoundaryResult StopNow()
         {
-            StopCallCount++;
-            BoundaryTimeline.Add("capture.stop");
+            Interlocked.Increment(ref stopCallCount);
+            RecordBoundary("capture.stop");
             IsCapturing = false;
             OnStop?.Invoke();
             if (StopFailure is not null)
@@ -4530,6 +4567,22 @@ public sealed class RemoteWindowSessionControllerTests
             }
 
             return StopResult;
+        }
+
+        private void RecordBoundary(string value)
+        {
+            lock (observationLock)
+            {
+                BoundaryTimeline.Add(value);
+            }
+        }
+
+        private void RecordEvent(string value)
+        {
+            lock (observationLock)
+            {
+                Events.Add(value);
+            }
         }
     }
 
