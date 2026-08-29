@@ -343,7 +343,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     }
 
     [Fact]
-    public async Task VerifiedFsm1EndpointConnectionFailureRejectsWithoutAdmissionOrCapture()
+    public async Task VerifiedFsm1AttachmentFailureAfterTcpAcceptRejectsWithoutAdmissionOrCapture()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
@@ -404,6 +404,14 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             SocketType.Stream,
             ProtocolType.Tcp);
         unavailableFsm1Socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        unavailableFsm1Socket.Listen(backlog: 1);
+        using var unavailableFsm1Stop = new CancellationTokenSource();
+        var fsm1ConnectionAccepted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task rejectingFsm1Connection = AcceptAndResetFsm1ConnectionAsync(
+            unavailableFsm1Socket,
+            fsm1ConnectionAccepted,
+            unavailableFsm1Stop.Token);
         var unavailableFsm1Endpoint = Assert.IsType<IPEndPoint>(
             unavailableFsm1Socket.LocalEndPoint);
         Assert.NotEqual(controlEndpoint.Port, unavailableFsm1Endpoint.Port);
@@ -497,6 +505,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 InvalidOperationException>(async () =>
                     await coordinator.StartAsync(request, deadline.Token));
 
+            await fsm1ConnectionAccepted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Contains("media_attachment_failed", failure.Message);
             Assert.Equal(1, hostConnection.PrepareResponderRouteCount);
             Assert.Equal(1, hostConnection.PrepareCount);
@@ -536,13 +545,22 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         }
         finally
         {
-            if (participantConnection is not null)
+            try
             {
-                await participantConnection.DisposeAsync();
-            }
+                if (participantConnection is not null)
+                {
+                    await participantConnection.DisposeAsync();
+                }
 
-            listenerStop.Cancel();
-            await ObserveListenerStopAsync(listenerRun, listenerStop.Token);
+                listenerStop.Cancel();
+                await ObserveListenerStopAsync(listenerRun, listenerStop.Token);
+            }
+            finally
+            {
+                unavailableFsm1Stop.Cancel();
+                await rejectingFsm1Connection.WaitAsync(
+                    TimeSpan.FromSeconds(5));
+            }
         }
 
         bool TryAcquireParticipantConnection(
@@ -551,6 +569,23 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             participantHandler!.TryAcquireRemoteWindowPeerConnection(
                 peerDeviceId,
                 out lease);
+    }
+
+    private static async Task AcceptAndResetFsm1ConnectionAsync(
+        Socket listener,
+        TaskCompletionSource connectionAccepted,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using Socket accepted = await listener.AcceptAsync(cancellationToken);
+            connectionAccepted.TrySetResult();
+            accepted.LingerState = new LingerOption(true, 0);
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     [Theory]

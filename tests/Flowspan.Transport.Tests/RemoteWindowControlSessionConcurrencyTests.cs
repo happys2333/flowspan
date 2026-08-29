@@ -1148,6 +1148,7 @@ public sealed class RemoteWindowControlSessionConcurrencyTests
                 ReferenceEquals(rejected, first) ? second : first;
 
             Assert.False(reserved.IsCompleted);
+            await connection.Sent.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(1, connection.SendCount);
             releaseSend.TrySetResult();
             await connection.CallbackCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
