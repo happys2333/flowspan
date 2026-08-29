@@ -355,6 +355,18 @@ capture canary remains absent, and the complete owner graph drains. This closes
 one managed combined-failure cross-product, not the remaining combinations or
 native behavior.
 
+The eighteenth managed tracer case adds a distinct T10 input-boundary row. The
+managed input Emergency Stop applies before a one-shot injected throw;
+production exposes only `input=local_boundary_exception`, with capture and
+sharing-session confirmation, a null inner exception, and no injected canary.
+The nineteenth row adds a late T13 owner boundary: the wrapper first awaits the
+real authenticated host connection's disposal and observes it non-current, then
+throws once. That raw cleanup exception remains visible by identity. In both
+rows `TerminalFailure` and the first explicitly observed coordinator
+`DisposeAsync` share the same failure instance, and the complete owner graph
+drains. These are managed fault-injection results, not native input or physical-
+disconnect evidence.
+
 Commit `80191d6`, retained by `761ac75`, provides six narrow managed same-host
 production-path tracer scenarios: successful DriverEligible
 media/input/Emergency Stop; reversed-grant denial; terminal
@@ -633,8 +645,32 @@ OS at `2241/2241`, Secret Scan, and all unsigned package jobs. CodeQL
 `33269125313` passed 52 rules with 0 results and 0 exact-commit open alerts.
 Artifact details are in the managed tracer evidence.
 
-This closes one capture-plus-registration combined-failure intersection. Every
-other cleanup owner, combination, and per-boundary fault remains open.
+At the `2c6ff32` checkpoint this closed one capture-plus-registration combined-
+failure intersection. Every other cleanup owner, combination, and per-boundary
+fault remained open.
+
+Test-only commit `26cd380091f6fd387173e2565023cbb27a96aab0` adds the
+eighteenth input Emergency Stop and nineteenth host-connection disposal rows
+without changing production source. The input row records exactly one applied-
+before-failure event and exposes only the bounded, canary-free input projection.
+The connection row injects only after real inner disposal and preserves the
+exact `IOException` instance through terminal observation. Both rows retain
+exact Emergency/ordinary Stop, fail-close/disposal, and full owner-drain counts.
+
+Separate TDD cycles first produced `3/4` and then `4/5`, with only each new row
+reaching its 20-second bound while its injection was deliberately absent.
+Enabling the two one-shot seams produced focused Debug/Release `5/5`; 40 fresh
+alternating processes passed `200/200`; the tracer passed `19/19`; Desktop passed
+`554/554`; and both complete solutions passed `2243/2243`. Warning-as-error and
+all other local gates passed after strict review closed one P2 fixture-proof gap.
+Exact-SHA CI `33270854982` passed `2243/2243` on each hosted OS, Secret Scan, and
+all unsigned package jobs. CodeQL `33270854935` passed 52 rules with 0 results
+and 0 exact-commit open alerts. Exact artifacts are recorded in the managed
+tracer evidence.
+
+This closes one input cleanup-owner row and one late authenticated-connection
+disposal row. Every other cleanup owner, cross-product, and per-boundary fault
+remains open.
 
 The remaining complete per-boundary reject/throw/cancel/timeout/revoke/
 disconnect/cleanup-fault matrix remains open. Tasks 5, 5.5a, and 5.5, all native

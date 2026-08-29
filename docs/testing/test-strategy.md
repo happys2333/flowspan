@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current seventeen scenarios are not the required matrix; its per-boundary
+current nineteen scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -1145,11 +1145,44 @@ review reported P0/P1/P2 at zero.
 This closes one combined capture-plus-registration cleanup-fault cross-product
 only. The other owner combinations and complete per-boundary matrix remain open.
 
+Test-only commit `26cd380091f6fd387173e2565023cbb27a96aab0` adds two more
+single-owner rows and no production source change. The eighteenth row injects a
+one-shot input `EmergencyStopNow` exception only after its managed boundary has
+applied the local stop. The required terminal surface is the exact bounded
+`input=local_boundary_exception` projection with confirmed capture/session
+reasons, no inner exception, and no input canary. The nineteenth row awaits the
+real authenticated host connection's inner `DisposeAsync`, proves the lease is
+non-current, and only then throws its one-shot cleanup exception. That exact raw
+exception instance must be shared by `TerminalFailure` and the first explicitly
+observed coordinator `DisposeAsync`.
+
+The input RED left only its injection disconnected, so the historical three rows
+passed and the new row alone reached its 20-second bound (`3/4`); GREEN passed
+Debug/Release `4/4`. The connection RED similarly produced `4/5`; connecting
+only the after-inner-dispose seam made Debug/Release `5/5`. Strict review found
+that an ordinary Stop could make the first input proof appear green, so the
+fixture now records an applied-before-failure event only inside the injected
+Emergency Stop branch. Final review reported no P0/P1/P2 finding.
+
+Forty fresh alternating processes passed all five theory rows at `200/200`; the
+tracer passed `19/19`; Desktop passed `554/554`; and both Debug and Release
+solutions passed `2243/2243`. Both warning-as-error builds and the format, diff,
+dependency-vulnerability, TEST MODE composition, and simulator gates passed.
+Exact-SHA CI `33270854982` passed `2243/2243` on each hosted OS, Secret Scan 208
+rules with 0 results, and all three unsigned package jobs. CodeQL `33270854935`
+passed 52 rules with 0 results and 0 exact-commit open alerts. Exact artifacts
+and digests are in the managed tracer evidence.
+
+These additions close one input cleanup owner and one late host-connection
+disposal owner only. Other owners and their combined-failure cross-products
+remain open.
+
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
-actual caller cancellation. Two single-owner disconnect cleanup-fault
-intersections and one combined-owner cross-product are now covered, together with
-one full renderer-to-replacement exact-binding trace; the remaining cleanup-fault
-injection, replacement/ABA variants, and complete per-boundary matrix remain open.
+actual caller cancellation. Four single-owner disconnect cleanup-fault
+intersections and one combined-owner cross-product are now covered, together
+with one full renderer-to-replacement exact-binding trace; the remaining cleanup-
+fault injection, replacement/ABA variants, and complete per-boundary matrix
+remain open.
 
 The hosted matrices are cross-platform managed contract evidence,
 not evidence for native platform APIs, two physical devices, accessibility,

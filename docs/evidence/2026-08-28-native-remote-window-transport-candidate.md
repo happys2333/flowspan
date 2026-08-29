@@ -269,6 +269,17 @@ hosted OSes plus Secret Scan and unsigned packages; CodeQL `33269125313` passed
 managed tracer evidence. This closes one managed combined-failure cross-product;
 the Transport/replacement cleanup-fault combinations remain open.
 
+Test-only Desktop commit `26cd380091f6fd387173e2565023cbb27a96aab0`
+subsequently adds the eighteenth and nineteenth managed tracer rows: one input
+Emergency Stop cleanup fault and one host-connection disposal fault after the
+real inner authenticated lease has drained. It changes no production source and
+does not expand the Transport exact-binding ABA contract. Exact-SHA CI
+`33270854982` passed `2243/2243` on every hosted OS plus Secret Scan and all
+unsigned package jobs; CodeQL `33270854935` passed 52 rules with 0 results and 0
+exact-commit open alerts. Detailed artifacts are in the managed tracer evidence.
+These rows close two managed cleanup-owner intersections only; the Transport/
+replacement cleanup-fault combinations remain open.
+
 The first fixture RED deliberately reused one gate for both generations. It
 failed deterministically after about 62 ms with expected forward count 1 and
 actual 2, demonstrating that the fixture could not independently release the old

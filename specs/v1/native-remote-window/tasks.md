@@ -471,6 +471,28 @@
     only. Every other cleanup combination, the remaining matrices, Tasks 5,
     5.5a, 5.5, 6-10, native/physical/release gates, and the Goal remain open;
     `CreateProduction()` remains unavailable.
+    Test-only commit `26cd380091f6fd387173e2565023cbb27a96aab0` expands the
+    authenticated-disconnect theory from three to five rows and the managed
+    tracer from seventeen to nineteen cases, without changing production source.
+    The eighteenth row applies input Emergency Stop before one injected throw,
+    exposes only the bounded `input=local_boundary_exception` projection with no
+    inner/canary, and shares that projected instance through terminal observation
+    and the first explicit coordinator disposal. The nineteenth row awaits real
+    inner authenticated host-connection disposal, proves the lease non-current,
+    then throws once and preserves that raw exception by exact identity through
+    the same terminal surfaces. Both rows retain exact boundary counts and drain
+    every managed owner.
+    Separate REDs produced `3/4` and `4/5`, with only the unconnected new row
+    timing out at 20 seconds; the two one-seam GREENs ended at focused Debug/
+    Release `5/5`. Final pressure passed `200/200`, tracer `19/19`, Desktop
+    `554/554`, and both solutions `2243/2243`; warning-as-error and every local
+    gate passed after strict P0/P1/P2 review. Exact-SHA CI `33270854982` passed
+    `2243/2243` on every hosted OS plus Secret Scan and all unsigned packages;
+    CodeQL `33270854935` passed 52 rules with 0 results and 0 exact-commit open
+    alerts. These close two single-owner rows only. All other owners and cross-
+    products, the remaining matrices, Tasks 5, 5.5a, 5.5, 6-10, native/physical/
+    release gates, and the Goal remain open; `CreateProduction()` remains
+    unavailable.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
