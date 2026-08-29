@@ -3,6 +3,7 @@
 - Status: Proposed implementation contract
 - Date: 2026-08-30
 - Decision owners: Flowspan maintainers
+- Desktop-only core checkpoint: `294042f`; production composition pending
 
 ## Context
 
@@ -58,6 +59,43 @@ The reservation is a Desktop composition module. Platform, Security, and
 Transport keep ownership of their individual facts and expose only the narrow
 epoch/reservation operations required to participate in its linearization. OS
 projects do not implement a second host state machine.
+
+### Desktop-only core checkpoint
+
+Commit `294042fdfcc346e3eade3551d57cc7ccba95c601` implements the internal
+`RemoteWindowHostPreparationReservation` state machine in `Flowspan.Desktop`.
+It begins in `Collecting`, requires an explicit deadline-checked transition to
+`Armed`, and then implements the exact monotonic route, Prepare-send, Ready, and
+promotion phases specified below. Route admission conservatively records that a
+route may be owned before the external route call, so side-effect-then-throw
+uses `ConsumeConnection` cleanup scope.
+
+The core represents Source, Permission, Authorization, Connection, Emergency
+Stop, and Protection with six distinct opaque process-local fact epochs. One
+epoch bundle can be claimed by only one host reservation. Exact host generation
+and epoch matching reject stale callbacks and ABA replacement attempts. The
+core derives fact failure reasons from a fixed enum allowlist and gives all
+concurrent invalidations one terminal completion created with
+`RunContinuationsAsynchronously`.
+
+The nine deterministic tests cover `M < R`, `R < M < S`, `S < M`, route
+side-effect-then-throw, deadline equality at Arm/route/send/Ready/promotion,
+bundle reuse, host-generation/fact-epoch ABA, simultaneous six-fact
+invalidation, and exact Ready/promotion phase and binding. Strict review first
+returned BLOCK with one P1 and two P2 findings; after Collecting, bundle-claim,
+deadline, and late reason-validation/redaction repairs, final review returned
+APPROVE with 0 P0, 0 P1, and 0 P2 findings. Local verification and its limits
+are recorded in the
+[core evidence](../evidence/2026-08-30-host-preparation-reservation-core.md).
+
+This checkpoint is deliberately not wired into
+`DesktopRemoteWindowHostCoordinator`, Platform, Security, Transport, or
+`CreateProduction()`. It does not provide source invalidation admission, an
+authenticated connection route operation, the Transport send-admission hook,
+or any real fact reservation. It changes no production-boundary matrix cell and
+does not close H0, H1, Task 5.5a, or production availability. The next slice
+must connect real source invalidation through the connection route operation to
+the actual Transport Prepare send-admission point.
 
 ### Exact epoch bundle
 
@@ -341,8 +379,9 @@ implementation text.
 
 ## Consequences
 
-- Task 5.5a remains blocked until this proposed contract is implemented and its
-  managed production-boundary evidence is reproducible.
+- Task 5.5a remains blocked until the Desktop core is connected to the real
+  Platform, Security, Transport, and coordinator fact owners and its managed
+  production-boundary evidence is reproducible.
 - The coordinator gains one deep host Preparation reservation module instead of
   more caller-visible read ordering.
 - Security gains an exact, revocable operation-Capability reservation rather

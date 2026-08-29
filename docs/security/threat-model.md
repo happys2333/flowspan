@@ -787,6 +787,46 @@ commit `158c9a1`; downloaded artifacts prove `2295/2295` on each hosted OS,
 Gitleaks 208/0, and CodeQL 52/0. Task 5.5a and all native, physical,
 signing/notarization, and release gates remain open.
 
+### 5.18 2026-08-30 Host Preparation reservation core
+
+Commit `294042fdfcc346e3eade3551d57cc7ccba95c601` implements only the
+internal Desktop reservation core proposed by
+[ADR 0027](../adr/0027-remote-window-host-preparation-reservation.md). Its six
+independent opaque epochs represent Source, Permission, Authorization,
+Connection, Emergency Stop readiness, and Protection. One bundle can bind one
+host generation only, so bundle reuse, stale generation, stale epoch, and
+regrant ABA cannot revive or invalidate a replacement reservation.
+
+For T06/T07, the core defines the linear alternatives `M < R`, `R < M < S`, and
+`S < M`; route admission becomes the conservative connection-consumption point,
+and no phase can skip from Collecting to route work or from Prepare to promotion.
+Deadline equality fails closed at Arm, route admission, Prepare send admission,
+Ready matching, and promotion. For T10, fact invalidation accepts no free-form
+reason: it derives one fixed payload-free reason for each of the six facts, and
+foreign Ready uses `remote_window_ready_mismatch`. A late canary cannot be
+validated, thrown, or reflected after another terminal transition. For T13,
+six concurrent invalidations share one terminal completion, and an epoch bundle
+cannot be claimed twice.
+
+TDD first exposed the missing core, incomplete deadline terminal, foreign Ready
+without terminal fail-close, bundle reuse, late canary throw/leak, and missing
+Collecting phase. Strict review initially returned BLOCK with one P1 and two P2
+findings. The single-claim, explicit Arm, complete deadline, fixed-reason, and
+late-terminal repairs received final APPROVE with 0 P0, 0 P1, and 0 P2 findings.
+Local focused Debug/Release passed `9/9`, Desktop Debug/Release `590/590`, and
+solution Debug/Release `2304/2304`; warning-as-error build, format, diff,
+vulnerability, explicit composition, and simulator gates passed. The
+[core evidence](../evidence/2026-08-30-host-preparation-reservation-core.md)
+records exact commands and limitations. Hosted `294042f` has not run.
+
+This is not yet a T06/T07 production mitigation. The coordinator, source
+registry, permission adapter, Trust coordinator, authenticated connection,
+Emergency Stop registrar, protection source, and Transport send gate do not use
+the core. No matrix cell changes, H0/H1 and Task 5.5a stay open, and
+`CreateProduction()` remains unavailable. The next security slice must
+linearize real source invalidation with a generation-bound connection route
+operation and the actual Transport Prepare send-admission hook.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

@@ -149,6 +149,16 @@ similar coverage.
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests.ReverseOnlyMirrorGrantCannotPrepareOrStartCapture`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
   proves the peer-relative grant direction. The same file's active authority
   loss theory is terminal evidence, not proof of every H0/H1 pre-route race.
+- [`RemoteWindowHostPreparationReservationTests`](../../tests/Flowspan.Desktop.Tests/RemoteWindowHostPreparationReservationTests.cs)
+  at commit `294042f` freezes the standalone Desktop core's six opaque fact
+  epochs, single-claim bundle, `Collecting` through promotion/terminal phases,
+  `M < R`, `R < M < S`, `S < M`, side-effect route failure, all transition
+  deadlines, ABA rejection, single terminal outcome, and bounded reasons. The
+  [core evidence](../evidence/2026-08-30-host-preparation-reservation-core.md)
+  records its local `9/9`, Desktop `590/590`, and solution `2304/2304` results.
+  The core is not connected to the coordinator, source registry, permission,
+  Trust, authenticated connection, Emergency Stop, protection, or Transport
+  send-admission seams, so this evidence changes no H0, H1, TX, HC, or CL cell.
 
 These tests do not yet inject every source, permission, Trust/grant, connection,
 observer-registration, protection, readiness, and route failure independently;
@@ -313,8 +323,10 @@ inference.
 
 The cross-thread H0/H1 ordering contract is frozen in
 [ADR 0027](../adr/0027-remote-window-host-preparation-reservation.md). Its
-implementation and deterministic two-order evidence remain required; the ADR
-does not promote any matrix cell by itself.
+Desktop-only core and deterministic state-machine evidence exist at `294042f`,
+but real fact invalidation, connection route admission, Transport send admission,
+and complete owner cleanup remain required. Neither the ADR nor its unwired core
+promotes a matrix cell by itself.
 
 The next tests must use the family IDs in their names or evidence notes and add
 one direct row for each applicable gap. The presently known gaps are:
@@ -322,7 +334,9 @@ one direct row for each applicable gap. The presently known gaps are:
 1. **H0:** finish injected throws from the remaining initial fact sources and
    authenticated-disconnect coverage before route selection. The deterministic
    source, permission, grant, and connection revocation barriers do not prove an
-   atomic reservation across arbitrary concurrent threads.
+   atomic reservation across arbitrary concurrent threads. The next vertical
+   slice must connect real source invalidation to a generation-bound connection
+   route operation and the actual Transport Prepare send-admission hook.
 2. **H1:** finish the safety/route reject and throw variants; inject connection
    loss at the exact route boundary; preserve any route side effect while
    cleanup also fails; and either introduce an atomic readiness/facts

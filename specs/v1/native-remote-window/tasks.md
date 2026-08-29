@@ -560,6 +560,34 @@
     52/0. P0, AD, HC and Task 5.5a remain partial/open. Scope and limitations are
     recorded in
     `docs/evidence/2026-08-30-participant-policy-and-final-admission-faults.md`.
+    Desktop-only implementation `294042fdfcc346e3eade3551d57cc7ccba95c601`
+    then adds the proposed host Preparation reservation core without wiring it
+    into the coordinator, Platform, Security, Transport, or `CreateProduction()`.
+    Its state is `Collecting -> Armed -> RouteAdmitted -> RouteSelected ->
+    PrepareSending -> ReadyMatched -> Promoted`, or one irreversible `Terminal`.
+    Six opaque fact epochs bind Source, Permission, Authorization, Connection,
+    Emergency Stop, and Protection; one bundle can be claimed once. Nine
+    deterministic tests cover `M < R`, `R < M < S`, `S < M`, route
+    side-effect-then-throw, deadline equality at Arm, route/send admission,
+    Ready and promotion, bundle reuse,
+    host-generation/fact-epoch ABA, concurrent single-terminal invalidation, and
+    exact Ready/promotion phase and binding. Fact invalidation reasons are a fixed
+    allowlist rather than caller text.
+    TDD REDs included the missing core, incomplete deadline terminal, foreign
+    Ready, bundle reuse, late canary throw/leak, and missing Collecting phase.
+    Strict review first returned BLOCK with one P1 and two P2 findings; after the
+    single-claim, explicit Arm, deadline, and fixed-reason repairs, final review
+    returned APPROVE with 0 P0, 0 P1, and 0 P2 findings. Local focused
+    Debug/Release passed `9/9`, Desktop Debug/Release `590/590`, and solution
+    Debug/Release `2304/2304`; warning-as-error builds had zero warnings/errors,
+    and format, diff, vulnerability, composition, and simulator gates passed.
+    Hosted exact-SHA execution for `294042f` has not run. Exact commands and
+    limitations are in
+    `docs/evidence/2026-08-30-host-preparation-reservation-core.md`.
+    This isolated core changes no matrix cell and closes neither H0 nor H1.
+    Task 5.5a and `CreateProduction()` remain open. The next slice must connect
+    real source invalidation, a generation-bound authenticated connection route
+    operation, and the actual Transport Prepare send-admission hook.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

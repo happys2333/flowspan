@@ -1299,6 +1299,49 @@ commit `158c9a1`; downloaded artifacts prove `2295/2295` on each hosted OS,
 Gitleaks 208/0, and CodeQL 52/0. P0, AD, and HC stay partial in the finite matrix,
 so Task 5.5a remains open.
 
+### 2026-08-30 Host Preparation reservation core
+
+Commit `294042fdfcc346e3eade3551d57cc7ccba95c601` adds one internal
+`Flowspan.Desktop` state-machine core for the host fact reservation frozen by
+[ADR 0027](../adr/0027-remote-window-host-preparation-reservation.md). It is not
+called by `DesktopRemoteWindowHostCoordinator` and introduces no Platform,
+Security, Transport, or `CreateProduction()` integration.
+
+The state path is `Collecting -> Armed -> RouteAdmitted -> RouteSelected ->
+PrepareSending -> ReadyMatched -> Promoted`, with one irreversible `Terminal`
+alternative before promotion. Source, Permission, Authorization, Connection,
+Emergency Stop, and Protection each receive a distinct opaque epoch. A bundle
+can be claimed once; both host generation and exact epoch must match an
+invalidation. Fact reasons come from a fixed allowlist, not injected callback or
+exception text. Terminal completion is single and asynchronous-continuation
+safe.
+
+The nine deterministic tests use bounded `LongRunning` workers, barriers, and
+completion sources without sleeps. They cover `M < R`, `R < M < S`, `S < M`,
+route side-effect-then-throw, deadline equality at Arm, route, Prepare send,
+Ready, and promotion, bundle reuse, stale host/fact ABA, simultaneous six-fact
+invalidation, and exact Ready/promotion phase and binding. TDD REDs included the
+missing core, missing deadline terminal, foreign Ready without fail-close,
+bundle reuse, late canary reason throw/leak, and a missing Collecting phase.
+
+Strict review initially returned BLOCK with one P1 and two P2 findings. After
+the Collecting/Arm, single-claim bundle, complete deadline, and fixed-reason
+repairs, final review returned APPROVE with 0 P0, 0 P1, and 0 P2 findings.
+Focused Debug/Release passed `9/9`, Desktop Debug/Release passed `590/590`, and
+solution Debug/Release passed `2304/2304`; both warning-as-error builds had zero
+warnings/errors, and format, diff, vulnerability, explicit composition, and
+simulator gates passed. Exact commands and limitations are in the
+[core evidence](../evidence/2026-08-30-host-preparation-reservation-core.md).
+No hosted exact-SHA run for `294042f` has been executed.
+
+These tests exercise only the isolated core and therefore change no matrix cell.
+They do not prove a real source callback, permission revision, Trust mutation,
+connection revocation, Emergency Stop registrar, or protection observation is
+linearized with route or wire admission. H0, H1, Task 5.5a, and production
+availability remain open. The next slice must connect real source invalidation,
+a generation-bound connection route operation, and the actual Transport Prepare
+send-admission hook.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,
