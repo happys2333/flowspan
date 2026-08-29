@@ -2359,11 +2359,14 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     {
         EmergencyStopRegistration,
         CaptureEmergencyStop,
+        CaptureEmergencyStopAndEmergencyStopRegistration,
     }
 
     [Theory]
     [InlineData(TerminalCleanupFault.EmergencyStopRegistration)]
     [InlineData(TerminalCleanupFault.CaptureEmergencyStop)]
+    [InlineData(
+        TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration)]
     public async Task AuthenticatedControlDisconnectCleanupFaultDrainsAndRemainsObservable(
         TerminalCleanupFault cleanupFault)
     {
@@ -2437,14 +2440,19 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         Task listenerRun = listener.RunAsync(listenerStop.Token).AsTask();
         AuthenticatedTcpControlConnection? participantConnection = null;
         Task? participantRun = null;
-        var injected = new IOException(
-            $"injected {cleanupFault} cleanup failure");
+        var captureInjected = new IOException(
+            "injected capture Emergency Stop cleanup failure");
+        var registrationInjected = new IOException(
+            "injected Emergency Stop registration cleanup failure");
+        bool injectCapture = cleanupFault is
+            TerminalCleanupFault.CaptureEmergencyStop
+            or TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration;
+        bool injectRegistration = cleanupFault is
+            TerminalCleanupFault.EmergencyStopRegistration
+            or TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration;
         var capture = new RecordingCaptureBoundary
         {
-            EmergencyStopFailure = cleanupFault
-                == TerminalCleanupFault.CaptureEmergencyStop
-                    ? injected
-                    : null,
+            EmergencyStopFailure = injectCapture ? captureInjected : null,
         };
         var input = new RecordingInputBoundary();
         var permissions = new RecordingPermissionBoundary(
@@ -2455,9 +2463,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 revision: 1));
         var sessions = new RecordingSharingSessionBoundary();
         var emergencyStops = new RecordingEmergencyStopRegistrar(
-            cleanupFault == TerminalCleanupFault.EmergencyStopRegistration
-                ? injected
-                : null);
+            injectRegistration ? registrationInjected : null);
         using var sources = new NativeRemoteWindowSourceRegistry(HostDeviceId);
         using NativeRemoteWindowSourceRegistration sourceRegistration =
             sources.RegisterGeneric(CreateMetadata());
@@ -2568,45 +2574,53 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 permissions,
                 emergencyStops,
                 deadline.Token);
+            if (cleanupFault
+                == TerminalCleanupFault
+                    .CaptureEmergencyStopAndEmergencyStopRegistration)
+            {
+                while (coordinator.TerminalFailure is not AggregateException
+                    { InnerExceptions.Count: 2 })
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(1), deadline.Token);
+                }
+            }
 
             Assert.Null(coordinator.Snapshot);
             expectedTerminalFailure = Assert.IsAssignableFrom<Exception>(
                 coordinator.TerminalFailure);
             if (cleanupFault == TerminalCleanupFault.EmergencyStopRegistration)
             {
-                Assert.Same(injected, expectedTerminalFailure);
+                Assert.Same(registrationInjected, expectedTerminalFailure);
+            }
+            else if (cleanupFault == TerminalCleanupFault.CaptureEmergencyStop)
+            {
+                AssertCaptureProjection(expectedTerminalFailure, captureInjected);
             }
             else
             {
-                InvalidOperationException projectedFailure = Assert.IsType<
-                    InvalidOperationException>(expectedTerminalFailure);
-                Assert.Equal(
-                    "Remote Window host emergency stop was not fully confirmed "
-                        + "(capture=local_boundary_exception, "
-                        + "input=native_input_emergency_stopped, "
-                        + "sessions=all_peers_disconnected).",
-                    projectedFailure.Message,
-                    ignoreCase: false,
-                    ignoreLineEndingDifferences: false,
-                    ignoreWhiteSpaceDifferences: false);
-                Assert.Null(projectedFailure.InnerException);
+                AggregateException combinedFailure = Assert.IsType<
+                    AggregateException>(expectedTerminalFailure);
+                Assert.Equal(2, combinedFailure.InnerExceptions.Count);
+                AssertCaptureProjection(
+                    combinedFailure.InnerExceptions[0],
+                    captureInjected);
+                Assert.Same(
+                    registrationInjected,
+                    combinedFailure.InnerExceptions[1]);
                 Assert.DoesNotContain(
-                    injected.Message,
-                    projectedFailure.ToString(),
+                    captureInjected.Message,
+                    combinedFailure.ToString(),
                     StringComparison.Ordinal);
             }
             Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, activeBudget.Snapshot);
-            int expectedEmergencyStopCount = cleanupFault
-                == TerminalCleanupFault.CaptureEmergencyStop
-                    ? 2
-                    : 1;
+            int expectedEmergencyStopCount = injectCapture ? 2 : 1;
             Assert.Equal(expectedEmergencyStopCount, capture.EmergencyStopCount);
             Assert.Equal(
-                cleanupFault == TerminalCleanupFault.CaptureEmergencyStop ? 1 : 0,
+                injectCapture ? 1 : 0,
                 capture.EmergencyStopFailureCount);
             Assert.Equal(expectedEmergencyStopCount, input.EmergencyStopCount);
             Assert.Equal(
-                cleanupFault == TerminalCleanupFault.CaptureEmergencyStop ? 3 : 2,
+                injectCapture ? 3 : 2,
                 sessions.DisconnectAllCount);
             Assert.Equal(1, capture.StopCount);
             Assert.Equal(1, input.StopCount);
@@ -2734,6 +2748,28 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             participantHandler!.TryAcquireRemoteWindowPeerConnection(
                 peerDeviceId,
                 out lease);
+
+        static void AssertCaptureProjection(
+            Exception projected,
+            Exception captureFailure)
+        {
+            InvalidOperationException projectedFailure = Assert.IsType<
+                InvalidOperationException>(projected);
+            Assert.Equal(
+                "Remote Window host emergency stop was not fully confirmed "
+                    + "(capture=local_boundary_exception, "
+                    + "input=native_input_emergency_stopped, "
+                    + "sessions=all_peers_disconnected).",
+                projectedFailure.Message,
+                ignoreCase: false,
+                ignoreLineEndingDifferences: false,
+                ignoreWhiteSpaceDifferences: false);
+            Assert.Null(projectedFailure.InnerException);
+            Assert.DoesNotContain(
+                captureFailure.Message,
+                projectedFailure.ToString(),
+                StringComparison.Ordinal);
+        }
     }
 
     [Fact]
