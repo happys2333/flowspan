@@ -574,11 +574,21 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     }
 
     [Theory]
-    [InlineData(RendererPreparationFailure.Throw)]
-    [InlineData(RendererPreparationFailure.Missing)]
-    [InlineData(RendererPreparationFailure.ForeignCancellation)]
+    [InlineData(
+        RendererPreparationFailure.Throw,
+        RendererFailureBoundary.AfterBilateralAttachment)]
+    [InlineData(
+        RendererPreparationFailure.Missing,
+        RendererFailureBoundary.AfterBilateralAttachment)]
+    [InlineData(
+        RendererPreparationFailure.ForeignCancellation,
+        RendererFailureBoundary.AfterBilateralAttachment)]
+    [InlineData(
+        RendererPreparationFailure.Throw,
+        RendererFailureBoundary.BeforeHostDirectoryPublication)]
     public async Task VerifiedFsm1AttachmentThenRendererFailureCommitsRejectionBeforeFailClose(
-        RendererPreparationFailure rendererFailure)
+        RendererPreparationFailure rendererFailure,
+        RendererFailureBoundary failureBoundary)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
@@ -602,6 +612,13 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             new AuthenticatedRemoteWindowMediaSessionDirectory();
         await using var participantMedia =
             new AuthenticatedRemoteWindowMediaSessionDirectory();
+        BlockingMediaAttachmentHandler? hostMediaGate = failureBoundary is
+            RendererFailureBoundary.BeforeHostDirectoryPublication
+                ? new BlockingMediaAttachmentHandler(hostMedia)
+                : null;
+        TaskCompletionSource? allowRejectedResponseReturn = hostMediaGate is null
+            ? null
+            : new(TaskCreationOptions.RunContinuationsAsynchronously);
         var controlPeer = new DesktopRemoteWindowHostControlPeer(HostDeviceId);
         await using var hostHandler = new AuthenticatedActivitySessionHandler(
             new RejectingActivityPeer(HostDeviceId),
@@ -614,9 +631,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         var renderer = new RecordingRenderer();
         var rendererFactory = new FailingRendererFactory(
             rendererFailure,
+            failureBoundary,
             renderer,
             hostMedia,
-            participantMedia);
+            participantMedia,
+            hostMediaGate?.Entered.Task);
         AuthenticatedActivitySessionHandler? participantHandler = null;
         var preparationPeer = new DesktopRemoteWindowPreparationPeer(
             ParticipantDeviceId,
@@ -651,6 +670,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             hostTrust,
             hostHandler,
             hostMedia,
+            mediaHandler: hostMediaGate,
             timeProvider: FixedTimeProvider.Instance);
         using var listenerStop = new CancellationTokenSource();
         Task listenerRun = listener.RunAsync(listenerStop.Token).AsTask();
@@ -691,6 +711,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             ownerLeaseDuration: TimeSpan.FromSeconds(30),
             preparationLifetime: TimeSpan.FromSeconds(10));
         RejectedPreparationObservingHostConnection? hostConnection = null;
+        Task<RemoteWindowCommandResult>? startTask = null;
 
         try
         {
@@ -720,7 +741,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     : "renderer_start_failed";
             hostConnection = new RejectedPreparationObservingHostConnection(
                 new AuthenticatedDesktopRemoteWindowHostConnection(hostLease),
-                expectedReasonCode);
+                expectedReasonCode,
+                allowRejectedResponseReturn?.Task);
             var request = new DesktopRemoteWindowHostStartRequest(
                 sourceLease,
                 ownerGeneration: 1,
@@ -728,9 +750,43 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 protection,
                 MirrorParticipantRole.DriverEligible);
 
+            startTask = coordinator.StartAsync(request, deadline.Token).AsTask();
+            if (hostMediaGate is not null)
+            {
+                await hostMediaGate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await rendererFactory.FailureInjected.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                await hostConnection.RejectedResponseObserved.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                Assert.False(hostMediaGate.IsReleased);
+                Assert.Equal(1, hostMediaGate.CallCount);
+                Assert.Equal(0, hostMediaGate.ForwardCount);
+                Assert.True(hostConnection.ResponseObservedBeforeFailClose);
+                Assert.True(rendererFactory.HostSessionObserved);
+                Assert.True(rendererFactory.ParticipantSessionObserved);
+                Assert.False(rendererFactory.HostSessionAttachedAtInjectedFailure);
+                Assert.True(rendererFactory.ParticipantSessionAttachedAtInjectedFailure);
+                hostMediaGate.Release();
+                Assert.True(hostMedia.TryGet(
+                    ParticipantDeviceId,
+                    out AuthenticatedRemoteWindowMediaSession? observedHostSession));
+                AuthenticatedRemoteWindowMediaSession hostSession = Assert.IsType<
+                    AuthenticatedRemoteWindowMediaSession>(observedHostSession);
+                await hostSession.WaitForAttachmentAsync(deadline.Token);
+                Assert.True(hostSession.IsAttached);
+                Assert.Equal(1, hostMediaGate.ForwardCount);
+                Assert.Equal(0, hostConnection.FailCloseCount);
+                Assert.Equal(0, hostConnection.DisposeCount);
+                allowRejectedResponseReturn!.TrySetResult();
+            }
+
             InvalidOperationException failure = await Assert.ThrowsAsync<
-                InvalidOperationException>(async () =>
-                    await coordinator.StartAsync(request, deadline.Token));
+                InvalidOperationException>(async () => await startTask);
+            if (hostMediaGate is not null)
+            {
+                await hostMediaGate.Exited.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Equal(1, hostMediaGate.ForwardCount);
+            }
 
             Assert.Contains(expectedReasonCode, failure.Message);
             Assert.Equal(1, hostConnection.PrepareResponderRouteCount);
@@ -740,8 +796,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(0, rendererFactory.RenderCountAtPrepare);
             Assert.True(rendererFactory.HostSessionObserved);
             Assert.True(rendererFactory.ParticipantSessionObserved);
-            Assert.True(rendererFactory.AttachmentBarrierCompleted);
-            Assert.True(rendererFactory.HostSessionAttachedAtInjectedFailure);
+            Assert.Equal(
+                failureBoundary is RendererFailureBoundary.AfterBilateralAttachment,
+                rendererFactory.AttachmentBarrierCompleted);
+            Assert.Equal(
+                failureBoundary is RendererFailureBoundary.AfterBilateralAttachment,
+                rendererFactory.HostSessionAttachedAtInjectedFailure);
             Assert.True(rendererFactory.ParticipantSessionAttachedAtInjectedFailure);
             Assert.Equal(HostDeviceId, rendererFactory.HostLocalDeviceId);
             Assert.Equal(ParticipantDeviceId, rendererFactory.HostPeerDeviceId);
@@ -761,6 +821,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 ParticipantDeviceId,
                 observedBinding.InitiatorDeviceId);
             Assert.Equal(HostDeviceId, observedBinding.ResponderDeviceId);
+            if (hostMediaGate is not null)
+            {
+                Assert.Equal(observedBinding, hostMediaGate.Binding);
+            }
+
             Assert.Equal(0, hostConnection.WaitForMediaAttachmentCount);
             Assert.Equal(0, hostConnection.AdmissionPublishCount);
             Assert.Equal(0, hostConnection.MediaSendCount);
@@ -796,13 +861,55 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         }
         finally
         {
-            if (participantConnection is not null)
+            hostMediaGate?.Release();
+            allowRejectedResponseReturn?.TrySetResult();
+            try
             {
-                await participantConnection.DisposeAsync();
+                if (startTask is not null)
+                {
+                    _ = await Record.ExceptionAsync(async () =>
+                        await startTask.WaitAsync(TimeSpan.FromSeconds(5)));
+                }
             }
-
-            listenerStop.Cancel();
-            await ObserveListenerStopAsync(listenerRun, listenerStop.Token);
+            finally
+            {
+                try
+                {
+                    if (participantConnection is not null)
+                    {
+                        await participantConnection.DisposeAsync();
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (participantRun is not null)
+                        {
+                            await ObserveSessionStopAsync(participantRun);
+                        }
+                    }
+                    finally
+                    {
+                        listenerStop.Cancel();
+                        try
+                        {
+                            await ObserveListenerStopAsync(
+                                listenerRun,
+                                listenerStop.Token);
+                        }
+                        finally
+                        {
+                            if (startTask is { IsCompleted: false })
+                            {
+                                _ = await Record.ExceptionAsync(async () =>
+                                    await startTask.WaitAsync(
+                                        TimeSpan.FromSeconds(5)));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         bool TryAcquireParticipantConnection(
@@ -1577,7 +1684,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         IAuthenticatedControlSessionHandler handler,
         AuthenticatedRemoteWindowMediaSessionDirectory media,
         CapabilityGrant? requiredCapabilities = null,
-        TimeProvider? timeProvider = null) => new(
+        TimeProvider? timeProvider = null,
+        IRemoteWindowMediaAttachmentHandler? mediaHandler = null) => new(
         socket,
         identity,
         new PairingCeremonyProfile([Version], TimeSpan.FromSeconds(2)),
@@ -1589,8 +1697,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             maximumConcurrentSessions: 4,
             handshakeTimeout: TimeSpan.FromSeconds(2))),
         handler,
-        timeProvider,
-        remoteWindowMediaSessions: media);
+        media.Routes,
+        mediaHandler ?? media,
+        timeProvider);
 
     private static TrustSessionCoordinator CreateTrust(
         DeviceIdentity peer,
@@ -1994,7 +2103,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
     private sealed class RejectedPreparationObservingHostConnection(
         AuthenticatedDesktopRemoteWindowHostConnection inner,
-        string expectedReasonCode) :
+        string expectedReasonCode,
+        Task? allowResponseReturn = null) :
         IDesktopRemoteWindowHostConnection
     {
         private int admissionPublishCount;
@@ -2024,6 +2134,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public int PrepareResponderRouteCount =>
             Volatile.Read(ref prepareResponderRouteCount);
+
+        public TaskCompletionSource RejectedResponseObserved { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         public bool ResponseObservedBeforeFailClose =>
             Volatile.Read(ref responseObservedBeforeFailClose) != 0;
@@ -2070,6 +2183,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             if (FailCloseCount == 0 && inner.IsCurrent)
             {
                 Volatile.Write(ref responseObservedBeforeFailClose, 1);
+            }
+
+            RejectedResponseObserved.TrySetResult();
+            if (allowResponseReturn is not null)
+            {
+                await allowResponseReturn.WaitAsync(cancellationToken);
             }
 
             return result;
@@ -2318,9 +2437,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
     private sealed class FailingRendererFactory(
         RendererPreparationFailure failure,
+        RendererFailureBoundary failureBoundary,
         RecordingRenderer renderer,
         AuthenticatedRemoteWindowMediaSessionDirectory hostMedia,
-        AuthenticatedRemoteWindowMediaSessionDirectory participantMedia) :
+        AuthenticatedRemoteWindowMediaSessionDirectory participantMedia,
+        Task? hostPublicationBlocked) :
         IDesktopRemoteWindowParticipantRendererFactory
     {
         private int attachmentBarrierCompleted;
@@ -2328,6 +2449,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public bool AttachmentBarrierCompleted =>
             Volatile.Read(ref attachmentBarrierCompleted) != 0;
+
+        public TaskCompletionSource FailureInjected { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         public RemoteWindowMediaRouteBinding? HostBinding { get; private set; }
 
@@ -2380,12 +2504,24 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             ParticipantSessionObserved = participantMedia.TryGet(
                 HostDeviceId,
                 out AuthenticatedRemoteWindowMediaSession? participantSession);
-            // The initiator can receive FSM1 acknowledgement before the responder
-            // directory publishes its attached session. This test owns the bilateral
-            // barrier so its induced renderer failure stays after that exact boundary.
+            if (failureBoundary is RendererFailureBoundary.BeforeHostDirectoryPublication)
+            {
+                await (hostPublicationBlocked
+                    ?? throw new InvalidOperationException(
+                        "The host publication gate is unavailable."))
+                    .WaitAsync(cancellationToken);
+            }
+
+            // After-attachment rows own a bilateral wait. The pre-directory row
+            // instead freezes after responder ACK and route attachment, then samples
+            // before the directory publishes the host session.
             if (hostSession is not null)
             {
-                await hostSession.WaitForAttachmentAsync(cancellationToken);
+                if (failureBoundary is RendererFailureBoundary.AfterBilateralAttachment)
+                {
+                    await hostSession.WaitForAttachmentAsync(cancellationToken);
+                }
+
                 HostSessionAttachedAtInjectedFailure = hostSession.IsAttached;
                 HostLocalDeviceId = hostSession.LocalDeviceId;
                 HostPeerDeviceId = hostSession.PeerDeviceId;
@@ -2395,7 +2531,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
             if (participantSession is not null)
             {
-                await participantSession.WaitForAttachmentAsync(cancellationToken);
+                if (failureBoundary is RendererFailureBoundary.AfterBilateralAttachment)
+                {
+                    await participantSession.WaitForAttachmentAsync(cancellationToken);
+                }
+
                 ParticipantSessionAttachedAtInjectedFailure = participantSession.IsAttached;
                 ParticipantLocalDeviceId = participantSession.LocalDeviceId;
                 ParticipantPeerDeviceId = participantSession.PeerDeviceId;
@@ -2409,6 +2549,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 Volatile.Write(ref attachmentBarrierCompleted, 1);
             }
 
+            FailureInjected.TrySetResult();
             return failure switch
             {
                 RendererPreparationFailure.Missing => null,
@@ -2426,6 +2567,62 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         Throw,
         Missing,
         ForeignCancellation,
+    }
+
+    public enum RendererFailureBoundary
+    {
+        AfterBilateralAttachment,
+        BeforeHostDirectoryPublication,
+    }
+
+    private sealed class BlockingMediaAttachmentHandler(
+        IRemoteWindowMediaAttachmentHandler inner) :
+        IRemoteWindowMediaAttachmentHandler
+    {
+        private readonly TaskCompletionSource release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int callCount;
+        private int forwardCount;
+        private int released;
+
+        public RemoteWindowMediaRouteBinding? Binding { get; private set; }
+
+        public int CallCount => Volatile.Read(ref callCount);
+
+        public TaskCompletionSource Entered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Exited { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ForwardCount => Volatile.Read(ref forwardCount);
+
+        public bool IsReleased => Volatile.Read(ref released) != 0;
+
+        public async ValueTask HandleAsync(
+            RemoteWindowMediaAttachment attachment,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref callCount);
+            Binding = attachment.Binding;
+            Entered.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            Interlocked.Increment(ref forwardCount);
+            try
+            {
+                await inner.HandleAsync(attachment, cancellationToken);
+            }
+            finally
+            {
+                Exited.TrySetResult();
+            }
+        }
+
+        public void Release()
+        {
+            Volatile.Write(ref released, 1);
+            release.TrySetResult();
+        }
     }
 
     private sealed class RecordingRenderer :
