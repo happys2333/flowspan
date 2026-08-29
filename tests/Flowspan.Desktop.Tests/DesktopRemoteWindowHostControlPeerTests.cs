@@ -149,20 +149,27 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
                 ParticipantDeviceId,
                 SessionId,
                 controller);
-        Task disconnecting = Task.Run(async () =>
+        Task disconnecting = StartDedicated(async () =>
             await peer.PeerDisconnectedAsync(
                 ParticipantDeviceId,
                 CancellationToken.None));
         await sessions.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Task<DesktopRemoteWindowHostControlRegistration> replacing = Task.Run(
-            () => peer.Register(
-                generation: 8,
-                ParticipantDeviceId,
-                ReplacementSessionId,
-                replacementController));
+        var replacementStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<DesktopRemoteWindowHostControlRegistration> replacing =
+            StartDedicated(() =>
+            {
+                replacementStarted.TrySetResult();
+                return peer.Register(
+                    generation: 8,
+                    ParticipantDeviceId,
+                    ReplacementSessionId,
+                    replacementController);
+            });
         try
         {
+            await replacementStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await WaitForNoCurrentWhilePendingAsync(peer, replacing);
             Assert.False(disconnecting.IsCompleted);
             Assert.False(replacing.IsCompleted);
@@ -254,7 +261,7 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
             .AsTask();
         await oldInput.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Task<DesktopRemoteWindowHostControlRegistration> replacing = Task.Run(
+        Task<DesktopRemoteWindowHostControlRegistration> replacing = StartDedicated(
             () => peer.Register(
                 generation: 8,
                 ParticipantDeviceId,
@@ -385,7 +392,7 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
                 CancellationToken.None));
         await input.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Task disposing = Task.Run(registration.Dispose);
+        Task disposing = StartDedicated(registration.Dispose);
         await WaitForNoCurrentWhilePendingAsync(peer, disposing);
 
         Assert.False(disposing.IsCompleted);
@@ -420,7 +427,7 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
                 CreateInputRequest(SessionId, oldController),
                 CancellationToken.None));
         await oldInput.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Task<DesktopRemoteWindowHostControlRegistration> replacing = Task.Run(
+        Task<DesktopRemoteWindowHostControlRegistration> replacing = StartDedicated(
             () => peer.Register(
                 generation: 8,
                 ParticipantDeviceId,
@@ -430,7 +437,7 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
 
         var disposeStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        Task disposing = Task.Run(() =>
+        Task disposing = StartDedicated(() =>
         {
             disposeStarted.TrySetResult();
             oldRegistration.Dispose();
@@ -472,7 +479,7 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
                 CancellationToken.None));
         await oldInput.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Task<DesktopRemoteWindowHostControlRegistration> generationEight =
-            Task.Run(() => peer.Register(
+            StartDedicated(() => peer.Register(
                 generation: 8,
                 ParticipantDeviceId,
                 ReplacementSessionId,
@@ -481,7 +488,7 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
         var generationNineStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         Task<DesktopRemoteWindowHostControlRegistration> generationNine =
-            Task.Run(() =>
+            StartDedicated(() =>
             {
                 generationNineStarted.TrySetResult();
                 return peer.Register(
@@ -692,6 +699,27 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
         DesktopRemoteWindowHostControlPeer peer,
         Task replacement) => WaitForNoCurrentWhilePendingAsync(peer, replacement);
 
+    private static Task StartDedicated(Action operation) => Task.Factory.StartNew(
+        operation,
+        CancellationToken.None,
+        TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+        TaskScheduler.Default);
+
+    private static Task<T> StartDedicated<T>(Func<T> operation) =>
+        Task.Factory.StartNew(
+            operation,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
+
+    private static Task StartDedicated(Func<Task> operation) =>
+        Task.Factory.StartNew(
+                operation,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default)
+            .Unwrap();
+
     private static async Task WaitForNoCurrentWhilePendingAsync(
         DesktopRemoteWindowHostControlPeer peer,
         Task pending)
@@ -711,7 +739,15 @@ public sealed class DesktopRemoteWindowHostControlPeerTests
                 return;
             }
 
-            await Task.Yield();
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
+            }
+            catch (OperationCanceledException)
+                when (timeout.IsCancellationRequested)
+            {
+                break;
+            }
         }
 
         Assert.Fail("The lifetime operation did not retire the old generation.");
