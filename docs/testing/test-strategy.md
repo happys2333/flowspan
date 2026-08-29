@@ -814,9 +814,53 @@ timeline, and `finally` release/join. Post-repair stress passed `160/160` plus
 `80/80`, and strict review reported no P0/P1/P2 finding. This is a test-fixture
 reliability repair, not a product defect.
 
-The new tracer case covers only one post-`FSM1`, pre-Admission actual caller
-cancellation. Cleanup-fault injection and the complete per-boundary matrix remain
-open.
+Docs-only SHA `f300432c7e372658f06d2196a182c3c9ddfc99af` then exposed a
+second test-fixture scheduling dependency in CI `33252295470`. Linux and macOS
+each passed `2234/2234`, but the Windows Desktop TRX passed `545/546`: only
+`ExactParticipantPeerDisconnectRoutesAndDrainsBeforeReplacement` failed after
+five seconds because it still observed the old current generation. Production
+`Register` retires that generation synchronously before waiting for its routed
+call to drain. The test, however, placed a synchronously blocked peer disconnect
+and the synchronously draining replacement `Register` on the shared thread
+pool, then used a tight `Task.Yield` polling loop. It could therefore report
+"not retired" before the replacement delegate had started under full-suite
+Windows scheduling pressure. No production state-machine defect was observed.
+CodeQL `33252295459` and Secret Scan succeeded, but the failed CI and skipped
+package jobs are not acceptance evidence.
+
+Test-only reliability commit `7b6a6d6796e0280c53eb71755285090c8e19cb5d`
+moves every synchronously blocking host-control disconnect, replacement
+`Register`, and external registration `Dispose` in that test class onto a
+dedicated `LongRunning` task. The failing case also waits for an explicit
+replacement-start gate before checking retirement, and its bounded poll uses a
+10 ms cancellable delay rather than a tight yield. The assertions still fail if
+production does not retire current, publishes the replacement before drain, or
+completes either lifetime operation early.
+
+Local Debug and Release warning-as-error builds completed with zero warnings and
+errors; both solutions passed `2234/2234`, including Desktop `546/546`. The
+focused class passed `15/15` in each configuration. With a small but runnable
+worker limit, the exact case passed in two seconds; eight concurrent processes
+then completed 80 class runs, or `1200/1200` case executions, in 28 seconds.
+A maximum of two workers also starved vstest/xUnit continuations after the code
+change, so that artificial runtime setting is diagnostic evidence only and is
+not counted as a passing regression gate. Format, diff, direct/transitive NuGet
+vulnerability, explicit TEST MODE composition, and simulator checks passed.
+Strict review found no P0/P1 in the change. It retained one existing P2
+test-only cleanup debt: several sibling failure paths do not yet release their
+blocking fake in `finally`, which can compound diagnostics if a future
+production regression triggers those assertions.
+
+Exact-SHA CI `33253258876` and CodeQL `33253258929` for `7b6a6d6` both
+succeeded. Downloaded Windows, Linux, and macOS artifacts each contain 12 TRX
+files at `2234/2234`, with every failed, error, timeout, and aborted counter
+zero. Secret Scan, CodeQL analysis, and all three reproducible unsigned package
+jobs also passed. This closes the recorded Windows test-scheduling failure; it
+does not add product behavior or native/physical evidence.
+
+The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
+actual caller cancellation. Cleanup-fault injection and the complete
+per-boundary matrix remain open.
 
 The hosted matrices are cross-platform managed contract evidence,
 not evidence for native platform APIs, two physical devices, accessibility,

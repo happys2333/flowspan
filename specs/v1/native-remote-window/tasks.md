@@ -262,6 +262,22 @@
     This covers only one post-`FSM1`, pre-Admission
     caller cancellation; cleanup-fault and the full per-boundary matrix remain
     open.
+    Docs-only SHA `f300432` later exposed a Windows-only test scheduling failure
+    in CI `33252295470`: Linux and macOS passed `2234/2234`, while the Windows
+    Desktop project passed `545/546` and failed its five-second bounded check
+    for old host control generation retirement. Production already retired
+    current before drain; the fixture placed both a synchronously blocked peer
+    disconnect and the replacement `Register` on the shared thread pool, so the
+    test could poll before replacement started. Test-only commit
+    `7b6a6d6796e0280c53eb71755285090c8e19cb5d` moves every blocking host-control
+    disconnect, replacement, and external Dispose in that class to dedicated
+    threads, adds an explicit replacement-start gate, and removes the tight
+    yield loop. Local Debug and Release solutions passed `2234/2234`; 80
+    concurrent class runs passed `1200/1200`; and exact-SHA CI `33253258876`
+    plus CodeQL `33253258929` succeeded. Each hosted OS passed `2234/2234`, and
+    Secret Scan plus all three reproducible unsigned package jobs passed. This
+    is test-infrastructure evidence, not a production feature or native/physical
+    gate, and it closes none of Tasks 5, 5.5a, 5.5, or 6-10.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

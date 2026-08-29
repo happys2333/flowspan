@@ -602,6 +602,134 @@ This checkpoint covers only one post-`FSM1`, pre-Admission actual caller
 cancellation. Cleanup-fault injection and the complete per-boundary matrix
 remain open.
 
+## Hosted exact-SHA verification: host-control test scheduling repair
+
+Docs-only SHA `f300432c7e372658f06d2196a182c3c9ddfc99af` did not pass its
+exact-SHA CI run
+[`33252295470`](https://github.com/happys2333/flowspan/actions/runs/33252295470).
+Linux job `99099957823` and macOS job `99099957860` succeeded, and their
+downloaded artifacts contain 12 TRX files at `2234/2234`. Windows job
+`99099957891` produced all 12 TRX files but passed only `2233/2234`; its Desktop
+TRX passed `545/546`. The single failure was
+`DesktopRemoteWindowHostControlPeerTests.ExactParticipantPeerDisconnectRoutesAndDrainsBeforeReplacement`
+after 5.48 seconds with the bounded message "The lifetime operation did not
+retire the old generation."
+
+| Platform | Artifact ID | Artifact SHA-256 | Result |
+| --- | ---: | --- | --- |
+| Windows | `9714781603` | `c0094be6232aa717cba2b731cef52b3ec05bedc5c92ea16fbebc69795f0835a7` | `2233/2234`, one failed |
+| Linux | `9714768158` | `38c5dc27c57d5f2354ecff99b6f7f8fb512cfd52b86cc64582ac4fd4430fc8a0` | `2234/2234` |
+| macOS | `9714765004` | `f991c783c77f490cabb8076f5a56fc2672c92c104a1de456b13ecc947e28fce3` | `2234/2234` |
+
+Secret Scan job `99099957755` passed. Artifact `9714729288`, digest
+`9505dc05692200f0c79858c5d83e686cd1635c62b100ec79b090fef78de935fa`,
+is SARIF 2.1.0 with one run, 208 rules, and 0 results. CodeQL run
+[`33252295459`](https://github.com/happys2333/flowspan/actions/runs/33252295459)
+and job `99099957748` passed; analysis `1691638338` reports 52 rules and 0
+results. Package jobs were skipped because Windows tests failed. Consequently,
+neither the CI run nor its skipped packages are acceptance evidence.
+
+Production `DesktopRemoteWindowHostControlPeer.Register` retires the current
+generation under its state gate before synchronously waiting for the old routed
+call to drain. Diagnosis found no production counterexample. The failed fixture
+instead scheduled the synchronously blocking participant disconnect and then
+the synchronously draining replacement `Register` with `Task.Run`, while its
+test continuation tight-polled with `Task.Yield`. Under Windows full-suite
+thread-pool pressure, the replacement delegate could remain unstarted for the
+five-second observation window. Artificially limiting the runtime to two worker
+threads reproduced whole-testhost starvation, including timeout continuations;
+that setting remained unsuitable as a post-fix pass criterion and is not counted
+as one.
+
+Test-only commit `7b6a6d6796e0280c53eb71755285090c8e19cb5d` changes no production
+source. Every synchronously blocking host-control peer disconnect, replacement
+`Register`, and external registration `Dispose` in the test class now runs with
+`TaskCreationOptions.LongRunning`, `DenyChildAttach`, and
+`TaskScheduler.Default`. The failed case has a separate
+`replacementStarted` gate before retirement observation. The five-second poll
+now yields through a 10 ms cancellable delay. It still rejects a production
+implementation that fails to retire current, publishes replacement before old
+call drain, or completes either lifetime operation early.
+
+Representative local commands:
+
+```sh
+dotnet build Flowspan.slnx --configuration Debug --no-restore -warnaserror
+dotnet test Flowspan.slnx --configuration Debug --no-build --no-restore
+dotnet build Flowspan.slnx --configuration Release --no-restore -warnaserror
+dotnet test Flowspan.slnx --configuration Release --no-build --no-restore
+dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
+  --configuration Debug --no-build --no-restore \
+  --filter 'FullyQualifiedName~DesktopRemoteWindowHostControlPeerTests'
+COMPlus_ThreadPool_ForceMinWorkerThreads=1 \
+COMPlus_ThreadPool_ForceMaxWorkerThreads=8 \
+dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
+  --configuration Debug --no-build --no-restore \
+  --filter 'FullyQualifiedName~ExactParticipantPeerDisconnectRoutesAndDrainsBeforeReplacement'
+export COMPlus_ThreadPool_ForceMinWorkerThreads=1
+export COMPlus_ThreadPool_ForceMaxWorkerThreads=8
+seq 1 80 | xargs -P 8 -I{} sh -c \
+  'dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
+    --configuration Debug --no-build --no-restore \
+    --filter "FullyQualifiedName~DesktopRemoteWindowHostControlPeerTests" \
+    --logger "console;verbosity=quiet" >/dev/null'
+dotnet format Flowspan.slnx --verify-no-changes --no-restore
+git diff --check
+dotnet list Flowspan.slnx package --vulnerable --include-transitive --no-restore
+dotnet run --project src/Flowspan.Desktop/Flowspan.Desktop.csproj \
+  --configuration Release --no-build --no-restore -- --validate-composition
+dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
+  --configuration Release --no-build --no-restore
+```
+
+Local macOS Debug and Release warning-as-error builds each completed with zero
+warnings and errors. Both complete solutions passed `2234/2234`, including
+Desktop `546/546`, Platform `219/219`, and Transport `701/701`. The host-control
+test class passed `15/15` in each configuration. With a runnable constrained
+worker configuration, the exact regression passed `1/1` in two seconds; eight
+concurrent processes then ran the class 80 times, passing `1200/1200` case
+executions in 28 seconds. Format, diff, direct/transitive NuGet vulnerability,
+explicit TEST MODE composition, and deterministic protocol-1.7 simulator checks
+passed. Strict review found no P0/P1 in the change. One pre-existing P2
+test-only cleanup debt remains: several sibling assertion-failure paths do not
+release their blocking fake in `finally` and can therefore compound a future
+regression's diagnostics.
+
+At exact SHA `7b6a6d6796e0280c53eb71755285090c8e19cb5d`, CI run
+[`33253258876`](https://github.com/happys2333/flowspan/actions/runs/33253258876)
+and CodeQL run
+[`33253258929`](https://github.com/happys2333/flowspan/actions/runs/33253258929)
+both completed successfully.
+
+- Test jobs `99102472825` (Ubuntu), `99102472803` (Windows), and `99102472713`
+  (macOS) succeeded. Downloaded artifacts each contain 12 TRX files summing to
+  `2234/2234`; failed, error, timeout, and aborted counters are all zero:
+
+  | Platform | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | --- |
+  | Windows | `9715065785` | `aa58568f2af93805d5ccffb01a6ae6b516627c647b4afb2ab00e183f3b9a6809` |
+  | Linux | `9715054224` | `e05754484e3401fef97bc0e411da1ae6dc22307e79ce83e55fcd787a85b45274` |
+  | macOS | `9715047093` | `5751b13240cfc8d7b22cb9c6e28c46bcab3f1e50a2a706759f3a4e1ae9a29264` |
+
+- Secret Scan job `99102472889` passed. Artifact `9715016065`, digest
+  `ff0a6eef7f0d1d36ad2169b3f17df6f259070666d5f4248ea4af5ad5dce37631`,
+  is SARIF 2.1.0 with one run, 208 rules, and 0 results.
+- CodeQL job `99102473105` passed. Exact-SHA analysis `1691683754` reports 52
+  rules and 0 results; the branch open-alert query returned 0.
+- All reproducible unsigned package jobs passed:
+
+  | Runtime | Job | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `osx-arm64` | `99102949512` | `9715082255` | `29b767de49b17d69bb62e0a9f66daf49a87705e000a23f2cb96283a12831a8fa` |
+  | `linux-x64` | `99102949539` | `9715086623` | `3c82173e1e22135b8beece9d161dd0c8ae1a88e81b026fefd4bd2ca505f04121` |
+  | `win-x64` | `99102949546` | `9715090885` | `96f34bb0ecb317f28f77cffbedbd3af89d03ca1ae1439090e8446f725efc5e0b` |
+
+This repair closes the recorded test-scheduling failure only. It adds no tracer
+case and no product behavior. The successful hosted results remain managed
+contract, TEST MODE composition, analysis, and unsigned-package evidence; they
+do not prove native capture/input/protection, physical two-Device behavior,
+signed packages, notarization, or release acceptance.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -663,7 +791,7 @@ Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows, macOS, and Linux execution through `5bb6d08` is managed-loopback and
+Hosted Windows, macOS, and Linux execution through `7b6a6d6` is managed-loopback and
 contract evidence only. There is no evidence here for Windows, macOS, or Linux
 native capture/input/protection APIs; physical two-Device operation; signed or
 notarized packages; package lifecycle behavior; or full release acceptance.
