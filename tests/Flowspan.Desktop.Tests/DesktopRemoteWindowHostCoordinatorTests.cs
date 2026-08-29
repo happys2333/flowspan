@@ -130,6 +130,106 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task AdmissionPublishThrowIsRedactedAndFailsClosed()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_ADMISSION_PUBLISH_CANARY");
+        host.Connection.PublishFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("host_admission_publish_failed", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Null(failure.InnerException);
+        Assert.Contains("connection.publish", host.Timeline);
+        Assert.DoesNotContain("connection.send_media", host.Timeline);
+        Assert.Empty(host.Connection.MediaFrames);
+        Assert.Equal(1, host.Capture.StartCount);
+        Assert.Equal(1, host.Capture.StopCount);
+        Assert.Equal(1, host.Input.StopCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+        Assert.Null(coordinator.Snapshot);
+        Assert.Null(coordinator.TerminalFailure);
+        Assert.Throws<InvalidOperationException>(() => host.ControlPeer.SessionId);
+    }
+
+    [Fact]
+    public async Task CallerCancellationAtAdmissionPublishPreservesExactToken()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.Connection.Publishing = _ =>
+        {
+            cancellation.Cancel();
+            throw new OperationCanceledException(cancellation.Token);
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Contains("connection.publish", host.Timeline);
+        Assert.DoesNotContain("connection.send_media", host.Timeline);
+        Assert.Empty(host.Connection.MediaFrames);
+        Assert.Equal(1, host.Capture.StartCount);
+        Assert.Equal(1, host.Capture.StopCount);
+        Assert.Equal(1, host.Input.StopCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+        Assert.Null(coordinator.Snapshot);
+        Assert.Null(coordinator.TerminalFailure);
+        Assert.Throws<InvalidOperationException>(() => host.ControlPeer.SessionId);
+    }
+
+    [Fact]
+    public async Task ForeignAdmissionCancellationIsRedactedWhenCallerAlsoCancels()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var callerCancellation = new CancellationTokenSource();
+        using var foreignCancellation = new CancellationTokenSource();
+        const string canary = "FLOWSPAN_FOREIGN_ADMISSION_CANCEL_CANARY";
+        host.Connection.Publishing = _ =>
+        {
+            callerCancellation.Cancel();
+            throw new OperationCanceledException(
+                canary,
+                innerException: null,
+                foreignCancellation.Token);
+        };
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                callerCancellation.Token));
+
+        Assert.Contains("host_admission_publish_failed", failure.Message);
+        Assert.DoesNotContain(canary, failure.ToString());
+        Assert.Null(failure.InnerException);
+        Assert.Contains("connection.publish", host.Timeline);
+        Assert.DoesNotContain("connection.send_media", host.Timeline);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+        Assert.Null(coordinator.TerminalFailure);
+    }
+
+    [Fact]
     public async Task UnsafeProtectionRejectsBeforeRouteOrPrepare()
     {
         using var host = new ReadyHostHarness();
@@ -2222,6 +2322,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public Action<RemoteWindowParticipantState>? Publishing { get; set; }
 
+        public Exception? PublishFailure { get; set; }
+
         public Action? WaitingForMedia { get; set; }
 
         public bool BlockDisposal { get; set; }
@@ -2317,6 +2419,11 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             cancellationToken.ThrowIfCancellationRequested();
             timeline.Add("connection.publish");
             Publishing?.Invoke(state);
+            if (PublishFailure is { } failure)
+            {
+                throw failure;
+            }
+
             return ValueTask.CompletedTask;
         }
 

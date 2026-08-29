@@ -475,10 +475,25 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             _ = ValidateCurrentHostFacts(request, generation, out _);
             _ = ReadCurrentSafeProtection(generation, source);
             EnsureFinalAdmissionIsCurrent(generation);
-            await request.Connection.PublishAdmissionStateAsync(
-                    admissionState,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await request.Connection.PublishAdmissionStateAsync(
+                        admissionState,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception) when (
+                cancellationToken.IsCancellationRequested
+                && exception.CancellationToken == cancellationToken)
+            {
+                throw;
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                generation.CloseAdmissionNow();
+                throw StartFailure("host_admission_publish_failed");
+            }
+
             _ = ValidateCurrentHostFacts(request, generation, out _);
             _ = ReadCurrentSafeProtection(generation, source);
             EnsureFinalAdmissionIsCurrent(generation);

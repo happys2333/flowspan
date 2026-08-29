@@ -134,7 +134,8 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         string? policyRejection;
         try
         {
-            policyRejection = receivePolicy.GetRejectionReason(request);
+            policyRejection = BoundPolicyRejection(
+                receivePolicy.GetRejectionReason(request));
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -768,6 +769,14 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
             request,
             RemoteWindowPreparationOutcome.Rejected,
             reasonCode);
+
+    private static string? BoundPolicyRejection(string? reasonCode) =>
+        reasonCode switch
+        {
+            null => null,
+            "renderer_unavailable" or "role_unsupported" => reasonCode,
+            _ => "renderer_unavailable",
+        };
 
     private static Exception? CaptureCleanupFailure(Action cleanup)
     {

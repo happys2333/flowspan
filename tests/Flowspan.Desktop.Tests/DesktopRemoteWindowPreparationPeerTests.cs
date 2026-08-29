@@ -265,6 +265,135 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
         }
     }
 
+    [Theory]
+    [InlineData("role_unsupported", "role_unsupported")]
+    [InlineData(
+        "FLOWSPAN_RECEIVE_POLICY_REASON_CANARY",
+        "renderer_unavailable")]
+    public async Task PolicyRejectionIsBoundedAndRetryUsesFreshGeneration(
+        string policyReason,
+        string expectedReason)
+    {
+        var policy = new MutableReceivePolicy(policyReason);
+        var renderer = new RecordingRenderer();
+        var rendererFactory = new RecordingRendererFactory(renderer);
+        int connectionAcquireCount = 0;
+        await RunConnectedScenarioAsync(
+            rendererFactory,
+            async context =>
+            {
+                RemoteWindowPreparationResponse rejected =
+                    await context.PreparationPeer.PrepareAsync(
+                        CreateRequest(),
+                        default);
+
+                Assert.Equal(
+                    RemoteWindowPreparationOutcome.Rejected,
+                    rejected.Outcome);
+                Assert.Equal(expectedReason, rejected.ReasonCode);
+                Assert.DoesNotContain(
+                    "FLOWSPAN_RECEIVE_POLICY_REASON_CANARY",
+                    rejected.ToString(),
+                    StringComparison.Ordinal);
+                Assert.Equal(1, policy.EvaluationCount);
+                Assert.Equal(0, connectionAcquireCount);
+                Assert.Equal(0, rendererFactory.PrepareCount);
+                Assert.Equal(0, renderer.RenderCount);
+                await Assert.ThrowsAsync<InvalidDataException>(() =>
+                    context.PreparationPeer.CompleteAdmissionAsync(
+                            rejected.Request,
+                            CreateAdmissionState(rejected.Request),
+                            default)
+                        .AsTask());
+                Assert.Equal(0, renderer.RenderCount);
+
+                policy.RejectionReason = null;
+                (_, RemoteWindowPreparationResponse ready) =
+                    await context.PrepareAsync(CreateRequest());
+
+                Assert.Equal(RemoteWindowPreparationOutcome.Ready, ready.Outcome);
+                Assert.Equal(2, policy.EvaluationCount);
+                Assert.Equal(1, connectionAcquireCount);
+                Assert.Equal(1, rendererFactory.PrepareCount);
+                Assert.Equal(0, renderer.RenderCount);
+            },
+            renderer,
+            receivePolicy: policy,
+            decorateConnectionAcquirer: acquire =>
+                (DeviceId peerDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                {
+                    Interlocked.Increment(ref connectionAcquireCount);
+                    return acquire(peerDeviceId, out lease);
+                });
+
+        Assert.True(renderer.IsDisposed);
+    }
+
+    [Fact]
+    public async Task UnexpectedPolicyThrowIsRedactedAndRetryUsesFreshGeneration()
+    {
+        const string canary = "FLOWSPAN_RECEIVE_POLICY_THROW_CANARY";
+        var policy = new MutableReceivePolicy(
+            rejectionReason: null,
+            new InvalidOperationException(
+                canary,
+                new InvalidDataException($"{canary}_INNER")));
+        var renderer = new RecordingRenderer();
+        var rendererFactory = new RecordingRendererFactory(renderer);
+        int connectionAcquireCount = 0;
+        await RunConnectedScenarioAsync(
+            rendererFactory,
+            async context =>
+            {
+                RemoteWindowPreparationResponse rejected =
+                    await context.PreparationPeer.PrepareAsync(
+                        CreateRequest(),
+                        default);
+
+                Assert.Equal(
+                    RemoteWindowPreparationOutcome.Rejected,
+                    rejected.Outcome);
+                Assert.Equal("renderer_unavailable", rejected.ReasonCode);
+                Assert.DoesNotContain(
+                    canary,
+                    rejected.ToString(),
+                    StringComparison.Ordinal);
+                Assert.Equal(1, policy.EvaluationCount);
+                Assert.Equal(0, connectionAcquireCount);
+                Assert.Equal(0, rendererFactory.PrepareCount);
+                Assert.Equal(0, renderer.RenderCount);
+                await Assert.ThrowsAsync<InvalidDataException>(() =>
+                    context.PreparationPeer.CompleteAdmissionAsync(
+                            rejected.Request,
+                            CreateAdmissionState(rejected.Request),
+                            default)
+                        .AsTask());
+                Assert.Equal(0, renderer.RenderCount);
+
+                policy.Failure = null;
+                (_, RemoteWindowPreparationResponse ready) =
+                    await context.PrepareAsync(CreateRequest());
+
+                Assert.Equal(RemoteWindowPreparationOutcome.Ready, ready.Outcome);
+                Assert.Equal(2, policy.EvaluationCount);
+                Assert.Equal(1, connectionAcquireCount);
+                Assert.Equal(1, rendererFactory.PrepareCount);
+                Assert.Equal(0, renderer.RenderCount);
+            },
+            renderer,
+            receivePolicy: policy,
+            decorateConnectionAcquirer: acquire =>
+                (DeviceId peerDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                {
+                    Interlocked.Increment(ref connectionAcquireCount);
+                    return acquire(peerDeviceId, out lease);
+                });
+
+        Assert.True(renderer.IsDisposed);
+    }
+
     [Fact]
     public async Task PreparationAndCleanupFailuresRemainObservableTogether()
     {
@@ -613,7 +742,8 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
             TryAcquireDesktopRemoteWindowPeerConnection>?
             decorateConnectionAcquirer = null,
         bool verifyPeerDisconnectCleanup = true,
-        bool useUnavailableMediaEndpoint = false)
+        bool useUnavailableMediaEndpoint = false,
+        IDesktopRemoteWindowReceivePolicy? receivePolicy = null)
     {
         using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
             ParticipantDeviceId,
@@ -635,7 +765,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
         var preparationPeer = new DesktopRemoteWindowPreparationPeer(
             ParticipantDeviceId,
             connectionAcquirer,
-            AllowDesktopRemoteWindowReceivePolicy.Instance,
+            receivePolicy ?? AllowDesktopRemoteWindowReceivePolicy.Instance,
             rendererFactory,
             timeProvider);
         await using var preparationPeerOwner = new AsyncDisposal(
@@ -952,6 +1082,32 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
         public bool IsCurrent(
             VerifiedPeerConnectionCandidate candidate,
             ProtocolVersion protocolVersion) => true;
+    }
+
+    private sealed class MutableReceivePolicy(
+        string? rejectionReason,
+        Exception? failure = null) :
+        IDesktopRemoteWindowReceivePolicy
+    {
+        private int evaluationCount;
+
+        public int EvaluationCount => Volatile.Read(ref evaluationCount);
+
+        public Exception? Failure { get; set; } = failure;
+
+        public string? RejectionReason { get; set; } = rejectionReason;
+
+        public string? GetRejectionReason(RemoteWindowPreparationRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            Interlocked.Increment(ref evaluationCount);
+            if (Failure is { } currentFailure)
+            {
+                throw currentFailure;
+            }
+
+            return RejectionReason;
+        }
     }
 
     private sealed class ConnectedScenario(

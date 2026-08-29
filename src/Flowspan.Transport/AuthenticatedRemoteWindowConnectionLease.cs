@@ -155,8 +155,20 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
 
         using CancellationTokenSource linked = CreateLinkedCancellation(
             cancellationToken);
-        await preparationChannel.PublishAdmissionStateAsync(state, linked.Token)
-            .ConfigureAwait(false);
+        try
+        {
+            await preparationChannel.PublishAdmissionStateAsync(
+                    state,
+                    linked.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == linked.Token)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
+        }
     }
 
     public async ValueTask ConnectInitiatorAsync(
