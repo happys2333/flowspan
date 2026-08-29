@@ -159,6 +159,16 @@ similar coverage.
   The core is not connected to the coordinator, source registry, permission,
   Trust, authenticated connection, Emergency Stop, protection, or Transport
   send-admission seams, so this evidence changes no H0, H1, TX, HC, or CL cell.
+- [`NativeRemoteWindowSourceRegistryTests`](../../tests/Flowspan.Platform.Tests/NativeRemoteWindowSourceRegistryTests.cs),
+  [`AuthenticatedRemoteWindowConnectionLeaseTests`](../../tests/Flowspan.Transport.Tests/AuthenticatedRemoteWindowConnectionLeaseTests.cs),
+  and [`RemoteWindowControlSessionConcurrencyTests`](../../tests/Flowspan.Transport.Tests/RemoteWindowControlSessionConcurrencyTests.cs)
+  at exact commit `3d27389` add the atomic source-invalidation slot,
+  generation-bound responder-route operation, and real Transport Prepare
+  send-admission hook. The
+  [admission-seam evidence](../evidence/2026-08-30-host-preparation-admission-seams.md)
+  records local and hosted results. That exact commit does not connect the
+  Desktop reservation/coordinator to those seams, so it changes no cell and
+  closes neither H0 nor H1.
 
 These tests do not yet inject every source, permission, Trust/grant, connection,
 observer-registration, protection, readiness, and route failure independently;

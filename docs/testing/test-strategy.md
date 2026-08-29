@@ -1332,15 +1332,27 @@ solution Debug/Release passed `2304/2304`; both warning-as-error builds had zero
 warnings/errors, and format, diff, vulnerability, explicit composition, and
 simulator gates passed. Exact commands and limitations are in the
 [core evidence](../evidence/2026-08-30-host-preparation-reservation-core.md).
-No hosted exact-SHA run for `294042f` has been executed.
+Exact-SHA CI `33279540958` and CodeQL `33279540956` pass on evidence commit
+`fa70e63`, which contains the core: downloaded artifacts prove `2304/2304` on
+each hosted OS, Gitleaks 208/0, CodeQL 52/0, and reproducible unsigned packages.
 
 These tests exercise only the isolated core and therefore change no matrix cell.
 They do not prove a real source callback, permission revision, Trust mutation,
 connection revocation, Emergency Stop registrar, or protection observation is
-linearized with route or wire admission. H0, H1, Task 5.5a, and production
-availability remain open. The next slice must connect real source invalidation,
-a generation-bound connection route operation, and the actual Transport Prepare
-send-admission hook.
+linearized with route or wire admission.
+
+Subsequent exact commit `3d27389de16bcdc43722ac3a94220511f563edb1`
+implements the atomic Platform source-invalidation slot, generation-bound
+authenticated responder-route operation, and actual Transport Prepare
+send-admission hook. Focused source and Transport seam tests pass `10/10` and
+`32/32` in Debug and Release; both full solutions pass `2328/2328`. Exact-SHA CI
+`33280551919` and CodeQL `33280551900` pass with the same `2328/2328` on every
+hosted OS, Gitleaks 208/0, CodeQL 52/0, and reproducible unsigned packages. The
+[admission-seam evidence](../evidence/2026-08-30-host-preparation-admission-seams.md)
+records the exact jobs, artifacts, digests, and limits. That commit still does
+not connect the Desktop reservation/coordinator to the seams, so it changes no
+matrix cell. H0, H1, Task 5.5a, and production availability remain open; the
+next integration must prove the cross-module mutation/route/send orders.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/

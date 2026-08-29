@@ -6,6 +6,8 @@ Branch: `codex/v1-foundation`
 
 Implementation commit: `294042fdfcc346e3eade3551d57cc7ccba95c601`
 
+Hosted evidence commit: `fa70e63e2dc20f2d617897f5540fc6617e10d4f0`
+
 Local environment: macOS 26.6.2 arm64, .NET SDK 10.0.301
 
 ## Evidence status
@@ -20,8 +22,10 @@ The core therefore changes no status in the
 In particular, H0 and H1 remain partial or missing, Task 5.5a remains unchecked,
 and production Remote Window remains unavailable.
 
-No hosted exact-SHA run has been started for `294042f`. Every result in this
-record is local macOS managed-contract evidence only.
+The local results below are bound to implementation commit `294042f`. Hosted
+CI, CodeQL, Secret Scan, and reproducible unsigned-package evidence is bound to
+exact commit `fa70e63`, which contains that implementation and this evidence
+record. Both checkpoints remain managed-contract evidence only.
 
 ## Implemented core contract
 
@@ -160,6 +164,45 @@ Results:
   in any solution project;
 - explicit TEST MODE Desktop composition validation: passed; and
 - deterministic protocol-1.7 simulator: passed.
+
+## Hosted exact-SHA evidence
+
+[CI run `33279540958`](https://github.com/happys2333/flowspan/actions/runs/33279540958)
+completed successfully for hosted evidence commit
+`fa70e63e2dc20f2d617897f5540fc6617e10d4f0`. Each downloaded platform artifact
+contains exactly 12 TRX files with `2304/2304` total, executed, and passed, and
+every failed, error, timeout, aborted, inconclusive, passed-but-run-aborted,
+not-runnable, not-executed, disconnected, warning, completed, in-progress, and
+pending counter is zero:
+
+| Platform | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| macOS | `99172232473` | `9722590114` | `167cfeecaef0e800c90a3c3928363069abf07dfea57dc003e3a7905b4ba3450b` |
+| Windows | `99172232464` | `9722607841` | `1323ce97330f5275607ab6e7748d9052b25301bb4e9922d583da063c2be23a22` |
+| Linux | `99172232456` | `9722599338` | `f880711cd0d05fcc3e5384fecc80d6373d0df9efb732912cbf9a4144737cc339` |
+
+Secret Scan job `99172232355` passed. Artifact `9722560246`, digest
+`1c0f096d6b353f3e688a4f69fa6ad6dc0ca449e8c3274d311deafecec633fd1b`,
+contains SARIF 2.1.0 with 208 Gitleaks rules and 0 results. Every reproducible
+unsigned package job passed its content lock, explicit TEST MODE composition,
+seal verification, dependency audit, and artifact upload:
+
+| Runtime | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| `win-x64` | `99172674212` | `9722638013` | `87924273d01f90ffafedd3ddd815e15b0c3ab4b3d7d6620c5cb7d5e346e0940b` |
+| `osx-arm64` | `99172674257` | `9722624916` | `78ee283d29b74fce55618fd43b45c85ff6561eab5f134f4235d88979b2277ef1` |
+| `linux-x64` | `99172674227` | `9722626547` | `8c9b5825949e923209878483bea5043a4ca3eef2854e42b88b7b91646b911703` |
+
+[CodeQL run `33279540956`](https://github.com/happys2333/flowspan/actions/runs/33279540956),
+job `99172232411`, completed successfully. Exact-SHA analysis `1692720513`
+evaluated 52 rules with 0 results, and the exact-commit branch query returned 0
+open alerts.
+
+These hosted results prove the checked managed build, contract tests, explicit
+TEST MODE composition, simulator, Secret Scan, CodeQL, dependency audit, and
+reproducible unsigned packaging on the named runners. They do not prove native
+API behavior, physical two-Device operation, signed packages, notarization, or
+release acceptance.
 
 ## Explicit limitations and next slice
 
