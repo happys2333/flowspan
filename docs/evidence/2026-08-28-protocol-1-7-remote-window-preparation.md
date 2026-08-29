@@ -65,6 +65,12 @@ theory to five rows: the eighteenth injects an input Emergency Stop fault and
 the nineteenth injects a host-connection disposal fault. Exact-SHA CI
 `33270854982` and CodeQL `33270854935` both passed; detailed job, artifact, and
 digest evidence is recorded in the managed tracer document.
+Test-only commit `5c50870ee11639ee642781e647b135fdd4fc59f7` expands the theory
+to seven rows. The twentieth injects a host fail-close fault after real inner
+fail-close, and the twenty-first combines Emergency Stop registration disposal
+with host-connection disposal. Exact-SHA CI `33271787570` and CodeQL
+`33271787616` both passed; detailed job, artifact, and digest evidence is
+recorded in the managed tracer document.
 Those extensions are recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
@@ -795,6 +801,74 @@ matrix, native APIs, physical Devices, signing/notarization, release acceptance,
 Tasks 5, 5.5a, 5.5 and 6-10, and the long-term Flowspan Goal remain open.
 `CreateProduction()` must continue to report `native_adapters_unavailable`.
 
+## Exact-SHA host fail-close and combined disposal cleanup-fault checkpoint
+
+Test-only commit `5c50870ee11639ee642781e647b135fdd4fc59f7` changes no
+production source. It preserves the historical fourteenth through nineteenth
+managed cases and expands the authenticated-disconnect cleanup theory from five
+rows to seven. Both additions complete real protocol 1.7, `FSM1`, final
+Admission, encrypted media, and one render before the participant authenticated-
+control connection disconnects.
+
+The twentieth row makes the host-connection wrapper await real inner fail-close
+before throwing one one-shot `IOException`. The coordinator's shared immediate-
+terminal/`CleanupCore` task runs once; the raw exception remains observable by
+exact identity through `TerminalFailure` and the first explicitly observed
+coordinator `DisposeAsync`. Host fail-close executes once and records one
+failure. Connection disposal executes once without failure; capture and input
+Emergency Stop each execute once; sharing-session disconnect executes twice;
+and capture and input Stop each execute once. Cleanup preserves the failure and
+drains the complete managed owner graph.
+
+The twenty-first row combines Emergency Stop registration disposal and host-
+connection disposal failures in the same `CleanupCore` result. Its terminal
+failure is one flat `AggregateException` with exactly two direct inner
+exceptions in fixed order: the raw registration `IOException` at index 0 and
+the raw connection-disposal `IOException` at index 1, both by exact object
+identity. Because both failures arise in the same cleanup result, no partial-
+terminal publication wait is needed. Successful host fail-close executes once;
+connection disposal executes and fails once; registration disposal executes
+once; capture and input Emergency Stop each execute once; sharing-session
+disconnect executes twice; and capture and input Stop each execute once. The
+same aggregate instance remains visible through `TerminalFailure` and the first
+explicitly observed coordinator `DisposeAsync`, and every owner drains.
+
+The two additions have separate TDD evidence. With the host fail-close
+expectation present but its injection deliberately absent, focused Debug passed
+`5/6`; only the new row reached its 20-second bound. Enabling the post-inner-
+fail-close throw made Debug and Release pass `6/6`. With the combined aggregate
+expectation present but connection-disposal injection deliberately absent,
+focused Debug passed `6/7`; only the new row failed quickly because its actual
+terminal type was the registration `IOException`. Enabling the second injection
+made Debug and Release pass `7/7`.
+
+Forty fresh processes alternating configurations exercised all seven rows for
+`280/280`; the managed tracer passed `21/21`; Desktop passed `556/556`; and the
+complete Debug and Release solutions passed `2245/2245`. Both warning-as-error
+builds reported 0 warnings and 0 errors. Format and diff checks, direct/transitive
+dependency vulnerability audit, explicit TEST MODE composition, and the
+deterministic protocol-1.7 simulator passed. Strict review reported no P0, P1,
+or P2 finding.
+
+Exact-SHA CI run `33271787570` passed. macOS job `99151415595`, Windows job
+`99151415610`, and Linux job `99151415683` produced artifacts `9720344235`,
+`9720362485`, and `9720351695`; each downloaded artifact contains 12 TRX files
+with `2245/2245` total, executed, and passed, and every non-success counter zero.
+Secret Scan job `99151415513` passed; artifact `9720313861` contains SARIF 2.1.0
+with 208 rules and 0 results. Reproducible unsigned package jobs `99151947627`,
+`99151947629`, and `99151947698` and their artifacts `9720389717`, `9720380455`,
+and `9720381237` passed. CodeQL run `33271787616`, job `99151415334`, passed;
+exact-SHA analysis `1692416062` evaluated 52 rules with 0 results, and the exact-
+commit branch query returned 0 open alerts. Exact artifact digests are recorded
+in the managed tracer document.
+
+These additions close one host fail-close owner row and one registration-plus-
+connection-disposal cross-product only. Other cleanup owners and cross-products,
+the complete per-boundary fault matrix, native APIs, physical Devices,
+signing/notarization, release acceptance, Tasks 5, 5.5a, 5.5 and 6-10, and the
+long-term Flowspan Goal remain open. `CreateProduction()` must continue to
+report `native_adapters_unavailable`.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -826,12 +900,14 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current nineteen managed tracer cases, including one authenticated-
+  from the current twenty-one managed tracer cases, including one authenticated-
   disconnect by an Emergency registration cleanup fault, a separate capture
   Emergency Stop cleanup fault, a separate input Emergency Stop cleanup fault,
-  one host-connection disposal cleanup fault, one row combining capture and
-  registration faults, one exact-binding Transport replacement-generation row,
-  and one full Desktop renderer-to-replacement trace;
+  one host fail-close cleanup fault, one host-connection disposal cleanup fault,
+  one row combining capture and registration faults, one row combining
+  registration and connection-disposal faults, one exact-binding Transport
+  replacement-generation row, and one full Desktop renderer-to-replacement
+  trace;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native

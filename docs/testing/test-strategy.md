@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current nineteen scenarios are not the required matrix; its per-boundary
+current twenty-one scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -1177,9 +1177,42 @@ These additions close one input cleanup owner and one late host-connection
 disposal owner only. Other owners and their combined-failure cross-products
 remain open.
 
+Test-only commit `5c50870ee11639ee642781e647b135fdd4fc59f7` adds two more rows
+and no production source change. The twentieth row injects host fail-close only
+after awaiting the real inner fail-close. It must prove the immediate terminal
+path and CleanupCore reuse one shared completion: one fail-close call, one
+failure, the exact raw `IOException` through `TerminalFailure` and the first
+explicitly observed coordinator `DisposeAsync`, followed by successful host-
+connection disposal and complete owner drain. The twenty-first row injects the
+existing Emergency Stop registration disposal and host-connection disposal seams
+in one cleanup. Its final failure must be one flat `AggregateException` with
+exactly two direct inners in causal cleanup order: the registration exception,
+then the connection-disposal exception, both by identity.
+
+The fail-close RED left only its after-inner seam disconnected, so the previous
+five rows passed and that row alone reached the 20-second bound (`5/6`). GREEN
+passed Debug/Release `6/6`. The combination RED intentionally injected only the
+registration fault and failed quickly at `6/7` because production exposed that
+single `IOException` instead of the expected aggregate; adding only the existing
+connection-disposal predicate made Debug/Release `7/7`. Strict review reported
+no P0/P1/P2 finding.
+
+Forty fresh alternating processes passed all seven theory rows at `280/280`; the
+tracer passed `21/21`; Desktop passed `556/556`; and both Debug and Release
+solutions passed `2245/2245`. Both warning-as-error builds and the format, diff,
+dependency-vulnerability, TEST MODE composition, and simulator gates passed.
+Exact-SHA CI `33271787570` passed `2245/2245` on each hosted OS, Secret Scan 208
+rules with 0 results, and all three unsigned package jobs. CodeQL `33271787616`
+passed 52 rules with 0 results and 0 exact-commit open alerts. Exact artifacts
+and digests are in the managed tracer evidence.
+
+These additions close one host fail-close owner and one registration-plus-
+connection-disposal cross-product only. Other owners and combinations remain
+open.
+
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
-actual caller cancellation. Four single-owner disconnect cleanup-fault
-intersections and one combined-owner cross-product are now covered, together
+actual caller cancellation. Five single-owner disconnect cleanup-fault
+intersections and two combined-owner cross-products are now covered, together
 with one full renderer-to-replacement exact-binding trace; the remaining cleanup-
 fault injection, replacement/ABA variants, and complete per-boundary matrix
 remain open.

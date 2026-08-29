@@ -493,6 +493,27 @@
     products, the remaining matrices, Tasks 5, 5.5a, 5.5, 6-10, native/physical/
     release gates, and the Goal remain open; `CreateProduction()` remains
     unavailable.
+    Test-only commit `5c50870ee11639ee642781e647b135fdd4fc59f7` expands the same
+    theory from five to seven rows and the managed tracer from nineteen to twenty-
+    one cases, with no production source change. The twentieth row awaits real
+    host fail-close before one injected throw and proves the immediate terminal
+    path plus CleanupCore share one failure Task and exact exception instance;
+    every later owner, including host connection disposal, still drains. The
+    twenty-first row combines registration and host-connection disposal faults
+    inside one cleanup, producing one flat two-inner aggregate in exact order and
+    preserving both exception identities through the first explicitly observed
+    coordinator disposal.
+    Separate REDs produced `5/6` by a 20-second fail-close-row timeout and a fast
+    `6/7` exact-type failure with only registration injection. The two one-seam
+    GREENs passed focused Debug/Release `7/7`, fresh-process `280/280`, tracer
+    `21/21`, Desktop `556/556`, and both solutions `2245/2245`; warning-as-error
+    and every local gate passed, with strict P0/P1/P2 review clean. Exact-SHA CI
+    `33271787570` passed `2245/2245` on every hosted OS plus Secret Scan and all
+    unsigned packages; CodeQL `33271787616` passed 52 rules with 0 results and 0
+    exact-commit open alerts. These close one single-owner row and one cleanup
+    cross-product only. All remaining owners/combinations, matrices, Tasks 5,
+    5.5a, 5.5, 6-10, native/physical/release gates, and the Goal remain open;
+    `CreateProduction()` remains unavailable.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

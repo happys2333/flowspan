@@ -1565,6 +1565,103 @@ acceptance evidence. Tasks 5, 5.5a, 5.5, and 6-10 and the long-term Flowspan
 Goal remain open; `CreateProduction()` must continue to report Remote Window
 unavailable.
 
+### Exact-SHA host fail-close and combined disposal cleanup-fault checkpoint
+
+Test-only commit `5c50870ee11639ee642781e647b135fdd4fc59f7` changes no
+production source. It preserves the historical fourteenth registration-
+disposal, fifteenth renderer-to-replacement ABA, sixteenth capture,
+seventeenth capture-plus-registration, eighteenth input, and nineteenth host-
+connection disposal rows. It expands the authenticated-disconnect cleanup-
+fault theory from five parameter rows to seven by adding the twentieth host
+fail-close row and twenty-first registration-plus-connection-disposal row.
+
+Both additions first establish real authenticated protocol 1.7, `FSM1`, final
+Admission, capture, encrypted media, decode, and one render. The participant
+then closes its authenticated control connection to enter the same production
+immediate-terminal fail-close and owner cleanup path used by the preceding
+fault rows.
+
+In the twentieth row, the host-connection wrapper awaits real inner
+`FailCloseAsync` before throwing one one-shot `IOException`. The coordinator's
+shared immediate-terminal/`CleanupCore` task runs once. The raw exception
+remains observable by exact identity through `TerminalFailure` and the first
+explicitly observed coordinator `DisposeAsync`. Host fail-close executes once
+and records exactly one failure. Connection disposal executes once with no
+failure; capture and input Emergency Stop each execute once; sharing-session
+disconnect executes twice; capture and input Stop each execute once; and
+Emergency Stop registration disposal executes once. Cleanup preserves the
+failure and drains the complete managed owner graph.
+
+In the twenty-first row, Emergency Stop registration disposal and host-
+connection disposal each throw their independent one-shot `IOException` in the
+same `CleanupCore` result. The terminal failure is one flat
+`AggregateException` with exactly two direct inner exceptions in fixed order:
+the raw registration exception at index 0 and raw connection-disposal exception
+at index 1, both by exact object identity. Both failures arise in the same
+cleanup result, so the row needs no additional wait for a partially published
+terminal failure. Successful host fail-close executes once; connection disposal
+executes and records one failure; registration disposal executes once; capture
+and input Emergency Stop each execute once; sharing-session disconnect executes
+twice; and capture and input Stop each execute once. The same aggregate instance
+remains visible through `TerminalFailure` and the first explicitly observed
+coordinator `DisposeAsync`, and every managed owner drains.
+
+The rows have separate TDD RED/GREEN evidence. The host fail-close expectation
+was present while fail-close injection was deliberately absent: focused Debug
+passed `5/6`, and only the new host fail-close row reached its 20-second bound.
+Enabling the one-shot post-inner-fail-close throw made focused Debug and Release
+pass `6/6`. The combined expectation was then present while connection-disposal
+injection was deliberately absent: focused Debug passed `6/7`, and only the new
+combined row failed quickly because its actual terminal type was the raw
+registration `IOException` rather than the expected aggregate. Enabling the
+second injection made focused Debug and Release pass `7/7`. These were test-
+fixture changes, not production repairs. Strict review reported no P0, P1, or
+P2 finding.
+
+Forty fresh processes alternating configurations exercised all seven rows for
+`280/280` passing cases. The full managed tracer passed `21/21`, Desktop passed
+`556/556`, and the complete Debug and Release solutions passed `2245/2245`.
+Both warning-as-error builds reported 0 warnings and 0 errors. Format and diff
+checks, the direct/transitive dependency vulnerability audit, explicit TEST
+MODE composition, and the deterministic protocol-1.7 simulator all passed.
+
+Exact-SHA CI run
+[`33271787570`](https://github.com/happys2333/flowspan/actions/runs/33271787570)
+completed successfully. Each downloaded platform artifact contains exactly 12
+TRX files with `2245/2245` total, executed, and passed, and every non-success
+counter zero:
+
+| Platform | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| macOS | `99151415595` | `9720344235` | `5ae39bcaea3cd7ddaac2235167e098435a13481ef01e44d926c78397328d24c0` |
+| Windows | `99151415610` | `9720362485` | `f4870a70393d7be820d093b5cda2dccc7c9dde0b3b4bad2bf0eb5c763c644e55` |
+| Linux | `99151415683` | `9720351695` | `592638caa584d6b59058772888a31f7809ffe8caa98cd525d75a5d8a53d37092` |
+
+Secret Scan job `99151415513` passed. Artifact `9720313861`, digest
+`325b8b887773358a1e8e2439f811a2443ff2b97709b2db4245672d77a0b6a0c1`,
+contains SARIF 2.1.0 with 208 rules and 0 results. All reproducible unsigned
+package jobs passed:
+
+| Runtime | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| `win-x64` | `99151947627` | `9720389717` | `f1c919e016765c6285fce3a150b78f2c6d7a09927e017b7c7aa634ae341a1971` |
+| `osx-arm64` | `99151947629` | `9720380455` | `7de991bca796d4113c7d63e7ef7133ed2ca43dc33fdfa34b5ebb4146d374e26e` |
+| `linux-x64` | `99151947698` | `9720381237` | `9652639b9579242820b5b1ec93f4f13a6a550a0ba949ae3f291d333cab6f8941` |
+
+[CodeQL run `33271787616`](https://github.com/happys2333/flowspan/actions/runs/33271787616),
+job `99151415334`, completed successfully. Exact-SHA analysis `1692416062`
+evaluated 52 rules with 0 results, and the exact-commit branch query returned 0
+open alerts.
+
+These additions close exactly one host fail-close owner row and one
+registration-plus-connection-disposal cross-product. They do not complete the
+other cleanup owners or cross-products, the remaining replacement variants, or
+the full reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
+matrix. They supply no native API, physical two-Device, signing/notarization,
+package-lifecycle, or release-acceptance evidence. Tasks 5, 5.5a, 5.5, and 6-10
+and the long-term Flowspan Goal remain open; `CreateProduction()` must continue
+to report Remote Window unavailable.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -1641,7 +1738,13 @@ unavailable.
   explicitly observed coordinator disposal share that projected instance. The
   nineteenth row proves real host-connection disposal and owner retirement
   occur before a wrapper disposal fault, then preserves that raw exception by
-  identity through the same terminal surfaces and complete cleanup.
+  identity through the same terminal surfaces and complete cleanup. The
+  twentieth row proves real host fail-close finishes before its wrapper throws,
+  the shared immediate-terminal cleanup task runs once, and the raw fault
+  remains stable through complete cleanup and terminal observation. The twenty-
+  first row combines registration and connection-disposal faults in one cleanup
+  result, preserving one flat two-inner aggregate in fixed owner order without
+  partial-terminal publication.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -1651,7 +1754,7 @@ unavailable.
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the nineteen current cases above and does not establish that complete
+only the twenty-one current cases above and does not establish that complete
 matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every
@@ -1660,8 +1763,9 @@ The expiry and caller-cancellation cases cover one post-`FSM1`, pre-Admission
 example each. Active disconnect is covered with one Emergency Stop registration-
 disposal fault, separately with one capture Emergency Stop cleanup fault, and
 with one row combining those two faults; one input Emergency Stop fault and one
-host-connection disposal fault are also covered. The remaining cleanup owners,
-cross-products, and per-boundary cases remain open. One
+host-connection disposal fault are also covered, as are one host fail-close
+fault and one registration-plus-connection-disposal combination. The remaining
+cleanup owners, cross-products, and per-boundary cases remain open. One
 Desktop renderer-to-replacement ABA path is covered; the remaining replacement
 boundaries and combined-failure variants are also open.
 
@@ -1669,7 +1773,7 @@ Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows, macOS, and Linux execution through `26cd380` is managed-loopback
+Hosted Windows, macOS, and Linux execution through `5c50870` is managed-loopback
 and contract evidence only. It does not prove Windows, macOS, or Linux native
 capture/input/protection APIs; physical
 two-Device operation; signed or notarized packages; package lifecycle behavior;

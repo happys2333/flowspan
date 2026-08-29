@@ -280,6 +280,18 @@ exact-commit open alerts. Detailed artifacts are in the managed tracer evidence.
 These rows close two managed cleanup-owner intersections only; the Transport/
 replacement cleanup-fault combinations remain open.
 
+Test-only Desktop commit `5c50870ee11639ee642781e647b135fdd4fc59f7`
+subsequently adds the twentieth and twenty-first managed tracer rows: one host
+fail-close fault after the real inner fail-close completes, and one direct
+registration-plus-host-connection-disposal cleanup aggregate. It changes no
+production source and does not expand the Transport exact-binding ABA contract.
+Exact-SHA CI `33271787570` passed `2245/2245` on every hosted OS plus Secret Scan
+and all unsigned package jobs; CodeQL `33271787616` passed 52 rules with 0
+results and 0 exact-commit open alerts. Detailed artifacts are in the managed
+tracer evidence. These rows close one managed cleanup owner and one managed
+cleanup-fault cross-product only; the Transport/replacement cleanup-fault
+combinations remain open.
+
 The first fixture RED deliberately reused one gate for both generations. It
 failed deterministically after about 62 ms with expected forward count 1 and
 actual 2, demonstrating that the fixture could not independently release the old

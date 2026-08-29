@@ -367,6 +367,15 @@ rows `TerminalFailure` and the first explicitly observed coordinator
 drains. These are managed fault-injection results, not native input or physical-
 disconnect evidence.
 
+The twentieth row covers the distinct shared host fail-close Task. The wrapper
+awaits real inner fail-close before one injected throw; the immediate terminal
+path and later cleanup reuse one completion, expose the exact raw exception, and
+continue through final connection disposal and complete owner drain. The twenty-
+first row combines registration disposal and host-connection disposal inside one
+cleanup pass. Its terminal failure is one flat two-inner aggregate in cleanup
+order, preserving both exact exception identities. These are managed lifecycle
+faults, not physical network-loss evidence.
+
 Commit `80191d6`, retained by `761ac75`, provides six narrow managed same-host
 production-path tracer scenarios: successful DriverEligible
 media/input/Emergency Stop; reversed-grant denial; terminal
@@ -671,6 +680,32 @@ tracer evidence.
 This closes one input cleanup-owner row and one late authenticated-connection
 disposal row. Every other cleanup owner, cross-product, and per-boundary fault
 remains open.
+
+Test-only commit `5c50870ee11639ee642781e647b135fdd4fc59f7` adds the twentieth
+host fail-close row and twenty-first registration-plus-connection-disposal row
+without changing production source. The fail-close row proves terminal shutdown
+and CleanupCore share one after-inner failure Task: fail-close executes and fails
+once, the exact `IOException` reaches `TerminalFailure` and the first explicitly
+observed coordinator `DisposeAsync`, and later connection disposal plus every
+owner drain still complete. The combined row produces one direct, flat
+`AggregateException` whose two inners are exactly registration then connection-
+disposal failure; both arise in the same cleanup result, so there is no partial
+terminal publication to sample.
+
+Separate TDD cycles produced `5/6` with only the new fail-close row reaching its
+20-second bound, then a fast `6/7` exact-type failure when the combination still
+injected only registration disposal. The two one-seam GREENs produced focused
+Debug/Release `7/7`; 40 fresh alternating processes passed `280/280`; the tracer
+passed `21/21`; Desktop passed `556/556`; and both complete solutions passed
+`2245/2245`. Warning-as-error and all local gates passed; strict review reported
+no P0/P1/P2 finding. Exact-SHA CI `33271787570` passed `2245/2245` on each
+hosted OS, Secret Scan, and all unsigned package jobs. CodeQL `33271787616`
+passed 52 rules with 0 results and 0 exact-commit open alerts. Exact artifacts
+are recorded in the managed tracer evidence.
+
+This closes one host fail-close owner and one registration-plus-connection-
+disposal cross-product. Every other cleanup owner, cross-product, and per-
+boundary fault remains open.
 
 The remaining complete per-boundary reject/throw/cancel/timeout/revoke/
 disconnect/cleanup-fault matrix remains open. Tasks 5, 5.5a, and 5.5, all native
