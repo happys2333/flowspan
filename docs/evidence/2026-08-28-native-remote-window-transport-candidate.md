@@ -231,7 +231,23 @@ cleanup-before-publication row, it proves that a delayed accepted attachment
 cannot retarget one already prepared replacement generation. It is not a full
 Desktop renderer-to-replacement trace and does not cover every Session, Activity,
 Device, reconnect, cleanup-fault, or boundary-failure combination. The managed
-Desktop tracer therefore remains thirteen cases.
+Desktop tracer remained thirteen cases at this `ba58562` checkpoint. A later
+Desktop-only cleanup-fault case is recorded in the managed tracer evidence; it
+does not expand this Transport ABA row.
+
+A still later test-only Desktop checkpoint
+`6ff3fefaa667e23f309681fe5fe953ae97bb5861` now composes the same
+production exact-binding boundary through a single end-to-end
+renderer-failure-to-replacement trace. That fifteenth managed case uses fresh
+Session, Correlation, and Route IDs for the replacement and proves that releasing
+the delayed old attachment cannot attach to, stop, or admit the replacement;
+the replacement attaches and transfers encrypted media only after its own gate is
+released. This strengthens the composed Desktop evidence but does not change the
+`ba58562` Transport contract, its historical thirteen-case count, or the open
+Session/Activity/Device/reconnect/cleanup-fault matrix. Exact-SHA CI
+`33266348260` and CodeQL `33266348243` for the later Desktop checkpoint both
+passed; the managed tracer evidence records parsed TRX, Secret Scan, package,
+analysis, artifact, and digest details.
 
 The first fixture RED deliberately reused one gate for both generations. It
 failed deterministically after about 62 ms with expected forward count 1 and
@@ -321,9 +337,9 @@ owners, or budget.
 - Budget exhaustion and cleanup-fault handling are each covered, but their full
   cross-product is not. A simultaneous budget-bound failure plus an injected
   throwing cleanup stage remains an explicit fault-injection combination to add.
-- One exact-binding replacement-generation ABA row is covered. The complete
-  replacement/ABA matrix, including a full Desktop renderer-to-replacement trace
-  and cleanup-fault cross-products, remains open.
+- One Transport exact-binding replacement-generation row and one full Desktop
+  renderer-to-replacement causal trace are covered. The other replacement/ABA
+  variants and their cleanup-fault cross-products remain open.
 - Physical two-device loss/reconnect/load/latency, native accessibility, signed or
   notarized package lifecycle, Tasks 6-10, affected release criteria, and the
   long-term Goal remain open.

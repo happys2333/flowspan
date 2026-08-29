@@ -321,9 +321,19 @@ native emergency action, physical peer, or usable packaged screen reader.
 | T07 | The host requires fresh Safe protection before Prepare and rechecks it after Ready immediately before Start. Protection loss at either boundary rejects or stops the transaction before frame publication; a Ready result cannot cache Safe state. The active permission-loss tracer drives the managed permission abstraction; it is not evidence of a real Windows, macOS, or Linux permission revocation. | Continuous platform protection probes and frame-by-frame physical blank/pause evidence. |
 | T08 | Protocol 1.7 alone accepts the two strict canonical schemas. Prepare and Ready reject unknown, duplicate, null, wrong-type, or trailing fields, malformed digest, wrong authenticated direction/identity, any binding or role mismatch, and inconsistent envelope/body deadlines. Native token/handle/generation, route ID, Descriptor, Kind, raw title, key, input, frame, and exception text are absent. Malformed or wrongly bound input is not reflected in Ready. A managed tracer carries `FSM1`, encrypted media, and JPEG decode through the production listener. The attachment-failure tracer instead uses an authenticated, signed candidate, proves that its verified TCP endpoint accepts the connection, and then immediately resets before the `FSM1` handshake completes; it is attachment-failure evidence, not a malformed-`FSM1` byte test. | Cross-implementation hostile readers, cross-platform native/packaged execution, and packaged physical traffic observation. |
 | T10 | Ready rejection uses one allowlisted bounded reason and diagnostics expose only bounded identifiers, phase, and outcome. Prepare/Ready and final state contain no raw source title, native identity, media locator, payload, or exception text. A post-accept TCP reset is projected across the authenticated control path only as `media_attachment_failed`; raw socket text is not reflected to the host. Renderer factory throw and foreign/tokenless cancellation expose only `renderer_start_failed`, while a valid null/Missing result exposes only `renderer_unavailable`. Exact deadline equality exposes only `preparation_expired`. Actual caller cancellation propagates the cancellation family and exact caller token rather than producing a rejection reason. | Native adapter logs, crash/minidump, diagnostics export, and screen-reader inspection. |
-| T13 | The single control dispatch loop performs only validation/reservation and starts one owned deadline/lifetime worker before returning. Stop/dispose cancels and joins it. A Ready exposed during Prepare send remains buffered and cannot authorize final Admission until the send commits; result publication shares that commit and is irreversible. Prepare, Ready, and final Admission recheck the absolute deadline at actual wire admission, independent of timer scheduling. Desktop networking shares one connection-owned media directory with the published listener, and the handler exposes an atomic generation-bound Preparation/media lease. A production coordinator consumes that lease with a verified peer-endpoint connector. Ready false, timeout, cancel, revoke, disconnect, attachment, capture, admission, state, renderer, or cleanup failure closes frame admission and attempts every owner cleanup. Terminal authenticated-control disconnect, same-session capability revocation, managed active permission loss, attachment reset after proved TCP accept, and renderer throw/null/foreign-cancellation converge the active coordinator snapshot, media budget, both media directories and routes, renderer, and authenticated-control owners to zero. Attachment failure enters neither media-attachment wait nor Admission, capture, or render. Three renderer-start rows explicitly wait for bilateral attachment before injecting failure; they do not imply that responder directory publication naturally precedes participant renderer entry. A fourth row freezes that exact earlier window and proves Rejected-before-fail-close plus complete post-publication cleanup. A fifth keeps directory publication blocked while the coordinator/control/directory/route/lease graph drains and one listener handler remains active, then proves the late attachment is rejected as stale, the handler settles, and ownership cannot resurrect; that renderer row itself does not construct a replacement generation or prove ABA resistance. A companion Transport contract independently drains that old generation, prepares a replacement route for the same Device pair, Session, and Activity with a fresh Route ID, completes real `FSM1` acceptance so the route is Attached while directory publication remains gated, rejects the delayed old exact binding without affecting the replacement, then attaches the replacement and transfers encrypted media. The exact-deadline test waits for media attachment once, then host fail-closes and disposes once without publishing Admission or an active generation; renderer, route, directory, handler, lease, channel, and control owners drain, and the old generation cannot be reacquired. The caller-cancellation test independently keeps the harness alive, observes fail-close and Dispose once, and drains the same owners. Actual linked cancellation and deadline remain eager. Renderer primary failure stays observable with cleanup or lifecycle failure, and explicit/deadline fail-close shares one cleanup. | The remaining complete per-boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix, combined failure injection, the remaining replacement/ABA matrix, sustained packaged churn, non-cooperative native teardown, and resource telemetry. |
+| T13 | The single control dispatch loop performs only validation/reservation and starts one owned deadline/lifetime worker before returning. Stop/dispose cancels and joins it. A Ready exposed during Prepare send remains buffered and cannot authorize final Admission until the send commits; result publication shares that commit and is irreversible. Prepare, Ready, and final Admission recheck the absolute deadline at actual wire admission, independent of timer scheduling. Desktop networking shares one connection-owned media directory with the published listener, and the handler exposes an atomic generation-bound Preparation/media lease. A production coordinator consumes that lease with a verified peer-endpoint connector. Ready false, timeout, cancel, revoke, disconnect, attachment, capture, admission, state, renderer, or cleanup failure closes frame admission and attempts every owner cleanup. Terminal authenticated-control disconnect, same-session capability revocation, managed active permission loss, attachment reset after proved TCP accept, and renderer throw/null/foreign-cancellation converge the active coordinator snapshot, media budget, both media directories and routes, renderer, and authenticated-control owners to zero. Attachment failure enters neither media-attachment wait nor Admission, capture, or render. Three renderer-start rows explicitly wait for bilateral attachment before injecting failure; they do not imply that responder directory publication naturally precedes participant renderer entry. A fourth row freezes that exact earlier window and proves Rejected-before-fail-close plus complete post-publication cleanup. A fifth keeps directory publication blocked while the coordinator/control/directory/route/lease graph drains and one listener handler remains active, then proves the late attachment is rejected as stale, the handler settles, and ownership cannot resurrect; that renderer row itself does not construct a replacement generation or prove ABA resistance. A companion Transport contract independently drains that old generation, prepares a replacement route for the same Device pair, Session, and Activity with a fresh Route ID, completes real `FSM1` acceptance so the route is Attached while directory publication remains gated, rejects the delayed old exact binding without affecting the replacement, then attaches the replacement and transfers encrypted media. Initiator acknowledgement verification alone does not prove responder host-directory publication; six renderer-rejection fixtures now assert the rejection first and use a bounded cancellable attachment-publication barrier before cleanup, without creating a production ordering guarantee. A fourteenth managed row injects one Emergency Stop registration-disposal failure during active authenticated-control disconnect; the same failure remains observable while every later managed owner drains. The exact-deadline test waits for media attachment once, then host fail-closes and disposes once without publishing Admission or an active generation; renderer, route, directory, handler, lease, channel, and control owners drain, and the old generation cannot be reacquired. The caller-cancellation test independently keeps the harness alive, observes fail-close and Dispose once, and drains the same owners. Actual linked cancellation and deadline remain eager. Renderer primary failure stays observable with cleanup or lifecycle failure, and explicit/deadline fail-close shares one cleanup. | The remaining complete per-boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix, combined failure injection, the remaining replacement/ABA matrix, sustained packaged churn, non-cooperative native teardown, and resource telemetry. |
 | T14 | Participant readiness never opens rendering. The final accepted Admission state is the first rendering gate, while the host's persistent sharing indicator and independent Emergency Stop begin with the actual native session. Rejection leaves source execution unchanged and no hidden capture. The managed tracer confirms that Ready/attachment do not render, final Admission does, and local Emergency Stop does not await network acknowledgement. | Persistent UI indicator, packaged accessibility, and physical UI/network failure observation. |
 | T15 | Protocol 1.5 remains frozen control/encrypted-frame behavior, 1.6 adds only frozen `FSM1`, and 1.7 adds Preparation. Negotiating below 1.7 rejects Prepare/Ready and never falls back to Activity transfer, unsolicited state, clear media, or unprepared Admission. The managed tracer exercises 1.7; existing protocol tests cover lower-version rejection. | Packaged mixed-version presentation and physical downgrade observation. |
+
+Additional current T13 managed evidence composes the previously separate stale-
+attachment and replacement boundaries through one causal Desktop trace. After a
+renderer-failed generation drains with its listener handler gated, the same
+Device pair reconnects under strictly higher control generations and fresh
+Session, Correlation, and Route IDs. Releasing only the stale exact binding
+cannot attach to, stop, or admit the replacement; releasing the replacement's
+independent gate permits Admission and encrypted render before full teardown.
+This is the fifteenth managed tracer case, not the complete T13 replacement or
+fault matrix.
 
 Commit `80191d6`, retained by `761ac75`, provides six narrow managed same-host
 production-path tracer scenarios: successful DriverEligible
@@ -488,12 +498,78 @@ reported 52 rules, 0 results, and 0 open alerts. These are managed contract and
 hosted scan/package results only. Exact artifacts and digests are recorded in
 the Transport candidate evidence.
 
-The complete per-boundary reject/throw/cancel/timeout/revoke/disconnect/
-cleanup-fault matrix remains open. Tasks 5, 5.5a, and 5.5, all native and
-physical-device evidence, packaged accessibility, signed/notarized release
-gates, and the long-running Goal also remain open. These managed local tests do
-not establish real operating-system permission revocation or Windows/Linux
-execution, and no v1 release criterion is closed by this slice alone.
+Documentation SHA `124b1a0c8325d7b469702682f8b7f14c1aebfa54` exposed a
+macOS renderer-rejection test race after initiator acknowledgement verification
+but before responder host-directory attachment publication. Immediate fixture
+cleanup closed the still-borrowed stream. A temporary 100-ms delay made the same
+failure deterministic. Test-only commit
+`5e5f380393a46021d8106a7f3fa817d3b7ac3765` changes no production source:
+the affected fixtures first assert the bounded Rejected result, then wait with a
+cancellable five-second responder-publication barrier before cleanup. The probe
+passed after that change and was removed. Local solutions passed `2237/2237`;
+exact-SHA CI `33263840825`, CodeQL `33263840823`, Secret Scan, and all unsigned
+package jobs passed. This is test synchronization, not a new security control or
+a production acknowledgement-to-publication guarantee.
+
+Test-only commit `8841080d8cfbfa3714b3cb7c6d858396ceb756b8` adds one T13
+managed intersection and no production source change. After real protocol 1.7,
+`FSM1`, Admission, encrypted media, and render, authenticated-control disconnect
+starts cleanup. Emergency Stop registration disposal first revokes its callback,
+then throws one injected `IOException`. That same instance remains observable
+through `TerminalFailure` and coordinator Dispose, while capture/input Emergency
+Stop and every later renderer, protection, permission, media budget, directory,
+route, handler, channel, connection, and current/retained control owner drains.
+At the `8841080` checkpoint the tracer was `14/14`; local solutions passed
+`2238/2238`, and exact-SHA CI
+`33264566458` passed `2238/2238` on every hosted OS plus Secret Scan and all
+three reproducible unsigned package jobs. CodeQL `33264566368` evaluated 52
+rules with 0 results and 0 open alerts.
+
+This closes one active authenticated-disconnect by one Emergency Stop
+registration-disposal cleanup fault only. It is not physical or native Emergency
+Stop evidence, and every other cleanup owner/combination remains open.
+
+Test-only commit `6ff3fefaa667e23f309681fe5fe953ae97bb5861` adds one full
+T13 Desktop renderer-failure-to-replacement exact-binding trace without changing
+production source. Generation 1
+completes authenticated protocol 1.7 and `FSM1`, fails renderer Prepare, returns
+Rejected before fail-close, and drains its published owner graph while the
+accepted old listener handler remains gated before host-directory publication.
+The same Device pair reconnects with strictly higher host and participant control
+generations and fresh Session, Correlation, and Route IDs. Releasing only the old
+gate yields the expected no-live-owner rejection while generation 2 remains
+current, unstopped, host-unattached, and pre-Admission with no capture, send,
+render, or retained driving/controller generation. Releasing generation 2's
+independent gate then
+allows Applied Admission and one BGRA-to-JPEG-to-encrypted-media-to-decode-and-
+render transfer before Stop and complete owner drain.
+
+A shared-gate fixture was RED after 442 ms, and removing the exact-binding
+inequality guard made the focused test hit its 30-second bound; production was
+immediately restored. Release-class validation exposed the media-attachment
+handler's Completion-to-Exited publication gap, while fresh-process pressure
+exposed participant renderer-disposal publication lag. Explicit bounded barriers
+close both test-observation races. Final local evidence is `1/1` focused Debug
+and Release, `15/15` tracer
+Debug and Release, `160/160` fresh alternating processes, Desktop `550/550`, and
+both complete solutions `2239/2239`, with clean warning-as-error builds, format,
+diff, dependency-vulnerability, TEST MODE composition, and simulator gates.
+Exact-SHA CI `33266348260` passed `2239/2239` on each hosted OS plus Secret Scan
+and all three reproducible unsigned package jobs; CodeQL `33266348243` evaluated
+52 rules with 0 results and the exact-commit branch query returned 0 open alerts.
+Exact artifact IDs and digests are recorded in the managed tracer evidence.
+
+This closes one managed causal trace, not the remaining T13 replacement/fault
+matrix, non-cooperative native teardown, packaged churn, or resource telemetry.
+
+The remaining complete per-boundary reject/throw/cancel/timeout/revoke/
+disconnect/cleanup-fault matrix remains open. Tasks 5, 5.5a, and 5.5, all native
+and physical-device evidence, packaged accessibility, signed/notarized release
+gates, and the long-running Goal also remain open. Hosted Windows and Linux
+execution is managed contract evidence only; it does not establish real
+operating-system permission revocation or native Windows/Linux capture, input,
+or protection behavior, and no v1 release criterion is closed by this slice
+alone.
 `CreateProduction()` must continue to report Remote Window unavailable.
 
 ## 6. Security state machine rules

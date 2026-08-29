@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current thirteen scenarios are not the required matrix; its per-boundary
+current fifteen scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -979,16 +979,114 @@ all reproducible unsigned package jobs passed. CodeQL
 evaluated 52 rules with 0 results and 0 open alerts. Exact job, artifact, and
 digest records are in the Transport candidate evidence.
 
-This closes only the old-exact-binding-versus-prepared-replacement row. Required
-coverage still includes a full Desktop renderer-to-replacement trace; the other
+At this `ba58562` checkpoint, this closed only the old-exact-binding-versus-
+prepared-replacement row. Required coverage still included a full Desktop
+renderer-to-replacement trace; the other
 Session, Activity, Device, reconnect, reject, throw, cancellation, timeout,
 revocation, disconnect, and cleanup-fault combinations; their combined-failure
 cross-products; and native/physical execution. Tests must not infer any of those
 from this isolated row.
 
+Documentation SHA `124b1a0c8325d7b469702682f8b7f14c1aebfa54` exposed a
+renderer-rejection fixture race in macOS CI `33262767594`. Verifying the
+initiator's real `FSM1` acknowledgement does not prove that the responder has
+returned from `AcceptAsync` and published the attachment into the host directory.
+Immediate response cleanup can legally close the stream inside that interval.
+
+Test-only commit `5e5f380393a46021d8106a7f3fa817d3b7ac3765` therefore
+requires every fixture that claims a post-attachment renderer rejection/cleanup
+boundary to first assert the exact Rejected outcome and reason, then wait with a
+five-second cancellable token for responder host-directory attachment
+publication. The response assertions must precede the barrier so an earlier
+rejection regression is not hidden behind an attachment timeout. A temporary
+100-ms delay after acknowledgement write made the hosted exception deterministic;
+the corrected fixtures passed under that probe, after which the instrumentation
+was removed and production source remained unchanged. Final class Debug/Release
+passed `17/17`, 40 fresh alternating processes passed `680/680`, Desktop passed
+`548/548`, and both solutions passed `2237/2237`.
+
+Exact-SHA CI `33263840825` passed `2237/2237` on each hosted OS, Secret
+Scan, and all three reproducible unsigned package jobs; CodeQL `33263840823`
+passed 52 rules with 0 results and 0 open alerts. This is a test-owned
+synchronization requirement, not a production acknowledgement-to-publication
+happens-before guarantee and not a new tracer case.
+
+Test-only commit `8841080d8cfbfa3714b3cb7c6d858396ceb756b8` adds the
+fourteenth managed tracer case without changing production source. After real
+authenticated protocol 1.7, `FSM1`, Ready, Admission, capture, encrypted media,
+decode, and one render, participant authenticated-control disconnect starts
+terminal cleanup. The injected Emergency Stop registration `Dispose` first
+clears its callback and becomes non-current, then throws one `IOException`.
+Tests must prove that exact exception instance remains observable through
+`TerminalFailure` and coordinator Dispose, while capture/input Emergency Stop,
+sharing disconnect, capture, renderer, protection, permission observer, budget,
+both media directories/routes, both handlers/channels, host connection, and
+current/retained control generation all drain.
+
+The fixture-capability RED failed before its registrar could inject or count the
+fault. The minimal GREEN changed only that test seam. Final focused Debug/Release
+passed `1/1`, 80 fresh alternating processes passed `80/80`, the tracer passed
+`14/14`, Desktop passed `549/549`, and both solutions passed `2238/2238`.
+Exact-SHA CI `33264566458` passed `2238/2238` on every hosted OS plus Secret
+Scan and all three reproducible unsigned package jobs; CodeQL `33264566368`
+passed 52 rules with 0 results and 0 open alerts. Exact artifacts are recorded in
+the managed tracer evidence.
+
+This closes one active authenticated-disconnect by Emergency Stop registration-
+disposal cleanup-fault intersection only. Other cleanup owners, combined cleanup
+failures, and the remaining per-boundary matrix stay open.
+
+Test-only commit `6ff3fefaa667e23f309681fe5fe953ae97bb5861` adds the
+fifteenth managed tracer case,
+`RendererFailureLateAttachmentCannotRetargetReplacementDesktopGeneration`, and
+must preserve one causal two-generation trace rather than infer composition from
+separate tests. Generation 1 completes real authenticated TCP, protocol 1.7, and
+`FSM1`; its accepted route is Attached while an independent gate blocks host-
+directory publication. Renderer Prepare throws, Rejected is observed before
+fail-close, and the old coordinator/control/directory/route/lease graph drains
+while the old listener handler remains blocked. The same Device pair then
+reconnects with strictly higher host and participant control generations and
+fresh Session, Correlation, and Route IDs. Generation 2 independently reaches
+Attached-before-publication. Releasing only the old gate must reject the stale
+exact binding with the no-live-owner failure while generation 2 remains current,
+unstopped, host-unattached, and pre-Admission with exactly one route and zero
+capture, media send, render, or retained driving/controller generation. Releasing
+generation 2's
+gate must then produce Applied Admission and transfer one BGRA frame through
+JPEG, authenticated encryption, decode, and render before Stop and full owner
+drain.
+
+The fixture must keep both publication gates independent. A deliberately shared-
+gate RED failed after 442 ms because releasing the old generation also released
+the replacement. Temporarily removing the production exact-binding inequality
+guard made the bounded focused test time out after 30 seconds because the stale
+attachment occupied the replacement; the guard was immediately restored. Release-
+class validation exposed the media-attachment handler's Completion-to-Exited
+publication gap. Later fresh-process pressure exposed that public participant
+connection cleanup could precede renderer-disposal visibility. Explicit bounded
+barriers now observe both terminal publications without changing production
+source. The final focused fact
+passed `1/1` in Debug and Release; the tracer passed `15/15` in each; 160 fresh
+alternating Debug/Release processes passed `160/160`; Desktop passed `550/550`;
+and both complete solutions passed `2239/2239`. Both warning-as-error builds
+completed with zero warnings and errors, and format, diff, direct/transitive
+dependency vulnerability, TEST MODE composition, and simulator gates passed.
+Exact-SHA CI `33266348260` passed on macOS, Linux, and Windows; each downloaded
+12-file TRX artifact sums to `2239/2239` with every non-success counter zero.
+Secret Scan passed 208 rules with 0 results, all three reproducible unsigned
+package jobs passed, and CodeQL `33266348243` passed 52 rules with 0 results and
+0 exact-commit open alerts. Exact artifact IDs and digests are in the managed
+tracer evidence.
+
+This closes one full managed renderer-failure-to-replacement exact-binding trace,
+not the replacement matrix. Other Session, Activity, Device, reconnect, boundary-
+failure, cleanup-fault, and combined-failure variants remain open.
+
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
-actual caller cancellation. Cleanup-fault injection and the complete
-per-boundary matrix remain open.
+actual caller cancellation. One disconnect cleanup-fault intersection is now
+covered, together with one full renderer-to-replacement exact-binding trace; the
+remaining cleanup-fault injection, replacement/ABA variants, and complete per-
+boundary matrix remain open.
 
 The hosted matrices are cross-platform managed contract evidence,
 not evidence for native platform APIs, two physical devices, accessibility,

@@ -360,6 +360,79 @@
     combinations. The remaining fault and replacement/ABA matrices, Task 5,
     Task 5.5a, Task 5.5, Tasks 6-10, every native/physical/release gate, and the
     Goal remain open; `CreateProduction()` remains unavailable.
+    Documentation SHA `124b1a0c8325d7b469702682f8b7f14c1aebfa54` exposed one
+    macOS renderer-rejection fixture race in CI `33262767594`. The initiator can
+    verify `FSM1` acknowledgement before the responder publishes its attachment
+    into the host directory; immediate fixture cleanup then closed the responder's
+    still-borrowed stream. A temporary 100-ms delay reproduced the hosted
+    exception deterministically. Test-only commit
+    `5e5f380393a46021d8106a7f3fa817d3b7ac3765` changes no production source or
+    tracer count. Six affected fixtures now assert the exact rejection first,
+    then use a bounded cancellable responder-publication barrier before cleanup.
+    The temporary probe passed and was removed; production diff returned to empty.
+    Local class Debug/Release passed `17/17`, 40 fresh alternating processes
+    passed `680/680`, Desktop passed `548/548`, and both solutions passed
+    `2237/2237`. Exact-SHA CI `33263840825`, CodeQL `33263840823`, Secret Scan,
+    and all three reproducible unsigned package jobs passed. This is a test-
+    synchronization repair, not a production ordering guarantee or defect fix.
+    Test-only commit `8841080d8cfbfa3714b3cb7c6d858396ceb756b8` changes no
+    production source and adds the fourteenth managed tracer case. After real
+    protocol 1.7, `FSM1`, Admission, encrypted media, and render, participant
+    authenticated-control disconnect starts cleanup. Emergency Stop registration
+    disposal first clears its callback and then throws one injected `IOException`.
+    The same instance remains observable through `TerminalFailure` and
+    coordinator Dispose, while every later capture/input, sharing, renderer,
+    protection, permission, media budget, directory, route, handler, channel,
+    connection, and current/retained control owner drains. Focused Debug/Release
+    passed `1/1`, 80 fresh alternating processes passed `80/80`, the tracer passed
+    `14/14`, Desktop passed `549/549`, and both solutions passed `2238/2238`.
+    Exact-SHA CI `33264566458` passed `2238/2238` on every hosted OS plus Secret
+    Scan and all three reproducible unsigned package jobs; CodeQL `33264566368`
+    passed 52 rules with 0 results and 0 alerts.
+    This closes one active disconnect by Emergency Stop registration-disposal
+    cleanup-fault intersection only. All other cleanup owners/combinations, the
+    remaining fault and replacement/ABA matrices, Task 5, Task 5.5a, Task 5.5,
+    Tasks 6-10, every native/physical/release gate, and the Goal remain open;
+    `CreateProduction()` remains unavailable.
+    Test-only commit `6ff3fefaa667e23f309681fe5fe953ae97bb5861` adds the
+    fifteenth managed tracer case,
+    `RendererFailureLateAttachmentCannotRetargetReplacementDesktopGeneration`,
+    without changing production source. Generation 1 completes real
+    authenticated TCP, protocol 1.7, and `FSM1`, then blocks its accepted media
+    attachment after route attachment but before host-directory publication.
+    Renderer Prepare throws, Rejected is observed before fail-close, and the old
+    coordinator/control/directory/route/lease graph drains while that handler
+    remains gated. The same Device pair reconnects with strictly higher control
+    generations and fresh Session, Correlation, and Route IDs. Generation 2 is
+    independently blocked at the same publication boundary. Releasing only the
+    old gate produces the expected no-live-owner rejection; the replacement
+    remains current and pre-Admission with one route and zero capture, send,
+    render, or retained driving/controller generation. Releasing only the
+    replacement gate then
+    completes Applied Admission and one BGRA-to-JPEG-to-encrypted-media-to-decode-
+    and-render path before Stop and complete owner drain.
+    A deliberately shared-gate fixture was RED after 442 ms, and temporarily
+    removing the production exact-binding inequality guard made the focused test
+    hit its 30-second bound; the guard was immediately restored. Release-class
+    validation exposed the media-attachment handler's Completion-to-Exited
+    publication gap; later fresh-process pressure exposed participant renderer-
+    disposal publication lag. Explicit bounded barriers repaired both without a
+    production change. The final focused fact passed `1/1` in Debug and Release,
+    the tracer
+    passed `15/15` in each, 160 fresh alternating Debug/Release processes passed
+    `160/160`, Desktop passed `550/550`, and both complete solutions passed
+    `2239/2239`. Debug and Release warning-as-error builds completed with zero
+    warnings and errors; format, diff, direct/transitive vulnerability, explicit
+    TEST MODE composition, and simulator checks passed. Exact-SHA CI
+    `33266348260` passed `2239/2239` on macOS, Linux, and Windows plus Secret Scan
+    and all three reproducible unsigned package jobs. CodeQL `33266348243` passed
+    52 rules with 0 results and 0 exact-commit open alerts. Exact artifact IDs and
+    digests are in the managed tracer evidence.
+    This closes one full managed renderer-failure-to-replacement exact-binding
+    trace only. It does not complete the other replacement variants or the full
+    reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault cross-product.
+    Tasks 5, 5.5a, 5.5, and 6-10, every native/physical/release gate, and the Goal
+    remain open; `CreateProduction()` remains unavailable.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

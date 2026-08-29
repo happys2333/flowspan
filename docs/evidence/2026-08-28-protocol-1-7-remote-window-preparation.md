@@ -38,7 +38,17 @@ the initiator validates the FSM1 acknowledgement but before the host directory
 publication. Test-only commit `63a52e5` adds a thirteenth case in which
 fail-close and the coordinator/control/directory/route graph drain while one
 listener handler remains blocked, after which the delayed attachment is rejected
-and the handler settles without resurrection.
+and the handler settles without resurrection. Test-only commit `5e5f380` adds no
+case; it makes responder attachment publication an explicit bounded barrier in
+six post-attachment renderer-rejection fixtures. Test-only commit `8841080`
+adds a fourteenth case: one active authenticated disconnect with one Emergency
+Stop registration-disposal cleanup fault.
+Test-only commit `6ff3fefaa667e23f309681fe5fe953ae97bb5861` adds a fifteenth
+managed case that composes
+renderer rejection and old-generation cleanup with a strictly newer replacement
+generation in one Desktop ABA trace. Exact-SHA CI `33266348260` and CodeQL
+`33266348243` both passed; detailed artifact evidence is recorded in the managed
+tracer document.
 Those extensions are recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
@@ -477,6 +487,117 @@ not a full Desktop renderer-to-replacement trace, and the remaining replacement/
 ABA, per-boundary, combined-failure, native, physical, and release evidence stays
 open.
 
+## Subsequent renderer-rejection attachment-barrier checkpoint
+
+CI `33262767594` for documentation SHA
+`124b1a0c8325d7b469702682f8b7f14c1aebfa54` passed Ubuntu and Windows
+`2237/2237` but failed one macOS test. The initiator could verify the real `FSM1`
+acknowledgement and enter Missing-renderer rejection while the responder was
+still between acknowledgement write and host-directory attachment publication.
+The fixture then completed response cleanup and closed the responder's still-
+borrowed stream. This was a test-ordering gap, not a product failure.
+
+Test-only commit `5e5f380393a46021d8106a7f3fa817d3b7ac3765` leaves the
+managed tracer at thirteen cases and changes no production source. Six renderer-
+rejection fixtures now assert the exact rejection first, then use a bounded,
+cancellable responder attachment-publication barrier before initiating cleanup.
+A temporary 100-ms acknowledgement-to-publication delay reproduced the hosted
+exception deterministically; the barrier passed under that probe, after which the
+instrumentation was removed and the production diff returned to empty. Final
+local class Debug/Release passed `17/17`, 40 fresh alternating processes passed
+`680/680`, Desktop passed `548/548`, and both solutions passed `2237/2237`.
+
+Superseding exact-SHA CI
+[`33263840825`](https://github.com/happys2333/flowspan/actions/runs/33263840825)
+passed `2237/2237` on every hosted OS, Secret Scan, and all three unsigned package
+jobs. CodeQL
+[`33263840823`](https://github.com/happys2333/flowspan/actions/runs/33263840823)
+passed 52 rules with 0 results and 0 open alerts. Exact jobs, artifacts, and
+digests are recorded in the managed tracer evidence. The fixture barrier does
+not create a production guarantee that acknowledgement verification and
+responder directory publication are one event.
+
+## Subsequent authenticated-disconnect cleanup-fault checkpoint
+
+Test-only commit `8841080d8cfbfa3714b3cb7c6d858396ceb756b8` changes no
+production source and expands the managed tracer to fourteen cases. After real
+protocol-1.7 Preparation, `FSM1`, Admission, encrypted media, and one render, the
+participant authenticated-control disconnects. Emergency Stop registration
+disposal first removes its callback and then throws one injected `IOException`.
+The same failure remains observable through `TerminalFailure` and coordinator
+Dispose, while capture/input Emergency Stop and every later managed media,
+control, renderer, protection, permission, budget, route, and handler owner
+drain.
+
+Local focused Debug/Release passed `1/1`, 80 fresh alternating processes passed
+`80/80`, the tracer passed `14/14`, Desktop passed `549/549`, and both solutions
+passed `2238/2238`; warning-as-error, format, and diff gates passed. Exact-SHA CI
+[`33264566458`](https://github.com/happys2333/flowspan/actions/runs/33264566458)
+passed `2238/2238` on macOS, Linux, and Windows plus Secret Scan and all three
+unsigned package jobs. CodeQL
+[`33264566368`](https://github.com/happys2333/flowspan/actions/runs/33264566368)
+passed 52 rules with 0 results and 0 open alerts. Full artifact evidence is in
+the managed tracer document.
+
+This closes one active authenticated-disconnect by Emergency Stop registration-
+disposal cleanup-fault intersection only. Other cleanup owners and combinations,
+the remaining per-boundary matrix, a full Desktop replacement trace, and every
+native, physical, and release gate remain open.
+
+## Exact-SHA Desktop renderer-to-replacement ABA checkpoint
+
+Test-only commit `6ff3fefaa667e23f309681fe5fe953ae97bb5861` changes no
+production source and expands
+the managed tracer from fourteen to fifteen cases with
+`RendererFailureLateAttachmentCannotRetargetReplacementDesktopGeneration`.
+It establishes an old generation over real authenticated loopback TCP and
+protocol 1.7, completes `FSM1` route attachment, and gates the accepted old media
+handler before host-directory publication. The participant renderer Prepare
+throws, the real allowlisted Rejected result is observed before fail-close, and
+the old Start and complete coordinator/control/directory/route/lease graph drain
+while that handler remains blocked.
+
+The same Device pair reconnects over a second authenticated TCP connection with
+strictly higher host and participant control generations. The replacement has a
+fresh Session, correlation, and Route ID for the same Activity. It completes
+real `FSM1` on the participant and reaches its own independent pre-directory
+gate. Releasing only the old gate rejects the stale exact binding with the
+expected no-live-owning-control `InvalidDataException`; the replacement remains
+current and pending with zero Admission, capture, media send, or render. Releasing
+the replacement gate then yields `Applied`, final Admission, capture, and one
+BGRA-to-JPEG-to-encrypted-media-to-decode/render transfer. Explicit Stop drains
+every remaining managed owner across the replacement graph.
+
+Test sensitivity was demonstrated by a shared-gate RED after 442 ms (old release
+also released the replacement) and by a 30-second timeout RED when the production
+exact-binding inequality guard was temporarily removed; the guard was restored.
+The independent two-gate fixture is GREEN. Two test-owned scheduling gaps found
+during validation are now explicit bounded barriers: Completion-to-Exited handler
+publication and final renderer-disposal publication.
+
+After those fixture repairs, 160 fresh processes alternating Debug and Release
+passed `160/160`. Focused Debug/Release passed `1/1`, the tracer class passed
+`15/15`, Desktop passed `550/550`, and complete solutions passed `2239/2239` in
+both configurations. Warning-as-error builds completed with 0 warnings and 0
+errors. Format, diff, direct/transitive dependency vulnerability, TEST MODE
+composition, and simulator checks passed.
+
+Exact-SHA CI `33266348260` completed successfully. The downloaded macOS, Linux,
+and Windows artifacts (`9718793256`, `9718793971`, and `9718809301`) each contain
+12 TRX files summing to `2239/2239`, with every non-success counter zero. Secret
+Scan artifact `9718756058` contains SARIF 2.1.0 with 208 rules and 0 results. The
+three reproducible unsigned package jobs and artifacts (`9718829244`,
+`9718833748`, and `9718832840`) passed. CodeQL run `33266348243`, job
+`99136974922`, also passed; analysis `1692201085` evaluated 52 rules with 0
+results, and the exact-commit branch query returned 0 open alerts. Exact job,
+artifact, and digest records are in the managed tracer document.
+
+This closes one full Desktop renderer-failure-to-replacement ABA path, not the
+complete replacement/ABA or per-boundary fault matrix. Native APIs, physical
+Devices, signed/notarized packages, release acceptance, Tasks 5, 5.5a, 5.5 and
+6-10, and the long-term Flowspan Goal remain open. `CreateProduction()` must
+continue to report `native_adapters_unavailable`.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -508,8 +629,10 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current thirteen managed tracer cases and one exact-binding Transport
-  replacement-generation row;
+  from the current fifteen managed tracer cases, including one authenticated-
+  disconnect by one Emergency registration cleanup fault, one exact-binding
+  Transport replacement-generation row, and one full Desktop renderer-to-
+  replacement trace;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native
