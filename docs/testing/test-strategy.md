@@ -858,6 +858,29 @@ zero. Secret Scan, CodeQL analysis, and all three reproducible unsigned package
 jobs also passed. This closes the recorded Windows test-scheduling failure; it
 does not add product behavior or native/physical evidence.
 
+Docs SHA `908a04a2f465bccccf56b72fd36cb5f048506a63` then exposed a
+different renderer-tracer sampling race in Linux CI `33254082958`. Windows and
+macOS passed `2234/2234`; Linux passed `2233/2234`, with only the renderer
+`Throw` row failing because the factory sampled host `IsAttached == false`.
+Responder FSM1 legitimately writes its acknowledgement before it commits and
+publishes the host directory attachment, while the initiator may enter renderer
+preparation immediately after validating that acknowledgement. CodeQL and
+Secret Scan passed, but packages were skipped; the failed CI is diagnostic, not
+acceptance evidence.
+
+Test-only commit `ac48ec3aa88aa78f736b5550bc778a5ff4e95abb` makes the
+advertised bilateral-attachment boundary deterministic. The renderer fixture
+awaits both real media-session attachment completions with the bounded
+generation token, records an explicit completed barrier, and only then injects
+throw, Missing, or foreign cancellation. This is test-owned synchronization,
+not a new production happens-before rule. Debug and Release solutions passed
+`2234/2234`; the focused theory passed 120 case executions across 40 fresh,
+eight-way concurrent processes; and strict review found no P0/P1/P2. Exact-SHA
+CI `33254883850` and CodeQL `33254883851` succeeded, with each hosted OS at
+`2234/2234`, Secret Scan and all three unsigned package jobs passing. Immediate
+renderer failure after initiator acknowledgement but before host directory
+publication remains a separate open fault-matrix row.
+
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
 actual caller cancellation. Cleanup-fault injection and the complete
 per-boundary matrix remain open.

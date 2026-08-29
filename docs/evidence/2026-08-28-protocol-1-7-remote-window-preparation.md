@@ -30,8 +30,10 @@ Subsequent checkpoints expand that tracer to six cases at `761ac75`, nine at
 `0f1f32d0e8ea251194755a5b4d150d3e294433ff`. Test commits `45e2d49` and
 `5bb6d08` add an eleventh caller-cancellation case. These checkpoints include
 attachment, renderer, exact-deadline, and caller-cancellation fail-close
-ordering. Those extensions are
-recorded separately in
+ordering. Test-only commit `ac48ec3` adds no case; it makes the renderer
+fixture's bilateral-attachment-before-injected-failure boundary explicit rather
+than assuming responder directory publication precedes renderer entry. Those
+extensions are recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
 native adapters, physical-device proof, and release evidence remain absent.
@@ -330,6 +332,33 @@ reproducible unsigned package jobs also passed. These remain managed contract
 and packaging results, not native or physical evidence. This covers only one
 post-`FSM1`, pre-Admission caller cancellation; cleanup-fault and the full
 per-boundary matrix remain open.
+
+## Subsequent renderer attachment-evidence checkpoint
+
+Docs SHA `908a04a2f465bccccf56b72fd36cb5f048506a63` failed Linux CI
+`33254082958` in only the renderer `Throw` row. The initiator had validated the
+authenticated FSM1 acknowledgement and entered renderer preparation while the
+responder listener had not yet published the host directory attachment. That is
+a valid scheduling window: responder acknowledgement write precedes route
+attachment commit and directory handoff. Windows and macOS each passed
+`2234/2234`; Linux passed `2233/2234`. Secret Scan and CodeQL passed, but package
+jobs were skipped, so the run is diagnostic rather than acceptance evidence.
+
+Test-only commit `ac48ec3aa88aa78f736b5550bc778a5ff4e95abb` changes no
+production source. Its renderer fixture locates both real connection-owned media
+sessions and awaits both bounded `WaitForAttachmentAsync` completions before it
+injects throw, Missing, or foreign cancellation. The test records an explicit
+completed barrier and attachment-at-injected-failure state; this is test-owned
+synchronization, not a new production happens-before rule. Debug and Release
+solutions passed `2234/2234`, the final focused pressure passed `120/120`, and
+strict review found no P0/P1/P2.
+
+Exact-SHA CI `33254883850` and CodeQL `33254883851` succeeded. Windows,
+macOS, and Linux each passed `2234/2234`; Secret Scan and all three reproducible
+unsigned package jobs passed. This restores the advertised post-bilateral-
+attachment renderer-failure evidence. It does not cover immediate renderer
+failure after initiator acknowledgement but before host directory publication;
+that concurrency row and the complete fault matrix remain open.
 
 ## Review and remaining evidence
 

@@ -730,6 +730,126 @@ contract, TEST MODE composition, analysis, and unsigned-package evidence; they
 do not prove native capture/input/protection, physical two-Device behavior,
 signed packages, notarization, or release acceptance.
 
+## Hosted exact-SHA verification: renderer attachment barrier
+
+Docs commit `908a04a2f465bccccf56b72fd36cb5f048506a63` did not pass exact-SHA
+CI run
+[`33254082958`](https://github.com/happys2333/flowspan/actions/runs/33254082958).
+Windows job `99104665954` and macOS job `99104666009` succeeded at
+`2234/2234`. Ubuntu job `99104665963` produced 12 TRX files but passed only
+`2233/2234`; its Desktop TRX passed `545/546`. The only failure was the `Throw`
+row of
+`VerifiedFsm1AttachmentThenRendererFailureCommitsRejectionBeforeFailClose`,
+which reached the former host-session-attached assertion after 73 ms and
+observed false.
+
+| Platform | Artifact ID | Artifact SHA-256 | Result |
+| --- | ---: | --- | --- |
+| Linux | `9715297813` | `2855db7dbb5b0abaac1fae9540b07b66c8af0c0f6dd1c6db01fa71f7e0f68425` | `2233/2234`, one failed |
+| Windows | `9715294261` | `0153348a0bddf91350531a7a1d640d506634fd41a2161af0f3ba306a43002ce9` | `2234/2234` |
+| macOS | `9715291915` | `c299b2ef7a621a91e91a27db1e84f24379d09a4cd6b543c8dc6c2ff1b103aeb3` | `2234/2234` |
+
+Secret Scan job `99104665927` passed. Artifact `9715256084`, digest
+`715ee6aaf369d8dcfe77459e6001ca3fb5078cee3748ae4ec71c4c53dc5b068b`,
+is SARIF 2.1.0 with one run, 208 rules, and 0 results. CodeQL run
+[`33254082923`](https://github.com/happys2333/flowspan/actions/runs/33254082923)
+and job `99104665832` passed; exact-SHA analysis `1691726029` reports 52 rules
+and 0 results. Package jobs were skipped after the Linux test failure, so this
+CI run is diagnostic evidence rather than acceptance evidence.
+
+The failure exposed a test sampling race rather than a production defect.
+Responder attachment writes the authenticated `FSM1` acknowledgement before it
+commits the route as Attached and before the listener publishes the borrowed
+attachment into the host media-session directory. The initiator can validate
+that acknowledgement, publish its own attached session, and enter participant
+renderer preparation during that valid window. Therefore the old fixture could
+observe the exact host session while its `IsAttached` flag was still false.
+Production does not rely on bilateral attachment at renderer-factory entry: the
+participant relies on its verified acknowledgement, while the host separately
+waits for its local attachment before Admission.
+
+Test-only commit `ac48ec3aa88aa78f736b5550bc778a5ff4e95abb` changes no production
+source. The three renderer-failure rows now make their advertised
+"bilateral attachment, then renderer failure" boundary explicit: after locating
+both real connection-owned sessions, the test factory awaits both production
+`WaitForAttachmentAsync` completions with the generation/deadline token. Only
+then does `AttachmentBarrierCompleted` become true and the fixture inject throw,
+Missing, or foreign cancellation. `PrepareCount` increments before the barrier
+so a barrier cancellation remains diagnosable, and the sampled fields are named
+`AttachedAtInjectedFailure`. This is a test-owned synchronization point, not a
+claim that production naturally orders host directory publication before
+renderer entry.
+
+Representative local commands:
+
+```sh
+dotnet build Flowspan.slnx --configuration Debug --no-restore -warnaserror
+dotnet test Flowspan.slnx --configuration Debug --no-build --no-restore
+dotnet build Flowspan.slnx --configuration Release --no-restore -warnaserror
+dotnet test Flowspan.slnx --configuration Release --no-build --no-restore
+dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
+  --configuration Debug --no-build --no-restore \
+  --filter 'FullyQualifiedName~VerifiedFsm1AttachmentThenRendererFailureCommitsRejectionBeforeFailClose'
+seq 1 40 | xargs -P 8 -I{} sh -c \
+  'dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
+    --configuration Debug --no-build --no-restore \
+    --filter "FullyQualifiedName~VerifiedFsm1AttachmentThenRendererFailureCommitsRejectionBeforeFailClose" \
+    --logger "console;verbosity=quiet" >/dev/null'
+dotnet format Flowspan.slnx --verify-no-changes --no-restore
+git diff --check
+dotnet list Flowspan.slnx package --vulnerable --include-transitive --no-restore
+dotnet run --project src/Flowspan.Desktop/Flowspan.Desktop.csproj \
+  --configuration Release --no-build --no-restore -- --validate-composition
+dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
+  --configuration Release --no-build --no-restore
+```
+
+Debug and Release warning-as-error builds completed with zero warnings and
+errors. Both full solutions passed `2234/2234`, including Desktop `546/546`,
+Platform `219/219`, and Transport `701/701`. The focused Debug renderer theory
+passed `3/3`, the Release tracer class passed `11/11`, and 40 fresh Debug
+processes running eight at a time passed all three theory rows for `120/120`
+case executions in 36 seconds. Format, diff, direct/transitive NuGet
+vulnerability, explicit TEST MODE composition, and deterministic protocol-1.7
+simulator checks passed. Strict concurrency review found no P0/P1/P2 in the
+final change.
+
+At exact SHA `ac48ec3aa88aa78f736b5550bc778a5ff4e95abb`, CI run
+[`33254883850`](https://github.com/happys2333/flowspan/actions/runs/33254883850)
+and CodeQL run
+[`33254883851`](https://github.com/happys2333/flowspan/actions/runs/33254883851)
+both completed successfully.
+
+- Test jobs `99106739600` (Ubuntu), `99106739632` (Windows), and `99106739585`
+  (macOS) succeeded. Downloaded artifacts each contain 12 TRX files summing to
+  `2234/2234`, with failed, error, timeout, and aborted counters all zero:
+
+  | Platform | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | --- |
+  | Linux | `9715531765` | `cdc77345678598803ab60b65abfc593c8cf1cc0abe403f81dc9ec71e356ded30` |
+  | Windows | `9715550246` | `a2b464b994b384d3fc00510ceac4233daa5929e3e45d53d45f6932e11ff1c1e7` |
+  | macOS | `9715530823` | `b24cdd125f315b2920a2e78584a7dd4df3d2edfe6b24055c3a241c1a24f4331a` |
+
+- Secret Scan job `99106739552` passed. Artifact `9715493359`, digest
+  `0d7458cb357cd019f5e3341043b575c0fc9613284dd002ee92ce539e0cacc2c7`,
+  is SARIF 2.1.0 with one run, 208 rules, and 0 results.
+- CodeQL job `99106739392` passed. Exact-SHA analysis `1691759476` reports 52
+  rules and 0 results; the branch open-alert query returned 0.
+- All reproducible unsigned package jobs passed:
+
+  | Runtime | Job | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `linux-x64` | `99107259801` | `9715568980` | `a6556c80edd98a187b75b3f9c71c8445e79d04e029dfecf7d3c6f53892b5c794` |
+  | `win-x64` | `99107259811` | `9715574283` | `e2a81901fd0153bed0a35479186c983c050f6424c67cc8a595e322abd0fa0b04` |
+  | `osx-arm64` | `99107259839` | `9715574944` | `3b2782b96ca4fb9ca13b40bc7aa13b8cdeb579cec64c95862ee440762b85a7b0` |
+
+These results close the bilateral-attachment tracer's sampling race only. A
+renderer failure injected immediately after initiator acknowledgement but before
+host directory publication is a distinct concurrency row and remains open,
+along with the rest of the complete fault matrix. Nothing in this checkpoint
+proves native APIs, physical Devices, signed packages, notarization, or release
+acceptance.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -740,9 +860,10 @@ signed packages, notarization, or release acceptance.
   Emergency Stop are exercised. The managed permission-loss case closes
   admission, invokes local Emergency Stop, and converges the host owner graph to
   zero; it drives `Granted` to `Denied` and is not evidence of a real
-  operating-system permission transition. The renderer-preparation theory proves
-  bilateral exact-bound media attachment first, but still admits no participant,
-  capture, media send, or rendering authority. The expiry case additionally
+  operating-system permission transition. The renderer-preparation theory uses
+  a test-owned wait for bilateral exact-bound media attachment before injecting
+  failure, but still admits no participant, capture, media send, or rendering
+  authority. The expiry case additionally
   completes Ready and one renderer Prepare before exact deadline equality, then
   admits no participant or active generation. The caller-cancellation case keeps
   the harness alive but cancels the exact Start caller before deadline, with no
@@ -791,7 +912,7 @@ Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows, macOS, and Linux execution through `7b6a6d6` is managed-loopback and
+Hosted Windows, macOS, and Linux execution through `ac48ec3` is managed-loopback and
 contract evidence only. There is no evidence here for Windows, macOS, or Linux
 native capture/input/protection APIs; physical two-Device operation; signed or
 notarized packages; package lifecycle behavior; or full release acceptance.

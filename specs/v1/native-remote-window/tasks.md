@@ -278,6 +278,21 @@
     Secret Scan plus all three reproducible unsigned package jobs passed. This
     is test-infrastructure evidence, not a production feature or native/physical
     gate, and it closes none of Tasks 5, 5.5a, 5.5, or 6-10.
+    Docs SHA `908a04a` subsequently exposed a Linux renderer-tracer sampling
+    race in CI `33254082958`: Windows and macOS passed `2234/2234`, while Linux
+    passed `2233/2234` and only the renderer `Throw` row observed the host
+    session before responder directory publication. Test-only commit
+    `ac48ec3aa88aa78f736b5550bc778a5ff4e95abb` explicitly waits for both real
+    media-session attachment completions before injecting the three renderer
+    failures. Local Debug/Release solutions passed `2234/2234`, the focused
+    theory passed `120/120` under eight-way fresh-process pressure, and strict
+    review found no P0/P1/P2. Exact-SHA CI `33254883850` and CodeQL
+    `33254883851` succeeded; all three hosted OSes passed `2234/2234`, and
+    Secret Scan plus all reproducible unsigned package jobs passed. The barrier
+    is test-owned and adds no production ordering. Immediate renderer failure
+    between initiator acknowledgement and host directory publication remains an
+    open fault-matrix row, so this closes no Task, native/physical gate, release
+    criterion, or Goal.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
