@@ -2359,12 +2359,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     {
         EmergencyStopRegistration,
         CaptureEmergencyStop,
+        InputEmergencyStop,
+        HostConnectionDispose,
         CaptureEmergencyStopAndEmergencyStopRegistration,
     }
 
     [Theory]
     [InlineData(TerminalCleanupFault.EmergencyStopRegistration)]
     [InlineData(TerminalCleanupFault.CaptureEmergencyStop)]
+    [InlineData(TerminalCleanupFault.InputEmergencyStop)]
+    [InlineData(TerminalCleanupFault.HostConnectionDispose)]
     [InlineData(
         TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration)]
     public async Task AuthenticatedControlDisconnectCleanupFaultDrainsAndRemainsObservable(
@@ -2442,11 +2446,18 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         Task? participantRun = null;
         var captureInjected = new IOException(
             "injected capture Emergency Stop cleanup failure");
+        var inputInjected = new IOException(
+            "injected input Emergency Stop cleanup failure");
+        var connectionDisposeInjected = new IOException(
+            "injected host connection disposal cleanup failure");
         var registrationInjected = new IOException(
             "injected Emergency Stop registration cleanup failure");
         bool injectCapture = cleanupFault is
             TerminalCleanupFault.CaptureEmergencyStop
             or TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration;
+        bool injectInput = cleanupFault == TerminalCleanupFault.InputEmergencyStop;
+        bool injectConnectionDispose =
+            cleanupFault == TerminalCleanupFault.HostConnectionDispose;
         bool injectRegistration = cleanupFault is
             TerminalCleanupFault.EmergencyStopRegistration
             or TerminalCleanupFault.CaptureEmergencyStopAndEmergencyStopRegistration;
@@ -2454,7 +2465,10 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         {
             EmergencyStopFailure = injectCapture ? captureInjected : null,
         };
-        var input = new RecordingInputBoundary();
+        var input = new RecordingInputBoundary
+        {
+            EmergencyStopFailure = injectInput ? inputInjected : null,
+        };
         var permissions = new RecordingPermissionBoundary(
             NativeRemoteWindowPermissionSnapshot.Create(
                 NativeRemoteWindowPermissionState.Granted,
@@ -2521,7 +2535,10 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 new AuthenticatedDesktopRemoteWindowHostConnection(hostLease),
                 capture,
                 renderer,
-                rendererFactory);
+                rendererFactory,
+                injectedDisposeFailure: injectConnectionDispose
+                    ? connectionDisposeInjected
+                    : null);
             RemoteWindowCommandResult started = await coordinator.StartAsync(
                 new DesktopRemoteWindowHostStartRequest(
                     sourceLease,
@@ -2596,6 +2613,14 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             {
                 AssertCaptureProjection(expectedTerminalFailure, captureInjected);
             }
+            else if (cleanupFault == TerminalCleanupFault.InputEmergencyStop)
+            {
+                AssertInputProjection(expectedTerminalFailure, inputInjected);
+            }
+            else if (cleanupFault == TerminalCleanupFault.HostConnectionDispose)
+            {
+                Assert.Same(connectionDisposeInjected, expectedTerminalFailure);
+            }
             else
             {
                 AggregateException combinedFailure = Assert.IsType<
@@ -2613,18 +2638,26 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     StringComparison.Ordinal);
             }
             Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, activeBudget.Snapshot);
-            int expectedEmergencyStopCount = injectCapture ? 2 : 1;
+            bool injectEmergencyBoundary = injectCapture || injectInput;
+            int expectedEmergencyStopCount = injectEmergencyBoundary ? 2 : 1;
             Assert.Equal(expectedEmergencyStopCount, capture.EmergencyStopCount);
             Assert.Equal(
                 injectCapture ? 1 : 0,
                 capture.EmergencyStopFailureCount);
             Assert.Equal(expectedEmergencyStopCount, input.EmergencyStopCount);
             Assert.Equal(
-                injectCapture ? 3 : 2,
+                injectInput ? 1 : 0,
+                input.EmergencyStopFailureCount);
+            Assert.Equal(
+                injectInput ? 1 : 0,
+                input.EmergencyStopAppliedBeforeFailureCount);
+            Assert.Equal(
+                injectEmergencyBoundary ? 3 : 2,
                 sessions.DisconnectAllCount);
             Assert.Equal(1, capture.StopCount);
             Assert.Equal(1, input.StopCount);
             Assert.False(capture.HasCurrentCapture);
+            Assert.True(input.IsEmergencyStopped);
             Assert.True(renderer.IsDisposed);
             Assert.True(protection.IsDisposed);
             Assert.Equal(0, permissions.ObserverCount);
@@ -2633,6 +2666,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.False(hostConnection.IsCurrent);
             Assert.Equal(1, hostConnection.FailCloseCount);
             Assert.Equal(1, hostConnection.DisposeCount);
+            Assert.Equal(
+                injectConnectionDispose ? 1 : 0,
+                hostConnection.DisposeFailureCount);
             Assert.False(hostMedia.TryGet(ParticipantDeviceId, out _));
             Assert.False(participantMedia.TryGet(HostDeviceId, out _));
             Assert.Equal(0, hostMedia.Routes.Count);
@@ -2767,6 +2803,28 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Null(projectedFailure.InnerException);
             Assert.DoesNotContain(
                 captureFailure.Message,
+                projectedFailure.ToString(),
+                StringComparison.Ordinal);
+        }
+
+        static void AssertInputProjection(
+            Exception projected,
+            Exception inputFailure)
+        {
+            InvalidOperationException projectedFailure = Assert.IsType<
+                InvalidOperationException>(projected);
+            Assert.Equal(
+                "Remote Window host emergency stop was not fully confirmed "
+                    + "(capture=native_capture_emergency_stopped, "
+                    + "input=local_boundary_exception, "
+                    + "sessions=all_peers_disconnected).",
+                projectedFailure.Message,
+                ignoreCase: false,
+                ignoreLineEndingDifferences: false,
+                ignoreWhiteSpaceDifferences: false);
+            Assert.Null(projectedFailure.InnerException);
+            Assert.DoesNotContain(
+                inputFailure.Message,
                 projectedFailure.ToString(),
                 StringComparison.Ordinal);
         }
@@ -3204,13 +3262,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         RecordingRenderer renderer,
         RecordingRendererFactory rendererFactory,
         Func<RemoteWindowPreparationRequest, ValueTask>?
-            afterMediaAttachment = null) :
+            afterMediaAttachment = null,
+        Exception? injectedDisposeFailure = null) :
         IDesktopRemoteWindowHostConnection
     {
         private int admissionPublishCount;
         private int admissionPublished;
         private int attachmentObserved;
         private int disposeCount;
+        private Exception? disposeFailure = injectedDisposeFailure;
+        private int disposeFailureCount;
         private int failCloseCount;
         private int mediaSendCount;
         private int mediaSentBeforeAdmissionCount;
@@ -3227,6 +3288,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         public bool IsCurrent => inner.IsCurrent;
 
         public int DisposeCount => Volatile.Read(ref disposeCount);
+
+        public int DisposeFailureCount => Volatile.Read(ref disposeFailureCount);
 
         public int FailCloseCount => Volatile.Read(ref failCloseCount);
 
@@ -3246,10 +3309,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         public int WaitForMediaAttachmentCount =>
             Volatile.Read(ref waitForMediaAttachmentCount);
 
-        public ValueTask DisposeAsync()
+        public async ValueTask DisposeAsync()
         {
             Interlocked.Increment(ref disposeCount);
-            return inner.DisposeAsync();
+            await inner.DisposeAsync().ConfigureAwait(false);
+            Exception? failure = Interlocked.Exchange(ref disposeFailure, null);
+            if (failure is not null)
+            {
+                Interlocked.Increment(ref disposeFailureCount);
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            }
         }
 
         public ValueTask FailCloseAsync()
@@ -3616,7 +3685,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     {
         private readonly object gate = new();
         private readonly List<RemoteInputBatch> batches = [];
+        private Exception? emergencyStopFailure;
+        private int emergencyStopApplied;
+        private int emergencyStopAppliedBeforeFailureCount;
         private int emergencyStopCount;
+        private int emergencyStopFailureCount;
         private int stopCount;
 
         public IReadOnlyList<RemoteInputBatch> Batches
@@ -3631,6 +3704,21 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         }
 
         public int EmergencyStopCount => Volatile.Read(ref emergencyStopCount);
+
+        public Exception? EmergencyStopFailure
+        {
+            get => Volatile.Read(ref emergencyStopFailure);
+            init => emergencyStopFailure = value;
+        }
+
+        public int EmergencyStopFailureCount =>
+            Volatile.Read(ref emergencyStopFailureCount);
+
+        public int EmergencyStopAppliedBeforeFailureCount =>
+            Volatile.Read(ref emergencyStopAppliedBeforeFailureCount);
+
+        public bool IsEmergencyStopped =>
+            Volatile.Read(ref emergencyStopApplied) != 0;
 
         public ActivityId? LastSourceActivityId { get; private set; }
 
@@ -3655,6 +3743,22 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         public LocalBoundaryResult EmergencyStopNow()
         {
             Interlocked.Increment(ref emergencyStopCount);
+            Volatile.Write(ref emergencyStopApplied, 1);
+            Exception? failure = Interlocked.Exchange(
+                ref emergencyStopFailure,
+                null);
+            if (failure is not null)
+            {
+                if (Volatile.Read(ref emergencyStopApplied) != 0)
+                {
+                    Interlocked.Increment(
+                        ref emergencyStopAppliedBeforeFailureCount);
+                }
+
+                Interlocked.Increment(ref emergencyStopFailureCount);
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            }
+
             return LocalBoundaryResult.Confirmed("native_input_emergency_stopped");
         }
 
