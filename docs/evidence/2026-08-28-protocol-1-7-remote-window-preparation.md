@@ -25,9 +25,11 @@ two-node tracer that consumed the lease.
 The later implementation commit `7255f04` adds the verified peer-endpoint
 connector, host/participant Preparation components, host coordinator, fixed host
 control router, and four deliberately narrow managed two-node tracer scenarios.
-Subsequent checkpoints expand that tracer to six cases at `761ac75` and nine at
-`fde38b2bae9d02f177fd86e22a8beecb060325e9`, including attachment and renderer
-preparation fail-close ordering. Those extensions are recorded separately in
+Subsequent checkpoints expand that tracer to six cases at `761ac75`, nine at
+`fde38b2bae9d02f177fd86e22a8beecb060325e9`, and ten in test-only commit
+`0f1f32d0e8ea251194755a5b4d150d3e294433ff`, including attachment, renderer,
+and exact-deadline preparation fail-close ordering. Those extensions are
+recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
 native adapters, physical-device proof, and release evidence remain absent.
@@ -267,6 +269,37 @@ zero. Secret Scan and all three reproducible unsigned package jobs also passed.
 These remain managed contract and packaging results, not native or physical
 Remote Window evidence.
 
+## Subsequent test-only preparation-expiry checkpoint
+
+Test-only commit `0f1f32d0e8ea251194755a5b4d150d3e294433ff` changes no
+production source. Its tenth managed tracer case completes real authenticated
+protocol 1.7 with a signed, verified endpoint, successful `FSM1` and Ready, one
+renderer Prepare, and independently verified bilateral media attachment with the
+exact protocol, Device, Session, and Activity binding. A coordinator-only
+`MutableClock` then advances exactly to the request deadline. Existing production
+`EnsurePreparationIsCurrent` treats equality as expired and produces the
+allowlisted `preparation_expired` result before Admission or capture.
+
+The test observes one media-attachment wait, zero Admission publication,
+capture, media send, and render, followed by one host fail-close and one Dispose.
+Snapshot and TerminalFailure are null. ActiveMediaBudget is null because no
+active generation was published; the test does not claim to observe a pending
+budget. Renderer, route, directory, handler, lease, channel, and control owners
+drain to zero, and the old generation cannot be reacquired.
+
+Local macOS focused Debug and Release runs passed `1/1`, the full managed tracer
+class passed `10/10` in each configuration, both warning-as-error builds
+completed with zero warnings and errors, and both complete solutions passed
+`2233/2233`, including Desktop `545/545` and Transport `701/701`. Format, diff,
+direct/transitive dependency vulnerability, explicit TEST MODE composition, and
+simulator checks passed. Internal strict review reported no P0/P1/P2 finding but
+is not an external audit. The commit is not pushed; exact-SHA hosted CI and
+CodeQL remain pending and no hosted result is claimed.
+
+This checkpoint covers only one post-`FSM1`, pre-Admission timeout. Actual caller
+cancellation, cleanup-fault injection, and the full per-boundary matrix remain
+open.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -298,7 +331,7 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current nine managed tracer cases;
+  from the current ten managed tracer cases;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native

@@ -707,9 +707,24 @@ and therefore uses eager fail-close. Explicit close and deadline expiry share
 one cleanup, owner revocation cancels the watchdog, and tests retain primary
 renderer failure together with cleanup and lifecycle failures.
 
+Test-only checkpoint `0f1f32d0e8ea251194755a5b4d150d3e294433ff`
+adds a tenth tracer case without changing production source. After real
+authenticated protocol 1.7 with a signed, verified endpoint, successful `FSM1`
+and Ready, and one renderer Prepare, the test independently observes both media
+sessions as attached to the exact protocol, Device, Session, and Activity
+binding. A coordinator-only `MutableClock` is then set exactly to the request
+deadline. The existing production `EnsurePreparationIsCurrent` equality check
+fails closed with allowlisted `preparation_expired`. `WaitForMediaAttachment`
+runs once; Admission publication, capture, media send, and rendering remain at
+zero. Host fail-close and Dispose each run once. Snapshot and TerminalFailure
+are null; ActiveMediaBudget is null because no active generation was published,
+not because this test observed a pending budget. Renderer, route, directory,
+handler, lease, channel, and control ownership drain to zero, and the retired
+generation cannot be reacquired.
+
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current nine scenarios are not the required matrix; its per-boundary
+current ten scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -739,6 +754,20 @@ Exact-SHA CI `33249181870` and CodeQL `33249181871` for `fde38b2` both
 succeeded. Downloaded Windows, macOS, and Linux artifacts each contain 12 TRX
 files summing to `2232/2232`, with every non-success counter zero. Secret Scan
 and all three reproducible unsigned package jobs also passed.
+
+At test-only SHA `0f1f32d`, local macOS focused expiry runs passed `1/1` in
+Debug and Release, and the complete managed tracer class passed `10/10` in both
+configurations. Warning-as-error builds completed with zero warnings and errors;
+the complete Debug and Release solutions each passed `2233/2233`, including
+Desktop `545/545` and Transport `701/701`. Formatting, diff, direct/transitive
+NuGet vulnerability, explicit TEST MODE composition, and deterministic simulator
+checks passed. Internal strict review reported no P0, P1, or P2 finding, which is
+not an external audit. The commit has not been pushed; exact-SHA hosted CI and
+CodeQL remain pending, and no hosted result is claimed for this test-only tree.
+
+This addition covers one post-`FSM1`, pre-Admission deadline-equality timeout.
+Actual caller cancellation, cleanup-fault injection, and the complete
+per-boundary matrix remain open.
 
 The hosted matrices are cross-platform managed contract evidence,
 not evidence for native platform APIs, two physical devices, accessibility,

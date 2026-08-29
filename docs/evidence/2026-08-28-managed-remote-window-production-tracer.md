@@ -215,6 +215,33 @@ audit, and reproducible unsigned packaging on the named runners. They do not
 prove native API behavior, physical two-Device operation, signed packages, or
 notarization.
 
+### Subsequent test-only checkpoint: preparation expiry
+
+Test-only commit `0f1f32d0e8ea251194755a5b4d150d3e294433ff` changes no
+production source and expands the managed tracer from nine to ten cases.
+`VerifiedFsm1AttachmentThenPreparationExpiryFailsClosedBeforeAdmissionOrCapture`
+uses real authenticated protocol 1.7 and a signed, verified candidate with the
+expected endpoint, identity fingerprint, and negotiated version. It completes
+`FSM1` and Ready, invokes renderer factory Prepare exactly once, and independently
+observes both host and participant media sessions with `IsAttached == true` and
+the exact protocol, Device pair, Session, and Activity binding.
+
+Only then does the test-only coordinator `MutableClock` move exactly to
+`request.Deadline`. Existing production `EnsurePreparationIsCurrent` treats
+deadline equality as expired and returns the allowlisted
+`preparation_expired`. Media-attachment wait occurs once. Admission publication,
+capture, media send, and rendering remain at zero. Host fail-close and Dispose
+each occur once. Snapshot and TerminalFailure are null. ActiveMediaBudget is
+null because no active generation was published; this is not a claim that the
+test observed a pending media budget. Renderer, route, both directories,
+handler, lease, channel, and control owners drain to zero, and the old connection
+generation cannot be reacquired.
+
+This is one deterministic post-`FSM1`, pre-Admission timeout case. It does not
+cover actual caller cancellation, cleanup-fault injection, or the complete
+per-boundary fault matrix. The commit has not been pushed; exact-SHA hosted CI
+and CodeQL remain pending and no hosted result is claimed.
+
 ## Baseline proven slices
 
 `DesktopRemoteWindowManagedTwoNodeTracerTests` contains four authenticated
@@ -434,6 +461,21 @@ P2 finding. That is a code-review result, not an external security audit. The
 separate exact-SHA hosted results are recorded above and do not change the local
 evidence boundary.
 
+### Test-only preparation-expiry local verification: `0f1f32d`
+
+The test-only checkpoint was verified on local macOS in Debug and Release. The
+focused expiry case passed `1/1` in each configuration, and the complete managed
+tracer class passed `10/10` in each. Warning-as-error solution builds completed
+with 0 warnings and 0 errors. The complete Debug and Release solutions each
+passed `2233/2233`, including Desktop `545/545` and Transport `701/701`.
+Formatting, diff, direct/transitive NuGet vulnerability, explicit TEST MODE
+composition, and deterministic protocol-1.7 simulator checks passed.
+
+Internal strict review reported no P0, P1, or P2 finding. That is a code-review
+result, not an external security audit. Because the commit is not pushed, there
+is no exact-SHA hosted CI, CodeQL, Secret Scan, Windows/Linux execution, or
+package result for this checkpoint; all remain pending.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -446,13 +488,16 @@ evidence boundary.
   zero; it drives `Granted` to `Denied` and is not evidence of a real
   operating-system permission transition. The renderer-preparation theory proves
   bilateral exact-bound media attachment first, but still admits no participant,
-  capture, media send, or rendering authority.
+  capture, media send, or rendering authority. The expiry case additionally
+  completes Ready and one renderer Prepare before exact deadline equality, then
+  admits no participant or active generation.
 - **T08:** the success path carries `FSM1` and encrypted media through the real
   production listener and decodes JPEG at the participant.
 - **T10:** verified-endpoint attachment reset exposes only
   `media_attachment_failed`, not the socket exception or endpoint details.
   Renderer throw and foreign cancellation expose only `renderer_start_failed`;
-  null/Missing exposes only `renderer_unavailable`.
+  null/Missing exposes only `renderer_unavailable`; exact deadline equality
+  exposes only `preparation_expired`.
 - **T13:** terminal authenticated-control disconnect, capability revocation,
   managed permission loss, and verified-endpoint attachment reset after TCP
   accept converge the relevant ownership graph to zero. The three renderer
@@ -461,7 +506,11 @@ evidence boundary.
   commit, retains the request deadline through a maximum-10-second watchdog,
   survives lease disposal, and preserves primary plus cleanup/lifecycle
   failures. Explicit and deadline close share one cleanup; actual linked
-  cancellation or deadline expiry remains eager.
+  cancellation or deadline expiry remains eager. The test-only expiry case
+  observes one media-attachment wait, then one host fail-close and one Dispose;
+  it drains renderer, route, directory, handler, lease, channel, and control
+  owners without publishing Admission or an active generation, and the old
+  generation cannot be reacquired.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -471,10 +520,12 @@ evidence boundary.
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the nine current cases above and does not establish that complete matrix.
+only the ten current cases above and does not establish that complete matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every
 malformed, tampered, timeout, cancellation, listener, or cleanup-fault boundary.
+The new expiry case covers only one post-`FSM1`, pre-Admission timeout; actual
+caller cancellation and cleanup-fault coverage remain open.
 
 Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this

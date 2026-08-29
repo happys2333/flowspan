@@ -209,6 +209,31 @@
     all three reproducible unsigned package jobs also passed. These hosted
     results remain managed contract and packaging evidence, not native or
     physical Remote Window proof.
+    Test-only checkpoint `0f1f32d0e8ea251194755a5b4d150d3e294433ff`
+    adds no production source change and expands the managed tracer from nine to
+    ten cases. `VerifiedFsm1AttachmentThenPreparationExpiryFailsClosedBeforeAdmissionOrCapture`
+    completes real authenticated protocol 1.7 with a signed, verified endpoint,
+    successful `FSM1` and Ready, one renderer Prepare, and independently proves
+    both media sessions are attached to the exact protocol, Device, Session, and
+    Activity binding. The test-only coordinator clock is then set exactly to the
+    request deadline. Production `EnsurePreparationIsCurrent` treats equality as
+    expired and returns the allowlisted `preparation_expired` result. Media
+    attachment wait occurs once, while Admission publication, capture, media
+    send, and rendering remain zero. Host fail-close and disposal each occur
+    once; Snapshot and TerminalFailure are null, and ActiveMediaBudget is null
+    because no active generation was published. Renderer, route, directory,
+    handler, lease, channel, and control owners drain to zero, and the retired
+    generation cannot be reacquired. Local macOS Debug and Release focused runs
+    passed `1/1`, the whole tracer class passed `10/10`, warning-as-error builds
+    completed with zero warnings and errors, and both complete solutions passed
+    `2233/2233`, including Desktop `545/545` and Transport `701/701`. Format,
+    diff, dependency-vulnerability, explicit TEST MODE composition, and simulator
+    checks passed. Internal strict review reported no P0/P1/P2 finding but is not
+    an external audit. This checkpoint is not pushed; exact-SHA hosted CI and
+    CodeQL remain pending and no hosted result is claimed.
+    This adds only one post-`FSM1`, pre-Admission timeout case; actual caller
+    cancellation, cleanup-fault coverage, and the full per-boundary matrix remain
+    open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
