@@ -115,6 +115,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.True(permissions.SnapshotReadCount >= 2);
         AssertOrdered(
             timeline,
+            "protection.read",
             "connection.route",
             "connection.prepare",
             "connection.wait_media",
@@ -126,6 +127,537 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             "connection.send_media");
         _ = await coordinator.StopAsync();
         Assert.Throws<InvalidOperationException>(() => controlPeer.SessionId);
+    }
+
+    [Fact]
+    public async Task UnsafeProtectionRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var unsafeProtection = host.CreateProtection(
+            new ProtectionSnapshot(
+                ProtectionKind.SecureInput,
+                Now,
+                "test-protection"));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, unsafeProtection)));
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.Equal(
+            ["protection.read", "connection.dispose"],
+            host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.True(unsafeProtection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task UnavailableEmergencyStopRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.EmergencyStops.ReadinessResult = LocalBoundaryResult.Failed(
+            "emergency_stop_unavailable");
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_unavailable", failure.Message);
+        Assert.Equal(
+            [
+                "protection.read",
+                "emergency_stop.readiness",
+                "connection.dispose",
+            ],
+            host.Timeline);
+        Assert.Equal(1, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task EmergencyStopReadinessThrowIsRedactedBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException(
+            "FLOWSPAN_EMERGENCY_STOP_READINESS_CANARY");
+        host.EmergencyStops.ReadinessFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_readiness_unavailable", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Equal(
+            [
+                "protection.read",
+                "emergency_stop.readiness",
+                "connection.dispose",
+            ],
+            host.Timeline);
+        Assert.Equal(1, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionReadThrowIsRedactedBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_PROTECTION_READ_CANARY");
+        host.Protection.ReadFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Equal(
+            ["protection.read", "connection.dispose"],
+            host.Timeline);
+        Assert.Equal(1, host.Protection.SnapshotReadCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationAfterProtectionPreflightRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.Protection.Reading = cancellation.Cancel;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(
+            ["protection.read", "connection.dispose"],
+            host.Timeline);
+        Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationAfterEmergencyReadinessRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.EmergencyStops.CheckingReadiness = cancellation.Cancel;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(
+            [
+                "protection.read",
+                "emergency_stop.readiness",
+                "connection.dispose",
+            ],
+            host.Timeline);
+        Assert.Equal(1, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionRevocationDuringProtectionPreflightRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Protection.Reading = host.Connection.Revoke;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.Equal(
+            ["protection.read", "connection.dispose"],
+            host.Timeline);
+        Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionRevocationDuringEmergencyReadinessRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.EmergencyStops.CheckingReadiness = host.Connection.Revoke;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.Equal(
+            [
+                "protection.read",
+                "emergency_stop.readiness",
+                "connection.dispose",
+            ],
+            host.Timeline);
+        Assert.Equal(1, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationAfterInitialHostFactsRejectsBeforeSafetyOrRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.Authorization.Reading = cancellation.Cancel;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(["connection.dispose"], host.Timeline);
+        Assert.Equal(0, host.Protection.SnapshotReadCount);
+        Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PreparationExpiryDuringEmergencyReadinessRejectsBeforeRouteOrPrepare()
+    {
+        var clock = new MutableClock(Now);
+        using var host = new ReadyHostHarness(clock);
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.EmergencyStops.CheckingReadiness = () =>
+            clock.UtcNow = Now.AddSeconds(5);
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("preparation_expired", failure.Message);
+        Assert.Equal(
+            [
+                "protection.read",
+                "emergency_stop.readiness",
+                "connection.dispose",
+            ],
+            host.Timeline);
+        Assert.Equal(1, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task SourceInvalidationDuringProtectionPreflightRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Protection.Reading = host.InvalidateSource;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_source_stale", failure.Message);
+        Assert.Equal(
+            ["protection.read", "connection.dispose"],
+            host.Timeline);
+        Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CapturePermissionRevocationDuringProtectionPreflightRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Protection.Reading = () => host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 2));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PreRoutePermissionRevocationWaitsForStartedFailCloseFailure()
+    {
+        using var host = new ReadyHostHarness();
+        DesktopRemoteWindowHostCoordinator coordinator = host.Coordinator;
+        var injected = new IOException("injected pre-route fail-close failure");
+        host.Connection.BlockFailClose = true;
+        host.Connection.FailCloseFailure = injected;
+        host.Protection.Reading = () => host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 2));
+
+        Task<RemoteWindowCommandResult> start = host.StartAsync().AsTask();
+        await host.Connection.WaitForFailCloseEnteredAsync();
+        bool waitedForFailClose = !start.IsCompleted;
+        host.Connection.ReleaseFailClose();
+        Exception? observed = await Record.ExceptionAsync(async () => await start);
+
+        Assert.True(waitedForFailClose);
+        AggregateException failure = Assert.IsType<AggregateException>(observed);
+        Assert.Collection(
+            failure.InnerExceptions,
+            primary => Assert.Contains(
+                "authenticated_connection_stale",
+                Assert.IsType<InvalidOperationException>(primary).Message),
+            cleanup => Assert.Same(injected, cleanup));
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Same(injected, coordinator.TerminalFailure);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+        IOException terminal = await Assert.ThrowsAsync<IOException>(async () =>
+            await coordinator.DisposeAsync());
+        Assert.Same(injected, terminal);
+    }
+
+    [Fact]
+    public async Task MirrorGrantRevocationDuringEmergencyReadinessRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.EmergencyStops.CheckingReadiness = () =>
+            host.Authorization.CurrentGrant = CapabilityGrant.None;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("mirror_capability_denied", failure.Message);
+        Assert.Equal(
+            [
+                "protection.read",
+                "emergency_stop.readiness",
+                "connection.dispose",
+            ],
+            host.Timeline);
+        Assert.Equal(1, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationDuringFinalHostFactCheckRejectsBeforeRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.Authorization.Reading = () =>
+        {
+            if (host.Authorization.ReadCount == 3)
+            {
+                cancellation.Cancel();
+            }
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(3, host.Authorization.ReadCount);
+        Assert.Equal(
+            [
+                "protection.read",
+                "emergency_stop.readiness",
+                "connection.dispose",
+            ],
+            host.Timeline);
+        Assert.Equal(1, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationDuringFirstHostFactRevalidationRejectsBeforeEmergencyReadiness()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.Authorization.Reading = () =>
+        {
+            if (host.Authorization.ReadCount == 2)
+            {
+                cancellation.Cancel();
+            }
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(2, host.Authorization.ReadCount);
+        Assert.Equal(
+            ["protection.read", "connection.dispose"],
+            host.Timeline);
+        Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PermissionReadThrowIsRedactedBeforeSafetyOrRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_PERMISSION_READ_CANARY");
+        host.Permissions.SnapshotFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Equal(["connection.dispose"], host.Timeline);
+        Assert.Equal(1, host.Permissions.SnapshotReadCount);
+        Assert.Equal(0, host.Protection.SnapshotReadCount);
+        Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionCurrentReadThrowIsRedactedBeforeSafetyOrRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_CONNECTION_READ_CANARY");
+        host.Connection.CurrentReadFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Equal(["connection.dispose"], host.Timeline);
+        Assert.Equal(1, host.Connection.CurrentReadCount);
+        Assert.Equal(0, host.Permissions.SnapshotReadCount);
+        Assert.Equal(0, host.Protection.SnapshotReadCount);
+        Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
     }
 
     [Fact]
@@ -1113,7 +1645,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         foreach (string entry in expected)
         {
             int current = -1;
-            for (int index = 0; index < timeline.Count; index++)
+            for (int index = previous + 1; index < timeline.Count; index++)
             {
                 if (StringComparer.Ordinal.Equals(timeline[index], entry))
                 {
@@ -1165,7 +1697,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         private readonly NativeRemoteWindowSourceRegistration registration;
         private readonly NativeRemoteWindowSourceLease sourceLease;
 
-        public ReadyHostHarness()
+        public ReadyHostHarness(IClock? clock = null)
         {
             registration = sources.RegisterGeneric(CreateMetadata());
             sourceLease = AcquireLease(sources, registration.Snapshot);
@@ -1187,11 +1719,12 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             {
                 PrepareResponse = ReadyPreparation,
             };
+            Authorization = new FixedAuthorizationSource(
+                CapabilityGrant.Of(Capability.MirrorView));
             Coordinator = new DesktopRemoteWindowHostCoordinator(
-                new FixedClock(Now),
+                clock ?? new FixedClock(Now),
                 Permissions,
-                new FixedAuthorizationSource(
-                    CapabilityGrant.Of(Capability.MirrorView)),
+                Authorization,
                 Capture,
                 Input,
                 new RecordingSharingSessionBoundary(),
@@ -1202,6 +1735,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         }
 
         public RecordingCaptureBoundary Capture { get; }
+
+        public FixedAuthorizationSource Authorization { get; }
 
         public RecordingHostConnection Connection { get; }
 
@@ -1228,10 +1763,11 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
                 protection,
                 MirrorParticipantRole.ViewOnly);
 
-        public RecordingProtectionSource CreateProtection() => new(
+        public RecordingProtectionSource CreateProtection(
+            ProtectionSnapshot? protection = null) => new(
             Timeline,
             NativeRemoteWindowProtectionObservation.Create(
-                SafeAt(Now),
+                protection ?? SafeAt(Now),
                 ownerGeneration: 1,
                 sessionGeneration: 1,
                 registration.Source.SourceGeneration,
@@ -1239,6 +1775,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public ValueTask<RemoteWindowCommandResult> StartAsync() =>
             Coordinator.StartAsync(CreateRequest(Connection, Protection));
+
+        public void InvalidateSource() => registration.Dispose();
 
         public void Dispose()
         {
@@ -1261,13 +1799,18 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     private sealed class FixedAuthorizationSource(CapabilityGrant grant) :
         IMirrorAuthorizationSource
     {
+        public CapabilityGrant CurrentGrant { get; set; } = grant;
+
+        public Action? Reading { get; set; }
+
         public int ReadCount { get; private set; }
 
         public CapabilityGrant GetCurrentGrant(DeviceId peerDeviceId)
         {
             Assert.Equal(ParticipantDeviceId, peerDeviceId);
             ReadCount++;
-            return grant;
+            Reading?.Invoke();
+            return CurrentGrant;
         }
     }
 
@@ -1294,11 +1837,18 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public int ObserverCount { get; private set; }
 
+        public Exception? SnapshotFailure { get; set; }
+
         public int SnapshotReadCount { get; private set; }
 
         public NativeRemoteWindowPermissionSnapshot GetSnapshot()
         {
             SnapshotReadCount++;
+            if (SnapshotFailure is { } failure)
+            {
+                throw failure;
+            }
+
             return current;
         }
 
@@ -1348,6 +1898,10 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public bool IsDisposed { get; private set; }
 
+        public Exception? ReadFailure { get; set; }
+
+        public Action? Reading { get; set; }
+
         public int SnapshotReadCount { get; private set; }
 
         public event Action<NativeRemoteWindowProtectionObservation>? Changed
@@ -1365,6 +1919,12 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         {
             timeline.Add("protection.read");
             SnapshotReadCount++;
+            Reading?.Invoke();
+            if (ReadFailure is { } failure)
+            {
+                throw failure;
+            }
+
             latest = observation;
             return true;
         }
@@ -1379,10 +1939,32 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     private sealed class RecordingEmergencyStopRegistrar(List<string> timeline) :
         ILocalEmergencyStopRegistrar
     {
+        public LocalBoundaryResult ReadinessResult { get; set; } =
+            LocalBoundaryResult.Confirmed("emergency_stop_ready");
+
+        public Exception? ReadinessFailure { get; set; }
+
+        public Action? CheckingReadiness { get; set; }
+
+        public int ReadinessCheckCount { get; private set; }
+
         public RecordingEmergencyStopRegistration? CurrentRegistration
         {
             get;
             private set;
+        }
+
+        public LocalBoundaryResult CheckReadiness()
+        {
+            timeline.Add("emergency_stop.readiness");
+            ReadinessCheckCount++;
+            CheckingReadiness?.Invoke();
+            if (ReadinessFailure is { } failure)
+            {
+                throw failure;
+            }
+
+            return ReadinessResult;
         }
 
         public LocalEmergencyStopRegistrationResult TryRegister(
@@ -1621,6 +2203,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         IDesktopRemoteWindowHostConnection
     {
         private readonly TaskCompletionSource failClosed = NewCompletion();
+        private readonly TaskCompletionSource failCloseEntered = NewCompletion();
+        private readonly TaskCompletionSource failCloseRelease = NewCompletion();
         private readonly TaskCompletionSource disposeEntered = NewCompletion();
         private readonly TaskCompletionSource disposeRelease = NewCompletion();
         private readonly TaskCompletionSource disposed = NewCompletion();
@@ -1642,7 +2226,11 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public bool BlockDisposal { get; set; }
 
+        public bool BlockFailClose { get; set; }
+
         public Exception? DisposeFailure { get; set; }
+
+        public Exception? FailCloseFailure { get; set; }
 
         public Exception? RouteSelectionFailure { get; set; }
 
@@ -1655,11 +2243,18 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public int CurrentReadCount { get; private set; }
 
+        public Exception? CurrentReadFailure { get; set; }
+
         public bool IsCurrent
         {
             get
             {
                 CurrentReadCount++;
+                if (CurrentReadFailure is { } failure)
+                {
+                    throw failure;
+                }
+
                 return isCurrent;
             }
         }
@@ -1776,17 +2371,35 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             }
         }
 
-        public ValueTask FailCloseAsync()
+        public async ValueTask FailCloseAsync()
         {
             timeline.Add("connection.fail_close");
             FailCloseCount++;
             isCurrent = false;
-            failClosed.TrySetResult();
-            return ValueTask.CompletedTask;
+            failCloseEntered.TrySetResult();
+            try
+            {
+                if (BlockFailClose)
+                {
+                    await failCloseRelease.Task.ConfigureAwait(false);
+                }
+
+                if (FailCloseFailure is { } failure)
+                {
+                    throw failure;
+                }
+            }
+            finally
+            {
+                failClosed.TrySetResult();
+            }
         }
 
         public Task WaitForFailCloseAsync() => failClosed.Task.WaitAsync(
             TimeSpan.FromSeconds(5));
+
+        public Task WaitForFailCloseEnteredAsync() =>
+            failCloseEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         public Task WaitForDisposeAsync() => disposed.Task.WaitAsync(
             TimeSpan.FromSeconds(5));
@@ -1819,6 +2432,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         }
 
         public void ReleaseDisposal() => disposeRelease.TrySetResult();
+
+        public void ReleaseFailClose() => failCloseRelease.TrySetResult();
 
         public void Revoke()
         {

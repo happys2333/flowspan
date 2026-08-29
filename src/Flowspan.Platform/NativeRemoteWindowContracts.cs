@@ -627,6 +627,10 @@ public interface ILocalEmergencyStopRegistration : IDisposable
 
 public interface ILocalEmergencyStopRegistrar : IDisposable
 {
+    // This prompt-free probe must not claim registration ownership. Callers
+    // must still register and revalidate the exact generation before authority.
+    public LocalBoundaryResult CheckReadiness();
+
     public LocalEmergencyStopRegistrationResult TryRegister(
         long ownerGeneration,
         long sessionGeneration,
@@ -689,6 +693,23 @@ public sealed class InMemoryLocalEmergencyStopRegistrar :
 
     internal int CallbackDrainWaiterCount =>
         Volatile.Read(ref callbackDrainWaiters);
+
+    public LocalBoundaryResult CheckReadiness()
+    {
+        lock (gate)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return LocalBoundaryResult.Failed(
+                    "emergency_stop_registrar_unavailable");
+            }
+
+            return current?.IsCurrent == true || invokingRegistration is not null
+                ? LocalBoundaryResult.Failed(
+                    "emergency_stop_registration_conflict")
+                : LocalBoundaryResult.Confirmed("emergency_stop_ready");
+        }
+    }
 
     public LocalEmergencyStopRegistrationResult TryRegister(
         long ownerGeneration,

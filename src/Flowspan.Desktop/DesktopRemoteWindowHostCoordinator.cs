@@ -331,6 +331,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 request,
                 generation: null,
                 out NativeRemoteWindowPermissionSnapshot initialPermission);
+            cancellationToken.ThrowIfCancellationRequested();
             DateTimeOffset now = CanonicalUtc(clock.UtcNow);
             RemoteWindowSessionId sessionId = RemoteWindowSessionId.From(
                 Guid.NewGuid());
@@ -392,6 +393,15 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             pendingMedia = null;
             mediaFaultGeneration = generation;
             RegisterEarlySafetyObservers(generation);
+            _ = ReadCurrentSafeProtection(generation, source);
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = ValidateCurrentHostFacts(request, generation, out _);
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureEmergencyStopReady();
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = ValidateCurrentHostFacts(request, generation, out _);
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsurePreparationIsCurrent(generation);
 
             generation.RouteSelected = true;
             request.Connection.PrepareResponderRoute(
@@ -905,6 +915,24 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         generation.EmergencyStopRegistration = registration.Registration;
     }
 
+    private void EnsureEmergencyStopReady()
+    {
+        LocalBoundaryResult readiness;
+        try
+        {
+            readiness = emergencyStops.CheckReadiness();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("emergency_stop_readiness_unavailable");
+        }
+
+        if (!readiness.Succeeded)
+        {
+            throw StartFailure(readiness.ReasonCode);
+        }
+    }
+
     private NativeRemoteWindowSourceSnapshot ValidateCurrentHostFacts(
         DesktopRemoteWindowHostStartRequest request,
         RuntimeGeneration? generation,
@@ -930,20 +958,46 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             throw StartFailure("native_source_unsupported");
         }
 
-        if (!request.Connection.IsCurrent
-            || !ProtocolFeatures.SupportsRemoteWindowPreparation(
-                request.Connection.ProtocolVersion)
-            || request.Connection.LocalDeviceId != current.Source.HostDeviceId
-            || request.Connection.PeerDeviceId == current.Source.HostDeviceId)
+        bool connectionCurrent;
+        ProtocolVersion protocolVersion;
+        DeviceId localDeviceId;
+        DeviceId peerDeviceId;
+        try
+        {
+            connectionCurrent = request.Connection.IsCurrent;
+            protocolVersion = request.Connection.ProtocolVersion;
+            localDeviceId = request.Connection.LocalDeviceId;
+            peerDeviceId = request.Connection.PeerDeviceId;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            generation?.CloseAdmissionNow();
+            throw StartFailure("authenticated_connection_stale");
+        }
+
+        bool protocolSupported =
+            ProtocolFeatures.SupportsRemoteWindowPreparation(protocolVersion);
+        if (!connectionCurrent
+            || !protocolSupported
+            || localDeviceId != current.Source.HostDeviceId
+            || peerDeviceId == current.Source.HostDeviceId)
         {
             throw StartFailure(
-                !ProtocolFeatures.SupportsRemoteWindowPreparation(
-                    request.Connection.ProtocolVersion)
+                !protocolSupported
                     ? "remote_window_protocol_unsupported"
                     : "authenticated_connection_stale");
         }
 
-        permission = permissions.GetSnapshot();
+        try
+        {
+            permission = permissions.GetSnapshot();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            generation?.CloseAdmissionNow();
+            throw StartFailure("native_permission_unavailable");
+        }
+
         bool permissionsAllow;
         if (generation is null)
         {
@@ -967,7 +1021,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         try
         {
             grant = authorization.GetCurrentGrant(
-                request.Connection.PeerDeviceId);
+                peerDeviceId);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -988,8 +1042,20 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         RuntimeGeneration generation,
         NativeRemoteWindowSourceSnapshot source)
     {
-        if (!generation.Request.Protection.TryGetLatest(
-                out NativeRemoteWindowProtectionObservation? observation)
+        NativeRemoteWindowProtectionObservation? observation;
+        bool observed;
+        try
+        {
+            observed = generation.Request.Protection.TryGetLatest(
+                out observation);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            generation.CloseAdmissionNow();
+            throw StartFailure("native_protection_not_safe");
+        }
+
+        if (!observed
             || observation is null
             || !MatchesProtectionIdentity(generation, observation)
             || observation.SourceGeneration != source.Source.SourceGeneration
@@ -1158,11 +1224,17 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
         }
 
+        Task<Exception?>? failClose =
+            generation.GetStartedConnectionFailCloseTask();
         if (generation.RouteSelected)
         {
+            failClose ??= generation.EnsureConnectionFailClosedAsync();
+        }
+
+        if (failClose is not null)
+        {
             Exception? failCloseFailure =
-                await generation.EnsureConnectionFailClosedAsync()
-                    .ConfigureAwait(false);
+                await failClose.ConfigureAwait(false);
             if (failCloseFailure is not null)
             {
                 failures.Add(failCloseFailure);
@@ -1481,6 +1553,14 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             lock (connectionFailCloseGate)
             {
                 return connectionFailClose ??= FailCloseAsync(Request.Connection);
+            }
+        }
+
+        public Task<Exception?>? GetStartedConnectionFailCloseTask()
+        {
+            lock (connectionFailCloseGate)
+            {
+                return connectionFailClose;
             }
         }
 

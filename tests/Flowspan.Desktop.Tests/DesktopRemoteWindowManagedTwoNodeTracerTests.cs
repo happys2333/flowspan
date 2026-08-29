@@ -4394,6 +4394,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public int RegistrationDisposeCount => current?.DisposeCount ?? 0;
 
+        public LocalBoundaryResult CheckReadiness() =>
+            LocalBoundaryResult.Confirmed("emergency_stop_ready");
+
         public void Dispose() => current?.Dispose();
 
         public LocalEmergencyStopRegistrationResult TryRegister(

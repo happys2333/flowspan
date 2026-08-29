@@ -680,6 +680,36 @@ public sealed class NativeRemoteWindowContractsTests
     }
 
     [Fact]
+    public void EmergencyReadinessTracksConflictReleaseAndRegistrarDisposal()
+    {
+        var registrar = new InMemoryLocalEmergencyStopRegistrar();
+
+        LocalBoundaryResult initial = registrar.CheckReadiness();
+        LocalEmergencyStopRegistrationResult registered = registrar.TryRegister(
+            ownerGeneration: 1,
+            sessionGeneration: 1,
+            _ => { });
+        using ILocalEmergencyStopRegistration registration = Assert.IsAssignableFrom<
+            ILocalEmergencyStopRegistration>(registered.Registration);
+        LocalBoundaryResult conflict = registrar.CheckReadiness();
+        registration.Dispose();
+        LocalBoundaryResult released = registrar.CheckReadiness();
+        registrar.Dispose();
+        LocalBoundaryResult unavailable = registrar.CheckReadiness();
+
+        Assert.True(initial.Succeeded);
+        Assert.Equal("emergency_stop_ready", initial.ReasonCode);
+        Assert.False(conflict.Succeeded);
+        Assert.Equal("emergency_stop_registration_conflict", conflict.ReasonCode);
+        Assert.True(released.Succeeded);
+        Assert.Equal("emergency_stop_ready", released.ReasonCode);
+        Assert.False(unavailable.Succeeded);
+        Assert.Equal(
+            "emergency_stop_registrar_unavailable",
+            unavailable.ReasonCode);
+    }
+
+    [Fact]
     public void EmergencyRegistrationLossTriggersNamedFailClosedActivation()
     {
         using var registrar = new InMemoryLocalEmergencyStopRegistrar();
