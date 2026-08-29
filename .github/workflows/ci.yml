@@ -56,6 +56,9 @@ jobs:
           --no-restore
           --logger "trx;LogFilePrefix=${{ runner.os }}"
           --results-directory TestResults
+          --blame-hang
+          --blame-hang-timeout 3m
+          --blame-hang-dump-type none
 
       - name: Validate desktop composition in explicit test mode
         run: >-
