@@ -129,6 +129,18 @@
     complete tracer or of a native or physical-device path. The required
     per-boundary reject, throw, cancel, timeout, revoke, disconnect, and
     cleanup-fault matrix remains open. Therefore Task 5.5a remains unchecked.
+    Evidence commit `81b90081265d3d37465557d25406972db2079600` received exact-SHA
+    hosted CI run `33155459214` and CodeQL run `33155459192`, both `success`.
+    The CI test job IDs are `98797054205` (Linux), `98797054321` (Windows), and
+    `98797054461` (macOS); their downloaded artifacts each contain 12 TRX files
+    summing to `2190/2190` passed, with every failed/error/timeout/aborted/
+    inconclusive/other uncertain TRX counter zero. Secret Scan job `98797054361`
+    produced a 208-rule, zero-result SARIF. Reproducible unsigned package jobs
+    `98798002805` (osx-arm64), `98798002831` (linux-x64), and `98798002909`
+    (win-x64) each succeeded; exact artifact IDs and SHA-256 digests are in
+    `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`.
+    Hosted runners remain non-evidence for native API behavior, physical
+    two-Device operation, signing, or notarization.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

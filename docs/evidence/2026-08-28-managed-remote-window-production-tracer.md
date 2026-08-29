@@ -15,6 +15,49 @@ to a hosted CI run. It exercises real production managed components over
 loopback, but does not prove native platform APIs, physical Devices, packaged
 behavior, signing, notarization, or release readiness.
 
+## Hosted exact-SHA verification
+
+On 2026-08-29, the GitHub API and downloaded artifacts were rechecked against
+evidence commit `81b90081265d3d37465557d25406972db2079600` (which contains the
+implementation commit above). The hosted CI run
+[`33155459214`](https://github.com/happys2333/flowspan/actions/runs/33155459214)
+is `success` and has that exact `head_sha`; its independently triggered CodeQL
+run [`33155459192`](https://github.com/happys2333/flowspan/actions/runs/33155459192)
+is also `success` at the same SHA.
+
+- CI test jobs `98797054205` (ubuntu-latest), `98797054321`
+  (windows-latest), and `98797054461` (macos-latest) all succeeded. Their
+  downloaded test-result artifacts contain exactly 12 TRX files per platform.
+  Each platform sums to `2190` total/executed/passed tests. Every TRX terminal
+  non-success or uncertain counter is zero: failed, error, timeout, aborted,
+  inconclusive, passed-but-run-aborted, not-runnable, not-executed,
+  disconnected, warning, completed, in-progress, and pending.
+- Secret Scan job `98797054361` succeeded. Downloaded artifact
+  `9679402894` (`gitleaks-results.sarif`,
+  `sha256:0cb6753164548f80ba7fdbbd3265c2adca8e78be77a402a867bd9f9a82084ddf`)
+  is SARIF 2.1.0 with one `gitleaks` run, 208 rules, and 0 results.
+- CodeQL job `98797054245` (`Analyze C#`) succeeded: its initialized, locked
+  restore, build, and analysis steps all succeeded, and the hosted log records
+  a completed analysis upload. The GitHub code-scanning analyses and open-alert
+  APIs, queried at the exact SHA during this verification, each returned an
+  empty array. That absence is not a retained CodeQL SARIF artifact or a claim
+  of an independently counted SARIF result total.
+- Reproducible unsigned package jobs all succeeded and each sealed, verified,
+  and byte-compared two independently produced package directories before
+  uploading its artifact:
+
+  | Runtime | Job | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `osx-arm64` | `98798002805` | `9679551279` | `a5791b3f73416af608ce3525a2ab0d73bf273e9c1a683813003e1911d40ca80d` |
+  | `linux-x64` | `98798002831` | `9679549768` | `e9f84656804d1d4a1273f31465496f5f4855a7d117ffab0f6a4f6b672c1938eb` |
+  | `win-x64` | `98798002909` | `9679576815` | `34ec73ebd1730126a8f7ce227b6c8b923a0170dd8fdf6a1af6b3b0c477f6e8cc` |
+
+The downloaded CI artifacts are retained locally under
+`/tmp/flowspan-ci-33155459214` for this verification only. Hosted runner
+evidence proves the checked managed build/test/package workflow, not native
+capture, input, protection, or accessibility API behavior; physical two-Device
+operation; signed packages; macOS notarization; or release acceptance.
+
 ## Proven slices
 
 `DesktopRemoteWindowManagedTwoNodeTracerTests` contains four authenticated
