@@ -554,9 +554,11 @@
     Focused Desktop rows pass `81/81`, focused lease rows `18/18`, Desktop
     `581/581`, Transport `704/704`, and both solutions `2295/2295` in Debug and
     Release with zero build warnings/errors. Format, diff, vulnerability,
-    composition, simulator, and strict review pass; hosted exact-SHA evidence is
-    pending. P0, AD, HC and Task 5.5a remain partial/open. Scope and limitations
-    are recorded in
+    composition, simulator, and strict review pass. Exact-SHA CI `33277518618`
+    and CodeQL `33277518619` pass on evidence commit `158c9a1`; downloaded
+    artifacts prove `2295/2295` on each hosted OS, Gitleaks 208/0, and CodeQL
+    52/0. P0, AD, HC and Task 5.5a remain partial/open. Scope and limitations are
+    recorded in
     `docs/evidence/2026-08-30-participant-policy-and-final-admission-faults.md`.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,

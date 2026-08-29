@@ -1294,8 +1294,10 @@ Focused Desktop host/participant/tracer tests pass `81/81` and focused lease
 tests pass `18/18` in Debug and Release. Desktop passes `581/581`, Transport
 passes `704/704`, and both complete solutions pass `2295/2295`; warning-as-error
 builds, format, diff, vulnerability, composition, simulator, and final strict
-review pass. Hosted exact-SHA evidence remains pending. P0, AD, and HC stay
-partial in the finite matrix, so Task 5.5a remains open.
+review pass. Exact-SHA CI `33277518618` and CodeQL `33277518619` pass on evidence
+commit `158c9a1`; downloaded artifacts prove `2295/2295` on each hosted OS,
+Gitleaks 208/0, and CodeQL 52/0. P0, AD, and HC stay partial in the finite matrix,
+so Task 5.5a remains open.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/

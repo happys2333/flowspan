@@ -782,8 +782,10 @@ authority revoke, authenticated disconnect, or every AD/HC cleanup variant.
 
 Local Debug/Release solutions pass `2295/2295` with zero build warnings/errors;
 format, vulnerability, explicit composition, simulator, diff, and final strict
-review pass. Hosted exact-SHA evidence is pending. Task 5.5a and all native,
-physical, signing/notarization, and release gates remain open.
+review pass. Exact-SHA CI `33277518618` and CodeQL `33277518619` pass on evidence
+commit `158c9a1`; downloaded artifacts prove `2295/2295` on each hosted OS,
+Gitleaks 208/0, and CodeQL 52/0. Task 5.5a and all native, physical,
+signing/notarization, and release gates remain open.
 
 ## 6. Security state machine rules
 

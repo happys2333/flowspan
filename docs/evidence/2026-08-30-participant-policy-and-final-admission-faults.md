@@ -8,6 +8,8 @@ Committed baseline: `2364f763f707bb6a958c56423d58a5f7165cc9cd`
 
 Implementation commit: `113fce0edafda4206c40419a69a1372d7cb4e303`
 
+Hosted evidence commit: `158c9a13d4ce9244566811825846f62cc424b18e`
+
 Local environment: macOS 26.6.2 arm64, .NET SDK 10.0.301
 
 ## Scope
@@ -90,8 +92,42 @@ Results:
 - format, diff, direct/transitive vulnerability audit, explicit TEST MODE
   composition, and deterministic protocol-1.7 simulator: passed.
 
-Hosted Windows/macOS/Linux CI, Secret Scan, unsigned-package and CodeQL evidence
-for the checkpoint commit is pending.
+## Hosted exact-SHA evidence
+
+[CI run `33277518618`](https://github.com/happys2333/flowspan/actions/runs/33277518618)
+completed successfully for hosted evidence commit
+`158c9a13d4ce9244566811825846f62cc424b18e`. Each downloaded platform artifact
+contains exactly 12 TRX files with `2295/2295` total, executed, and passed, and
+every failed, error, timeout, aborted, inconclusive, passed-but-run-aborted,
+not-runnable, not-executed, disconnected, warning, completed, in-progress, and
+pending counter is zero:
+
+| Platform | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| macOS | `99166742150` | `9722003901` | `0dcebeb1030d021ee28dd718b99ca79a3e0b2a02289eeab496653b3c4d3647ba` |
+| Windows | `99166742198` | `9722021187` | `add77262b32c3ac1cd6a2961f2eba9e33f763cc476b4785457abcc563a5a8b5a` |
+| Linux | `99166742157` | `9721999131` | `825eb29d719e1dead9471ccad4d81c7243c68ddc66a498d4c799ddc7532d9ccb` |
+
+Secret Scan job `99166742058` passed. Artifact `9721958831`, digest
+`b4f81d710de4355d4d906e5c2adef56341af7759b8d3ded23dc98018f3318612`,
+contains SARIF 2.1.0 with 208 Gitleaks rules and 0 results. Every reproducible
+unsigned package job passed its content lock, explicit TEST MODE composition,
+seal verification, dependency audit, and artifact upload:
+
+| Runtime | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| `win-x64` | `99167348425` | `9722047389` | `3ffff0ccf83818e69fd4d4c0424fc10b69275f8c0d348b5d0e9efd69eed08ef2` |
+| `osx-arm64` | `99167348436` | `9722038709` | `327281903ff38069cbc7e8dd6cc6e53d5ecd99186d1622be9856093ae52c028f` |
+| `linux-x64` | `99167348430` | `9722042702` | `d60a59345abededb828147cea99ee519b83a44418035a7d55eb09783e01a3e20` |
+
+[CodeQL run `33277518619`](https://github.com/happys2333/flowspan/actions/runs/33277518619),
+job `99166742080`, completed successfully. Exact-SHA analysis `1692639452`
+evaluated 52 rules with 0 results, and the exact-commit branch query returned 0
+open alerts.
+
+These hosted results are managed contract/build and reproducible unsigned-
+package evidence only. They are not native API, interactive desktop, physical
+two-device, signed, notarized, or release-acceptance evidence.
 
 ## Explicit limitations
 

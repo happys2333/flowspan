@@ -919,9 +919,11 @@ Focused Desktop host/participant/tracer rows pass `81/81`, focused lease rows
 pass `18/18`, Desktop passes `581/581`, Transport passes `704/704`, and complete
 Debug/Release solutions pass `2295/2295`. Warning-as-error builds, format, diff,
 vulnerability audit, explicit TEST MODE composition, simulator, and final strict
-review pass. Hosted exact-SHA evidence is pending and no native/physical/release
-result is claimed. The finite matrix keeps P0, AD, HC, Task 5.5a and all later
-gates open. Full scope and limitations are in
+review pass. Exact-SHA CI `33277518618` and CodeQL `33277518619` pass on evidence
+commit `158c9a1`, including `2295/2295` on each hosted OS, Gitleaks 208/0, and
+CodeQL 52/0. No native/physical/release result is claimed. The finite matrix
+keeps P0, AD, HC, Task 5.5a and all later gates open. Full scope and limitations
+are in
 [`2026-08-30-participant-policy-and-final-admission-faults.md`](2026-08-30-participant-policy-and-final-admission-faults.md).
 
 ## Review and remaining evidence

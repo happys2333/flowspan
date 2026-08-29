@@ -1682,7 +1682,9 @@ The new row passes alone `1/1` and the complete tracer passes `22/22` in Debug
 and Release. Desktop passes `581/581`; complete Debug and Release solutions pass
 `2295/2295`; warning-as-error builds, format, diff, dependency vulnerability
 audit, explicit TEST MODE composition, simulator, and final strict review pass.
-Hosted exact-SHA evidence is pending.
+Exact-SHA CI `33277518618` and CodeQL `33277518619` pass on evidence commit
+`158c9a1`, including `2295/2295` on each hosted OS, Gitleaks 208/0, and CodeQL
+52/0.
 
 This row does not prove participant-endpoint throw, authority revocation,
 authenticated disconnect at every final-Admission phase, or all cleanup-fault
