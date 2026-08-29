@@ -173,6 +173,42 @@
     counter zero; Secret Scan and all three reproducible unsigned package jobs
     also passed. These remain hosted managed contract and unsigned-package
     results, not native or physical Remote Window evidence.
+    Subsequent implementation checkpoint
+    `fde38b2bae9d02f177fd86e22a8beecb060325e9` expands that managed tracer from
+    six to nine cases. After real authenticated protocol-1.7 control and a
+    successful `FSM1` attachment, three parameterized renderer-preparation
+    failures exercise a factory throw, a valid null/Missing renderer result, and
+    a foreign or tokenless `OperationCanceledException`. Independent assertions
+    prove that both media sessions are attached to the exact protocol, Device,
+    Session, and Activity binding before the failure. The participant generation
+    is synchronously made unavailable before the Rejected response is observed;
+    the host observes `renderer_start_failed` for the throw and foreign
+    cancellation, or `renderer_unavailable` for null/Missing, before fail-close.
+    Admission, capture, media send, and rendering remain at zero, and every
+    owner, route, media directory, and control registration drains to zero.
+    Actual linked cancellation and deadline expiry retain eager fail-close.
+    The response-ordered path uses a request-bound watchdog of at most 10
+    seconds that survives lease disposal, is idempotent for the same request,
+    cannot be extended by a conflicting request, and is cancelled by owner
+    revocation. Expired, overlong, conflicting, or provider-setup-failed
+    deferral does not poison the generation; explicit and deadline fail-close
+    share one cleanup, with primary, cleanup, and lifecycle failures retained.
+    These additions still do not complete the per-boundary reject, throw,
+    cancel, timeout, revoke, disconnect, and cleanup-fault matrix.
+    Local macOS arm64 verification with .NET SDK 10.0.301 passed warning-as-error
+    Debug and Release builds with zero warnings and errors, both complete
+    solutions at `2232/2232`, Desktop `544/544`, and Transport `701/701`.
+    Ten fresh Debug and ten fresh Release renderer-theory processes passed
+    `60/60` case executions; focused connection-lease and media-session suites
+    passed `16/16` and `28/28`, respectively, in each configuration. Format,
+    diff, direct/transitive vulnerability, explicit TEST MODE composition, and
+    simulator checks also passed. No local `gitleaks` result exists. Exact-SHA
+    CI `33249181870` and CodeQL `33249181871` for `fde38b2` both succeeded.
+    Downloaded Windows, macOS, and Linux artifacts each contain 12 TRX files
+    summing to `2232/2232`, with every non-success counter zero; Secret Scan and
+    all three reproducible unsigned package jobs also passed. These hosted
+    results remain managed contract and packaging evidence, not native or
+    physical Remote Window proof.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

@@ -670,7 +670,7 @@ Start, and exact AddParticipant with frame admission closed, then carries one
 source frame through JPEG encode, encrypted chunking, decode, and renderer and
 returns one authorized Driver input to the exact host boundary.
 
-At implementation commit `80191d6`, retained by `761ac75`, the current tracer
+At implementation commit `80191d6`, retained by `761ac75`, that tracer checkpoint
 keeps those four historical scenarios and adds managed native-capture permission
 loss (`Granted` to `Denied`) plus verified `FSM1` attachment failure after a
 proved TCP accept. It therefore covers exactly six scenarios: success,
@@ -680,9 +680,36 @@ failure. The attachment-failure tracer rejects before Admission, capture, media
 send, or rendering, then clears route, media, control, protection,
 permission-observer, and connection owners.
 
+Subsequent checkpoint `fde38b2bae9d02f177fd86e22a8beecb060325e9`
+adds three renderer-preparation cases after real authenticated protocol-1.7
+control and successful `FSM1`, bringing the managed tracer to nine cases. The
+new theory drives a renderer factory throw, a valid null/Missing result, and a
+foreign or tokenless `OperationCanceledException`. Before injecting each
+failure, the test independently observes both the host and participant media
+sessions as attached and checks the exact protocol, Device pair, Session, and
+Activity binding. The participant synchronously marks its generation
+fail-close-pending before the response is observed. The host then observes
+Rejected with `renderer_start_failed` for throw or foreign cancellation, or
+`renderer_unavailable` for null/Missing, before the generation closes. Every
+case asserts zero Admission, capture, media send, and render operations and zero
+remaining owner, route, media-directory, and authenticated-control counts.
+
+Only cancellation tied to the actual linked generation/caller token or the
+Preparation deadline is eager cancellation. A foreign or tokenless
+`OperationCanceledException` is a renderer-start fault and follows the bounded
+response-before-close path. Its deferral is bound to the exact Preparation
+request and a deadline no more than 10 seconds away. The watchdog survives
+connection-lease disposal and closes the generation at the request deadline if
+the host does not. Repeating the same request is idempotent; a conflicting
+request cannot replace or extend it. Expired, overlong, conflicting, or
+time-provider setup failure refuses deferral without poisoning the generation
+and therefore uses eager fail-close. Explicit close and deadline expiry share
+one cleanup, owner revocation cancels the watchdog, and tests retain primary
+renderer failure together with cleanup and lifecycle failures.
+
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current six scenarios are not the required matrix; its per-boundary
+current nine scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -698,9 +725,24 @@ loopback, and contract results. Exact-SHA hosted CI `33246518217` passes
 unsigned package jobs; CodeQL `33246518202` also passes. Downloaded TRX and SARIF
 artifacts confirm the counts and zero non-success/secret-scan results.
 
-The hosted matrix is cross-platform managed contract evidence, not evidence for
-native platform APIs, two physical devices, accessibility, interactive quality,
-package signing, or macOS notarization.
+For subsequent exact implementation SHA `fde38b2`, local macOS arm64
+verification with .NET SDK 10.0.301 passed warning-as-error Debug and Release
+builds with zero warnings and errors. Both complete solutions passed
+`2232/2232`; Desktop passed `544/544` and Transport passed `701/701` in each
+configuration. Ten fresh Debug and ten fresh Release renderer-theory processes
+passed `60/60` case executions. The focused connection-lease suite passed
+`16/16` and the focused media-session suite passed `28/28` in each
+configuration. Formatting, diff, direct/transitive NuGet vulnerability,
+explicit TEST MODE composition, and deterministic simulator checks passed. This
+host does not have `gitleaks`, so there is no local secret-scan result.
+Exact-SHA CI `33249181870` and CodeQL `33249181871` for `fde38b2` both
+succeeded. Downloaded Windows, macOS, and Linux artifacts each contain 12 TRX
+files summing to `2232/2232`, with every non-success counter zero. Secret Scan
+and all three reproducible unsigned package jobs also passed.
+
+The hosted matrices are cross-platform managed contract evidence,
+not evidence for native platform APIs, two physical devices, accessibility,
+interactive quality, package signing, or macOS notarization.
 `CreateProduction()` must keep Remote Window unavailable until the native and
 authenticated runtime is composed into it. The tracer does not close Task 5,
 Task 5.5a, Task 5.5, any native/physical/release gate, release criterion, or the

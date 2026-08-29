@@ -84,7 +84,7 @@ This is hosted managed contract and packaging evidence only. The injected
 permission boundary is not a real Windows, macOS, or Linux permission-loss
 result.
 
-### Current implementation checkpoint
+### Attachment-failure implementation checkpoint
 
 Commit `80191d6208b8eb942ff71c894cd5d067471d6499` adds a verified `FSM1`
 attachment-failure tracer and hardens response-commit ordering,
@@ -95,10 +95,10 @@ deferred fail-close through an accepted TCP connection whose `FSM1` attachment
 fails, while preserving ordinary media eager fail-close. Test-only commit
 `761ac750bbe3e12bd07f89037c71af4a9607102a` then proves TCP accept before the
 reset and removes a separate outbound-reservation scheduling assumption. The
-current local results below are bound to `761ac75`. Hosted exact-SHA CI and
-CodeQL for that commit are tracked separately below.
+attachment-checkpoint local results below are bound to `761ac75`. Hosted
+exact-SHA CI and CodeQL for that commit are tracked separately below.
 
-### Hosted exact-SHA verification: current checkpoint
+### Hosted exact-SHA verification: attachment-failure checkpoint
 
 On 2026-08-29, CI run
 [`33246518217`](https://github.com/happys2333/flowspan/actions/runs/33246518217)
@@ -139,6 +139,82 @@ neither failed CI run is acceptance evidence. `761ac75` replaces both fixtures
 with an accepted loopback connection followed by `SO_LINGER(0)` reset and
 explicitly proves the accept boundary.
 
+### Subsequent implementation checkpoint: renderer preparation
+
+Implementation commit `fde38b2bae9d02f177fd86e22a8beecb060325e9`
+extends the managed tracer from six to nine cases. Its three-case renderer
+theory first completes real authenticated protocol-1.7 control and a successful
+`FSM1` attachment, then supplies one of the following preparation outcomes:
+
+- the renderer factory throws;
+- the renderer factory legally returns a null/Missing renderer; or
+- the renderer factory throws a foreign or tokenless
+  `OperationCanceledException` that is not the linked generation/caller
+  cancellation and is not deadline expiry.
+
+In every case, external test assertions independently observe both the host and
+participant media sessions with `IsAttached == true` and the exact protocol,
+Device pair, Session, and Activity binding before renderer failure. The
+participant synchronously marks the connection generation fail-close-pending
+before its Rejected response is observed. The host observes
+`renderer_start_failed` for the throw and foreign cancellation, or
+`renderer_unavailable` for null/Missing, before fail-close. Admission, capture,
+media send, and rendering remain at zero, and all owner, route, media-directory,
+and authenticated-control counts converge to zero.
+
+The deferral is request-bound rather than an unbounded public poison. It accepts
+only the exact Preparation request with a positive remaining deadline no more
+than 10 seconds away. The watchdog remains live after connection-lease disposal
+and fail-closes the generation at the original request deadline if the host
+does not. Repeating the same request is idempotent; a conflicting request cannot
+replace or extend it. Expired, overlong, conflicting, or time-provider setup
+failure refuses deferral without poisoning the generation and uses eager
+fail-close. Actual linked cancellation and deadline expiry also remain eager.
+Owner revocation cancels the watchdog; explicit and deadline close share one
+cleanup; renderer primary, cleanup, and lifecycle failures remain jointly
+observable.
+
+### Hosted exact-SHA verification: renderer-preparation checkpoint
+
+On 2026-08-29, CI run
+[`33249181870`](https://github.com/happys2333/flowspan/actions/runs/33249181870)
+and CodeQL run
+[`33249181871`](https://github.com/happys2333/flowspan/actions/runs/33249181871)
+both completed successfully at exact SHA
+`fde38b2bae9d02f177fd86e22a8beecb060325e9`.
+
+- Test jobs `99091769535` (ubuntu-latest), `99091769679`
+  (windows-latest), and `99091769627` (macos-latest) all succeeded. Downloaded
+  artifacts `9713839810`, `9713849788`, and `9713835696` each contain exactly
+  12 TRX files summing to `2232/2232` executed and passed tests. Every failed,
+  error, timeout, aborted, inconclusive, passed-but-run-aborted, not-runnable,
+  not-executed, disconnected, warning, completed, in-progress, and pending
+  counter is zero. Their GitHub artifact digests are, respectively,
+  `sha256:3d5cd0dbdbc2dd959e289313ce0581bf597de6373e084fe15259cd134f653fa5`,
+  `sha256:e37d6b38765120dc46a95f3be09eabf9b821ed5f48a589dc19d0a1ad9d357ec2`,
+  and `sha256:a4be2fd5168df2247114fc1ed42ff65e184401116b7173b4a397ec2e8d6b5952`.
+- Secret Scan job `99091769653` passed. Artifact `9713801682` has GitHub
+  digest
+  `sha256:75a01dbc25067eb98aa441cba9a4c6dde6feb312dde28b806cb1ef84b04f857a`;
+  the downloaded SARIF is version 2.1.0 with one run, 208 rules, and 0 results.
+- CodeQL job `99091769641` passed. Exact-SHA analysis `1691513849` reports
+  52 rules and 0 results, and the repository open-alert query returned 0.
+- All three reproducible unsigned package jobs and artifacts passed:
+
+  | Runtime | Job | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `osx-arm64` | `99092224960` | `9713867688` | `02197ccd98204d6349b64d8466eb158d1526385654e20d7cd181cf95c16fa001` |
+  | `linux-x64` | `99092224990` | `9713871814` | `274d1b24d97e60a14ed271907c9a3f07992d52106db0aeebe699ce822588a55f` |
+  | `win-x64` | `99092224953` | `9713873910` | `c0b562b97b45465d6d78ae64e492ad0b7b4ffb68e5c9c8255acd663180f67e4c` |
+
+Downloaded test and Secret Scan artifacts were rechecked under
+`/tmp/flowspan-ci-33249181870-verify`; that temporary path is not durable
+project evidence. These hosted results prove the managed build, contract tests,
+explicit TEST MODE composition, simulator, Secret Scan, CodeQL, dependency
+audit, and reproducible unsigned packaging on the named runners. They do not
+prove native API behavior, physical two-Device operation, signed packages, or
+notarization.
+
 ## Baseline proven slices
 
 `DesktopRemoteWindowManagedTwoNodeTracerTests` contains four authenticated
@@ -171,7 +247,7 @@ These are success, reversed-grant negative, terminal disconnect cleanup, and
 same-session capability-revocation cleanup slices. They are not the complete
 boundary fault matrix required by the test strategy.
 
-## Current proven slices
+## Attachment-failure proven slices
 
 At `80191d6208b8eb942ff71c894cd5d067471d6499`, retained by `761ac75`, the same
 test class contains six test cases:
@@ -268,7 +344,7 @@ checked exact-implementation artifacts, not a clean restore or hosted CI run.
 `git diff --check` does not inspect untracked files; the new tracer source and
 this evidence were checked separately for trailing whitespace.
 
-### Current local verification: `761ac75`
+### Attachment-failure local verification: `761ac75`
 
 The 2026-08-29 implementation checkpoint used the same macOS 26.6.2 arm64 host
 and .NET SDK 10.0.301. Debug and Release were built independently with
@@ -277,8 +353,8 @@ the immediately preceding build.
 
 Observed results:
 
-- the current tracer passed `6/6` in focused Debug and `6/6` in focused
-  Release;
+- the attachment-failure tracer checkpoint passed `6/6` in focused Debug and
+  `6/6` in focused Release;
 - ten fresh Debug and ten fresh Release processes passed all six cases, for
   `120/120` case executions;
 - the complete Debug and Release solutions each passed `2210/2210` across 12
@@ -305,6 +381,59 @@ managed build, contract tests, explicit TEST MODE composition, simulator, and
 unsigned packaging only. Neither those runs nor the local macOS loopback proves
 a native platform API, physical two-Device path, signed package, or notarization.
 
+### Subsequent local verification: `fde38b2`
+
+The renderer-preparation checkpoint was verified on the same macOS 26.6.2
+arm64 host with .NET SDK 10.0.301. Debug and Release builds used warnings as
+errors, and the complete test suites ran sequentially against the immediately
+preceding build.
+
+Representative commands:
+
+```sh
+dotnet build Flowspan.slnx --configuration Debug --no-restore -warnaserror
+dotnet test Flowspan.slnx --configuration Debug --no-build --no-restore
+dotnet build Flowspan.slnx --configuration Release --no-restore -warnaserror
+dotnet test Flowspan.slnx --configuration Release --no-build --no-restore
+dotnet test tests/Flowspan.Desktop.Tests/Flowspan.Desktop.Tests.csproj \
+  --configuration Debug --no-build --no-restore \
+  --filter 'FullyQualifiedName~VerifiedFsm1AttachmentThenRendererFailureCommitsRejectionBeforeFailClose'
+dotnet test tests/Flowspan.Transport.Tests/Flowspan.Transport.Tests.csproj \
+  --configuration Debug --no-build --no-restore \
+  --filter 'FullyQualifiedName~AuthenticatedRemoteWindowConnectionLeaseTests'
+dotnet test tests/Flowspan.Transport.Tests/Flowspan.Transport.Tests.csproj \
+  --configuration Debug --no-build --no-restore \
+  --filter 'FullyQualifiedName~AuthenticatedRemoteWindowMediaSessionsTests'
+dotnet format Flowspan.slnx --verify-no-changes --no-restore
+git diff --check
+dotnet list Flowspan.slnx package --vulnerable --include-transitive --no-restore
+dotnet run --project src/Flowspan.Desktop/Flowspan.Desktop.csproj \
+  --configuration Release --no-build --no-restore -- --validate-composition
+dotnet run --project src/Flowspan.Simulator/Flowspan.Simulator.csproj \
+  --configuration Release --no-build --no-restore
+```
+
+Observed results:
+
+- Debug and Release warning-as-error builds each completed with 0 warnings and
+  0 errors;
+- the complete Debug and Release solutions each passed `2232/2232`, including
+  Desktop `544/544` and Transport `701/701` in each configuration;
+- ten fresh Debug and ten fresh Release processes passed all three
+  renderer-preparation theory cases (`60/60` case executions);
+- the focused connection-lease tests passed `16/16` in Debug and Release;
+- the focused authenticated media-session tests passed `28/28` in Debug and
+  Release;
+- format, diff, direct/transitive NuGet vulnerability, explicit TEST MODE
+  composition, and deterministic protocol-1.7 simulator checks passed; and
+- this machine has no `gitleaks` installation, so no local secret-scan result is
+  claimed.
+
+An internal strict review of the final implemented slice reported no P0, P1, or
+P2 finding. That is a code-review result, not an external security audit. The
+separate exact-SHA hosted results are recorded above and do not change the local
+evidence boundary.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -315,16 +444,24 @@ a native platform API, physical two-Device path, signed package, or notarization
   Emergency Stop are exercised. The managed permission-loss case closes
   admission, invokes local Emergency Stop, and converges the host owner graph to
   zero; it drives `Granted` to `Denied` and is not evidence of a real
-  operating-system permission transition.
+  operating-system permission transition. The renderer-preparation theory proves
+  bilateral exact-bound media attachment first, but still admits no participant,
+  capture, media send, or rendering authority.
 - **T08:** the success path carries `FSM1` and encrypted media through the real
   production listener and decodes JPEG at the participant.
 - **T10:** verified-endpoint attachment reset exposes only
   `media_attachment_failed`, not the socket exception or endpoint details.
+  Renderer throw and foreign cancellation expose only `renderer_start_failed`;
+  null/Missing exposes only `renderer_unavailable`.
 - **T13:** terminal authenticated-control disconnect, capability revocation,
   managed permission loss, and verified-endpoint attachment reset after TCP
-  accept converge the relevant ownership graph to zero. Rejected-response
-  cleanup is ordered after response commit, retains the original deadline as a
-  bounded fallback, and preserves attachment and cleanup failures together.
+  accept converge the relevant ownership graph to zero. The three renderer
+  failures do the same after successful `FSM1`, with Admission/capture/send/
+  render all at zero. Rejected-response cleanup is ordered after response
+  commit, retains the request deadline through a maximum-10-second watchdog,
+  survives lease disposal, and preserves primary plus cleanup/lifecycle
+  failures. Explicit and deadline close share one cleanup; actual linked
+  cancellation or deadline expiry remains eager.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -334,7 +471,7 @@ a native platform API, physical two-Device path, signed package, or notarization
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the six current cases above and does not establish that complete matrix.
+only the nine current cases above and does not establish that complete matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every
 malformed, tampered, timeout, cancellation, listener, or cleanup-fault boundary.
@@ -343,9 +480,9 @@ Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows and Linux tracer execution is managed-loopback and contract
-evidence only. There is no evidence here for Windows, macOS, or Linux native
-capture/input/protection APIs; physical two-Device operation; signed or
+Hosted Windows, macOS, and Linux execution at `fde38b2` is managed-loopback and
+contract evidence only. There is no evidence here for Windows, macOS, or Linux
+native capture/input/protection APIs; physical two-Device operation; signed or
 notarized packages; package lifecycle behavior; or full release acceptance.
 Those gates require native platform or physical evidence without extrapolating
-from the same-host managed loopback runs.
+from hosted or same-host managed loopback runs.

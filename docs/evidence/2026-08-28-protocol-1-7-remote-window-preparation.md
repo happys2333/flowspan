@@ -25,8 +25,10 @@ two-node tracer that consumed the lease.
 The later implementation commit `7255f04` adds the verified peer-endpoint
 connector, host/participant Preparation components, host coordinator, fixed host
 control router, and four deliberately narrow managed two-node tracer scenarios.
-That extension is recorded separately in
-`docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; it is not
+Subsequent checkpoints expand that tracer to six cases at `761ac75` and nine at
+`fde38b2bae9d02f177fd86e22a8beecb060325e9`, including attachment and renderer
+preparation fail-close ordering. Those extensions are recorded separately in
+`docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
 native adapters, physical-device proof, and release evidence remain absent.
 `CreateProduction()` therefore continues to report `native_adapters_unavailable`.
@@ -226,6 +228,45 @@ Scan, CodeQL, and reproducible unsigned packaging on the named runner images.
 They do not prove native capture, input, protection, permission, physical-device,
 packaged accessibility, signing, notarization, or release readiness.
 
+## Subsequent managed fail-close checkpoint
+
+Implementation commit `fde38b2bae9d02f177fd86e22a8beecb060325e9`
+retains the strict protocol-1.7 Preparation state machine and adds a
+request-bound participant fail-close watchdog for renderer preparation. After a
+real authenticated control session and successful `FSM1`, the managed tracer
+independently observes both media sessions as attached to the exact protocol,
+Device, Session, and Activity binding. A renderer factory throw, a legal
+null/Missing renderer, or a foreign/tokenless `OperationCanceledException` then
+synchronously makes the participant generation unavailable before the Rejected
+response is observed. The host observes `renderer_start_failed` for throw or
+foreign cancellation, or `renderer_unavailable` for null/Missing, before
+fail-close. No Admission, capture, media send, or render occurs, and all
+owner/route/directory/control counts drain to zero.
+
+The watchdog is bound to the exact request and accepts only a positive remaining
+deadline of at most 10 seconds. It survives lease disposal and closes at that
+deadline if the host does not. The same request is idempotent; a conflicting
+request cannot replace or extend the deadline. Expired, overlong, conflicting,
+or time-provider setup failure does not poison the generation and instead
+fail-closes eagerly. Actual linked cancellation and deadline expiry also remain
+eager. Owner revocation cancels the watchdog, explicit and deadline fail-close
+share one cleanup, and primary renderer failure remains visible together with
+cleanup or lifecycle failure.
+
+On local macOS arm64 with .NET SDK 10.0.301, both warning-as-error builds passed
+with zero warnings and errors; both complete solutions passed `2232/2232`, with
+Desktop `544/544` and Transport `701/701`. Ten fresh Debug and ten fresh Release
+renderer-theory processes passed `60/60` case executions; focused connection-
+lease and media-session suites passed `16/16` and `28/28`, respectively, in each
+configuration. Format, diff, direct/transitive dependency vulnerability,
+explicit TEST MODE composition, and simulator checks passed. There is no local
+`gitleaks` result. Exact-SHA CI `33249181870` and CodeQL `33249181871` for
+`fde38b2` both succeeded. Downloaded Windows, macOS, and Linux artifacts each
+contain 12 TRX files summing to `2232/2232`, with every non-success counter
+zero. Secret Scan and all three reproducible unsigned package jobs also passed.
+These remain managed contract and packaging results, not native or physical
+Remote Window evidence.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -255,13 +296,9 @@ codec/managed-session scope.
 
 Still required before Task 5.5a can close:
 
-- bind implementation commit `7255f04`, including the coordinator, connector,
-  complementary one-way grant coverage, and four tracer scenarios, to a hosted
-  CI result;
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the success, reversed-grant-negative, terminal-disconnect, and
-  same-session capability-revocation scenarios;
+  from the current nine managed tracer cases;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native
