@@ -110,12 +110,19 @@ public sealed class SecureControlChannelConcurrencyTests
             server.UpgradeToSecureControl(responder, liveRekeyEnabled: true);
         using var cancellation = new CancellationTokenSource();
         Task clientReceive = clientChannel.ReceiveAsync(cancellation.Token).AsTask();
-        Task serverReceive = serverChannel.ReceiveAsync(cancellation.Token).AsTask();
 
         Task first = clientChannel.RekeyAsync(TimeSpan.FromSeconds(2)).AsTask();
         Task duplicate = clientChannel.RekeyAsync(TimeSpan.FromSeconds(2)).AsTask();
+        Task<ControlMessage> serverReceive = serverChannel
+            .ReceiveAsync(cancellation.Token)
+            .AsTask();
         await Task.WhenAll(first, duplicate);
+        ControlMessage marker = CreateMessage(17);
+        await clientChannel.SendAsync(marker, cancellation.Token);
+        ControlMessage received = await serverReceive.WaitAsync(
+            TimeSpan.FromSeconds(2));
 
+        Assert.Equal(marker.MessageId, received.MessageId);
         Assert.Equal<uint>(2, initiator.SendEpoch);
         Assert.Equal<uint>(2, initiator.ReceiveEpoch);
         Assert.Equal<uint>(2, responder.SendEpoch);
