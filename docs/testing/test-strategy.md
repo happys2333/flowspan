@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current sixteen scenarios are not the required matrix; its per-boundary
+current seventeen scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -1112,15 +1112,44 @@ jobs. CodeQL `33267557806` passed 52 rules with 0 results and 0 exact-commit ope
 alerts. Exact artifacts and digests are in the managed tracer evidence. Final
 strict review reported P0/P1/P2 at zero.
 
-This closes one additional disconnect-by-capture-cleanup-fault intersection
-only. Other cleanup owners, combined failures, and the per-boundary matrix remain
-open.
+At the `13681fb` checkpoint, this closed one additional disconnect-by-capture-
+cleanup-fault intersection only. Other cleanup owners, combined failures, and the
+per-boundary matrix remained open.
+
+Test-only commit `2c6ff3221c494cd7003ad0a55e91c28e473615da` adds the
+seventeenth managed tracer case and no production source change. The third
+authenticated-disconnect theory row combines the existing capture Emergency Stop
+fault with the Emergency Stop registration-disposal fault in one cleanup. The
+final terminal failure must be one outer `AggregateException` with exactly two
+direct inner exceptions in causal order: the bounded, canary-free capture
+projection first and the exact raw registration `IOException` instance second.
+The first explicitly observed coordinator `DisposeAsync` must throw that same
+outer instance. A test-side bounded wait avoids sampling an earlier one-failure
+snapshot by waiting for final aggregate publication before assertions; every
+boundary count and owner-drain assertion from the single capture row remains
+exact.
+
+The TDD RED intentionally omitted the combined value from only the registration
+injection predicate. The two historical rows passed while the combined row alone
+hit its 20-second final-aggregate bound (`2/3`). Extending that predicate was the
+only GREEN change. Final focused Debug/Release passed `3/3`; 80 fresh alternating
+processes exercised all rows at `240/240`; the tracer passed `17/17`; Desktop
+passed `552/552`; and both solutions passed `2241/2241`. Warning-as-error builds,
+format, diff, dependency vulnerability, TEST MODE composition, and simulator
+gates passed. Exact-SHA CI `33269125217` passed `2241/2241` on each hosted OS,
+Secret Scan 208 rules with 0 results, and all unsigned package jobs. CodeQL
+`33269125313` passed 52 rules with 0 results and 0 exact-commit open alerts.
+Exact artifacts and digests are in the managed tracer evidence. Final strict
+review reported P0/P1/P2 at zero.
+
+This closes one combined capture-plus-registration cleanup-fault cross-product
+only. The other owner combinations and complete per-boundary matrix remain open.
 
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
-actual caller cancellation. Two disconnect cleanup-fault owner intersections are
-now covered, together with one full renderer-to-replacement exact-binding trace;
-the remaining cleanup-fault injection, replacement/ABA variants, and complete
-per-boundary matrix remain open.
+actual caller cancellation. Two single-owner disconnect cleanup-fault
+intersections and one combined-owner cross-product are now covered, together with
+one full renderer-to-replacement exact-binding trace; the remaining cleanup-fault
+injection, replacement/ABA variants, and complete per-boundary matrix remain open.
 
 The hosted matrices are cross-platform managed contract evidence,
 not evidence for native platform APIs, two physical devices, accessibility,

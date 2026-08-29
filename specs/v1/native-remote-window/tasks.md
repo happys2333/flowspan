@@ -449,10 +449,28 @@
     local build/format/diff/vulnerability/composition/simulator gates passed.
     Exact-SHA CI `33267557804` passed `2240/2240` on every hosted OS plus Secret
     Scan and all unsigned package jobs; CodeQL `33267557806` passed 52 rules with
-    0 results and 0 exact-commit open alerts. This closes one additional cleanup
-    owner only. Other owners/cross-products, the remaining fault and replacement
-    matrices, Tasks 5, 5.5a, 5.5, 6-10, native/physical/release gates, and the Goal
-    remain open; `CreateProduction()` remains unavailable.
+    0 results and 0 exact-commit open alerts. At that checkpoint this closed one
+    additional cleanup owner only. Other owners/cross-products, the remaining
+    fault and replacement matrices, Tasks 5, 5.5a, 5.5, 6-10,
+    native/physical/release gates, and the Goal remained open;
+    `CreateProduction()` remained unavailable.
+    Test-only commit `2c6ff3221c494cd7003ad0a55e91c28e473615da` adds the
+    seventeenth managed tracer case and no production change. One authenticated
+    disconnect now combines the capture Emergency Stop and registration-disposal
+    faults. The final two-inner aggregate preserves the bounded capture projection
+    first and exact raw registration exception second; the first explicitly
+    observed coordinator `DisposeAsync` shares that outer instance while every
+    exact boundary count and owner drain remains satisfied.
+    The RED omitted combined registration injection and produced exactly `2/3`,
+    with only the new row timing out after 20 seconds. The one-predicate GREEN
+    passed focused Debug/Release `3/3`, fresh-process `240/240`, tracer `17/17`,
+    Desktop `552/552`, and both solutions `2241/2241`, with every local gate clean.
+    Exact-SHA CI `33269125217` passed `2241/2241` on every hosted OS plus Secret
+    Scan and unsigned packages; CodeQL `33269125313` passed 52 rules with 0
+    results and 0 exact-commit alerts. This closes one combined cross-product
+    only. Every other cleanup combination, the remaining matrices, Tasks 5,
+    5.5a, 5.5, 6-10, native/physical/release gates, and the Goal remain open;
+    `CreateProduction()` remains unavailable.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

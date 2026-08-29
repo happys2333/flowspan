@@ -54,6 +54,12 @@ fourteenth registration cleanup-fault case and adds a sixteenth capture Emergenc
 Stop cleanup-fault case. Exact-SHA CI `33267557804` and CodeQL `33267557806`
 both passed; detailed artifact evidence is recorded in the managed tracer
 document.
+Test-only commit `2c6ff3221c494cd7003ad0a55e91c28e473615da` expands that
+disconnect cleanup-fault theory from two rows to three and adds a seventeenth
+combined case: one active authenticated disconnect encounters both the capture
+Emergency Stop and Emergency Stop registration-disposal faults. Exact-SHA CI
+`33269125217` and CodeQL `33269125313` both passed; detailed artifact evidence
+is recorded in the managed tracer document.
 Those extensions are recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
@@ -653,6 +659,69 @@ packages, release acceptance, Tasks 5, 5.5a, 5.5 and 6-10, and the long-term
 Flowspan Goal remain open. `CreateProduction()` must continue to report
 `native_adapters_unavailable`.
 
+## Exact-SHA combined authenticated-disconnect cleanup-fault checkpoint
+
+Test-only commit `2c6ff3221c494cd7003ad0a55e91c28e473615da` changes no
+production source. It expands the authenticated-disconnect cleanup theory from
+two rows to three and adds the seventeenth managed tracer case. The new row
+completes real protocol 1.7, `FSM1`, final Admission, encrypted media, and one
+render before the participant authenticated-control connection disconnects. In
+the resulting single fail-close round, capture `EmergencyStopNow` clears its
+owner and throws its one-shot fault, and Emergency Stop registration disposal
+clears its callback, becomes non-current, and throws its separate one-shot
+fault.
+
+The final `TerminalFailure` is an outer `AggregateException` with exactly two
+direct inner exceptions in fixed order. Index 0 is the bounded capture
+`InvalidOperationException` whose exact reason reports
+`capture=local_boundary_exception`, confirms input Emergency Stop and all
+sharing sessions disconnected, has a null `InnerException`, and excludes the
+capture canary from both its own and the outer aggregate's `ToString()`. Index 1
+is the raw registration `IOException` by exact object identity. An additional
+deadline-bounded wait observes final aggregate publication before sampling it,
+and the first explicitly observed coordinator `DisposeAsync` throws that same
+outer aggregate instance.
+
+The combined row preserves the capture row's exact cleanup counts: capture and
+input Emergency Stop each execute twice; capture records one failure; capture
+and input Stop each execute once; sharing-session disconnect executes three
+times; registration disposal, host fail-close, and host disposal each execute
+once. Every budget, capture, input, sharing-session, renderer, protection,
+permission, registration, media-directory, route, handler, channel, connection,
+and current/retained control owner drains.
+
+The TDD RED already contained the combined expectation but deliberately left
+the `injectRegistration` predicate unmatched for the combined parameter.
+Focused Debug therefore passed exactly two rows and failed one; the combined
+row reached its 20-second bound while waiting for the final aggregate. Expanding
+only that predicate turned the row GREEN. No production gap or production-source
+diff was required, and strict review reported no P0, P1, or P2 finding.
+
+Final local focused Debug and Release runs passed `3/3`. Eighty fresh processes
+alternating configurations exercised all three rows for `240/240` passing
+cases. The full managed tracer passed `17/17`, Desktop passed `552/552`, and the
+complete Debug and Release solutions passed `2241/2241`. Both warning-as-error
+builds reported 0 warnings and 0 errors. Format and diff checks, the
+direct/transitive dependency vulnerability audit, explicit TEST MODE
+composition, and the deterministic protocol-1.7 simulator all passed.
+
+Exact-SHA CI run `33269125217` passed. Downloaded macOS, Linux, and Windows
+artifacts `9719588391`, `9719580744`, and `9719595020` each contain 12 TRX files
+summing to `2241/2241`, with every non-success counter zero. Secret Scan
+artifact `9719549681` contains SARIF 2.1.0 with 208 rules and 0 results.
+Reproducible unsigned package artifacts `9719612911`, `9719620448`, and
+`9719614617` passed. CodeQL run `33269125313`, job `99144325272`, passed;
+exact-SHA analysis `1692310744` evaluated 52 rules with 0 results, and the branch
+query returned 0 open alerts. Exact job, artifact, and digest records are in the
+managed tracer document.
+
+This closes one combined active-authenticated-disconnect cleanup-fault
+cross-product only. Other cleanup owners and cross-products, the complete
+per-boundary fault matrix, native APIs, physical Devices, signed/notarized
+packages, release acceptance, Tasks 5, 5.5a, 5.5 and 6-10, and the long-term
+Flowspan Goal remain open. `CreateProduction()` must continue to report
+`native_adapters_unavailable`.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -684,10 +753,11 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current sixteen managed tracer cases, including one authenticated-
+  from the current seventeen managed tracer cases, including one authenticated-
   disconnect by an Emergency registration cleanup fault, a separate capture
-  Emergency Stop cleanup fault, one exact-binding Transport replacement-
-  generation row, and one full Desktop renderer-to-replacement trace;
+  Emergency Stop cleanup fault, one row combining those two faults, one exact-
+  binding Transport replacement-generation row, and one full Desktop renderer-
+  to-replacement trace;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native

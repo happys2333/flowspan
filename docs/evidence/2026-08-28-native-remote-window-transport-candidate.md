@@ -256,8 +256,18 @@ not expand the Transport exact-binding ABA contract. Exact-SHA CI `33267557804`
 passed `2240/2240` on every hosted OS plus Secret Scan and all unsigned package
 jobs; CodeQL `33267557806` passed 52 rules with 0 results and 0 exact-commit open
 alerts. Detailed artifacts are recorded in the managed tracer evidence. This
-closes one additional cleanup owner only; the Transport/replacement cleanup-fault
-cross-products remain open.
+closed one additional cleanup owner at the `13681fb` checkpoint only; the
+Transport/replacement cleanup-fault cross-products remained open.
+
+Test-only Desktop commit `2c6ff3221c494cd7003ad0a55e91c28e473615da`
+subsequently adds the seventeenth managed tracer row by combining capture
+Emergency Stop and registration-disposal faults during one authenticated
+disconnect. It changes no production source and does not expand the Transport
+exact-binding ABA contract. Exact-SHA CI `33269125217` passed `2241/2241` on all
+hosted OSes plus Secret Scan and unsigned packages; CodeQL `33269125313` passed
+52 rules with 0 results and 0 exact-commit alerts. Detailed artifacts are in the
+managed tracer evidence. This closes one managed combined-failure cross-product;
+the Transport/replacement cleanup-fault combinations remain open.
 
 The first fixture RED deliberately reused one gate for both generations. It
 failed deterministically after about 62 ms with expected forward count 1 and

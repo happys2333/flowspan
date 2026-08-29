@@ -346,6 +346,15 @@ explicitly observed coordinator `DisposeAsync` share the same bounded exception.
 This covers one capture cleanup-fault intersection, not
 the remaining cleanup matrix or native behavior.
 
+The seventeenth managed tracer case combines that capture-boundary projection and
+the registration-disposal failure during one authenticated disconnect. Final
+terminal state is a two-inner `AggregateException`: the bounded capture
+projection first and the exact raw registration exception second. The first
+explicitly observed coordinator `DisposeAsync` shares that outer instance, the
+capture canary remains absent, and the complete owner graph drains. This closes
+one managed combined-failure cross-product, not the remaining combinations or
+native behavior.
+
 Commit `80191d6`, retained by `761ac75`, provides six narrow managed same-host
 production-path tracer scenarios: successful DriverEligible
 media/input/Emergency Stop; reversed-grant denial; terminal
@@ -598,9 +607,34 @@ and all unsigned package jobs. CodeQL `33267557806` passed 52 rules with 0
 results and 0 exact-commit open alerts. Artifact details are in the managed
 tracer evidence.
 
-This closes the registration-disposal and capture-Emergency cleanup-owner rows
-for one active disconnect. Every other cleanup owner and combined-failure case
-remains open.
+At the `13681fb` checkpoint, this closed the registration-disposal and capture-
+Emergency cleanup-owner rows for one active disconnect. Every other cleanup owner
+and combined-failure case remained open.
+
+Test-only commit `2c6ff3221c494cd7003ad0a55e91c28e473615da` adds the
+seventeenth managed tracer case without changing production source. Its third
+disconnect theory row injects both prior managed faults at once. The final
+terminal aggregate has exactly two direct inners in causal order: the bounded
+capture result with no capture canary, followed by the exact registration
+`IOException` instance. A test-side bounded wait avoids sampling an earlier
+one-failure snapshot, and the first explicitly observed coordinator
+`DisposeAsync` throws the same final outer aggregate instance. Exact
+Emergency/ordinary Stop,
+registration-disposal, connection, and owner-drain assertions all remain
+satisfied.
+
+The RED intentionally excluded the combined value from only the registration
+injection predicate: the old rows passed and the combined row alone timed out at
+20 seconds. The single predicate extension was GREEN. Focused Debug/Release
+passed `3/3`, fresh-process pressure passed `240/240`, the tracer passed `17/17`,
+Desktop passed `552/552`, and both solutions passed `2241/2241`; all local gates
+and strict P0/P1/P2 review passed. Exact-SHA CI `33269125217` passed every hosted
+OS at `2241/2241`, Secret Scan, and all unsigned package jobs. CodeQL
+`33269125313` passed 52 rules with 0 results and 0 exact-commit open alerts.
+Artifact details are in the managed tracer evidence.
+
+This closes one capture-plus-registration combined-failure intersection. Every
+other cleanup owner, combination, and per-boundary fault remains open.
 
 The remaining complete per-boundary reject/throw/cancel/timeout/revoke/
 disconnect/cleanup-fault matrix remains open. Tasks 5, 5.5a, and 5.5, all native

@@ -1369,6 +1369,98 @@ native API, physical two-Device, signed/notarized package, or release-acceptance
 evidence. Tasks 5, 5.5a, 5.5, and 6-10 and the long-term Flowspan Goal remain
 open; `CreateProduction()` must continue to report Remote Window unavailable.
 
+### Exact-SHA combined authenticated-disconnect cleanup-fault checkpoint
+
+Test-only commit `2c6ff3221c494cd7003ad0a55e91c28e473615da` changes no
+production source. It expands the authenticated-disconnect cleanup-fault theory
+from two parameter rows to three and adds the seventeenth managed tracer case.
+The historical fourteenth registration-disposal row and sixteenth capture row
+retain their meanings. The new row combines their injected failures in one
+active authenticated disconnect.
+
+The combined row first establishes real authenticated protocol 1.7, `FSM1`,
+final Admission, capture, encrypted media, decode, and one render. When the
+participant authenticated-control connection disconnects, capture
+`EmergencyStopNow` clears its current owner and then throws one injected
+`IOException`. In the same fail-close round, Emergency Stop registration
+disposal clears its callback, becomes non-current, and then throws its own
+injected `IOException`.
+
+The final `TerminalFailure` is an outer `AggregateException` with exactly two
+direct inner exceptions in fixed order. Index 0 is the bounded capture
+`InvalidOperationException` with the exact reason:
+
+```text
+Remote Window host emergency stop was not fully confirmed (capture=local_boundary_exception, input=native_input_emergency_stopped, sessions=all_peers_disconnected).
+```
+
+That projected exception has a null `InnerException`; neither its own nor the
+outer aggregate's `ToString()` contains the injected capture canary. Index 1 is
+the raw registration `IOException` by exact object identity. Before reading the
+terminal surface, the test performs an additional deadline-bounded wait for the
+final two-inner aggregate. The first explicitly observed coordinator
+`DisposeAsync` then throws that same outer aggregate instance.
+
+The combined row preserves the capture row's exact cleanup counts: capture and
+input Emergency Stop each execute twice; capture records exactly one failure;
+capture and input Stop each execute once; sharing-session disconnect executes
+three times; Emergency Stop registration disposal executes once; and host
+fail-close and host disposal each execute once. The media budget is empty, and
+every capture, input, sharing-session, renderer, protection, permission,
+registration, media-directory, route, handler, channel, connection, and
+current/retained control owner drains.
+
+The TDD RED already contained the combined aggregate expectation, but the
+`injectRegistration` predicate was deliberately left unmatched for the combined
+parameter. The focused Debug theory therefore passed exactly two rows and failed
+one; the combined row reached its 20-second bound while waiting for the final
+aggregate. Expanding only that predicate turned the row GREEN. This was a
+test-fixture change, not a production repair: the commit has no production-
+source diff. Strict review reported no P0, P1, or P2 finding.
+
+Final local focused Debug and Release runs passed `3/3`. Eighty fresh processes
+alternating configurations exercised all three rows for `240/240` passing
+cases. The full managed tracer passed `17/17`, Desktop passed `552/552`, and the
+complete Debug and Release solutions passed `2241/2241`. Both warning-as-error
+builds reported 0 warnings and 0 errors. Format and diff checks, the
+direct/transitive dependency vulnerability audit, explicit TEST MODE
+composition, and the deterministic protocol-1.7 simulator all passed.
+
+Exact-SHA CI run
+[`33269125217`](https://github.com/happys2333/flowspan/actions/runs/33269125217)
+completed successfully. Each downloaded platform artifact contains exactly 12
+TRX files summing to `2241/2241` passed, with every non-success counter zero:
+
+| Platform | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| macOS | `99144325215` | `9719588391` | `cbd327ed754d03664237f5c089122f5e70e927e5d4f96571e55a245b6a190d8f` |
+| Linux | `99144325305` | `9719580744` | `87406f4a358feef947c73fbef4ccee8a7d60d40aa59d091aedf1f4afa6fb4665` |
+| Windows | `99144325253` | `9719595020` | `6031ee2aebbbe9a7acbfe7df4cb2b415ddf3975b8f1e51cfdee344bd5e96f36f` |
+
+Secret Scan job `99144325153` passed. Artifact `9719549681`, digest
+`0549946bc67f6955b1198b7bd00ae1a3a2db4dd61190de76b4b8b20342fdea74`,
+contains SARIF 2.1.0 with 208 rules and 0 results. All reproducible unsigned
+package jobs passed:
+
+| Runtime | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| `linux-x64` | `99144754980` | `9719612911` | `4a0c174fa572449a6fe70c7898772c936a05ce54b099f89fa30d532be2cc1905` |
+| `win-x64` | `99144754997` | `9719620448` | `1b7b8779ab40a89ece0c676131ed9d226617f22bf6aa6590456fbb4c2140d290` |
+| `osx-arm64` | `99144755015` | `9719614617` | `e636211e42b648ddf44badda5f1e1262e17b91fed6f8016a857cbb96f7293900` |
+
+[CodeQL run `33269125313`](https://github.com/happys2333/flowspan/actions/runs/33269125313),
+job `99144325272`, completed successfully. Exact-SHA analysis `1692310744`
+evaluated 52 rules with 0 results, and the branch query returned 0 open alerts
+for this commit.
+
+This checkpoint closes exactly one combined active-authenticated-disconnect
+cleanup-fault cross-product. It does not complete the other cleanup owners or
+cross-products, the remaining replacement variants, or the full reject, throw,
+cancel, timeout, revoke, disconnect, and cleanup-fault matrix. It supplies no
+native API, physical two-Device, signed/notarized package, or release-acceptance
+evidence. Tasks 5, 5.5a, 5.5, and 6-10 and the long-term Flowspan Goal remain
+open; `CreateProduction()` must continue to report Remote Window unavailable.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -1432,7 +1524,13 @@ open; `CreateProduction()` must continue to report Remote Window unavailable.
   disconnect. It proves the local capture owner is cleared before the throw,
   exposes only the stable `capture=local_boundary_exception` projection, and
   drains every later owner while `TerminalFailure` and the explicitly observed
-  coordinator disposal share that same projected failure.
+  coordinator disposal share that same projected failure. The seventeenth
+  managed row combines that capture fault with the registration-disposal fault
+  in one disconnect. It preserves the bounded capture projection as direct
+  aggregate inner 0, preserves the raw registration exception by identity as
+  direct inner 1, fixes their order, keeps the capture canary out of the outer
+  aggregate, and drains the complete owner graph while terminal observation and
+  the explicitly observed coordinator disposal share the same outer aggregate.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -1442,15 +1540,16 @@ open; `CreateProduction()` must continue to report Remote Window unavailable.
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the sixteen current cases above and does not establish that complete
+only the seventeen current cases above and does not establish that complete
 matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every
 malformed, tampered, timeout, cancellation, listener, or cleanup-fault boundary.
 The expiry and caller-cancellation cases cover one post-`FSM1`, pre-Admission
 example each. Active disconnect is covered with one Emergency Stop registration-
-disposal fault and, separately, one capture Emergency Stop cleanup fault; the
-remaining cleanup owners, combinations, and per-boundary cases remain open. One
+disposal fault, separately with one capture Emergency Stop cleanup fault, and
+with one row combining those two faults; the remaining cleanup owners,
+cross-products, and per-boundary cases remain open. One
 Desktop renderer-to-replacement ABA path is covered; the remaining replacement
 boundaries and combined-failure variants are also open.
 
@@ -1458,7 +1557,7 @@ Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows, macOS, and Linux execution through `13681fb` is managed-loopback
+Hosted Windows, macOS, and Linux execution through `2c6ff32` is managed-loopback
 and contract evidence only. It does not prove Windows, macOS, or Linux native
 capture/input/protection APIs; physical
 two-Device operation; signed or notarized packages; package lifecycle behavior;
