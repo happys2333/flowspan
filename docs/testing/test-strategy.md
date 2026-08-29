@@ -635,6 +635,16 @@ failures are aggregated, and that an attachment primary failure remains
 observable with cleanup failure even when Dispose or disconnect wins the
 response-completion race.
 
+Commit `ca63874` closes the remaining accepted-TCP attachment branch of that
+ordering. When the peer stream connects but `FSM1` attachment or acknowledgement
+then fails, the preparation-only media call leaves control ownership intact
+while the connection lease marks the generation fail-close-pending. The bounded
+Rejected response, its completion hook, explicit terminal cleanup, or the
+original deadline then owns closure. Ordinary non-preparation media connects
+retain eager control stop. A real loopback listener that accepts and immediately
+resets the socket exercises this branch without depending on platform-specific
+bound-but-not-listening TCP behavior.
+
 The same commit hardens active host permission generations. An event with a
 changed permission owner triggers current-snapshot revalidation; an authoritative
 owner change invalidates the active generation, while a same-owner revision
@@ -660,35 +670,37 @@ Start, and exact AddParticipant with frame admission closed, then carries one
 source frame through JPEG encode, encrypted chunking, decode, and renderer and
 returns one authorized Driver input to the exact host boundary.
 
-At implementation commit `80191d6`, the current tracer retains those four
-historical scenarios and adds managed native-capture permission revocation plus
-verified `FSM1` endpoint-connection failure. It therefore covers exactly six
-scenarios: success, reversed-grant rejection, authenticated-control disconnect,
-Mirror capability revocation, managed native-capture permission revocation, and
-`FSM1` attachment failure. The attachment-failure tracer rejects before
-Admission, capture, media send, or rendering, then clears route, media, control,
-protection, permission-observer, and connection owners.
+At implementation commit `80191d6`, retained by `761ac75`, the current tracer
+keeps those four historical scenarios and adds managed native-capture permission
+loss (`Granted` to `Denied`) plus verified `FSM1` attachment failure after a
+proved TCP accept. It therefore covers exactly six scenarios: success,
+reversed-grant rejection, authenticated-control disconnect, Mirror capability
+revocation, managed native-capture permission loss, and `FSM1` attachment
+failure. The attachment-failure tracer rejects before Admission, capture, media
+send, or rendering, then clears route, media, control, protection,
+permission-observer, and connection owners.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
 current six scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
-renderer, active/pending frame,
-queue, attachment, route, media-directory, controller, protection, Emergency
-Stop, and control owner, and preserve combined failures. Success and every fault
-must end with zero retained owner/budget counts.
+renderer, active/pending frame, queue, attachment, route, media-directory,
+controller, protection, Emergency Stop, and control owner, and preserve combined
+failures. Success and every fault must end with zero retained owner/budget
+counts.
 
-Exact-implementation local macOS verification at `80191d6` passed the complete
-Debug and Release solutions at `2209/2209` in each configuration, including
-Desktop `535/535` and Transport `687/687` in each. These are local managed,
-loopback, and contract results. Earlier hosted Windows/macOS/Linux checkpoints
-remain bound to `81b9008` and `579c9cd`; neither is hosted or cross-platform
-verification of `80191d6`.
+Exact-implementation local macOS verification at `761ac75` passed the complete
+Debug and Release solutions at `2210/2210` in each configuration, including
+Desktop `535/535` and Transport `688/688` in each. These are local managed,
+loopback, and contract results. Exact-SHA hosted CI `33246518217` passes
+`2210/2210` on Windows, macOS, and Linux, plus Secret Scan and three reproducible
+unsigned package jobs; CodeQL `33246518202` also passes. Downloaded TRX and SARIF
+artifacts confirm the counts and zero non-success/secret-scan results.
 
-This evidence is local managed loopback on the current macOS host only. It is not
-evidence for Windows or Linux, native platform APIs, two physical devices,
-accessibility, interactive quality, package signing, or macOS notarization.
+The hosted matrix is cross-platform managed contract evidence, not evidence for
+native platform APIs, two physical devices, accessibility, interactive quality,
+package signing, or macOS notarization.
 `CreateProduction()` must keep Remote Window unavailable until the native and
 authenticated runtime is composed into it. The tracer does not close Task 5,
 Task 5.5a, Task 5.5, any native/physical/release gate, release criterion, or the

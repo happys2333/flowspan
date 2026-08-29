@@ -141,26 +141,38 @@
     `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`.
     Hosted runners remain non-evidence for native API behavior, physical
     two-Device operation, signing, or notarization.
-    Follow-up implementation commit `579c9cd` adds the managed native-capture
-    permission-revocation path and closes the owning authenticated connection
-    after complete host cleanup. Its exact-SHA CI run `33242809777` and CodeQL
-    run `33242809786` both succeeded: Windows, macOS, and Linux each passed
+    Follow-up implementation commit `579c9cd` adds managed active
+    native-capture permission loss (`Granted` to `Denied`), closes the owning
+    authenticated connection, and completes host cleanup. Its exact-SHA CI run
+    `33242809777` and CodeQL run `33242809786` both succeeded: Windows, macOS,
+    and Linux each passed
     `2192/2192` tests, Secret Scan passed, and all three reproducible unsigned
     package jobs passed. These hosted managed results do not prove native
-    permission APIs or packaged permission revocation on any operating system.
-    Implementation commit `80191d6` extends the current managed production-path
+    permission APIs or packaged permission loss on any operating system.
+    Implementation commit `80191d6` extends the managed production-path
     tracer to six scenarios: success, reverse-grant rejection, authenticated
     control disconnect, Mirror-capability revocation, managed native-capture
-    permission revocation, and verified-endpoint `FSM1` TCP attachment refusal.
-    The attachment-refusal path proves rejection before Admission, capture, or
-    rendering and complete media/control ownership cleanup. Exact-tree local
-    macOS Debug and Release solution runs each passed `2209/2209`, including
-    Desktop `535/535` and Transport `687/687`; Debug and Release warning-as-error
-    builds, format verification, diff checks, direct/transitive dependency
-    vulnerability audit, explicit TEST MODE composition validation, and the
-    deterministic protocol-1.7 simulator also passed. This remains managed
-    same-host loopback evidence. The complete per-boundary reject, throw, cancel,
-    timeout, revoke, disconnect, and cleanup-fault matrix remains open.
+    permission loss, and a verified-endpoint `FSM1` attachment failure. Commit
+    `ca63874` then extends the preparation-only deferred fail-close through an
+    accepted TCP connection whose `FSM1` attachment fails, while preserving
+    eager control stop for ordinary media connections. Test-only commit
+    `761ac75` proves TCP accept before the reset, proves rejection before
+    Admission/capture/rendering with complete media/control cleanup, and removes
+    a separate outbound-reservation scheduling assumption. Exact-tree local
+    macOS Debug and Release solution runs at `761ac75` each passed `2210/2210`,
+    including Desktop `535/535` and Transport `688/688`; Debug and Release
+    warning-as-error builds, format verification, diff checks, direct/transitive
+    dependency vulnerability audit, explicit TEST MODE composition validation,
+    and the deterministic protocol-1.7 simulator also passed. This remains
+    managed same-host loopback evidence. The complete per-boundary reject,
+    throw, cancel, timeout, revoke, disconnect, and cleanup-fault matrix remains
+    open.
+    Exact-SHA CI run `33246518217` and CodeQL run `33246518202` for `761ac75`
+    both succeeded. The downloaded Windows, macOS, and Linux artifacts each
+    contain 12 TRX files summing to `2210/2210` passed with every non-success
+    counter zero; Secret Scan and all three reproducible unsigned package jobs
+    also passed. These remain hosted managed contract and unsigned-package
+    results, not native or physical Remote Window evidence.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
