@@ -49,6 +49,11 @@ renderer rejection and old-generation cleanup with a strictly newer replacement
 generation in one Desktop ABA trace. Exact-SHA CI `33266348260` and CodeQL
 `33266348243` both passed; detailed artifact evidence is recorded in the managed
 tracer document.
+Test-only commit `13681fb451df53290496416d11837ffb5435e500` preserves the
+fourteenth registration cleanup-fault case and adds a sixteenth capture Emergency
+Stop cleanup-fault case. Exact-SHA CI `33267557804` and CodeQL `33267557806`
+both passed; detailed artifact evidence is recorded in the managed tracer
+document.
 Those extensions are recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
@@ -598,6 +603,56 @@ Devices, signed/notarized packages, release acceptance, Tasks 5, 5.5a, 5.5 and
 6-10, and the long-term Flowspan Goal remain open. `CreateProduction()` must
 continue to report `native_adapters_unavailable`.
 
+## Exact-SHA authenticated-disconnect capture cleanup-fault checkpoint
+
+Test-only commit `13681fb451df53290496416d11837ffb5435e500` changes no
+production source. It parameterizes the existing fourteenth registration-
+disposal cleanup-fault Fact and adds the sixteenth managed tracer case. Both
+rows complete real protocol 1.7, `FSM1`, final Admission, encrypted media, and
+one render before the participant authenticated-control connection disconnects.
+
+In the new row, capture `EmergencyStopNow` first clears its owner and then throws
+one injected `IOException`. Production exposes the stable
+`InvalidOperationException` reason `capture=local_boundary_exception`; input and
+sharing-session Emergency Stop are confirmed in the same round. The projection
+has no inner exception, and its `ToString()` does not disclose the injected
+message. Later ordinary capture and input Stop each execute once, capture and
+input Emergency Stop each execute twice, and sharing-session disconnect executes
+three times. Every renderer, protection, permission, budget, media-directory,
+route, Emergency Stop registration, handler, channel, connection, and
+current/retained control owner drains. `TerminalFailure` and the first coordinator
+disposal explicitly observed by the test share the same projected exception
+instance.
+
+The initial TDD fixture without injectable capture behavior reached its
+20-second bound with one parameter row passing and one failing. The one-shot
+throw then showed that the draft raw-exception expectation was wrong: production
+correctly returned its bounded public projection, and the test was aligned to
+that contract. Strict review reported no P0, P1, or P2 finding.
+
+Local focused Debug/Release passed `2/2`; 80 fresh alternating processes
+exercising both parameter rows passed `160/160`; the tracer passed `16/16`;
+Desktop passed `551/551`; and both complete solutions passed `2240/2240`.
+Warning-as-error builds reported 0 warnings and 0 errors. Format, diff,
+direct/transitive dependency vulnerability, TEST MODE composition, and simulator
+checks passed.
+
+Exact-SHA CI run `33267557804` passed. Downloaded macOS, Linux, and Windows
+artifacts `9719127378`, `9719139759`, and `9719155031` each contain 12 TRX files
+summing to `2240/2240`, with every non-success counter zero. Secret Scan artifact
+`9719100182` contains SARIF 2.1.0 with 208 rules and 0 results. Reproducible
+unsigned package artifacts `9719174251`, `9719175384`, and `9719185880` passed.
+CodeQL run `33267557806`, job `99140225649`, passed; exact-SHA analysis
+`1692249638` evaluated 52 rules with 0 results, and the branch query returned 0
+open alerts. Exact job, artifact, and digest records are in the managed tracer
+document.
+
+This adds one cleanup owner only. The complete cleanup-owner combination and
+per-boundary fault matrix, native APIs, physical Devices, signed/notarized
+packages, release acceptance, Tasks 5, 5.5a, 5.5 and 6-10, and the long-term
+Flowspan Goal remain open. `CreateProduction()` must continue to report
+`native_adapters_unavailable`.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -629,10 +684,10 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current fifteen managed tracer cases, including one authenticated-
-  disconnect by one Emergency registration cleanup fault, one exact-binding
-  Transport replacement-generation row, and one full Desktop renderer-to-
-  replacement trace;
+  from the current sixteen managed tracer cases, including one authenticated-
+  disconnect by an Emergency registration cleanup fault, a separate capture
+  Emergency Stop cleanup fault, one exact-binding Transport replacement-
+  generation row, and one full Desktop renderer-to-replacement trace;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native

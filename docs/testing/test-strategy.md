@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current fifteen scenarios are not the required matrix; its per-boundary
+current sixteen scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -1082,11 +1082,45 @@ This closes one full managed renderer-failure-to-replacement exact-binding trace
 not the replacement matrix. Other Session, Activity, Device, reconnect, boundary-
 failure, cleanup-fault, and combined-failure variants remain open.
 
+Test-only commit `13681fb451df53290496416d11837ffb5435e500` adds the
+sixteenth managed tracer case without changing production source. The active
+authenticated-disconnect cleanup test is now a two-row theory: the historical
+Emergency Stop registration-disposal fault and a capture Emergency Stop fault.
+After real protocol 1.7, `FSM1`, Admission, encrypted media, and render, the
+capture boundary clears its current owner and throws one injected `IOException`.
+Production must project that injected managed capture-boundary exception only as
+the stable
+`capture=local_boundary_exception` reason, keep the projected terminal failure's
+`InnerException` empty, and omit the injected message from its complete string.
+The same Emergency Stop attempt must still confirm input stop and all-session
+disconnect. Later cleanup calls ordinary capture and input Stop exactly once,
+drains every renderer, protection, permission, budget, media, connection, and
+control owner, and makes `TerminalFailure` and the first explicitly observed
+coordinator `DisposeAsync` share the same projected failure instance.
+
+The first RED left the new seam non-throwing: the existing row passed and the new
+row hit its 20-second bound. The first one-shot throw then correctly exposed that
+raw exception identity was the wrong public expectation; production already
+performed bounded projection, so the test was refined to the T10-visible
+contract. Final focused Debug/Release passed `2/2`; 80 fresh alternating
+processes exercised both rows at `160/160`; the tracer passed `16/16`; Desktop
+passed `551/551`; and both complete solutions passed `2240/2240`. Warning-as-
+error builds, format, diff, dependency vulnerability, TEST MODE composition, and
+simulator gates passed. Exact-SHA CI `33267557804` passed `2240/2240` on each
+hosted OS, Secret Scan 208 rules with 0 results, and all three unsigned package
+jobs. CodeQL `33267557806` passed 52 rules with 0 results and 0 exact-commit open
+alerts. Exact artifacts and digests are in the managed tracer evidence. Final
+strict review reported P0/P1/P2 at zero.
+
+This closes one additional disconnect-by-capture-cleanup-fault intersection
+only. Other cleanup owners, combined failures, and the per-boundary matrix remain
+open.
+
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
-actual caller cancellation. One disconnect cleanup-fault intersection is now
-covered, together with one full renderer-to-replacement exact-binding trace; the
-remaining cleanup-fault injection, replacement/ABA variants, and complete per-
-boundary matrix remain open.
+actual caller cancellation. Two disconnect cleanup-fault owner intersections are
+now covered, together with one full renderer-to-replacement exact-binding trace;
+the remaining cleanup-fault injection, replacement/ABA variants, and complete
+per-boundary matrix remain open.
 
 The hosted matrices are cross-platform managed contract evidence,
 not evidence for native platform APIs, two physical devices, accessibility,

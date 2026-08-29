@@ -433,6 +433,26 @@
     reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault cross-product.
     Tasks 5, 5.5a, 5.5, and 6-10, every native/physical/release gate, and the Goal
     remain open; `CreateProduction()` remains unavailable.
+    Test-only commit `13681fb451df53290496416d11837ffb5435e500` changes no
+    production source and adds the sixteenth managed tracer case by parameterizing
+    the active authenticated-disconnect cleanup test. The new capture row clears
+    current capture ownership, throws one `IOException`, and proves production
+    exposes only bounded `capture=local_boundary_exception` with confirmed input
+    and session results, no inner exception, and no injected message. Ordinary
+    capture/input Stop then runs once, all remaining managed owners drain, and
+    `TerminalFailure` plus the first explicitly observed coordinator
+    `DisposeAsync` share one projected failure instance.
+    The no-injection RED passed the historical registration row and timed out the
+    new row after 20 seconds. Final focused Debug/Release passed `2/2`, 80 fresh
+    alternating processes passed both rows at `160/160`, the tracer passed
+    `16/16`, Desktop passed `551/551`, both solutions passed `2240/2240`, and all
+    local build/format/diff/vulnerability/composition/simulator gates passed.
+    Exact-SHA CI `33267557804` passed `2240/2240` on every hosted OS plus Secret
+    Scan and all unsigned package jobs; CodeQL `33267557806` passed 52 rules with
+    0 results and 0 exact-commit open alerts. This closes one additional cleanup
+    owner only. Other owners/cross-products, the remaining fault and replacement
+    matrices, Tasks 5, 5.5a, 5.5, 6-10, native/physical/release gates, and the Goal
+    remain open; `CreateProduction()` remains unavailable.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

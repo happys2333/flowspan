@@ -335,6 +335,17 @@ independent gate permits Admission and encrypted render before full teardown.
 This is the fifteenth managed tracer case, not the complete T13 replacement or
 fault matrix.
 
+The sixteenth managed tracer case adds T10/T13 evidence for one more cleanup
+owner. During active authenticated disconnect, capture Emergency Stop clears its
+owner and throws once. The injected managed capture-boundary exception is reduced
+to the bounded
+`capture=local_boundary_exception` result with no inner exception or injected
+message, while input and session Emergency Stop still complete. Ordinary Stop and
+the remaining owner graph then drain, and terminal failure plus the first
+explicitly observed coordinator `DisposeAsync` share the same bounded exception.
+This covers one capture cleanup-fault intersection, not
+the remaining cleanup matrix or native behavior.
+
 Commit `80191d6`, retained by `761ac75`, provides six narrow managed same-host
 production-path tracer scenarios: successful DriverEligible
 media/input/Emergency Stop; reversed-grant denial; terminal
@@ -561,6 +572,35 @@ Exact artifact IDs and digests are recorded in the managed tracer evidence.
 
 This closes one managed causal trace, not the remaining T13 replacement/fault
 matrix, non-cooperative native teardown, packaged churn, or resource telemetry.
+
+Test-only commit `13681fb451df53290496416d11837ffb5435e500` adds the
+sixteenth managed tracer case and no production source change. After real
+protocol 1.7, `FSM1`, Admission, encrypted media, and render, participant control
+disconnect invokes capture Emergency Stop. The test boundary clears current
+capture ownership and throws one `IOException`; production exposes only the
+stable unconfirmed-stop result containing `capture=local_boundary_exception`,
+confirmed input and session reasons, no inner exception, and no raw injected
+message. Later cleanup executes ordinary capture/input Stop, drains renderer,
+protection, permission, media budget, both media directories/routes, handlers,
+channels, connections, and current/retained control ownership. `TerminalFailure`
+and the first explicitly observed coordinator `DisposeAsync` share one projected
+failure instance.
+
+The no-injection RED passed the historical row and timed out only the new row
+after 20 seconds. The first one-shot throw demonstrated the existing bounded
+projection, so the final assertions freeze the public T10 contract rather than
+raw injected capture-boundary identity. Focused Debug/Release passed `2/2`, fresh-
+process pressure
+passed `160/160`, the tracer passed `16/16`, Desktop passed `551/551`, and both
+solutions passed `2240/2240`; all local gates and strict P0/P1/P2 review passed.
+Exact-SHA CI `33267557804` passed every hosted OS at `2240/2240`, Secret Scan,
+and all unsigned package jobs. CodeQL `33267557806` passed 52 rules with 0
+results and 0 exact-commit open alerts. Artifact details are in the managed
+tracer evidence.
+
+This closes the registration-disposal and capture-Emergency cleanup-owner rows
+for one active disconnect. Every other cleanup owner and combined-failure case
+remains open.
 
 The remaining complete per-boundary reject/throw/cancel/timeout/revoke/
 disconnect/cleanup-fault matrix remains open. Tasks 5, 5.5a, and 5.5, all native
