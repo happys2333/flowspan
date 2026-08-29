@@ -303,6 +303,37 @@
     pre-directory renderer-failure row. The rest of the fault matrix remains
     open, and this closes no Task, native/physical gate, release criterion, or
     Goal.
+    Test-only commit `63a52e5e7d2cbba7555a084bc6fa389dba6b5dd9` adds a fifth
+    renderer row and thirteenth managed tracer case. It keeps the real listener
+    blocked before host directory publication while Rejected returns and
+    Start/fail-close/Dispose plus the coordinator/control/directory/route/lease
+    cleanup complete while one listener handler remains blocked with
+    `ForwardCount == 0`. Gate release then produces the expected stale-owner
+    `MediaAttachment` `InvalidDataException`, and a second cleanup check proves
+    that handler settles with no resurrection. It creates no replacement
+    generation and is not ABA evidence. The TDD RED passed four rows and failed
+    only this row after 29 ms;
+    final focused Debug/Release passed `5/5`, the tracer passed `13/13`, 40 fresh
+    eight-way processes passed `200/200`, and both full solutions passed
+    `2236/2236`, including Desktop `548/548` and Transport `701/701`, with
+    warning-as-error builds clean and strict review at P0/P1/P2 zero. This is a
+    test-only checkpoint, not a production defect fix.
+    Full validation exposed two ordering gaps in a pre-existing duplicate-rekey
+    test: responder `SendEpoch == 1` sampled after response flush but before its
+    local epoch advance, while initiator `SendEpoch == 3` proved the second call
+    could start after the first completed. Test-only commit
+    `0e573907c30cf34b97339a1dd79ee8d3ca824399` starts both calls before server
+    receive and uses a marker returned by that loop as the responder-transition
+    barrier. The production send gate already prevents old-epoch application-
+    frame interleave; no production source changed, and 200 fresh alternating
+    Debug/Release processes passed.
+    Exact HEAD CI `33259599324` and CodeQL `33259599282` succeeded. Every hosted
+    OS passed `2236/2236`; Secret Scan, CodeQL analysis, and all three
+    reproducible unsigned package jobs passed. This closes only the
+    fail-close-before-publication row. The remaining fault
+    matrix, replacement/ABA evidence, Task 5, Task 5.5a, Task 5.5, all
+    native/physical/release gates, and the Goal remain open; `CreateProduction()`
+    remains unavailable.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

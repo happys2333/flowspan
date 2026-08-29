@@ -952,6 +952,94 @@ published before Rejected returns to the coordinator. It is managed loopback
 and test infrastructure evidence, not native, physical-Device, signed-package,
 notarization, or release evidence.
 
+### Subsequent fail-close-before-publication checkpoint
+
+Test-only commit `63a52e5e7d2cbba7555a084bc6fa389dba6b5dd9` changes no
+production source and expands the managed tracer from twelve to thirteen cases.
+Its fifth renderer theory row retains the same real listener gate but lets the
+validated Rejected response return to the coordinator while the media handler
+is still blocked before host directory publication. The test proves that the
+Start operation, fail-close, Dispose, and the coordinator's control, directory,
+route, lease, and local-resource cleanup finish while that one listener handler
+remains deliberately blocked with `ForwardCount == 0`. Admission, capture, media
+send, and rendering remain zero.
+
+Only after that terminal state is established does the test release the media
+gate. The delayed real `MediaAttachment` handoff is rejected with
+`InvalidDataException` because there is no live owning control connection. The
+gate forwards exactly once, the connection fault is observed at the expected
+stage, and a second complete cleanup check proves that no route, directory,
+handler, lease, channel, control, renderer, protection, permission-observer,
+Emergency Stop, capture, or media-budget owner is resurrected. This row does
+not create a replacement generation and therefore is not ABA or replacement-
+generation evidence.
+
+The TDD RED added only the fifth theory datum and boundary value before the
+fixture recognized it: the existing four rows passed, while the new row failed
+after 29 ms because it sampled the host session as already attached. The minimal
+GREEN reused the existing media-handler gate, omitted the response-return gate
+for this boundary, and added cleanup-before-release orchestration. The final
+focused Debug and Release
+theory passed `5/5`; the full tracer class passed `13/13` in both configurations;
+and 40 fresh processes, eight at a time, passed all five rows for `200/200` case
+executions under concurrent load. Strict review reported no P0/P1/P2 finding.
+This RED and repair concern missing test orchestration, not a production defect
+or production change.
+
+Debug and Release warning-as-error builds completed with zero warnings and
+errors. Both complete solutions passed `2236/2236`, including Desktop `548/548`,
+Platform `219/219`, and Transport `701/701`.
+
+During full validation, a pre-existing Transport concurrency test exposed two
+test-ordering gaps rather than a product failure. The first Release solution run
+observed responder `SendEpoch == 1`: the client can process response bytes after
+the responder flush but before the responder's local `AdvanceSendEpoch(2)`
+continuation. Focused stress instead observed initiator `SendEpoch == 3`: the
+second call could begin after the first rekey completed, so the test did not
+guarantee pending-request overlap. Test-only commit
+`0e573907c30cf34b97339a1dd79ee8d3ca824399` starts both `RekeyAsync` calls
+before server receive, then uses a post-rekey application marker returned by
+that same server receive loop as the responder-transition barrier. The
+production `sendGate` already covers response write through local epoch advance,
+so no old-epoch application frame can interleave and no production source
+changes. Two hundred fresh processes alternating Debug and Release passed the
+repaired case.
+
+At exact HEAD `0e573907c30cf34b97339a1dd79ee8d3ca824399`, CI run
+[`33259599324`](https://github.com/happys2333/flowspan/actions/runs/33259599324)
+and CodeQL run
+[`33259599282`](https://github.com/happys2333/flowspan/actions/runs/33259599282)
+both completed successfully.
+
+- Test jobs `99119150373` (Ubuntu), `99119150377` (Windows), and `99119150338`
+  (macOS) succeeded. Downloaded artifacts each contain 12 TRX files summing to
+  `2236/2236`, with failed, error, timeout, and aborted counters all zero:
+
+  | Platform | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | --- |
+  | Linux | `9716901132` | `b81bc42c227155bc33f552e0c9d30d91b6ebdbbd4e65d9f4dee8ee761d4692b4` |
+  | Windows | `9716911271` | `271cf02b6e6db0ee435e4d76a7480c00bdc60016662da0014b3d29542916e548` |
+  | macOS | `9716885494` | `9b0b8317cd20cf5318059e975a8b0eb7580e203f671061d54250924af7ff1421` |
+
+- Secret Scan job `99119150224` passed. Artifact `9716857200`, digest
+  `735839762356b9c205390a3dbc64b0ac0506f82bc2eeb2c09115cae496165e19`,
+  is SARIF 2.1.0 with one run, 208 rules, and 0 results.
+- CodeQL job `99119149908` passed. Exact-SHA analysis `1691941076` reports 52
+  rules and 0 results; the branch open-alert query returned 0.
+- All reproducible unsigned package jobs passed:
+
+  | Runtime | Job | Artifact ID | Artifact SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `win-x64` | `99119682639` | `9716937316` | `c83a89a185a9e21a3215bf7c2bebc2c525e7d2cb5e5871da2bd2d7702690225b` |
+  | `linux-x64` | `99119682673` | `9716932383` | `618b385e250acc4805877378a1dd0a42438d8644b7c03be774b9a90719341346` |
+  | `osx-arm64` | `99119682690` | `9716933095` | `db8a3e2915475b35583a21bbb83f45bcb4a380e65daa164f5e7c298a614637fe` |
+
+This checkpoint closes only the fail-close-before-host-directory-publication
+renderer row. The remaining per-boundary reject, throw, cancel, timeout, revoke,
+disconnect, and cleanup-fault matrix remains open, including replacement/ABA
+variants of this boundary. It supplies no native, physical-Device,
+signed-package, notarization, or release evidence.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -965,8 +1053,11 @@ notarization, or release evidence.
   operating-system permission transition. Three renderer-preparation rows use
   a test-owned wait for bilateral exact-bound media attachment before injecting
   failure. A fourth row injects failure after initiator acknowledgement but
-  before host directory publication, then proves Rejected precedes fail-close;
-  neither path admits a participant, capture, media send, or rendering
+  before host directory publication, then proves Rejected precedes fail-close.
+  A fifth lets fail-close and the coordinator/control/directory/route/lease graph
+  drain while one listener handler remains blocked, then proves the delayed
+  attachment is rejected and that handler also settles without resurrection.
+  None of these paths admits a participant, capture, media send, or rendering
   authority. The expiry case additionally
   completes Ready and one renderer Prepare before exact deadline equality, then
   admits no participant or active generation. The caller-cancellation case keeps
@@ -982,9 +1073,11 @@ notarization, or release evidence.
   cancellation family and exact caller token instead of a rejection reason.
 - **T13:** terminal authenticated-control disconnect, capability revocation,
   managed permission loss, and verified-endpoint attachment reset after TCP
-  accept converge the relevant ownership graph to zero. The four renderer
+  accept converge the relevant ownership graph to zero. The five renderer
   failures do the same after successful `FSM1`, including the handler-gated
-  pre-directory case, with Admission/capture/send/render all at zero.
+  pre-directory cases, with Admission/capture/send/render all at zero. The
+  fifth also proves late host attachment is rejected after fail-close rather
+  than resurrecting an owner.
   Rejected-response cleanup is ordered after response
   commit, retains the request deadline through a maximum-10-second watchdog,
   survives lease disposal, and preserves primary plus cleanup/lifecycle
@@ -1005,7 +1098,8 @@ notarization, or release evidence.
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
 and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the twelve current cases above and does not establish that complete matrix.
+only the thirteen current cases above and does not establish that complete
+matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every
 malformed, tampered, timeout, cancellation, listener, or cleanup-fault boundary.
@@ -1017,9 +1111,9 @@ Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this
 document is not evidence that production Remote Window is available.
 
-Hosted Windows, macOS, and Linux execution through `58569be` is managed-loopback
-and contract evidence only. There is no evidence here for Windows, macOS, or Linux
-native capture/input/protection APIs; physical two-Device operation; signed or
+Hosted Windows, macOS, and Linux execution through `0e57390` is managed-loopback
+and contract evidence only. It is not evidence for Windows, macOS, or Linux native
+capture/input/protection APIs; physical two-Device operation; signed or
 notarized packages; package lifecycle behavior; or full release acceptance.
 Those gates require native platform or physical evidence without extrapolating
 from hosted or same-host managed loopback runs.

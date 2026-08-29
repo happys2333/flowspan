@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current twelve scenarios are not the required matrix; its per-boundary
+current thirteen scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -900,6 +900,50 @@ passed `2235/2235`; Secret Scan and all three reproducible unsigned package jobs
 passed. This closes only the pre-directory renderer-failure row. The complete
 per-boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix
 remains open.
+
+Test-only commit `63a52e5e7d2cbba7555a084bc6fa389dba6b5dd9` adds a fifth
+renderer row and thirteenth managed tracer case without changing production
+source. It holds the real listener before host directory publication but lets
+the real Rejected response return. The test requires Start, fail-close, Dispose,
+and the coordinator/control/directory/route/lease cleanup to complete while one
+listener handler remains deliberately blocked with `ForwardCount == 0`;
+Admission, capture, send, and render stay zero. Only then is the gate released.
+The delayed attachment must fail at `MediaAttachment` with
+the expected stale-owner `InvalidDataException`, and a second cleanup check must
+show no owner or route resurrection. It deliberately does not create a
+replacement generation and therefore is not an ABA case.
+
+The TDD RED added only the new row/boundary value; four rows passed and the new
+row failed after 29 ms after sampling an already-attached host session. GREEN
+reused the media gate and added boundary-specific cleanup-before-release
+orchestration. The final focused theory passed `5/5` in Debug and Release, the
+tracer class passed `13/13` in both, and 40 fresh
+processes at eight-way concurrency passed all five rows for `200/200`. Both full
+warning-as-error builds completed with zero warnings/errors; both full solutions
+passed `2236/2236`, including Desktop `548/548`, Platform `219/219`, and
+Transport `701/701`. Strict review found no P0/P1/P2. This is test capability,
+not evidence of a production defect or code change.
+
+That full validation found two ordering gaps in
+`DuplicateLocalRekeyRequestsCoalesceAtOneTargetEpoch`. Responder
+`SendEpoch == 1` was a post-flush/pre-local-advance sample; initiator
+`SendEpoch == 3` proved the second call could start after the first completed.
+Test-only commit `0e573907c30cf34b97339a1dd79ee8d3ca824399` starts both calls
+before server receive, then uses a marker returned by that receive loop as the
+responder-transition barrier. The production send gate already prevents an
+old-epoch application-frame interleave, so no production source changes. Two
+hundred fresh alternating Debug/Release processes passed the repaired case.
+
+Exact HEAD CI
+[`33259599324`](https://github.com/happys2333/flowspan/actions/runs/33259599324)
+and CodeQL
+[`33259599282`](https://github.com/happys2333/flowspan/actions/runs/33259599282)
+completed successfully. Each hosted OS passed `2236/2236` with every non-success
+counter zero; Secret Scan, CodeQL analysis, and all three reproducible unsigned
+package jobs passed. The new renderer row closes only that one cleanup-race
+boundary. Replacement/ABA, the remaining complete fault matrix, Tasks 5, 5.5a,
+and 5.5, all native/physical/release gates, and the Goal remain open;
+`CreateProduction()` remains unavailable.
 
 The caller-cancellation tracer case covers only one post-`FSM1`, pre-Admission
 actual caller cancellation. Cleanup-fault injection and the complete

@@ -35,7 +35,11 @@ fixture's bilateral-attachment-before-injected-failure boundary explicit rather
 than assuming responder directory publication precedes renderer entry. Test-only
 commit `58569be` adds a twelfth case that freezes the valid earlier window after
 the initiator validates the FSM1 acknowledgement but before the host directory
-publication. Those extensions are recorded separately in
+publication. Test-only commit `63a52e5` adds a thirteenth case in which
+fail-close and the coordinator/control/directory/route graph drain while one
+listener handler remains blocked, after which the delayed attachment is rejected
+and the handler settles without resurrection.
+Those extensions are recorded separately in
 `docs/evidence/2026-08-28-managed-remote-window-production-tracer.md`; they are not
 part of this exact-commit evidence. The complete per-boundary fault matrix,
 native adapters, physical-device proof, and release evidence remain absent.
@@ -393,6 +397,53 @@ These remain managed-loopback contract and packaging results, not native,
 physical-Device, signed, notarized, or release evidence. This closes only the
 pre-directory renderer-failure row; the complete fault matrix remains open.
 
+## Subsequent fail-close-before-publication checkpoint
+
+Test-only commit `63a52e5e7d2cbba7555a084bc6fa389dba6b5dd9` adds no
+production source and expands the managed tracer to thirteen cases. The fifth
+renderer row holds the real listener handler before host directory publication
+while the real Rejected response returns to the coordinator. Start, fail-close,
+Dispose, and the coordinator's control, directory, route, lease, and local-
+resource cleanup all finish with that one listener handler still blocked,
+`ForwardCount == 0`, and zero Admission, capture, send, or render. Releasing the
+gate afterward produces the expected `MediaAttachment`-stage
+`InvalidDataException` for a stale attachment with no live owning control
+connection. A second cleanup observation proves no route or owner resurrection.
+The row does not construct a replacement generation, so it is not replacement
+or ABA evidence.
+
+The TDD RED passed the existing four renderer rows and failed only the new row
+after 29 ms because its boundary-specific cleanup orchestration was not yet
+present. Final focused Debug and Release passed `5/5`; the tracer class passed
+`13/13` in both configurations; and 40 fresh, eight-way concurrent processes
+passed all five rows for `200/200`. Both warning-as-error builds completed with
+zero warnings and errors, and both complete solutions passed `2236/2236`, including Desktop
+`548/548`, Platform `219/219`, and Transport `701/701`. Strict review reported
+no P0/P1/P2 finding. This is test-only orchestration evidence, not a production
+defect fix or new security control.
+
+The first complete Release validation run also exposed responder
+`SendEpoch == 1`: the client could consume response bytes before the responder's
+post-flush local epoch continuation. Focused stress separately observed
+initiator `SendEpoch == 3`, proving the second call could start after the first
+completed instead of joining one pending request. Test-only commit
+`0e573907c30cf34b97339a1dd79ee8d3ca824399` starts both `RekeyAsync` calls
+before server receive and uses a marker returned by that receive loop as the
+responder-transition barrier. The production send gate already covers response
+write through epoch advance, so this fixes two test-ordering gaps without a
+production source change; 200 fresh alternating Debug/Release processes passed.
+
+Exact HEAD `0e573907c30cf34b97339a1dd79ee8d3ca824399` has CI run
+[`33259599324`](https://github.com/happys2333/flowspan/actions/runs/33259599324)
+and CodeQL run
+[`33259599282`](https://github.com/happys2333/flowspan/actions/runs/33259599282)
+successfully completed. Each hosted OS passed `2236/2236` with every non-success
+counter zero; Secret Scan, CodeQL analysis, and all three reproducible unsigned
+package jobs passed. Exact artifact IDs and SHA-256 digests are recorded in the
+managed tracer evidence. This checkpoint closes only the cleanup-before-
+publication renderer row; the full fault matrix and every native, physical,
+signed/notarized, and release gate remain open.
+
 ## Review and remaining evidence
 
 Independent read-only concurrency and acceptance reviews found and drove fixes
@@ -424,7 +475,7 @@ Still required before Task 5.5a can close:
 
 - complete reject, throw, cancel, timeout, revoke, disconnect, and cleanup-fault
   coverage at every applicable production boundary rather than extrapolating
-  from the current twelve managed tracer cases;
+  from the current thirteen managed tracer cases;
 - add combined failure injection across every production owner and prove all
   cleanup failures remain observable; and
 - keep the shipped composition unavailable until Task 5.5 supplies the native
