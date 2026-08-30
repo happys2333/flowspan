@@ -318,7 +318,7 @@ native emergency action, physical peer, or usable packaged screen reader.
 | T04 | `remote-window.prepare` and `remote-window.ready` repeat one exact correlation, Session, Activity, directed Device pair, frozen role, UTC deadline, and domain-separated canonical SHA-256 `prepareDigest`. Both peers recompute and constant-time compare the digest. Each control registration owns at most one pending transaction and retains a terminal tombstone through the deadline or connection close; unknown, duplicate, conflicting, cross-request, expired, or delayed Ready faults closed without reviving work. A locally produced Rejected response is committed before its delivery-dependent fail-close, so the host observes the bounded reason before closing the owning connection. The failed connection generation becomes unavailable for reacquisition, retry, route, or media operations immediately. A request-bound watchdog accepts only the exact same request with a positive remaining deadline of at most 10 seconds, survives lease disposal, and fail-closes at that original deadline if the host does not. Conflicting, expired, overlong, or provider-setup-failed deferral does not poison or extend the generation; explicit close and deadline expiry share one cleanup, while owner revocation cancels the watchdog. A test-only coordinator clock proves the production currentness check treats equality with the request deadline as expired after successful `FSM1` and Ready, without reviving the generation. | Independent protocol review, cross-implementation fixtures, and physical loss/replay observation. |
 | T05 | Only the source host checks its current peer-relative `mirror.view` and optional `mirror.drive` grant to the participant before Prepare, before capture, and through AddParticipant. The participant verifies current authenticated Trust/connection, local recipient and receive policy, and readiness without requiring a reciprocal Mirror grant, which would authorize the opposite source direction. v1 defines no `remote-window.receive` Capability. The host now reserves the exact authenticated-handshake fingerprint plus all role-required Mirror Capabilities under the Trust mutation gate before route admission; every Applied revoke or Capability update invalidates that exact Preparation before ordinary observers or active-session Stop. A managed production-path tracer covers complementary one-way success, reversed-grant denial, same-session active Mirror downgrade, and one pre-Prepare Applied same-grant `R < M < S` invalidation with zero Prepare wire and complete drain. | The other production-composed Authorization orders, complete direction/fault matrix, and packaged physical one-way-grant and revocation evidence. |
 | T06 | Prepare, Ready, permission, route possession, attachment, and renderer readiness grant no membership, capture, Driver, input, or rendering authority. Ready success only permits host revalidation; protection/Emergency ownership, controller Start, and exact AddParticipant occur with frame admission closed. Only correlated state with action Admission, outcome Applied or AlreadyApplied, exact role, and current media binding establishes the participant's known binding and opens frames. The managed tracer observes zero capture before Prepare/Ready and attachment complete, zero media/render before final Admission, then exercises Driver input and Emergency Stop. Three renderer-failure rows own an explicit wait for both real media-session attachment completions before injecting failure; both sessions then carry the exact protocol, Device, Session, and Activity binding, while Admission, capture, media send, and render remain zero. A fourth row blocks the real listener before host directory publication, proves participant attached and host unattached at failure, commits Rejected before fail-close, then publishes host attachment and drains every owner. A fifth row lets fail-close and the coordinator/control/directory/route graph drain while one listener handler remains blocked, then proves the delayed attachment fails and the handler settles without resurrection. These test barriers are not production ordering guarantees. The post-`FSM1` expiry case additionally completes Ready and one renderer Prepare before exact deadline equality, yet publishes no Admission or active generation and performs no capture, media send, or render. The caller-cancellation case cancels only the `StartAsync` caller token while the harness remains live and the clock is before deadline; production returns that exact token without Admission, capture, send, or render. A managed active permission-loss observation closes frame admission, invokes the local Emergency Stop boundaries, and drains the admitted session and its owner graph. | Native capture/input enforcement, the remaining complete per-boundary fault matrix, and Emergency Stop under physical peer/network/UI failure. |
-| T07 | The host requires fresh Safe protection before Prepare and rechecks it after Ready immediately before Start. Protection loss at either boundary rejects or stops the transaction before frame publication; a Ready result cannot cache Safe state. The active permission-loss tracer drives the managed permission abstraction; it is not evidence of a real Windows, macOS, or Linux permission revocation. | Continuous platform protection probes and frame-by-frame physical blank/pause evidence. |
+| T07 | The host binds one exact fresh-Safe Protection observation and its complete freshness interval before route admission. The same registration remains temporary through Prepare, Ready, and attachment, becomes formal immediately before host-reservation promotion, and becomes live only after a fresh post-`Starting` source-gate admission immediately before capture. Live mutation closes new frame/input admission under the source gate, drains exact in-flight uses before reopening, and preserves ordered observations through a bounded fail-closed queue. A managed tracer proves only Protection `R < M < S` for `SecureInput` and `Unknown`; it does not instantiate a native protection probe. | Production-composed `M < R` and `S < M`, the complete Protection fault matrix, continuous platform protection probes, and frame-by-frame physical blank/pause evidence. |
 | T08 | Protocol 1.7 alone accepts the two strict canonical schemas. Prepare and Ready reject unknown, duplicate, null, wrong-type, or trailing fields, malformed digest, wrong authenticated direction/identity, any binding or role mismatch, and inconsistent envelope/body deadlines. Native token/handle/generation, route ID, Descriptor, Kind, raw title, key, input, frame, and exception text are absent. Malformed or wrongly bound input is not reflected in Ready. A managed tracer carries `FSM1`, encrypted media, and JPEG decode through the production listener. The attachment-failure tracer instead uses an authenticated, signed candidate, proves that its verified TCP endpoint accepts the connection, and then immediately resets before the `FSM1` handshake completes; it is attachment-failure evidence, not a malformed-`FSM1` byte test. | Cross-implementation hostile readers, cross-platform native/packaged execution, and packaged physical traffic observation. |
 | T10 | Ready rejection uses one allowlisted bounded reason and diagnostics expose only bounded identifiers, phase, and outcome. Prepare/Ready and final state contain no raw source title, native identity, media locator, payload, or exception text. A post-accept TCP reset is projected across the authenticated control path only as `media_attachment_failed`; raw socket text is not reflected to the host. Renderer factory throw and foreign/tokenless cancellation expose only `renderer_start_failed`, while a valid null/Missing result exposes only `renderer_unavailable`. Exact deadline equality exposes only `preparation_expired`. Actual caller cancellation propagates the cancellation family and exact caller token rather than producing a rejection reason. | Native adapter logs, crash/minidump, diagnostics export, and screen-reader inspection. |
 | T13 | The single control dispatch loop performs only validation/reservation and starts one owned deadline/lifetime worker before returning. Stop/dispose cancels and joins it. A Ready exposed during Prepare send remains buffered and cannot authorize final Admission until the send commits; result publication shares that commit and is irreversible. Prepare, Ready, and final Admission recheck the absolute deadline at actual wire admission, independent of timer scheduling. Desktop networking shares one connection-owned media directory with the published listener, and the handler exposes an atomic generation-bound Preparation/media lease. A production coordinator consumes that lease with a verified peer-endpoint connector. Ready false, timeout, cancel, revoke, disconnect, attachment, capture, admission, state, renderer, or cleanup failure closes frame admission and attempts every owner cleanup. Terminal authenticated-control disconnect, same-session capability revocation, managed active permission loss, attachment reset after proved TCP accept, and renderer throw/null/foreign-cancellation converge the active coordinator snapshot, media budget, both media directories and routes, renderer, and authenticated-control owners to zero. Attachment failure enters neither media-attachment wait nor Admission, capture, or render. Three renderer-start rows explicitly wait for bilateral attachment before injecting failure; they do not imply that responder directory publication naturally precedes participant renderer entry. A fourth row freezes that exact earlier window and proves Rejected-before-fail-close plus complete post-publication cleanup. A fifth keeps directory publication blocked while the coordinator/control/directory/route/lease graph drains and one listener handler remains active, then proves the late attachment is rejected as stale, the handler settles, and ownership cannot resurrect; that renderer row itself does not construct a replacement generation or prove ABA resistance. A companion Transport contract independently drains that old generation, prepares a replacement route for the same Device pair, Session, and Activity with a fresh Route ID, completes real `FSM1` acceptance so the route is Attached while directory publication remains gated, rejects the delayed old exact binding without affecting the replacement, then attaches the replacement and transfers encrypted media. Initiator acknowledgement verification alone does not prove responder host-directory publication; six renderer-rejection fixtures now assert the rejection first and use a bounded cancellable attachment-publication barrier before cleanup, without creating a production ordering guarantee. A fourteenth managed row injects one Emergency Stop registration-disposal failure during active authenticated-control disconnect; the same failure remains observable while every later managed owner drains. The exact-deadline test waits for media attachment once, then host fail-closes and disposes once without publishing Admission or an active generation; renderer, route, directory, handler, lease, channel, and control owners drain, and the old generation cannot be reacquired. The caller-cancellation test independently keeps the harness alive, observes fail-close and Dispose once, and drains the same owners. Actual linked cancellation and deadline remain eager. Renderer primary failure stays observable with cleanup or lifecycle failure, and explicit/deadline fail-close shares one cleanup. | The remaining complete per-boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix, combined failure injection, the remaining replacement/ABA matrix, sustained packaged churn, non-cooperative native teardown, and resource telemetry. |
@@ -1118,12 +1118,91 @@ limitations are in the
 
 This is managed same-host loopback, hosted contract, and static-analysis
 evidence. It proves no native API, physical two-device operation, packaged
-Windows/macOS/Linux behavior, signing, notarization, or release acceptance. The
-remaining production-composed Connection orders and fault intersections,
-Protection reservation, other fact orders, and the complete matrix remain
-open. H0/H1 remain P or M; Tasks 5, 5.5a, and 5.5,
-`CreateProduction()`, every native/physical/release gate, and the Goal remain
+Windows/macOS/Linux behavior, signing, notarization, or release acceptance. At
+that checkpoint the remaining production-composed Connection orders and fault
+intersections, Protection reservation, other fact orders, and the complete
+matrix remained open. H0/H1 remained P or M; Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remained
 open.
+
+### 5.24 2026-08-30 Host native Protection Preparation reservation
+
+Exact commit `c987ca84e1f9f867f0edef3222a94dc8d25a2583` mitigates one
+pre-Prepare and capture-start T06/T07/T10/T13 Protection race without enabling
+the shipped production composition.
+
+Exact evidence/test-stabilization commit
+`457a2c4b9e3d6905218e826cedd60029bbd1b35e` preserves that production
+implementation and makes the formal source-loss test wait for deterministic
+asynchronous terminal cleanup before asserting the final coordinator snapshot.
+
+For T07, one synchronous registration binds the full accepted protection
+observation: owner, session, and source generations; revision; kind;
+`ObservedAt`; and source identifier. Reservation requires exact equality and a
+fresh `Safe` value under the source mutation gate, transfers host ownership
+before returning, and rolls back a failed transfer. Its monotonic ID and exact-
+object slot release prevent a late old Dispose from removing a replacement.
+Temporary mutation or source loss deactivates the exact owner under that gate
+before ordinary observers, and a later Safe value cannot revive it.
+
+The host also binds the observation's inclusive validity interval from
+`ObservedAt - MaximumFutureClockSkew` through
+`ObservedAt + MaximumProtectionAge`. Arm, route admission, actual Prepare send
+admission, Ready matching, and host promotion recheck it; request-deadline
+equality remains expired and wins classification. The protection boundary
+independently rechecks exact identity and freshness when the same registration
+moves from `Temporary` to `FormalPreStart`, and again with a fresh post-
+`Starting` clock immediately before source use/native capture. Mutation that
+wins the source gate prevents capture; mutation after admission observes a
+controller already in `Starting` and closes the formal live gates.
+
+For T06, live latch first closes controller Protection admission under the
+source mutation gate, then retains the exact observation and admission epoch in
+a bounded FIFO. Notify runs outside that gate and before ordinary observers.
+Every native frame destination and native or semantic input boundary holds one
+exact `ProtectionAdmissionUse` for the complete local call. New uses fail while
+closed, and even a current Safe reconciliation cannot reopen until older uses
+drain and the same epoch, accepted observation, Active lifecycle, and Capturing
+state still match. Active callback ancestry avoids self-wait without granting a
+new use.
+
+For T13, non-reentrant formal Notify callers wait until the sequence they
+observed has drained. Active ancestry leaves queued work to the active outer
+drainer, preventing self- and cross-boundary deadlock; stale captured contexts
+cannot bypass a current drainer. Reversed concurrent notifications preserve
+unsafe-before-Safe order. Source loss is terminal, queue pressure fails closed,
+external source Dispose joins in-flight formal work, and applicable callback and
+cleanup failures remain observable. Nested or direct fatal exhaustion escapes
+as raw `OutOfMemoryException` after applicable cleanup.
+
+For T10, reservation conflict, changed/unsafe/stale observation, non-fatal
+reserve/promotion/currentness failure, and capture-start denial expose only
+`native_protection_not_safe`. Exact caller cancellation retains its token and
+fatal exhaustion is not relabelled. No raw probe source, callback exception, or
+injected canary crosses the host start reason.
+
+On implementation tree `c987ca8`, Platform and Desktop Debug/Release pass
+`289/289` and `700/700`; both solution configurations pass `2564/2564` with zero
+warnings/errors; the managed success plus `SecureInput`/`Unknown` tracer passes
+`3/3`; and every stated local gate passes. Two independent final reviews report
+no P0/P1 finding. On test-only tree `457a2c4`, the focused formal-source-loss
+Release row, 50 repeated local executions, and both full `2564/2564` solution
+configurations pass. Exact-SHA CI `33294103546` and CodeQL `33294103609` pass;
+downloaded artifacts prove `2564/2564` on every hosted OS, Gitleaks 208/0,
+CodeQL 52/0 with 0 exact-ref open alerts, and all three reproducible
+version-0.1.200 unsigned packages. Exact commands, jobs, artifacts, digests,
+and limitations are in the
+[Protection Preparation evidence](../evidence/2026-08-30-host-protection-preparation-reservation.md).
+
+The two negative managed tracer executions use authenticated protocol-1.7
+loopback and the actual Transport send-admission hook, but prove only Protection
+`R < M < S`. The hook returns `NotDelivered`, no Prepare wire or later authority
+opens, and both nodes drain. This is not native secure-input/protected-content,
+physical Windows/macOS/Linux, or production-composed `M < R`/`S < M` evidence.
+The complete per-boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-
+fault matrix remains open. H0/H1 remain P or M; Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open.
 
 ## 6. Security state machine rules
 
@@ -1147,6 +1226,11 @@ open.
   reservation. Route selection and Prepare send admission must carry that exact
   owner; generation or media mutation makes it terminal, while the overlapping
   exact-once live callback owns post-promotion shutdown.
+- Host Remote Window Preparation Protection authority binds the full accepted
+  observation and freshness interval to one exact source registration. The same
+  owner progresses through temporary, formal-pre-start, and live capture-start
+  admission; live mutation closes new frame/input use admission before queued
+  notification, and a Safe result cannot reopen it until exact older uses drain.
 - Reconnection creates a new secure session and key epoch.
 - Unknown identity, version, protection state, transaction outcome, or lease
   epoch cannot authorize capture or input.

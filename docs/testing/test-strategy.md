@@ -1628,10 +1628,99 @@ Exact commands, artifacts, digests, and limitations are in the
 This remains managed same-host loopback and contract evidence on macOS, not
 native or physical Windows/macOS/Linux proof. It does not complete every
 Connection reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault
-intersection. Protection still lacks an exact Preparation reservation, every
-aggregate H0/H1 status remains conservative, and Tasks 5, 5.5a, and 5.5,
-`CreateProduction()`, every native/physical/signing/notarization/release gate,
-and the Goal remain open.
+intersection. At that exact checkpoint, Protection still lacked an exact
+Preparation reservation. Every aggregate H0/H1 status remained conservative,
+and Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every native/physical/signing/
+notarization/release gate, and the Goal remained open.
+
+### 2026-08-30 Host native Protection Preparation reservation
+
+Exact commit `c987ca84e1f9f867f0edef3222a94dc8d25a2583` binds one
+Protection Preparation registration to the complete accepted observation:
+owner, session, and source generations; revision; kind; observation time; and
+source identifier. Reservation requires the same current observation and a
+fresh `Safe` snapshot, transfers owner cleanup synchronously under the source
+mutation gate, rolls back a failed claim, and uses monotonic registration IDs so
+a late old Dispose cannot remove a replacement.
+
+Exact evidence/test-stabilization commit
+`457a2c4b9e3d6905218e826cedd60029bbd1b35e` preserves that production
+implementation and makes the formal source-loss test join deterministic
+asynchronous terminal cleanup before inspecting the coordinator snapshot.
+
+The host additionally binds the observation interval from
+`ObservedAt - MaximumFutureClockSkew` through
+`ObservedAt + MaximumProtectionAge`. The interval endpoints are valid, while
+request-deadline equality is expired and takes priority. Arm, route admission,
+actual Prepare send admission, Ready matching, and host promotion all recheck
+the interval. The protection source separately revalidates exact identity and
+freshness at formal promotion and at a fresh post-`Starting` capture-start
+admission immediately before source use/native capture.
+
+The same owner moves through `Temporary → FormalPreStart → Live`. Temporary
+mutation invalidates the host reservation under the source gate before ordinary
+observers. Formal-pre-start mutation synchronously closes controller Protection
+admission and prevents capture. Only a current fresh-Safe capture-start gate
+marks the registration Live. Live observations latch under the source gate,
+close admission immediately, and notify outside that gate before ordinary
+observers; source loss is terminal.
+
+The host formal sink retains a bounded FIFO of exact observation/admission-epoch
+pairs. Non-reentrant Notify calls wait until their observed sequence drains.
+Active notification ancestry avoids waiting on its own callback stack while the
+active outer drainer remains responsible for queued work. Reversed concurrent
+notifications retain unsafe-before-Safe order, stale captured contexts join the
+current drainer, source loss cannot be overwritten, and overflow/failure fail
+closed. The underlying source also commits latest state before callbacks,
+coalesces its bounded notification overflow to `Unknown`, joins in-flight formal
+work during external Dispose, and avoids self/cross-source disposal deadlocks.
+
+The controller's `ProtectionAdmissionUse` makes live protection admission a
+real use boundary rather than another point check. Every native frame
+destination and native or semantic input call holds one exact use throughout
+the local boundary. Unsafe latch closes new use admission first. A current Safe
+reconciliation cannot reopen until prior uses drain and its exact admission
+epoch, observation, Active lifecycle, and Capturing state still match. Active
+callback ancestry avoids waiting on itself without authorizing a new use.
+
+Platform contract/controller tests cover exact identity and freshness,
+conflict, claim rollback, ABA, all three ownership phases, source loss,
+promotion/capture admission, reversed Notify/drain/ancestry, overflow, stable
+failure identity, frame/input use scopes, safe reopen, cancellation, and Stop
+races. Focused Desktop tests cover abstract `M < R`, `R < M < S`, and
+`S < M`; both sides of capture-start admission; formal FIFO/source-loss drain;
+reserve/promote/currentness failures; exact cancellation; raw fatal exhaustion;
+and cleanup ownership.
+
+The managed success case and the `SecureInput`/`Unknown` executions of
+`ProtectionMutationAfterReservedRoutePreventsPrepareWireAndDrains` pass `3/3`
+in Debug and Release. The negative rows use real authenticated protocol-1.7
+loopback, select the production route, then commit Protection `R < M < S`. The
+actual Transport send-admission hook is entered and returns `NotDelivered`, so
+no Prepare wire or later capture/render/input/Admission authority opens; later
+Safe cannot revive the terminal generation and both nodes drain. This is not
+evidence for production-composed `M < R` or `S < M`.
+
+On implementation tree `c987ca8`, Platform and Desktop Debug/Release pass
+`289/289` and `700/700`; both solution configurations pass `2564/2564`; both
+warning-as-error builds have zero warnings and errors; and format, diff,
+direct/transitive vulnerability, explicit TEST MODE composition, simulator, and
+two independent zero-P0/P1 final reviews pass. On test-only tree `457a2c4`, the
+focused formal-source-loss Release row, 50 repeated local executions, and both
+full `2564/2564` solution configurations pass. Exact-SHA CI `33294103546` and
+CodeQL `33294103609` pass; downloaded artifacts prove `2564/2564` on Windows,
+macOS, and Linux, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref open alerts, and
+all three reproducible version-0.1.200 unsigned packages. Exact commands, jobs,
+artifacts, digests, and limitations are in the
+[Protection Preparation evidence](../evidence/2026-08-30-host-protection-preparation-reservation.md).
+
+This checkpoint proves managed contracts and same-host loopback only. It does
+not prove native Windows/macOS/Linux protection APIs, native capture/input,
+physical Devices, packaged accessibility, signing, notarization, or release
+acceptance. The complete per-boundary reject/throw/cancel/timeout/revoke/
+disconnect/cleanup-fault matrix remains open, all H0/H1 aggregates stay P or M,
+and Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every native/physical/release
+gate, and the Goal remain open.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
@@ -1738,15 +1827,17 @@ Core invariants are asserted after every event:
     Replace; occupied Move-plus-Replace, Opaque, Ambiguous, or filtered inventory
     absence always fails closed.
 15. a Remote Window input reaches its local boundary only for one current
-    participant, immutable Capability snapshot, fresh Safe protection state, and
-    exact live Driver epoch; emergency/protection preemption and any retired
-    epoch cannot be reported as injected. Only the latest monotonic protection
-    observation may publish Active or confirmed Paused state; re-entrant churn
-    is bounded, partial resume failure re-closes both gates, and a stale resume
-    cannot reopen a gate after Emergency Stop. Revocation cannot restore a peer
-    whose local disconnect remains pending, and stop/reset truth is computed from
-    cumulative local-boundary confirmation for only the current session
-    generation.
+    participant, immutable Capability snapshot, fresh Safe protection state,
+    exact live Driver epoch, and one exact `ProtectionAdmissionUse` held for the
+    entire local call; native frame delivery holds the same kind of use through
+    its destination. Emergency/protection preemption closes new uses first and
+    any retired epoch cannot be reported as injected. Only the latest monotonic
+    protection observation may publish Active or confirmed Paused state; re-
+    entrant churn is bounded, partial resume failure re-closes both gates, and a
+    stale resume cannot reopen admission before older uses drain or after
+    Emergency Stop. Revocation cannot restore a peer whose local disconnect
+    remains pending, and stop/reset truth is computed from cumulative local-
+    boundary confirmation for only the current session generation.
 16. a Remote Window Preparation grants no authority: only the source host reads
     its peer-relative grant; Ready cannot create a known participant binding;
     capture and frames remain closed until current host revalidation, Start,

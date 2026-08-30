@@ -749,12 +749,55 @@
     Commands, exact jobs/artifacts/digests, and limitations are in
     `docs/evidence/2026-08-30-host-connection-preparation-reservation.md`.
     This is managed same-host loopback and contract evidence, not native or
-    physical Windows/macOS/Linux proof. Protection still has no exact
-    Preparation reservation, and the remaining production-composed Connection
-    orders/fault intersections plus the complete per-boundary reject/throw/
-    cancel/timeout/revoke/disconnect/cleanup-fault matrix remain open. Tasks 5,
-    5.5a, and 5.5; aggregate H0/H1 acceptance; `CreateProduction()`; every
-    native/physical/signing/notarization/release gate; and the Goal remain open.
+    physical Windows/macOS/Linux proof. At that exact checkpoint Protection
+    still had no exact Preparation reservation, and the remaining production-
+    composed Connection orders/fault intersections plus the complete per-
+    boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix
+    remained open. Tasks 5, 5.5a, and 5.5; aggregate H0/H1 acceptance;
+    `CreateProduction()`; every native/physical/signing/notarization/release
+    gate; and the Goal remained open.
+    Exact native Protection implementation
+    `c987ca84e1f9f867f0edef3222a94dc8d25a2583` next binds the complete accepted
+    observation identity and payload plus its inclusive freshness interval to
+    one synchronous Preparation registration. The host owns that exact object
+    before route, and the host reservation rechecks the bound interval through
+    actual Prepare send, Ready, and host promotion. The protection registration
+    remains `Temporary` through attachment, becomes `FormalPreStart` immediately
+    before host promotion, and becomes `Live` only through a fresh post-
+    `Starting` source-gate capture decision before source use or native capture.
+    Live protection mutation latches under the source gate before Notify and
+    ordinary observers, synchronously closes controller Protection admission,
+    and enters a bounded FIFO whose non-reentrant callers join their observed
+    sequence while active callback ancestry avoids self/cross-boundary
+    deadlock. Source loss and overflow fail closed. Each native frame
+    destination and native or semantic input call holds one exact
+    `ProtectionAdmissionUse`; a current Safe result cannot reopen admission
+    until older uses drain and its epoch, observation, lifecycle, and capture
+    state still match.
+    On implementation tree `c987ca8`, Platform and Desktop Debug/Release pass
+    `289/289` and `700/700`; both solution configurations pass `2564/2564` with
+    zero build warnings/errors; the focused managed success plus `SecureInput`/
+    `Unknown` tracer passes `3/3`; format, diff, vulnerability, TEST MODE
+    composition, and simulator gates pass; and two final reviews report no
+    P0/P1 finding. Exact evidence/
+    test-stabilization tree `457a2c4b9e3d6905218e826cedd60029bbd1b35e`
+    then makes one terminal-cleanup assertion deterministic; its focused Release
+    row, 50 repeated local executions, and both full `2564/2564` solution
+    configurations pass. Exact-SHA CI `33294103546` and CodeQL
+    `33294103609` pass; downloaded artifacts prove `2564/2564` on every hosted
+    OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref open alerts, and all three
+    reproducible version-0.1.200 unsigned packages. Exact commands, jobs,
+    artifacts, digests, and limitations are in
+    `docs/evidence/2026-08-30-host-protection-preparation-reservation.md`.
+    The two new negative managed loopback executions prove only Protection
+    `R < M < S`: mutation after a real authenticated protocol-1.7 route enters
+    the actual send-admission hook but writes no Prepare and opens no later
+    authority, then both nodes drain. They are not native or physical
+    Windows/macOS/Linux evidence and do not prove production-composed `M < R`,
+    `S < M`, or the complete reject/throw/cancel/timeout/revoke/disconnect/
+    cleanup-fault matrix. Therefore Tasks 5, 5.5a, and 5.5; aggregate H0/H1
+    acceptance; `CreateProduction()`; every native/physical/signing/
+    notarization/release gate; and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

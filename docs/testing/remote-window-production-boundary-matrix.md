@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **28 xUnit case executions**, not 28
+The current production-composed tracer has **30 xUnit case executions**, not 30
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -36,7 +36,9 @@ complete boundary families:
 - one authenticated-control disconnect after exact Connection reservation and
   route selection but before Prepare send-admission entry; and
 - one exact media mutation during the post-promotion, pre-capture live-callback
-  handoff after verified `FSM1` attachment.
+  handoff after verified `FSM1` attachment; and
+- two exact Protection `R < M < S` invalidations, for `SecureInput` and
+  `Unknown`, after route selection and before successful Prepare send admission.
 
 The first 22 cases' decomposition and exact commands are recorded in the
 [managed production tracer evidence](../evidence/2026-08-28-managed-remote-window-production-tracer.md).
@@ -46,9 +48,11 @@ The [source-linearization evidence](../evidence/2026-08-30-host-preparation-sour
 and [Permission evidence](../evidence/2026-08-30-host-permission-preparation-reservation.md)
 record the 23rd through 26th cases respectively. The
 [Connection evidence](../evidence/2026-08-30-host-connection-preparation-reservation.md)
-records the 27th and 28th cases.
-Its local result is a same-host **managed loopback run on macOS**. Hosted
-Windows, macOS, and Linux runs remain managed and contract evidence. None of
+records the 27th and 28th cases. The
+[Protection evidence](../evidence/2026-08-30-host-protection-preparation-reservation.md)
+records the 29th and 30th cases at exact evidence tree `457a2c4`.
+These local results are same-host **managed loopback runs on macOS**. Hosted
+Windows, macOS, and Linux results remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
 evidence. `CreateProduction()` must continue to report Remote Window unavailable
 until the native runtime gates are independently satisfied.
@@ -274,14 +278,36 @@ similar coverage.
   records exact local results, successful hosted test/Secret Scan/CodeQL jobs,
   verified reproducible unsigned packages, and limitations. These two narrow
   production rows do not upgrade an aggregate cell.
+- [`NativeRemoteWindowContractsTests`](../../tests/Flowspan.Platform.Tests/NativeRemoteWindowContractsTests.cs),
+  [`RemoteWindowSessionControllerTests`](../../tests/Flowspan.Platform.Tests/RemoteWindowSessionControllerTests.cs),
+  the focused Protection rows in
+  [`DesktopRemoteWindowHostCoordinatorTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowHostCoordinatorTests.cs),
+  and the two `SecureInput`/`Unknown` executions of
+  [`DesktopRemoteWindowManagedTwoNodeTracerTests.ProtectionMutationAfterReservedRoutePreventsPrepareWireAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  use implementation commit `c987ca8` and exact evidence/test-stabilization tree
+  `457a2c4`. They bind the complete accepted protection observation and
+  inclusive freshness interval to one exact source registration. Lower-
+  level and focused rows cover identity/freshness, ownership rollback and ABA,
+  all three abstract coordinator order shapes, `Temporary → FormalPreStart →
+  Live`, the post-`Starting` capture gate, bounded live FIFO/drain/ancestry,
+  exact frame/input `ProtectionAdmissionUse`, failure classification, and
+  selected cleanup. The two negative real authenticated loopback rows prove
+  only Protection `R < M < S`: after route selection, `SecureInput` or `Unknown`
+  makes the actual Transport send hook return `NotDelivered`, writes zero
+  Prepare, opens no later authority, and drains both nodes. The
+  [Protection Preparation evidence](../evidence/2026-08-30-host-protection-preparation-reservation.md)
+  records exact local results, successful exact-SHA hosted test/Secret Scan/
+  CodeQL/package evidence, artifact digests, and limitations. These narrow
+  production rows do not upgrade an aggregate cell.
 
 These tests do not yet inject every source, permission, Trust/grant, connection,
 observer-registration, protection, readiness, and route failure independently.
 Production-composed Source `M < R` and `S < M`, Authorization `M < R` and
 `S < M`, Permission `M < R` and `S < M`, the other Emergency Stop `M/R/S`
-orders, remaining Connection order/fault intersections, their complete fault
-matrices, native permission behavior, and native Emergency Stop behavior are
-also still open. That is why the H0/H1 aggregate cells remain P or M.
+orders, Protection `M < R` and `S < M`, remaining Connection and Protection
+order/fault intersections, their complete fault matrices, native permission,
+native protection, and native Emergency Stop behavior are also still open. That
+is why the H0/H1 aggregate cells remain P or M.
 
 ### E-TX — transaction, tombstone, and deadline state machine
 
@@ -394,10 +420,11 @@ therefore partial rather than complete.
   but does not inject every individual HC commit call.
 
 Direct negative/throw/cancel/revoke/disconnect cases are still required for each
-post-Ready host revalidation, protection registration, Emergency Stop
-registration, controller `Start`, exact `AddParticipant`, and final open. State
-publication Throw now has direct evidence, but its revoke/disconnect and cleanup
-variants remain partial. In particular, a failure before HC is not HC evidence.
+post-Ready host revalidation, the remaining protection promotion/capture-start/
+live intersections, Emergency Stop registration, controller `Start`, exact
+`AddParticipant`, and final open. State publication Throw now has direct
+evidence, but its revoke/disconnect and cleanup variants remain partial. In
+particular, a failure before HC is not HC evidence.
 
 ### E-CL — terminal cleanup and failure identity
 
@@ -420,21 +447,22 @@ variants remain partial. In particular, a failure before HC is not HC evidence.
   remains portable managed-contract evidence.
 
 The remaining renderer, active/pending frame, queue, attachment, route,
-directory, controller, protection, permission-observer, sharing-session,
-Emergency Stop, and control-owner fault injections and their meaningful
-combinations remain open. No production cleanup timeout contract has been
-defined or directly tested.
+directory, controller, protection FIFO/admission-use, permission-observer,
+sharing-session, Emergency Stop, and control-owner fault injections and their
+meaningful combinations remain open. No production cleanup timeout contract has
+been defined or directly tested.
 
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 28-case class.
+  is now the executable 30-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
   and limitations. The source-linearization, Emergency Stop readiness,
   Trust/Capability, and Permission evidence above record the 23rd through 26th
   cases and their exact-SHA execution. The Connection Preparation evidence
-  records the 27th and 28th cases.
+  records the 27th and 28th cases. The Protection Preparation evidence records
+  the 29th and 30th cases and keeps their narrow scope explicit.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -461,11 +489,15 @@ reservation, exact route/send owners, all three focused host order shapes, one
 post-route authenticated disconnect, and one post-promotion media-mutation live
 handoff at `259c3bb`. The disconnect row does not enter the actual send hook;
 the Transport two-lease regression supplies that separate gate evidence.
-Protection reservation; the remaining production-composed Source, Permission,
-Authorization, Emergency Stop, and Connection orders/fault intersections;
-native permission and Emergency Stop behavior; and the complete per-boundary
-owner/fault evidence remain required. Neither the ADR, its isolated core, nor
-these narrow fact rows promote an aggregate matrix cell by themselves.
+Protection now has an exact full-observation/freshness registration, formal
+capture-start gate, live FIFO, and exact frame/input use scopes, plus one
+production-composed `R < M < S` vertical implemented at `c987ca8` and recorded
+at exact evidence tree `457a2c4`. The remaining production-composed Source,
+Permission, Authorization, Emergency Stop, Connection, and
+Protection orders/fault intersections; native permission, protection, and
+Emergency Stop behavior; and the complete per-boundary owner/fault evidence
+remain required. Neither the ADR, its isolated core, nor these narrow fact rows
+promote an aggregate matrix cell by themselves.
 
 The next tests must use the family IDs in their names or evidence notes and add
 one direct row for each applicable gap. The presently known gaps are:
@@ -480,14 +512,17 @@ one direct row for each applicable gap. The presently known gaps are:
    fault intersections, add real native permission observation evidence, and
    extend the exact authenticated Connection gate through the remaining
    production-composed mutation, disconnect, and cleanup-fault intersections.
-   The current disconnect tracer terminates before actual send admission and
-   cannot stand in for those missing rows.
+   The current Connection disconnect tracer terminates before actual send
+   admission and cannot stand in for those missing rows.
 2. **H1:** finish the safety/route reject and throw variants; extend connection
    loss through each exact route/send phase beyond the one current post-route
    disconnect; preserve any route side effect while cleanup also fails; finish
    the other production-composed Emergency Stop orders and fault variants;
-   prove native registration/action behavior; and implement exact Protection
-   epochs or retain those cross-thread TOCTOU gaps as blockers.
+   prove native Emergency Stop registration/action behavior; and complete the
+   remaining Protection promotion, capture-start, live FIFO/admission-use,
+   source-loss, and cleanup-fault intersections plus native probe behavior. Add
+   production-composed Protection `M < R` and `S < M`; the current Protection
+   tracer covers only `R < M < S`.
 3. **TX/RS:** cover throw, revoke, disconnect, and cleanup failure at every
    distinct send-admission, buffered-response, terminal-commit, completion-hook,
    and tombstone phase rather than treating Stop as every terminal cause.

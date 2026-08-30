@@ -1,12 +1,15 @@
 # ADR 0027: Remote Window host Preparation reservation
 
-- Status: Proposed implementation contract
+- Status: Accepted implementation contract; remaining matrix/native evidence open
 - Date: 2026-08-30
 - Decision owners: Flowspan maintainers
 - Source-composed checkpoint: `ec63942`
 - Emergency Stop readiness-composed checkpoint: `8e349cc`
 - Trust/Capability-composed checkpoint: `635dc23`
 - Permission-composed checkpoint: `d607ed1`
+- Authenticated Connection-composed checkpoint: `259c3bb`
+- Native Protection-composed checkpoint: `c987ca8`
+- Protection exact evidence/test-stabilization checkpoint: `457a2c4`
 - Remaining fact composition and order/fault coverage pending
 
 ## Context
@@ -51,9 +54,10 @@ order; the other facts and source orders retain this gap.
 
 This gap is represented by the H0 and H1 families in the
 [Remote Window production-boundary fault matrix](../testing/remote-window-production-boundary-matrix.md).
-It is a blocker for Native Remote Window Task 5.5a. Production Remote Window
-must remain unavailable while this contract is proposed or incompletely
-implemented.
+It is a blocker for Native Remote Window Task 5.5a. The contract is now accepted
+and partially implemented by the vertical checkpoints below, but Production
+Remote Window must remain unavailable while the remaining production-composed
+orders, fault intersections, native adapters, and release gates are incomplete.
 
 ## Decision
 
@@ -252,6 +256,91 @@ remain open. Authenticated Connection mutation, Protection, the remaining
 Source, Authorization, and Emergency Stop orders, and the complete matrix still
 block H0/H1 and Task 5.5a. `CreateProduction()` remains unavailable.
 
+### Authenticated Connection-composed vertical checkpoint
+
+Exact commit `259c3bbda4648bc6c45b71d78fbc7a34feb4de71` replaces the
+authenticated Connection point read with one composite Preparation
+registration owned simultaneously by the exact connection generation and its
+exact media session. Owner claim is synchronous and rolls back both slots on a
+partial failure. Monotonic registration identity prevents generation/media
+replacement and late-dispose ABA.
+
+Generation revoke, explicit or deferred fail-close, media Dispose, control
+Stop, and responder-route invalidation deactivate the old registration under
+their authoritative gate. Responder-route selection and the actual Transport
+Prepare send hook require that exact registration. A public, omitted, foreign,
+or stale owner cannot cross either gate. The coordinator owns the registration
+before route, rechecks it before host promotion, and releases it only after the
+live revocation callback is installed; cleanup retains the same exact owner on
+every failure path.
+
+The managed tracer covers one authenticated disconnect after route selection
+and one exact media mutation during the post-promotion, pre-capture handoff.
+The disconnect row terminates before actual send-admission entry, so a separate
+two-lease Transport regression supplies send-gate evidence. The media row
+reaches Ready and verified `FSM1` attachment, then observes the live callback
+and Emergency Stop before capture. Exact local, hosted, static-analysis, and
+unsigned-package evidence is recorded in the
+[Connection Preparation checkpoint](../evidence/2026-08-30-host-connection-preparation-reservation.md).
+
+Production-composed Connection `M < R` and `S < M`, the remaining disconnect/
+cleanup-fault intersections, native behavior, and the complete matrix remain
+open. This checkpoint does not promote H0/H1 or make production available.
+
+### Native Protection-composed vertical checkpoint
+
+Exact implementation commit
+`c987ca84e1f9f867f0edef3222a94dc8d25a2583` binds one source-owned
+Protection Preparation registration to the complete accepted observation:
+owner, Session, and source generations; revision; kind; `ObservedAt`; and source
+identifier. Reservation requires exact equality and fresh `Safe`, transfers
+ownership synchronously under the source mutation gate, rolls back a failed
+claim, and uses monotonic registration identity to prevent replacement and
+late-dispose ABA.
+
+The host reservation binds the complete inclusive freshness interval from
+`ObservedAt - MaximumFutureClockSkew` through
+`ObservedAt + MaximumProtectionAge`. Arm, route admission, actual Prepare send
+admission, Ready matching, and host promotion all reject time before or after
+that interval; request-deadline equality remains expired and takes priority.
+The source independently rechecks exact identity and freshness at Protection
+promotion and at capture-start admission.
+
+The same registration moves monotonically through `Temporary`,
+`FormalPreStart`, and `Live`. It remains Temporary through Prepare, Ready,
+verified media attachment, ordinary-observer subscribe/read, and final host
+fact validation. Immediately before host-reservation promotion, the coordinator
+promotes that exact object to FormalPreStart. After the controller publishes
+`Starting`, capture-start admission under the same source mutation gate either
+rejects a mutation-first generation with zero capture or promotes the exact
+registration to Live immediately before source use/native capture.
+
+Every live observation first closes controller Protection admission and latches
+its exact observation/admission epoch under the source mutation gate. Notify
+runs outside that gate and before ordinary observers. The host retains a bounded
+FIFO with active, deactivating `ExecutionContext` ancestry, so stale copied
+contexts rejoin a later drainer and symmetric A↔B callbacks do not deadlock.
+Source loss is terminal and queue overflow fails closed. Every native frame
+destination and native or semantic input adapter call holds an exact drainable
+`ProtectionAdmissionUse`; mutation closes new use admission first. A current
+Safe reconciliation reopens only when the same epoch/observation still owns an
+Active/Capturing session and all earlier uses have drained, with reentrant use
+ancestry safely deferring its own wait.
+
+The managed production tracer proves only Protection `R < M < S` for
+`SecureInput` and `Unknown`: each mutation follows real authenticated route
+selection, makes the actual send hook return `NotDelivered`, emits no Prepare
+wire or later authority, and drains both nodes. Exact evidence tree
+`457a2c4b9e3d6905218e826cedd60029bbd1b35e` changes only one test cleanup
+barrier after the bare implementation commit. Exact local, hosted, Secret Scan,
+CodeQL, and reproducible unsigned-package evidence is recorded in the
+[Protection Preparation checkpoint](../evidence/2026-08-30-host-protection-preparation-reservation.md).
+
+Protection `M < R`, `S < M`, the complete promotion/capture/live/source-loss/
+cleanup-fault matrix, native platform probes, physical devices, signing,
+notarization, and release acceptance remain open. Tasks 5, 5.5a, and 5.5,
+aggregate H0/H1, `CreateProduction()`, and the Goal remain open.
+
 ### Exact epoch bundle
 
 The reservation binds one immutable `HostPreparationEpochBundle` containing at
@@ -306,9 +395,13 @@ The host reservation composes these fact-specific operations:
 - **Emergency Stop:** reserve readiness and local registrar capacity without
   installing the formal Emergency Stop callback. The reservation is bound to
   the intended owner and Session generations and can be promoted only once.
-- **Protection:** retain a short-lived exact Safe observation epoch that can
-  invalidate Preparation but cannot pause, resume, or stop a controller. The
-  formal protection observer remains a post-Ready owner.
+- **Protection:** retain one exact full-observation registration that grants no
+  authority while `Temporary`, then promote that same registration after Ready
+  through `FormalPreStart` to `Live`. A live observation first closes Protection
+  admission and latches its exact epoch under the source mutation gate; bounded
+  formal notification then reconciles the controller outside that gate. The
+  ordinary post-Ready observer remains defense in depth rather than the transfer
+  owner.
 
 Fact mutation first performs a bounded invalidation transition against the host
 reservation while it owns the fact's mutation gate. Observer delivery, native
@@ -366,16 +459,22 @@ orders.
 Ready success grants no authority. After matching Ready and the current media
 binding, the host:
 
-1. verifies that the exact host reservation is still current and before its
-   deadline;
-2. installs the formal protection observer using subscribe-then-read ordering
-   while retaining the preflight protection epoch guard;
-3. atomically promotes the same Emergency Stop readiness reservation to a
+1. subscribes the ordinary protection observer and reads one fresh exact
+   observation while the exact Protection registration remains `Temporary`;
+2. atomically promotes the same Emergency Stop readiness reservation to a
    formal `ILocalEmergencyStopRegistration` under the registrar gate;
-4. revalidates the complete epoch bundle and formal owner generations;
-5. calls controller Start with frame admission closed;
-6. adds the exact participant with the frozen role; and
-7. publishes final correlated Admission state before frame admission can open.
+3. revalidates Source, Permission, authenticated Connection,
+   Trust/Capability, and Protection together with the complete host reservation
+   and formal owner generations;
+4. promotes the same Protection registration to `FormalPreStart`;
+5. promotes the host Preparation reservation;
+6. releases the temporary Source, Permission, authenticated Connection, and
+   Trust/Capability Preparation owners;
+7. calls controller Start with frame admission closed; immediately before the
+   first source use or native capture, admission under the source mutation gate
+   promotes that same Protection registration to `Live`; and
+8. adds the exact participant with the frozen role and publishes final
+   correlated Admission before frame admission can open.
 
 Emergency Stop readiness promotion installs the callback only after Ready. A
 reservation can protect local registrar capacity and detect local replacement,
@@ -383,12 +482,13 @@ but it must not pretend that an operating system can reserve a global hotkey or
 permission when that platform offers no such primitive. Promotion rechecks and
 registers the real native owner; failure remains pre-capture and terminal.
 
-The preflight protection guard and formal observer overlap until the formal
-owner has accepted a fresh Safe observation, so there is no unobserved transfer
-gap. Temporary source, permission, Trust, connection, Emergency Stop readiness,
-and protection reservations are Preparation guards, not live sharing authority
-owners. This preserves NR2.10's requirement that formal protection and
-Emergency Stop ownership begin only after Ready success.
+Protection transfer is a monotonic transition of one exact registration rather
+than an overlap between an independent guard and formal observer. Mutation wins
+under the same source gate at each transition, and the ordinary observer is
+defense in depth only. Temporary source, permission, Trust, connection,
+Emergency Stop readiness, and Protection registrations are Preparation guards,
+not live sharing authority owners. The first formal Protection state and the
+Emergency Stop owner are installed only after Ready success, preserving NR2.10.
 
 ## Ownership, rollback, and cleanup
 
@@ -507,12 +607,14 @@ A source-use scope is designed to cover one complete native capture or input
 call. Holding it across a network deadline would block source invalidation and
 external close, and could form cleanup cycles. Rejected.
 
-### Register formal protection and Emergency Stop owners before Prepare
+### Register live formal protection and Emergency Stop owners before Prepare
 
 This would make participant preparation own live safety resources before Ready
-and contradict NR2.10 and ADR 0026. Rejected. Short-lived, non-authorizing epoch
-guards and an Emergency Stop readiness reservation are promoted only after
-Ready.
+and contradict NR2.10 and ADR 0026. Rejected. The implemented Protection object
+is a non-authorizing `Temporary` registration before Ready and becomes formal
+only through the post-Ready `FormalPreStart` and capture-gated `Live`
+transitions; Emergency Stop likewise remains a readiness reservation until its
+post-Ready promotion.
 
 ### Use one global host epoch
 
@@ -540,11 +642,12 @@ implementation text.
 
 ## Consequences
 
-- Task 5.5a remains blocked until authenticated Connection and Protection are
-  connected to their real owners; the remaining Permission, Source, Emergency
-  Stop, and Trust/Capability orders/faults are covered; and the complete managed
-  production-boundary matrix is reproducible. One production-composed order for
-  each currently connected fact is insufficient.
+- Authenticated Connection and Protection are now connected to their exact
+  managed owners. Task 5.5a remains blocked by the other `M < R`, `R < M < S`,
+  and `S < M` orders, the per-boundary reject/throw/cancel/timeout/revoke/
+  disconnect/cleanup-fault intersections, and the still-incomplete managed
+  production-boundary matrix. One production-composed order for each connected
+  fact is insufficient.
 - The coordinator gains one deep host Preparation reservation module instead of
   more caller-visible read ordering.
 - Security gains an exact, revocable operation-Capability reservation rather
@@ -556,6 +659,11 @@ implementation text.
   macOS boundary has a deterministic observation-commit gate. Real TCC revoke,
   Accessibility/input, Windows/Linux native permission behavior, and packaged
   recovery still require separate evidence.
+- Platform has one exact Protection registration spanning Temporary
+  Preparation, formal pre-start, live notification, capture admission, native
+  frame destination, and native/semantic input-use scopes. Native observation
+  latency, secure-input/source-loss probes, physical devices, and every
+  remaining fault intersection still require separate evidence.
 - Transport gains a generation-bound route-selection operation and one bounded
   host reservation hook at the existing Prepare send-admission point.
 - Existing protocol-1.5, 1.6, and 1.7 wire fixtures remain unchanged.
