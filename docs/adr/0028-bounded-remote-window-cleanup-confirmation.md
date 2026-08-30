@@ -1,9 +1,11 @@
 # ADR 0028: Bounded Remote Window cleanup confirmation
 
-- Status: Accepted implementation contract; implementation and evidence pending
+- Status: Accepted implementation contract; two bounded verticals implemented,
+  remaining implementation and evidence pending
 - Date: 2026-08-30
 - Decision owners: Flowspan maintainers
 - First vertical: active terminal disconnect with one blocked cleanup owner
+- Second vertical: external Dispose-first with one blocked Connection owner
 - Final v1 scope: runtime-generation and pre-generation host cleanup
 
 ## Context
@@ -44,7 +46,8 @@ surface is required. Fatal exhaustion needs a separate rule as well: converting
 an `OutOfMemoryException` into a bounded timeout or aggregate would contradict
 the repository's fatal-dominates cleanup convention.
 
-The production-boundary matrix therefore keeps CL Timeout Missing. Existing
+At decision time, the production-boundary matrix therefore kept CL Timeout
+Missing. Existing
 Preparation deadline, renderer cancellation, and test-side `WaitAsync` bounds
 are not cleanup-timeout evidence because cleanup itself continues to be awaited
 without a production confirmation watchdog.
@@ -289,6 +292,42 @@ pre-generation cleanup, timer setup or release failure, late cleanup fault, OOM,
 other active or pending owners, combined failures, native API behavior, or
 physical devices. Those paths remain open and the checkpoint cannot close Task
 5.5a or make `CreateProduction()` available.
+
+### External Dispose-first implementation checkpoint
+
+Implementation commit `ea984fb01cad46ab128c6d294835df59327aa8ac`
+implements the first Task 5.5a.3 extension for one stable active generation and
+an uncontended lifecycle gate. The first external Dispose sets the disposed
+gate. After its worker acquires lifecycle ownership, the synchronous terminal
+prefix closes admission and publishes `active -> retiring`, the one real cleanup
+task, confirmation operation, and watchdog before any potentially blocking
+controller or owner call.
+
+The deterministic row blocks the original host Connection disposal, injects a
+later authenticated-disconnect callback, and proves that callback may execute
+its existing synchronous Emergency Stop prefix but attaches cleanup exactly once
+to the already-published operation. T-1 remains pending. Exact deadline equality
+publishes one stable `host_cleanup_timeout`; concurrent, later, and post-drain
+external Dispose callers share the same public Task and exception instance.
+Start preserves `ObjectDisposedException` precedence with no new authority.
+Releasing the Connection drains the real task and timer without mutating the
+public result.
+
+Local Debug and Release verification passes the focused row `1/1`, twenty fresh
+focused processes `20/20`, the coordinator class `117/117`, Desktop `721/721`,
+and the solution `2585/2585`. Exact-SHA CI `33314229467` and CodeQL
+`33314229459` succeed; all three hosted OSes pass `2585/2585`, Gitleaks reports
+208/0, CodeQL reports 52/0 with zero exact-ref open alerts, and all three
+reproducible version-`0.1.222` unsigned-package jobs pass. Exact jobs, artifacts,
+digests, commands, and limitations are retained in the
+[Dispose-first evidence](../evidence/2026-08-30-dispose-first-bounded-cleanup.md).
+
+This checkpoint closes only Task 5.5a.3a. It adds no 43rd production-composed
+tracer row and does not promote CL Timeout beyond Partial. Stop-first,
+lifecycle-gate contention, completion-winner/equality races, timer faults, late
+cleanup fault/OOM, pre-generation cleanup, every other owner, native/physical
+execution, signing, notarization, and release acceptance remain open. It cannot
+close Task 5.5a or make `CreateProduction()` available.
 
 ## EARS acceptance criteria
 

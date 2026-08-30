@@ -1190,7 +1190,7 @@
       exception, cancellation, or unconfirmed result as the primary outcome;
       `FullyStopped == true` never repeats Stop.
       _Requirements: NR8.9-NR8.17, NR10_
-      - [ ] 5.5a.3a Deliver external Dispose-first bounded confirmation for a
+      - [x] 5.5a.3a Deliver external Dispose-first bounded confirmation for a
         stable active generation with an uncontended lifecycle gate. Set the
         disposed gate, then close Admission and atomically publish
         `active -> retiring`, the one real cleanup task, confirmation operation,
@@ -1202,6 +1202,31 @@
         drain, and immutable public outcome. Callback-origin Dispose remains a
         non-waiting signal into that same operation; Start after explicit Dispose
         preserves `ObjectDisposedException` before authority.
+        Exact implementation
+        `ea984fb01cad46ab128c6d294835df59327aa8ac` adds one deterministic
+        coordinator row for a stable active generation and uncontended lifecycle
+        gate. External Dispose publishes closed admission, `active -> retiring`,
+        one real cleanup task, one confirmation, and one timer before a blocked
+        host Connection owner. A later authenticated-disconnect callback runs its
+        existing synchronous safety prefix and attaches cleanup exactly once to
+        that operation. T-1 remains pending; exact equality produces one stable
+        `host_cleanup_timeout`; concurrent, later, and post-drain external
+        Dispose calls share the same Task and exception instance. Start retains
+        `ObjectDisposedException` precedence and all authority baselines; late
+        owner drain clears `retiring` and the timer without changing the public
+        result. Local Debug/Release passes the focused row `1/1`, twenty fresh
+        processes `20/20`, coordinator `117/117`, Desktop `721/721`, and
+        solution `2585/2585`; builds, format, composition, simulator, and
+        dependency audit pass. Exact-SHA CI `33314229467` and CodeQL
+        `33314229459` succeed. Each hosted OS passes `2585/2585` with every
+        non-success counter zero, Gitleaks reports 208/0, CodeQL reports 52/0
+        with zero exact-ref open alerts, and all three reproducible
+        version-`0.1.222` unsigned packages pass. This adds no 43rd tracer and
+        promotes no matrix cell. Stop-first, lifecycle-gate contention, timer
+        faults, late cleanup fault/OOM, pre-generation cleanup, and other owners
+        remain open, so Tasks 5, 5.5a.3, 5.5a, and 5.5 and the Goal remain open;
+        `CreateProduction()` remains unavailable. Details are in the
+        [Dispose-first bounded cleanup evidence](../../../docs/evidence/2026-08-30-dispose-first-bounded-cleanup.md).
         _Requirements: NR8.9-NR8.16, NR10_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,

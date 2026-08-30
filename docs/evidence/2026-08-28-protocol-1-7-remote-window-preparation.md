@@ -1048,3 +1048,52 @@ signing, notarization, or release acceptance. Tasks 5, 5.5a, and 5.5 remain
 open, as do every native/physical/signing/notarization/release gate and the
 long-term Flowspan Goal. `CreateProduction()` must continue to report Remote
 Window unavailable.
+
+## 2026-08-30 external Dispose-first bounded cleanup
+
+Implementation commit `ea984fb01cad46ab128c6d294835df59327aa8ac`
+completes only Task 5.5a.3a, the first explicit Dispose-first extension of ADR
+0028. This is a deterministic managed Desktop coordinator row, not another
+production-composed two-node tracer. The tracer class therefore remains at 42
+cases.
+
+The row starts with a stable active generation and an uncontended lifecycle
+gate. The first external Dispose sets the disposed gate. Its worker then closes
+admission and publishes the exact generation as retiring, together with the one
+real cleanup task, bounded confirmation, and sole timer, before any potentially
+blocking controller or owner call. The original host Connection disposal stops
+at a test-owned barrier, proving that real owner cleanup remains incomplete.
+
+A later authenticated-disconnect callback enters its existing synchronous
+capture/input Emergency Stop prefix and attaches cleanup exactly once to the
+published operation. It does not create another cleanup task, timer, or owner
+graph. Start during disposal preserves `ObjectDisposedException` and cannot
+advance route, Prepare, Admission, capture, input, Permission, Authorization,
+Protection, or Emergency Stop authority. A post-claim frame is not sent.
+
+At timeout minus one tick, concurrent external Dispose calls, the real cleanup
+task, retiring ownership, and the timer remain pending. Exact equality publishes
+the stable `host_cleanup_timeout`; concurrent and later callers share the same
+public Task and exact exception instance. Releasing the Connection then clears
+the retiring owner and timer. Post-drain Dispose still returns the same Task and
+failure, and Start remains rejected by the disposed gate.
+
+Local macOS Debug and Release verification reports focused `1/1`, twenty fresh
+focused processes `20/20`, coordinator `117/117`, Desktop `721/721`, and
+solution `2585/2585`, with warning-as-error builds and all supporting quality
+gates passing. Exact-SHA CI `33314229467` and CodeQL `33314229459` succeed.
+Downloaded artifacts prove `2585/2585` on every hosted OS with every
+non-success counter zero, Gitleaks 208/0, CodeQL 52/0 with zero exact-ref open
+alerts, and three reproducible version-`0.1.222` unsigned packages. Exact jobs,
+artifacts, digests, commands, and limits are retained in
+[`2026-08-30-dispose-first-bounded-cleanup.md`](2026-08-30-dispose-first-bounded-cleanup.md).
+
+This direct evidence stays within the already-Partial CL Timeout cell and does
+not promote any matrix status. Explicit Stop-first, lifecycle-gate contention,
+cleanup-completion winner and equality races, timer setup/disposal faults, late
+non-fatal cleanup failure, fatal OOM, pre-generation cleanup, and every other
+active or pending owner remain Task 5.5a.3 work. Tasks 5, 5.5a.3, 5.5a, and 5.5,
+every native/physical/signing/notarization/release gate, and the long-term Goal
+remain open. The local row and hosted runs are managed contract evidence, not
+native API, physical two-Device, signed, notarized, or release proof.
+`CreateProduction()` remains unavailable.

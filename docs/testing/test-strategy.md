@@ -2288,6 +2288,47 @@ remain open. Therefore Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
 and the Goal remain open. This same-host managed macOS tracer is neither native
 API nor physical two-Device, signed, notarized, or release evidence.
 
+### 2026-08-30 external Dispose-first bounded cleanup confirmation
+
+Exact implementation `ea984fb01cad46ab128c6d294835df59327aa8ac` adds one
+deterministic coordinator row for Task 5.5a.3a. It starts external Dispose from
+a stable active generation with an uncontended lifecycle gate and blocks the
+original host Connection owner. Before any potentially blocking owner call, the
+disposal worker closes admission and publishes `active -> retiring`, the one
+real cleanup task, confirmation operation, and watchdog.
+
+A later cross-thread authenticated-disconnect callback enters its existing
+synchronous Emergency Stop prefix and then attaches cleanup exactly once to the
+same retiring operation. Start while disposal is pending returns
+`ObjectDisposedException` before route, Prepare, Admission, capture, input,
+Permission, Authorization, Protection, or Emergency Stop authority can advance.
+At T-1, public disposal, real cleanup, and the sole timer remain pending. Exact
+deadline equality produces one stable `host_cleanup_timeout`; concurrent,
+later, and post-drain external Dispose calls share the same public Task and
+exception instance. Releasing the Connection completes true cleanup and removes
+the retiring owner and timer without mutating that public result.
+
+Local macOS Debug and Release verification passes the focused row `1/1`, twenty
+fresh focused processes `20/20`, coordinator class `117/117`, Desktop
+`721/721`, and complete solution `2585/2585`. Both warning-as-error builds,
+format, diff, explicit Desktop composition, simulator, and direct/transitive
+NuGet vulnerability checks pass. Exact-SHA CI `33314229467` attempt 1 and
+CodeQL `33314229459` succeed. Every hosted OS artifact contains 12 TRX files and
+`2585/2585` passing tests with all non-success counters zero; Gitleaks is 208/0,
+CodeQL is 52/0 with zero exact-ref open alerts, and all three reproducible
+version-`0.1.222` unsigned-package jobs pass. Commands, exact jobs, artifact IDs
+and digests, scope, and limitations are in the
+[Dispose-first bounded cleanup evidence](../evidence/2026-08-30-dispose-first-bounded-cleanup.md).
+
+This closes only Task 5.5a.3a. It adds no 43rd production-composed tracer and
+does not promote the already-Partial CL Timeout cell. Explicit Stop-first,
+lifecycle-gate contention, cleanup-winner/equality races, timer faults, late
+cleanup fault/OOM, pre-generation cleanup, other owners, and the complete
+boundary matrix remain open. Therefore Tasks 5, 5.5a.3, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open. Hosted results are managed contract evidence, not
+native or physical-device proof.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

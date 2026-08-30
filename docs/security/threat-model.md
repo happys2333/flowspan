@@ -1771,6 +1771,54 @@ accessibility, signing, notarization, or release acceptance. Tasks 5, 5.5a, and
 remain open. `CreateProduction()` must continue to report Remote Window
 unavailable.
 
+### 5.39 2026-08-30 External Dispose-first bounded cleanup confirmation
+
+For T06, T13, and T14, exact implementation
+`ea984fb01cad46ab128c6d294835df59327aa8ac` extends ADR 0028 to one explicit
+external Dispose-first order. The coordinator begins with a stable active
+generation and an uncontended lifecycle gate. The first external Dispose sets
+the disposed gate, then its worker closes admission and publishes
+`active -> retiring`, one real cleanup task, one confirmation operation, and the
+single watchdog before invoking any potentially blocking controller or owner
+boundary.
+
+The deterministic fixture blocks the original host Connection disposal. A later
+cross-thread authenticated-disconnect callback enters the existing capture and
+input Emergency Stop prefix, closes the control generation, and attaches cleanup
+exactly once to the already-published operation. A post-claim frame is disposed
+without a second media send. Snapshot, media authority, Permission observation,
+Protection, Emergency Stop registration, fail-close, controller Stop, and
+Connection-disposal assertions prove that no replacement owner graph is
+created.
+
+Start after explicit Dispose returns `ObjectDisposedException` before route,
+Prepare, Admission, capture, input, or authority counts can advance. At T-1, the
+public Dispose callers, real cleanup, retiring generation, and sole timer remain
+pending. Exact equality publishes one stable `host_cleanup_timeout`. Concurrent,
+later, and post-drain external Dispose calls share the same public Task and
+exception instance. Releasing the blocked Connection clears retiring ownership
+and the timer, while the completed public outcome and disposed Start gate remain
+immutable.
+
+Local Debug and Release verification passes the focused row `1/1`, twenty fresh
+focused processes `20/20`, coordinator `117/117`, Desktop `721/721`, and full
+solution `2585/2585`; warning-as-error builds and all supporting quality gates
+pass. Exact-SHA CI `33314229467` and CodeQL `33314229459` succeed. Downloaded
+artifacts prove `2585/2585` with every non-success counter zero on all three
+hosted OSes, Gitleaks 208/0, CodeQL 52/0 with zero exact-ref open alerts, and
+three reproducible version-`0.1.222` unsigned packages. Exact commands, jobs,
+artifacts, digests, and limits are in the
+[Dispose-first evidence](../evidence/2026-08-30-dispose-first-bounded-cleanup.md).
+
+This closes only Task 5.5a.3a. It adds direct evidence within the already-
+Partial CL Timeout cell, but adds no 43rd production-composed tracer and changes
+no matrix status. Stop-first, lifecycle-gate contention, cleanup-winner/equality
+races, timer faults, late cleanup fault/OOM, pre-generation cleanup, and every
+other owner remain open. This is managed contract evidence, not native API,
+physical two-Device, packaged accessibility, signing, notarization, or release
+proof. Tasks 5, 5.5a.3, 5.5a, and 5.5, every native/physical/release gate, and
+the Goal remain open. `CreateProduction()` remains unavailable.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
