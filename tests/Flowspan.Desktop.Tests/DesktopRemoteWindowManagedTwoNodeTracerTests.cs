@@ -441,11 +441,20 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         RunAdFinalAdmissionBoundaryScenarioAsync(
             FinalAdmissionBoundaryTrigger.AuthorityRevoke);
 
+    [Fact]
+    public Task AdFinalAdmissionAuthenticatedDisconnectFailsClosedAndDrainsBothNodes() =>
+        RunAdFinalAdmissionBoundaryScenarioAsync(
+            FinalAdmissionBoundaryTrigger.AuthenticatedDisconnect);
+
     private static async Task RunAdFinalAdmissionBoundaryScenarioAsync(
         FinalAdmissionBoundaryTrigger trigger)
     {
         bool revokeAuthority =
             trigger is FinalAdmissionBoundaryTrigger.AuthorityRevoke;
+        bool disconnectTransport =
+            trigger is FinalAdmissionBoundaryTrigger.AuthenticatedDisconnect;
+        bool failAfterPublication =
+            trigger is FinalAdmissionBoundaryTrigger.SideEffectThenThrow;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
             HostDeviceId,
@@ -516,6 +525,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         Task listenerRun = listener.RunAsync(listenerStop.Token).AsTask();
         AuthenticatedTcpControlConnection? participantConnection = null;
         Task? participantRun = null;
+        Task? disconnecting = null;
         var capture = new RecordingCaptureBoundary();
         var input = new RecordingInputBoundary();
         var permissions = new RecordingPermissionBoundary(
@@ -554,16 +564,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         var participantAdmission =
             new TaskCompletionSource<RemoteWindowParticipantState>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-        Exception? injected = revokeAuthority
-            ? null
-            : new IOException("FLOWSPAN_FINAL_ADMISSION_SIDE_EFFECT_CANARY");
+        Exception? injected = failAfterPublication
+            ? new IOException("FLOWSPAN_FINAL_ADMISSION_SIDE_EFFECT_CANARY")
+            : null;
         RemoteWindowParticipantState? admissionAtBoundary = null;
         TrustMutationResult? authorityMutation = null;
         bool connectionCurrentAtBoundary = false;
-        bool connectionCurrentAfterMutation = true;
-        bool hostGenerationReacquiredAfterMutation = false;
+        bool connectionCurrentAfterInvalidation = true;
+        bool hostGenerationReacquiredAfterInvalidation = false;
         long authenticatedGeneration = 0;
-        long? reacquiredGenerationAfterMutation = null;
+        long? reacquiredGenerationAfterInvalidation = null;
         int captureStartCountAtBoundary = -1;
         bool preAdmissionFrameDisposedAtBoundary = false;
         int boundaryFrameDisposeCount = -1;
@@ -631,28 +641,46 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(0, renderCountAtBoundary);
             Assert.Equal(0, mediaSendCountAtBoundary);
             Assert.True(connectionCurrentAtBoundary);
-            if (revokeAuthority)
+            if (revokeAuthority || disconnectTransport)
             {
                 Assert.Equal(
                     "Remote Window host start failed (authenticated_connection_stale).",
                     failure.Message);
-                Assert.Equal(TrustMutationResult.Applied, authorityMutation);
-                Assert.False(connectionCurrentAfterMutation);
+                Assert.False(connectionCurrentAfterInvalidation);
                 Assert.False(
-                    hostGenerationReacquiredAfterMutation,
-                    $"Connection generation {reacquiredGenerationAfterMutation} "
-                    + $"was reacquired after revoking {authenticatedGeneration}.");
-                Assert.True(hostTrust.TryGetCurrentTrust(
-                    ParticipantDeviceId,
-                    out TrustRecord? reducedTrust));
-                TrustRecord currentTrust = Assert.IsType<TrustRecord>(reducedTrust);
-                Assert.False(currentTrust.GrantedCapabilities.Allows(
-                    Capability.MirrorView));
-                Assert.Empty(currentTrust.GrantedCapabilities.Capabilities);
+                    hostGenerationReacquiredAfterInvalidation,
+                    $"Connection generation {reacquiredGenerationAfterInvalidation} "
+                    + $"was reacquired after invalidating {authenticatedGeneration}.");
                 Assert.DoesNotContain(
                     participantIdentity.PublicIdentity.Fingerprint,
                     failure.ToString(),
                     StringComparison.Ordinal);
+                if (revokeAuthority)
+                {
+                    Assert.Equal(TrustMutationResult.Applied, authorityMutation);
+                    Assert.True(hostTrust.TryGetCurrentTrust(
+                        ParticipantDeviceId,
+                        out TrustRecord? reducedTrust));
+                    TrustRecord currentTrust = Assert.IsType<TrustRecord>(
+                        reducedTrust);
+                    Assert.False(currentTrust.GrantedCapabilities.Allows(
+                        Capability.MirrorView));
+                    Assert.Empty(currentTrust.GrantedCapabilities.Capabilities);
+                }
+                else
+                {
+                    Assert.True(hostTrust.TryGetCurrentTrust(
+                        ParticipantDeviceId,
+                        out TrustRecord? unchangedTrust));
+                    TrustRecord currentTrust = Assert.IsType<TrustRecord>(
+                        unchangedTrust);
+                    Assert.Equal(
+                        participantIdentity.PublicIdentity.Fingerprint,
+                        currentTrust.PeerIdentity.Fingerprint);
+                    Assert.True(currentTrust.GrantedCapabilities.Allows(
+                        Capability.MirrorView));
+                    Assert.Single(currentTrust.GrantedCapabilities.Capabilities);
+                }
             }
             else
             {
@@ -686,6 +714,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(0, hostConnection.MediaSentBeforeAdmissionCount);
             Assert.Empty(input.Batches);
 
+            if (disconnecting is not null)
+            {
+                await disconnecting.WaitAsync(deadline.Token);
+            }
+
             await ObserveSessionStopAsync(participantRun);
             await WaitForCleanupAsync(
                 hostHandler,
@@ -698,7 +731,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Null(coordinator.ActiveMediaBudget);
             Assert.Null(coordinator.TerminalFailure);
             Assert.False(capture.HasCurrentCapture);
-            if (revokeAuthority)
+            if (revokeAuthority || disconnectTransport)
             {
                 Assert.Equal(1, capture.EmergencyStopCount);
                 Assert.Equal(1, input.EmergencyStopCount);
@@ -743,11 +776,30 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 Assert.False(Assert.IsType<TrustRecord>(finalTrust)
                     .GrantedCapabilities.Allows(Capability.MirrorView));
             }
+            else if (disconnectTransport)
+            {
+                Assert.True(hostTrust.TryGetCurrentTrust(
+                    ParticipantDeviceId,
+                    out TrustRecord? finalTrust));
+                TrustRecord retainedTrust = Assert.IsType<TrustRecord>(finalTrust);
+                Assert.Equal(
+                    participantIdentity.PublicIdentity.Fingerprint,
+                    retainedTrust.PeerIdentity.Fingerprint);
+                Assert.True(retainedTrust.GrantedCapabilities.Allows(
+                    Capability.MirrorView));
+                Assert.Single(retainedTrust.GrantedCapabilities.Capabilities);
+            }
 
             Assert.Throws<InvalidOperationException>(() => controlPeer.SessionId);
         }
         finally
         {
+            if (disconnecting is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await disconnecting.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+
             if (participantConnection is not null)
             {
                 await participantConnection.DisposeAsync();
@@ -778,24 +830,34 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             renderCountAtBoundary = renderer.RenderCount;
             mediaSendCountAtBoundary = hostConnection!.MediaSendCount;
             connectionCurrentAtBoundary = hostConnection.IsCurrent;
-            if (!revokeAuthority)
+            if (failAfterPublication)
             {
                 return;
             }
 
-            authorityMutation = await hostTrust.UpdateCapabilitiesAsync(
-                ParticipantDeviceId,
-                participantIdentity.PublicIdentity.Fingerprint,
-                CapabilityGrant.None,
-                deadline.Token);
-            connectionCurrentAfterMutation = hostConnection.IsCurrent;
-            hostGenerationReacquiredAfterMutation =
+            if (revokeAuthority)
+            {
+                authorityMutation = await hostTrust.UpdateCapabilitiesAsync(
+                    ParticipantDeviceId,
+                    participantIdentity.PublicIdentity.Fingerprint,
+                    CapabilityGrant.None,
+                    deadline.Token);
+            }
+            else
+            {
+                disconnecting = participantConnection!.DisposeAsync().AsTask();
+                await hostConnection.ConnectionRevoked.Task.WaitAsync(
+                    deadline.Token);
+            }
+
+            connectionCurrentAfterInvalidation = hostConnection.IsCurrent;
+            hostGenerationReacquiredAfterInvalidation =
                 hostHandler.TryAcquireRemoteWindowConnection(
                     ParticipantDeviceId,
                     out AuthenticatedRemoteWindowConnectionLease? reacquired);
             if (reacquired is not null)
             {
-                reacquiredGenerationAfterMutation = reacquired.Generation;
+                reacquiredGenerationAfterInvalidation = reacquired.Generation;
                 await reacquired.DisposeAsync();
             }
         }
@@ -805,6 +867,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     {
         SideEffectThenThrow,
         AuthorityRevoke,
+        AuthenticatedDisconnect,
     }
 
     [Fact]
@@ -6328,6 +6391,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public bool AttachmentObserved => Volatile.Read(ref attachmentObserved) != 0;
 
+        public TaskCompletionSource ConnectionRevoked { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
         public string AuthenticatedPeerFingerprint =>
             inner.AuthenticatedPeerFingerprint;
 
@@ -6435,8 +6501,15 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             return result;
         }
 
-        public IDisposable RegisterRevocationCallback(Action callback) =>
-            inner.RegisterRevocationCallback(callback);
+        public IDisposable RegisterRevocationCallback(Action callback)
+        {
+            ArgumentNullException.ThrowIfNull(callback);
+            return inner.RegisterRevocationCallback(() =>
+            {
+                callback();
+                ConnectionRevoked.TrySetResult();
+            });
+        }
 
         public async ValueTask WaitForMediaAttachmentAsync(
             CancellationToken cancellationToken)
