@@ -798,6 +798,29 @@
     cleanup-fault matrix. Therefore Tasks 5, 5.5a, and 5.5; aggregate H0/H1
     acceptance; `CreateProduction()`; every native/physical/signing/
     notarization/release gate; and the Goal remain open.
+    Exact commit `8d0831d0716bc68bc1d5dc0ff18c4efc033624b7` adds the 31st
+    managed production-composed tracer execution across TX, P0, P2, and CL.
+    After Prepare send admission and bilateral verified `FSM1` attachment, a
+    deliberately non-cooperative renderer Preparation remains blocked with no
+    Ready outcome. Authenticated control disconnect enters owned cleanup and
+    cancels the renderer lifetime, but correctly cannot complete before the test
+    releases that owner. Release yields one bounded
+    `Rejected/preparation_cancelled`, disposes the late renderer, opens no host
+    Ready, Admission, capture, media, render, or input authority, and drains both
+    nodes. The deliberate RED sentinel failed `0/1`; final focused Debug/Release
+    pass `1/1`, twenty fresh processes per configuration pass `20/20`, the
+    tracer class passes `31/31`, Desktop passes `701/701`, and both solution
+    configurations pass `2565/2565`. Warning-as-error builds have zero warnings/
+    errors and format/diff verification passes. Exact-SHA CI `33295825931` and
+    CodeQL `33295825897` pass; downloaded artifacts prove `2565/2565` with all
+    non-success counters zero on every hosted OS, Gitleaks 208/0, CodeQL 52/0
+    with 0 exact-ref open alerts, and three reproducible version-0.1.202 unsigned
+    packages whose `5/5` checksums and repository verification pass. Exact jobs,
+    artifacts, digests, commands, and limitations are in
+    `docs/evidence/2026-08-30-pending-renderer-authenticated-disconnect.md`.
+    This changes only P0 Disconnect from M to P. TX, P2, and CL stay P; every
+    other cell is unchanged. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
+    native/physical/signing/notarization/release gate, and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

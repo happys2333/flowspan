@@ -1722,6 +1722,51 @@ disconnect/cleanup-fault matrix remains open, all H0/H1 aggregates stay P or M,
 and Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every native/physical/release
 gate, and the Goal remain open.
 
+### 2026-08-30 pending renderer authenticated disconnect
+
+Exact commit `8d0831d0716bc68bc1d5dc0ff18c4efc033624b7` adds the 31st
+production-composed managed tracer execution across TX, P0, P2, and CL. It uses
+authenticated protocol-1.7 loopback and waits until Prepare send is admitted,
+both exact `FSM1` media sessions are attached, and the participant renderer
+factory is inside a deliberately non-cooperative Preparation call. No Ready
+outcome exists at that point.
+
+Authenticated control disconnect enters participant-owned cleanup and cancels
+the Preparation lifetime. The renderer observes cancellation but does not
+return, so disconnect, the worker, and renderer preparation correctly remain
+incomplete before explicit release. Meanwhile the host's exact reservation is
+terminal as Connection / `authenticated_connection_stale` with connection-
+consuming cleanup. This is evidence that cleanup starts and cancels without
+fabricating completion of a non-cooperative owner.
+
+After release, the participant produces one local terminal
+`Rejected/preparation_cancelled` result and disposes the late renderer. The host
+never acknowledges Ready and opens no final Admission, capture, media send,
+render, or input authority. Both-node controller, capture/input/session,
+protection, permission observer, Emergency Stop, renderer, media, route,
+directory, handler, channel, connection, and control owners drain.
+
+The deliberately inverted focused RED sentinel failed `0/1`. Restored focused
+Debug/Release each pass `1/1`; twenty fresh processes per configuration pass
+`20/20`; the tracer class passes `31/31`; Desktop passes `701/701`; and the
+solution passes `2565/2565`, all in both Debug and Release. Both warning-as-
+error builds report zero warnings/errors, and format plus diff verification
+pass. Exact-SHA CI `33295825931` and CodeQL `33295825897` pass; downloaded test
+artifacts prove `2565/2565` with every non-success counter zero on each hosted
+OS, Gitleaks reports 208/0, CodeQL reports 52/0 with 0 exact-ref open alerts,
+and all three reproducible version-0.1.202 unsigned packages pass `5/5`
+checksums and repository verification. Exact jobs, artifacts, digests, commands,
+and limitations are in the
+[pending-renderer disconnect evidence](../evidence/2026-08-30-pending-renderer-authenticated-disconnect.md).
+
+This single row changes only P0 Disconnect from M to P. TX, P2, and CL remain
+partial, every other cell is unchanged, and the remaining transaction phases,
+Trust/lease revocation, renderer timeout, cleanup-fault combinations, and non-
+cooperative native teardown remain open. This is same-host managed macOS
+loopback evidence, not native or physical Windows/macOS/Linux proof. Tasks 5,
+5.5a, and 5.5, `CreateProduction()`, every native/physical/signing/notarization/
+release gate, and the Goal remain open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

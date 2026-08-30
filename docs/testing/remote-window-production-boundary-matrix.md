@@ -14,19 +14,22 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **30 xUnit case executions**, not 30
+The current production-composed tracer has **31 xUnit case executions**, not 31
 complete boundary families:
 
 - one admitted DriverEligible success;
 - one accepted-TCP connection reset before verified `FSM1` attachment completes;
 - five renderer-preparation failures;
+- one authenticated-control disconnect after Prepare send admission and
+  bilateral `FSM1` attachment while renderer Preparation is non-cooperatively
+  blocked;
 - one renderer-failure-to-replacement exact-binding/ABA trace;
 - one exact caller cancellation after verified attachment;
 - one exact deadline-equality expiry after verified attachment;
 - three active authority/safety-loss cases;
 - seven authenticated-disconnect cleanup-fault cases;
 - one final-Admission side-effect-then-throw case after participant known
-  binding publication; and
+  binding publication;
 - one reverse-only Mirror-grant rejection;
 - one exact-source `R < M < S` reservation invalidation;
 - one managed process-local Emergency Stop readiness `R < M < S`
@@ -34,9 +37,9 @@ complete boundary families:
 - one exact Trust/Capability Authorization `R < M < S` invalidation;
 - one exact Permission `R < M < S` invalidation;
 - one authenticated-control disconnect after exact Connection reservation and
-  route selection but before Prepare send-admission entry; and
+  route selection but before Prepare send-admission entry;
 - one exact media mutation during the post-promotion, pre-capture live-callback
-  handoff after verified `FSM1` attachment; and
+  handoff after verified `FSM1` attachment;
 - two exact Protection `R < M < S` invalidations, for `SecureInput` and
   `Unknown`, after route selection and before successful Prepare send admission.
 
@@ -51,6 +54,10 @@ record the 23rd through 26th cases respectively. The
 records the 27th and 28th cases. The
 [Protection evidence](../evidence/2026-08-30-host-protection-preparation-reservation.md)
 records the 29th and 30th cases at exact evidence tree `457a2c4`.
+The [pending-renderer disconnect evidence](../evidence/2026-08-30-pending-renderer-authenticated-disconnect.md)
+records the 31st case at exact commit `8d0831d`; its exact-SHA CI, CodeQL, and
+reproducible unsigned-package jobs pass with the detailed artifacts and digests
+retained there.
 These local results are same-host **managed loopback runs on macOS**. Hosted
 Windows, macOS, and Linux results remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -121,7 +128,7 @@ similar coverage.
 | **H0** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **N/A** [N2] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
 | **H1** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
 | **TX** | **C** [E-TX] | **P** [E-TX] | **C** [E-TX] | **C** [E-TX] | **P** [E-TX] | **P** [E-TX] | **P** [E-TX, E-CL] |
-| **P0** | **P** [E-P0] | **P** [E-P0] | **P** [E-P0] | **P** [E-P0, E-TX] | **M** | **M** | **P** [E-P0, E-CL] |
+| **P0** | **P** [E-P0] | **P** [E-P0] | **P** [E-P0] | **P** [E-P0, E-TX] | **M** | **P** [E-P0, E-TRACE] | **P** [E-P0, E-CL] |
 | **P1** | **P** [E-P1] | **P** [E-P1] | **P** [E-P1] | **P** [E-P1, E-TX] | **P** [E-P1] | **P** [E-P1, E-TRACE] | **P** [E-P1, E-CL] |
 | **P2** | **C** [E-P2] | **C** [E-P2] | **P** [E-P2] | **M** | **M** | **P** [E-P2] | **P** [E-P2, E-CL] |
 | **RS** | **C** [E-RS] | **P** [E-RS] | **C** [E-RS] | **C** [E-RS] | **P** [E-RS] | **P** [E-RS] | **P** [E-RS, E-CL] |
@@ -319,6 +326,12 @@ is why the H0/H1 aggregate cells remain P or M.
 - [`RemoteWindowControlSessionTests`](../../tests/Flowspan.Transport.Tests/RemoteWindowControlSessionTests.cs)
   supplies authenticated loopback, generation replacement, route drain, and
   session-lifetime integration evidence.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.TxP0P2AuthenticatedControlDisconnectWhileRendererPreparationIsBlockedFailsClosedAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  admits Prepare send, attaches both exact `FSM1` sessions, blocks renderer
+  Preparation before any Ready outcome, then disconnects authenticated control.
+  Owned cleanup enters and cancels without completing before renderer release;
+  release produces one bounded `Rejected/preparation_cancelled`, disposes the
+  late renderer, opens no later authority, and drains both nodes.
 
 Send/response throws, revocation/disconnect while every distinct transaction
 phase is pending, and all cleanup-fault combinations are not complete; those
@@ -334,9 +347,9 @@ cells therefore remain P.
   connection acquisition and renderer authority, then recover with a fresh
   request through real loopback `FSM1` Ready.
 
-Current-lease collaborator throws, pending Trust/connection revocation,
-authenticated disconnect, and cleanup-fault combinations remain incomplete;
-P0 therefore remains partial.
+Current-lease collaborator throws, pending Trust/connection revocation, the
+other authenticated-disconnect phases, and cleanup-fault combinations remain
+incomplete; P0 therefore remains partial.
 
 ### E-P1 — verified connector and FSM1 attachment
 
@@ -363,11 +376,18 @@ fault family.
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests.VerifiedFsm1AttachmentThenRendererFailureCommitsRejectionBeforeFailClose`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
   supplies five production-composed cases after exact bilateral `FSM1`
   attachment and proves zero Admission, capture, send, and render.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.TxP0P2AuthenticatedControlDisconnectWhileRendererPreparationIsBlockedFailsClosedAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  supplies one production-composed authenticated disconnect while the renderer
+  worker is non-cooperatively blocked after bilateral attachment. It proves
+  cancellation is observed before cleanup can finish, then late renderer
+  disposal, bounded rejection, zero host Ready authority, and full drain after
+  release.
 
 Missing/null and ordinary throw classification are covered. A renderer blocked
 through exact deadline expiry and a renderer interrupted by authoritative lease
-or Trust revocation remain missing; cancellation, disconnect, and cleanup
-cross-products remain partial.
+or Trust revocation remain missing; the new disconnect row covers one exact
+pending-worker phase, while other disconnect and cleanup cross-products remain
+partial.
 
 ### E-RS — Ready send and response completion
 
@@ -445,6 +465,10 @@ particular, a failure before HC is not HC evidence.
 - [`NativeRemoteWindowContractsTests`](../../tests/Flowspan.Platform.Tests/NativeRemoteWindowContractsTests.cs)
   covers protection/Emergency callback ownership and non-deadlocking drains, but
   remains portable managed-contract evidence.
+- The pending-renderer disconnect tracer proves owned cleanup and cancellation
+  enter without falsely completing while a non-cooperative renderer still owns
+  its call. Explicit release then disposes the late renderer and drains the
+  complete managed two-node owner graph.
 
 The remaining renderer, active/pending frame, queue, attachment, route,
 directory, controller, protection FIFO/admission-use, permission-observer,
@@ -455,14 +479,15 @@ been defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 30-case class.
+  is now the executable 31-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
   and limitations. The source-linearization, Emergency Stop readiness,
   Trust/Capability, and Permission evidence above record the 23rd through 26th
   cases and their exact-SHA execution. The Connection Preparation evidence
   records the 27th and 28th cases. The Protection Preparation evidence records
-  the 29th and 30th cases and keeps their narrow scope explicit.
+  the 29th and 30th cases. The pending-renderer authenticated-disconnect
+  evidence records the 31st case and keeps its narrow scope explicit.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -526,15 +551,15 @@ one direct row for each applicable gap. The presently known gaps are:
 3. **TX/RS:** cover throw, revoke, disconnect, and cleanup failure at every
    distinct send-admission, buffered-response, terminal-commit, completion-hook,
    and tombstone phase rather than treating Stop as every terminal cause.
-4. **P0:** current-lease collaborator throw; current Trust/connection revoke and
-   disconnect while participant preparation is pending; exact cleanup and retry
-   denial.
+4. **P0:** current-lease collaborator throw; current Trust/connection revoke;
+   authenticated disconnect at the other participant-preparation phases; exact
+   cleanup and retry denial.
 5. **P1:** malformed/tampered `FSM1`, blocked-handshake cancellation and exact
    timeout, endpoint/listener disconnect variants, generation revocation at
    each attach phase, and remaining handler/route/directory cleanup failures.
 6. **P2:** exact deadline cancellation while renderer preparation is blocked;
-   authoritative lease/Trust revocation at that boundary; disconnect and all
-   renderer cleanup combinations.
+   authoritative lease/Trust revocation at that boundary; the remaining
+   disconnect phases and all renderer cleanup combinations.
 7. **AD:** participant-endpoint throw, authority revoke, authenticated
    disconnect, and remaining cleanup failures at the exact buffered/send/commit
    phases.
