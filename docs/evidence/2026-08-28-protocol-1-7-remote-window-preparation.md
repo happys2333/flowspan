@@ -974,3 +974,77 @@ Still required before Task 5.5a can close:
 Native adapters, real permissions, protected surfaces, physical two-Device
 quality, packaged accessibility, signing/notarization, Tasks 5.5 and 6-10, v1
 release criteria, and the long-term Flowspan Goal remain open.
+
+## 2026-08-30 first bounded cleanup-confirmation vertical
+
+Implementation commit `685225ed92b76ee2e6f4800b9c97f8baf2af378d`
+adds the 42nd production-composed managed tracer case and the first bounded
+cleanup-confirmation vertical from ADR 0028. It covers one active runtime
+generation only. A real same-host TCP pair negotiates authenticated protocol
+1.7 and bilateral `FSM1` attachment, reaches
+final Admission, sends encrypted media, and renders one frame before the
+participant independently closes its authenticated-control connection.
+
+The production host revocation callback closes admission, removes the
+generation from active authority, retains it as retiring, creates and arms the
+single cleanup timer on the callback thread, and starts one real cleanup task.
+The tracer's host-Connection wrapper enters its owned `DisposeAsync` but blocks
+before forwarding to the real managed connection, so that owner is observably
+unsettled. The timeout does not cancel, detach, replace, or pretend to complete
+that real cleanup.
+
+With the injected `TimeProvider` at timeout minus one tick, the original
+Connection is still blocked, the generation is still retiring, no terminal
+failure is published, and a replacement Start is still pending. Its route,
+Prepare, Admission, media, capture, renderer preparation, permission
+reservation, Protection reservation, and Emergency Stop readiness/registration
+counts remain unchanged. Advancing the final tick to exact ten-second equality
+publishes one stable `host_cleanup_timeout` failure and completes the bounded
+confirmation. The waiting replacement then fails with
+`host_cleanup_unconfirmed`; its connection and Protection input are cleaned up,
+but it gains no route, Prepare, Admission, capture, render, media, Driver/input,
+permission, Protection, or Emergency Stop authority.
+
+After the test releases the original disposal barrier, the same real cleanup
+continues and the two-node managed owner graph drains: the original Connection,
+control generation, registrations, protection, renderer, capture/input state,
+media sessions, routes, budget, handlers, and peer connections all settle. The
+retiring reference clears and the only timer is released. The timeout failure
+and monotonic cleanup-unconfirmed latch remain. A second replacement Start is
+again rejected before authority, and coordinator disposal observes the same
+timeout exception instance.
+
+Local macOS verification for exact implementation `685225e` reports:
+
+- complete Debug and Release solutions: `2584/2584` each;
+- Desktop Debug and Release: `720/720` each;
+- production-composed managed tracer Debug and Release: `42/42` each;
+- Debug and Release warning-as-error solution builds: zero warnings and zero
+  errors; and
+- format verification, explicit production-composition validation, the
+  deterministic protocol-1.7 simulator, and direct/transitive dependency
+  vulnerability audit: passed.
+
+Exact implementation CI `33311180093` and CodeQL `33311180128` succeed.
+Downloaded artifacts prove `2584/2584` with every non-success counter zero on
+each hosted OS, Gitleaks 208/0, CodeQL 52/0 with zero exact-ref open alerts, and
+all three reproducible unsigned packages verified. Exact job, artifact, and
+digest details are retained in
+[`2026-08-30-bounded-cleanup-confirmation.md`](2026-08-30-bounded-cleanup-confirmation.md).
+
+By fault origin, this vertical changes only CL Timeout from M to P. The
+authenticated disconnect is the trigger, not a new completion of the
+already-partial CL Disconnect cell. The current implementation and case do not
+cover a non-cooperative synchronous Emergency Stop prefix before timer arm,
+explicit Stop- or Dispose-first termination, timer creation/arming or disposal
+failure, real cleanup winning at the deadline, late cleanup fault or
+`OutOfMemoryException`, pre-generation cleanup, or the complete per-boundary
+reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix.
+
+This is managed same-host loopback evidence, not native capture, input,
+protection, permission, renderer, sharing-indicator, or Emergency Stop API
+evidence; it is also not physical Windows/macOS/Linux, packaged accessibility,
+signing, notarization, or release acceptance. Tasks 5, 5.5a, and 5.5 remain
+open, as do every native/physical/signing/notarization/release gate and the
+long-term Flowspan Goal. `CreateProduction()` must continue to report Remote
+Window unavailable.

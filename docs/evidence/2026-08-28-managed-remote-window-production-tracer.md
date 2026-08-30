@@ -1691,6 +1691,66 @@ authenticated disconnect at every final-Admission phase, or all cleanup-fault
 combinations. It adds no native or physical evidence, and does not close Task
 5.5a or any later gate.
 
+## 2026-08-30 bounded cleanup-confirmation row
+
+Implementation `685225ed92b76ee2e6f4800b9c97f8baf2af378d` adds the 42nd
+production-composed managed tracer execution:
+`AuthenticatedControlDisconnectBlockedHostDisposeTimesOutAndPermanentlyBlocksRestart`.
+The intervening rows are recorded in their focused 2026-08-30 evidence files;
+this cumulative document does not duplicate each of those records.
+
+The row reaches active final Admission over real same-host loopback TCP,
+authenticated protocol 1.7 and bilateral `FSM1`, then sends, decodes and renders
+one encrypted frame. Before terminal disconnect it acquires a second host
+connection lease and proves that the lease belongs to the same authenticated
+generation as the active host wrapper. That lease remains a tripwire for the
+later rejected replacement; it is not a new authenticated generation.
+
+The participant independently closes its authenticated control connection.
+The host revocation callback closes authority, moves the exact generation from
+active to retiring ownership, and creates and arms the production watchdog
+before the callback returns or its deferred worker runs. The host wrapper then
+blocks at a test-owned barrier before calling its inner connection
+`DisposeAsync`, proving one real cleanup owner remains unsettled.
+
+A manual `TimeProvider` remains one tick short of the ten-second deadline with
+the replacement Start, timeout result, original inner disposal and retiring
+generation all still pending. At exact equality, bounded confirmation publishes
+one stable `host_cleanup_timeout` instance and the replacement returns
+`host_cleanup_unconfirmed`. The rejected request selects no route, sends no
+Prepare, publishes no Admission, starts no capture or renderer, creates no new
+Permission/Authorization/Emergency owner, sends no media and injects no input.
+
+Releasing the blocked owner lets the same real task call inner disposal and
+drain the bilateral connection, route, media-directory, handler, channel,
+renderer, protection, permission-observer, Emergency Stop, control and host-
+generation owners. Retiring ownership and the single timer then clear, but the
+timeout and sticky latch remain. A second Start is rejected before authority,
+and coordinator Dispose returns the same timeout instance.
+
+The exact focused row passes `1/1`, the full tracer passes `42/42`, Desktop
+passes `720/720`, and the complete solution passes `2584/2584`, each in Debug
+and Release. Warning-as-error builds, format, diff, dependency audit, explicit
+TEST MODE composition, and the simulator pass. These are local macOS managed
+results. `gitleaks` is unavailable locally.
+
+CI run
+[`33311180093`](https://github.com/happys2333/flowspan/actions/runs/33311180093)
+and CodeQL run
+[`33311180128`](https://github.com/happys2333/flowspan/actions/runs/33311180128)
+both succeed. Downloaded artifacts prove `2584/2584` with every non-success
+counter zero on Windows, macOS, and Linux, Gitleaks 208/0, CodeQL 52/0 with zero
+exact-ref open alerts, and three verified reproducible unsigned packages. Full
+commands, job/artifact IDs and digests, TDD/review history, ownership assertions
+and limitations are in the
+[bounded cleanup-confirmation checkpoint](2026-08-30-bounded-cleanup-confirmation.md).
+
+This row advances only CL Timeout from Missing to Partial.
+Stop-first, Dispose-first, pre-generation cleanup, timer-provider/release
+failure, completion-winner and OOM combinations remain Task 5.5a.3 work. It
+adds no native, physical, signing, notarization or release evidence and cannot
+make production Remote Window available.
+
 ## Security relevance
 
 - **T05:** complementary one-way success and reversed-grant denial demonstrate
@@ -1776,7 +1836,11 @@ combinations. It adds no native or physical evidence, and does not close Task
   partial-terminal publication. The twenty-second row fails after final
   Admission has committed the participant known binding but before the host
   frame gate opens, then drains the directly asserted cross-node owners without
-  sending or rendering media.
+  sending or rendering media. The forty-second row separates real owner drain
+  from bounded cleanup confirmation: authenticated disconnect closes active
+  authority and starts one retiring-generation task, exact timeout equality
+  wakes a fail-closed replacement with no new authority, and late bilateral
+  drain releases owners without clearing the sticky restart latch.
 - **T14:** Ready and attachment do not render; final Admission opens rendering,
   and Emergency Stop does not wait for network acknowledgement.
 - **T15:** the tracer uses protocol 1.7. Existing protocol tests cover downgrade
@@ -1785,9 +1849,11 @@ combinations. It adds no native or physical evidence, and does not close Task
 ## Explicit non-evidence and remaining gates
 
 The test strategy requires reject, throw, cancel, timeout, revoke, disconnect,
-and cleanup-fault coverage at every applicable boundary. This evidence covers
-only the twenty-two current cases above and does not establish that complete
-matrix.
+and cleanup-fault coverage at every applicable boundary. The production-
+composed managed tracer now contains forty-two cases. This cumulative file
+expands the baseline and selected additions through row twenty-two plus the new
+row forty-two; focused companion evidence files record rows twenty-three
+through forty-one. The aggregate still does not establish the complete matrix.
 In particular, the `FSM1` failure case covers an accepted verified-endpoint TCP
 connection that resets before the attachment handshake completes, not every
 malformed, tampered, timeout, cancellation, listener, or cleanup-fault boundary.
@@ -1799,7 +1865,11 @@ host-connection disposal fault are also covered, as are one host fail-close
 fault and one registration-plus-connection-disposal combination. The remaining
 cleanup owners, cross-products, and per-boundary cases remain open. One
 Desktop renderer-to-replacement ABA path is covered; the remaining replacement
-boundaries and combined-failure variants are also open.
+boundaries and combined-failure variants are also open. The forty-second row
+covers one active authenticated-disconnect cleanup timeout with one host-
+connection owner blocked before inner disposal. It does not cover the other
+cleanup initiators, owners, timer failures, completion-winner races, late
+faults, OOM combinations, or bounded pre-generation cleanup.
 
 Tasks 5, 5.5a, 5.5, and 6-10 remain open, as does the long-term Flowspan Goal.
 `CreateProduction()` must continue to report Remote Window unavailable; this

@@ -2047,10 +2047,13 @@ CI `33304022418` for documentation tree `9ca4b2c` is failure evidence only:
 macOS job `99237248671` exposed an unrelated local-pairing lifetime-cancellation
 precedence race; Ubuntu, Windows, and Secret Scan passed, while packages were
 skipped. CodeQL `33304022374` passed independently. Pairing fix `7239448`
-restores cancellation precedence; final hosted authority-row evidence remains
-pending a post-fix exact tree. By fault origin only HC Revoke changes from M to
-P. HC/AD/CL Disconnect remain P; every other cell is unchanged. This is managed
-same-host evidence, not native/physical Windows/macOS/Linux, signed, notarized,
+restores cancellation precedence. Final cumulative evidence tree `c4c02a3`
+contains this row, the fix, and rows through 39; CI `33305006486` and CodeQL
+`33305006421` succeed with `2580/2580` on every hosted OS, Gitleaks 208/0,
+CodeQL 52/0, and three verified reproducible unsigned packages. By fault origin
+only HC Revoke changes from M to P. HC/AD/CL Disconnect remain P; every other
+cell is unchanged. This is managed same-host evidence, not native/physical
+Windows/macOS/Linux, signed, notarized,
 or release proof. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every native/
 physical/release gate, and the Goal remain open.
 
@@ -2078,9 +2081,10 @@ have zero warnings/errors; format/diff checks pass; and self plus independent
 review report 0 P0/P1/P2 findings. Exact commands and limitations are in the
 [host capture-start caller-cancellation evidence](../evidence/2026-08-30-host-capture-start-caller-cancellation.md).
 
-Hosted exact `0f26c26` evidence remains pending. CI `33304022418` and CodeQL
-`33304022374` target `9ca4b2c`, the preceding 37-case tree. By fault origin only
-HC Cancel changes from M to P; CL Cancel remains P and every other cell is
+Final cumulative hosted evidence is the successful `c4c02a3` tree and
+`33305006486`/`33305006421` runs described above; `9ca4b2c` precedes this row.
+By fault origin only HC Cancel changes from M to P; CL Cancel remains P and
+every other cell is
 unchanged. This is managed same-host evidence, not native/physical Windows/
 macOS/Linux, signed, notarized, or release proof. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
@@ -2104,8 +2108,9 @@ row passes twenty fresh processes per configuration. Combined tree through
 passing format/diff checks. Details are in the
 [pairing lifetime-cancellation evidence](../evidence/2026-08-30-local-pairing-lifetime-cancellation.md).
 
-This repair changes no Remote Window matrix cell. Final post-fix hosted evidence
-remains pending.
+This repair changes no Remote Window matrix cell. Final post-fix `c4c02a3` CI
+`33305006486` and CodeQL `33305006421` succeed with the cumulative results
+described above.
 
 ### 2026-08-30 host capture-start rejection
 
@@ -2128,9 +2133,10 @@ independent review report 0 P0/P1/P2 findings. Exact commands and limitations
 are in the
 [host capture-start rejection evidence](../evidence/2026-08-30-host-capture-start-rejection.md).
 
-Hosted exact post-`858acb2` evidence remains pending; `9ca4b2c` CI/CodeQL target
-the preceding 37-case tree and its CI failed on the unrelated pairing race. By
-fault origin only HC Reject changes from M to P. HC Reject, Cancel, Revoke, and
+Final cumulative evidence tree `c4c02a3` contains `858acb2` and `7239448`; CI
+`33305006486` and CodeQL `33305006421` succeed. The earlier `9ca4b2c` runs
+precede this row and exposed the repaired pairing race. By fault origin only HC
+Reject changes from M to P. HC Reject, Cancel, Revoke, and
 Disconnect are now all P; every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
@@ -2235,6 +2241,52 @@ neither is native/physical, signed, notarized, or release proof. Tasks 5, 5.5a,
 and 5.5, aggregate H0/H1 acceptance, every native/physical/
 signing/notarization/release gate, and the Goal remain open. `CreateProduction()`
 remains unavailable.
+
+### 2026-08-30 active-disconnect bounded cleanup confirmation
+
+Exact implementation `685225ed92b76ee2e6f4800b9c97f8baf2af378d` adds one
+coordinator unit row and the 42nd production-composed managed two-node tracer.
+The tracer uses real loopback TCP, authenticated protocol 1.7, and bilateral
+`FSM1` media attachment before the participant disconnects. The host revocation
+callback closes admission, synchronously publishes one ten-second cleanup
+confirmation watchdog, and begins the one real cleanup task. The fixture blocks
+the original host Connection `DisposeAsync`, not the confirmation operation.
+
+With a manual TimeProvider, T-1 tick leaves the timer pending, the original
+cleanup owner blocked, and replacement Start waiting behind the lifecycle gate.
+The next tick reaches exact deadline equality: the stable terminal failure is
+`host_cleanup_timeout`, the gate is released, and replacement Start fails with
+`host_cleanup_unconfirmed`. The replacement never reaches responder routing,
+Connection/Authorization/Permission/Protection Preparation, Prepare, final
+Admission publication, capture, renderer preparation, media send, or Emergency
+Stop readiness/registration.
+Releasing the blocked owner completes the same real cleanup task and drains both
+authenticated Connections, handlers, media directories, route/control owners,
+capture, input, renderer, permissions, and Emergency Stop registrations. The
+timer and retiring owner then disappear, but the original timeout instance and
+restart latch remain; a second Start still fails before acquiring authority.
+
+Exact-tree local macOS Debug and Release builds report zero warnings and errors.
+The solution passes `2584/2584`, Desktop passes `720/720`, and the managed tracer
+passes `42/42` in each configuration. Formatting, Desktop composition
+validation, the simulator, and direct/transitive NuGet vulnerability checks also
+pass. Exact-SHA CI `33311180093` and CodeQL `33311180128` succeed. Downloaded
+artifacts prove `2584/2584` with every non-success counter zero on each hosted
+OS, Gitleaks 208/0, CodeQL 52/0 with zero exact-ref open alerts, and all three
+reproducible unsigned packages verified. Commands, artifact IDs and digests,
+scope, and limitations are recorded in the
+[bounded cleanup-confirmation evidence](../evidence/2026-08-30-bounded-cleanup-confirmation.md).
+
+This is only the first active authenticated terminal-disconnect × blocked host
+Connection owner vertical. It moves only CL Timeout from M to P and closes only
+Task 5.5a.2. Explicit Stop/Dispose-first behavior, cleanup-wins/equality races,
+timer creation/arm/disposal faults, late cleanup failure or OOM, concurrent
+terminators, remaining cleanup owners, pre-generation cleanup, and the complete
+per-boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix
+remain open. Therefore Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open. This same-host managed macOS tracer is neither native
+API nor physical two-Device, signed, notarized, or release evidence.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/

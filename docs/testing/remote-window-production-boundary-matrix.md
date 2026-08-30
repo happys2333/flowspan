@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **41 xUnit case executions**, not 41
+The current production-composed tracer has **42 xUnit case executions**, not 42
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -63,7 +63,11 @@ complete boundary families:
 - one exact media mutation during the post-promotion, pre-capture live-callback
   handoff after verified `FSM1` attachment;
 - two exact Protection `R < M < S` invalidations, for `SecureInput` and
-  `Unknown`, after route selection and before successful Prepare send admission.
+  `Unknown`, after route selection and before successful Prepare send admission;
+  and
+- one active authenticated-control disconnect whose host Connection disposal is
+  held past the production cleanup-confirmation deadline, followed by late
+  bilateral drain and permanently latched restart denial.
 
 The first 22 cases' decomposition and exact commands are recorded in the
 [managed production tracer evidence](../evidence/2026-08-28-managed-remote-window-production-tracer.md).
@@ -121,20 +125,22 @@ alerts, and three reproducible version-0.1.213 unsigned packages. Earlier CI
 `33302708813` and CodeQL `33302708801` target `17a3401`, not this new case.
 The [host capture-start authority-revoke evidence](../evidence/2026-08-30-host-capture-start-authority-revoke.md)
 records the 37th case at exact commit `62e9372`. It advances only HC Revoke from
-Missing to Partial; HC, AD, and CL Disconnect remain Partial. CI `33304022418`
-at documentation tree `9ca4b2c` failed only an unrelated macOS pairing lifetime-
-cancellation race; CodeQL `33304022374` passed. Fix `7239448` restores pairing
-cancellation precedence without changing this matrix. Final authority-row hosted
-evidence remains pending a post-fix tree.
+Missing to Partial; HC, AD, and CL Disconnect remain Partial. The failed
+`9ca4b2c` CI remains historical evidence for an unrelated pairing race. Final
+cumulative evidence tree `c4c02a3` contains this row plus pairing fix `7239448`
+and the later rows through 39; CI `33305006486` and CodeQL `33305006421`
+succeeded with `2580/2580` on each hosted OS, Gitleaks 208/0, CodeQL 52/0, and
+three verified reproducible unsigned packages.
 The [host capture-start caller-cancellation evidence](../evidence/2026-08-30-host-capture-start-caller-cancellation.md)
 records the 38th case at exact commit `0f26c26`. It advances only HC Cancel from
-Missing to Partial; CL Cancel stays Partial. Exact `0f26c26` hosted evidence
-remains pending; CI `33304022418` and CodeQL `33304022374` target `9ca4b2c`, the
-preceding 37-case documentation tree.
+Missing to Partial; CL Cancel stays Partial. Final cumulative hosted evidence is
+the successful `c4c02a3` tree and runs named above; the earlier `9ca4b2c` runs
+precede this row.
 The [host capture-start rejection evidence](../evidence/2026-08-30-host-capture-start-rejection.md)
 records the 39th case at exact commit `858acb2`. It advances only HC Reject from
 Missing to Partial. HC Reject, Cancel, Revoke, and Disconnect are now all
-Partial; every other cell is unchanged. Exact hosted evidence remains pending.
+Partial; every other cell is unchanged. Final cumulative hosted evidence is the
+successful `c4c02a3` tree and runs named above.
 The [host initial Authorization authenticated-disconnect evidence](../evidence/2026-08-30-host-initial-authorization-disconnect.md)
 records the 40th case at exact commit `077c996`. It advances only H0 Disconnect
 from Missing to Partial; H1 Disconnect remains Missing and CL Disconnect remains
@@ -153,6 +159,12 @@ passed `2582/2582` and Secret Scan passed 208/0. CodeQL `33306962391` passed
 SHA CI `33307322868` and CodeQL `33307322870` then succeeded: every hosted OS
 passed `2582/2582`, Gitleaks reported 208/0, CodeQL reported 52/0 with 0 exact-
 ref open alerts, and all three reproducible unsigned packages verified.
+The [bounded cleanup-confirmation evidence](../evidence/2026-08-30-bounded-cleanup-confirmation.md)
+records the 42nd case at exact implementation commit `685225e`. It advances only
+CL Timeout from Missing to Partial. Exact-SHA CI `33311180093` and CodeQL
+`33311180128` succeeded; downloaded artifacts prove `2584/2584` with every
+non-success counter zero on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0
+exact-ref open alerts, and all three reproducible unsigned packages verified.
 These local results are same-host **managed loopback runs on macOS**. Hosted
 Windows, macOS, and Linux results remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -229,7 +241,7 @@ similar coverage.
 | **RS** | **C** [E-RS] | **P** [E-RS] | **C** [E-RS] | **C** [E-RS] | **P** [E-RS] | **P** [E-RS] | **P** [E-RS, E-CL] |
 | **AD** | **C** [E-AD] | **P** [E-AD, E-TRACE] | **C** [E-AD] | **C** [E-AD] | **P** [E-AD, E-TRACE] | **P** [E-AD, E-TRACE] | **P** [E-AD, E-CL] |
 | **HC** | **P** [E-HC, E-TRACE] | **P** [E-HC, E-TRACE] | **P** [E-HC, E-TRACE] | **P** [E-HC] | **P** [E-HC, E-TRACE] | **P** [E-HC, E-TRACE] | **P** [E-HC, E-CL] |
-| **CL** | **P** [E-CL] | **P** [E-CL] | **P** [E-CL] | **M** | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] |
+| **CL** | **P** [E-CL] | **P** [E-CL] | **P** [E-CL] | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] |
 
 ### N/A rationale
 
@@ -702,17 +714,24 @@ Revoke, and Disconnect. In particular, a failure before HC is not HC evidence.
 - The capture-start rejection sibling also uses ordinary Stop and drains the
   complete graph with zero Emergency Stop. This strengthens CL Reject without
   completing rejection-plus-cleanup rows.
+- [`DesktopRemoteWindowHostCoordinatorTests.TerminalCleanupWatchdogTimeoutReleasesGateAndPermanentlyBlocksRestartUntilTrueDrain`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowHostCoordinatorTests.cs)
+  and the 42nd managed tracer execution provide direct CL Timeout evidence for
+  one active authenticated disconnect with host Connection disposal blocked.
+  They prove T-1 pending state, exact equality timeout, bounded lifecycle-gate
+  release, zero-authority replacement rejection, the same real cleanup task's
+  late completion, bilateral drain, and sticky restart denial.
 
 The remaining renderer, active/pending frame, queue, attachment, route,
 directory, controller, protection FIFO/admission-use, permission-observer,
 sharing-session, Emergency Stop, and control-owner fault injections and their
-meaningful combinations remain open. No production cleanup timeout contract has
-been defined or directly tested.
+meaningful combinations remain open. CL Timeout is Partial only: Stop/Dispose-
+first, other owners, timer faults, cleanup-winner races, late failure/OOM, and
+pre-generation bounded cleanup remain untested.
 
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 41-case class.
+  is now the executable 42-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
   and limitations. The source-linearization, Emergency Stop readiness,
@@ -737,6 +756,8 @@ been defined or directly tested.
   keeps its narrow H0 Disconnect scope explicit. The host route
   authenticated-disconnect evidence records the 41st case and keeps its narrow
   H1 Disconnect scope explicit.
+- The [bounded cleanup-confirmation evidence](../evidence/2026-08-30-bounded-cleanup-confirmation.md)
+  records the 42nd case and keeps its narrow CL Timeout scope explicit.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -830,7 +851,9 @@ one direct row for each applicable gap. The presently known gaps are:
    Capture-start now has one direct Reject, Cancel, Revoke, and Disconnect row.
 9. **CL:** remaining single-owner cleanup faults; meaningful ordered combined
    failures; active versus pending owner variants; stable shared completion;
-   zero retained owner/budget counts; and an explicit cleanup-timeout decision.
+   zero retained owner/budget counts; and the remaining cleanup-timeout
+   initiators, owners, winner races, timer faults, late failures/OOM, and pre-
+   generation paths beyond the first active-disconnect × Connection row.
 
 Task 5.5a remains unchecked while any applicable cell is P or M. Task 5.5,
 native platform work, physical two-device runs, package lifecycle, signing,

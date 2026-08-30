@@ -1003,9 +1003,11 @@
     change. Focused Debug/Release passes `1/1`; fresh rows pass `10/10` per
     configuration; tracer, Desktop, and solution pass `37/37`, `714/714`, and
     `2578/2578`; builds have zero warnings/errors; format/diff checks pass; and
-    self plus independent review report 0 P0/P1/P2. Hosted exact `62e9372`
-    evidence remains pending; `a0c9648` CI `33303210427` and CodeQL `33303210391`
-    prove only the 36-case tree. Commands, scope, and limitations are in
+    self plus independent review report 0 P0/P1/P2. Final cumulative evidence
+    tree `c4c02a3` contains this row, the pairing fix, and rows through 39; CI
+    `33305006486` and CodeQL `33305006421` succeed with `2580/2580` on every
+    hosted OS, Gitleaks 208/0, CodeQL 52/0, and three verified reproducible
+    unsigned packages. Commands, scope, and limitations are in
     `docs/evidence/2026-08-30-host-capture-start-authority-revoke.md`.
     By fault origin only HC Revoke changes M→P. HC/AD/CL Disconnect remain P;
     every other cell is unchanged. Tasks 5, 5.5a, and 5.5, aggregate H0/H1
@@ -1026,9 +1028,9 @@
     fresh rows pass `10/10` per configuration; tracer, Desktop, and solution pass
     `38/38`, `715/715`, and `2579/2579`; builds have zero warnings/errors;
     format/diff checks pass; and self plus independent review report 0 P0/P1/P2.
-    Hosted exact `0f26c26` evidence remains pending; CI `33304022418` and CodeQL
-    `33304022374` target `9ca4b2c`, the 37-case tree. Commands, scope, and
-    limitations are in
+    Final cumulative hosted evidence is the successful `c4c02a3` tree and
+    `33305006486`/`33305006421` runs described above; the earlier `9ca4b2c` runs
+    precede this row. Commands, scope, and limitations are in
     `docs/evidence/2026-08-30-host-capture-start-caller-cancellation.md`.
     By fault origin only HC Cancel changes M→P. CL Cancel remains P; every other
     cell is unchanged. Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
@@ -1054,10 +1056,11 @@
     Debug/Release passes `1/1`; fresh rows pass `10/10` per configuration;
     tracer, Desktop, and combined solution pass `39/39`, `716/716`, and
     `2580/2580`; builds have zero warnings/errors; format/diff checks pass; and
-    self plus independent review report 0 P0/P1/P2. Hosted exact post-`858acb2`
-    evidence remains pending; `9ca4b2c` targets the 37-case tree and its CI
-    failed on the unrelated pairing race. Commands, scope, and limitations are
-    in `docs/evidence/2026-08-30-host-capture-start-rejection.md`.
+    self plus independent review report 0 P0/P1/P2. Final cumulative evidence
+    tree `c4c02a3` contains `858acb2` and pairing fix `7239448`; exact-SHA CI
+    `33305006486` and CodeQL `33305006421` succeed with the hosted results named
+    above. Commands, scope, and limitations are in
+    `docs/evidence/2026-08-30-host-capture-start-rejection.md`.
     By fault origin only HC Reject changes M→P. HC Reject, Cancel, Revoke, and
     Disconnect are now P; every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
     aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
@@ -1145,7 +1148,7 @@
       the sticky restart latch, deterministic failure ledger, fatal OOM lane,
       timer failure, Dispose immutability, and final pre-generation scope.
       _Requirements: NR8.9-NR8.17_
-    - [ ] 5.5a.2 Deliver the first production-composed CL Timeout vertical for
+    - [x] 5.5a.2 Deliver the first production-composed CL Timeout vertical for
       active authenticated terminal disconnect with one blocked cleanup owner.
       Use the production ten-second/maximum-thirty-second TimeProvider watchdog,
       advance a manual provider to exact equality, prove
@@ -1153,6 +1156,30 @@
       Start with `host_cleanup_unconfirmed`, retain the same real cleanup task,
       drain both nodes after releasing the owner, and keep restart latched. Move
       only CL Timeout from M to P and retain all stated limitations.
+      Exact implementation
+      `685225ed92b76ee2e6f4800b9c97f8baf2af378d` adds one coordinator unit row and
+      the 42nd production-composed managed loopback tracer. Both freeze the
+      active authenticated-disconnect path while the original host Connection
+      `DisposeAsync` is blocked, prove no timeout at T-1 tick and exact
+      `host_cleanup_timeout` at equality, then prove lifecycle-gate release and
+      zero-authority replacement rejection with `host_cleanup_unconfirmed`.
+      Releasing the owner completes the same real cleanup, drains the tracer's
+      two authenticated protocol-1.7/FSM1 nodes, and leaves the restart latch
+      sticky. Exact-tree local macOS Debug/Release builds report zero warnings
+      and errors; solution, Desktop, and tracer suites pass `2584/2584`,
+      `720/720`, and `42/42` in both configurations; format, composition,
+      simulator, and direct/transitive vulnerability checks pass. Exact-SHA CI
+      `33311180093` and CodeQL `33311180128` succeed. Downloaded artifacts prove
+      `2584/2584` with every non-success counter zero on each hosted OS,
+      Gitleaks 208/0, CodeQL 52/0 with zero exact-ref open alerts, and three
+      verified reproducible unsigned packages. This moves only CL Timeout from
+      M to P. This slice does not cover Stop/Dispose-first, timer faults, late
+      failure/OOM, pre-generation cleanup, or the complete per-boundary reject/
+      throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix. Tasks 5,
+      5.5a, 5.5, every
+      native/physical/signing/notarization/release gate, and the Goal remain
+      open; `CreateProduction()` remains unavailable. Details are in the
+      [bounded cleanup-confirmation evidence](../../../docs/evidence/2026-08-30-bounded-cleanup-confirmation.md).
       _Requirements: NR8.9-NR8.16, NR10_
     - [ ] 5.5a.3 Extend bounded confirmation across explicit Stop, Dispose,
       cleanup-wins/equality races, timer setup/disposal failure, late non-fatal

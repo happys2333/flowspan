@@ -1521,9 +1521,11 @@ have zero warnings/errors; format/diff checks pass; and self plus independent
 review report 0 P0/P1/P2 findings. Exact commands and limitations are in the
 [host capture-start authority-revoke evidence](../evidence/2026-08-30-host-capture-start-authority-revoke.md).
 
-Hosted exact `62e9372` evidence remains pending. Exact `a0c9648` CI
-`33303210427` and CodeQL `33303210391` prove only the preceding 36-case tree. By
-fault origin only HC Revoke advances from M to P; HC/AD/CL Disconnect remain P.
+Final cumulative evidence tree `c4c02a3` contains this row, pairing fix
+`7239448`, and rows through 39. CI `33305006486` and CodeQL `33305006421`
+succeed with `2580/2580` on every hosted OS, Gitleaks 208/0, CodeQL 52/0, and
+three verified reproducible unsigned packages. By fault origin only HC Revoke
+advances from M to P; HC/AD/CL Disconnect remain P.
 Other HC revoke phases and revoke-plus-cleanup faults remain open. This is
 managed same-host evidence, not native API, physical two-Device, packaged
 accessibility, signed/notarized package, or release proof. Tasks 5, 5.5a, and
@@ -1554,9 +1556,10 @@ have zero warnings/errors; format/diff checks pass; and self plus independent
 review report 0 P0/P1/P2 findings. Exact commands and limitations are in the
 [host capture-start caller-cancellation evidence](../evidence/2026-08-30-host-capture-start-caller-cancellation.md).
 
-Hosted exact `0f26c26` evidence remains pending. CI `33304022418` and CodeQL
-`33304022374` target `9ca4b2c`, the preceding 37-case tree. By fault origin only
-HC Cancel advances from M to P; CL Cancel remains P. Other HC cancellation
+Final cumulative hosted evidence is the successful `c4c02a3` tree and
+`33305006486`/`33305006421` runs described above; `9ca4b2c` precedes this row.
+By fault origin only HC Cancel advances from M to P; CL Cancel remains P. Other
+HC cancellation
 phases, foreign/tokenless cancellation, and cancellation-plus-cleanup faults
 remain open. This is managed same-host evidence, not native API, physical two-
 Device, packaged accessibility, signed/notarized package, or release proof.
@@ -1580,6 +1583,9 @@ zero build warnings/errors. This changes no Remote Window matrix cell. Details
 are in the
 [pairing lifetime-cancellation evidence](../evidence/2026-08-30-local-pairing-lifetime-cancellation.md).
 
+Final post-fix tree `c4c02a3` succeeds in CI `33305006486` and CodeQL
+`33305006421` with the cumulative hosted results described above.
+
 ### 5.35 2026-08-30 Host capture-start rejection
 
 For T06 and T14, exact test-only commit
@@ -1598,8 +1604,9 @@ have zero warnings/errors; format/diff checks pass; and self plus independent
 review report 0 P0/P1/P2 findings. Exact commands and limitations are in the
 [host capture-start rejection evidence](../evidence/2026-08-30-host-capture-start-rejection.md).
 
-Hosted exact post-`858acb2` evidence remains pending. By fault origin only HC
-Reject advances from M to P; HC Reject, Cancel, Revoke, and Disconnect are now P.
+Final cumulative tree `c4c02a3` contains `858acb2` and `7239448`; CI
+`33305006486` and CodeQL `33305006421` succeed. By fault origin only HC Reject
+advances from M to P; HC Reject, Cancel, Revoke, and Disconnect are now P.
 Other rejection phases and rejection-plus-cleanup faults remain open. Tasks 5,
 5.5a, and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/
 physical/signing/notarization/release gate, and the Goal remain open.
@@ -1708,6 +1715,61 @@ packaged accessibility, signed/notarized package, or release proof.
 Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance, every native/physical/
 signing/notarization/release gate, and the Goal remain open. `CreateProduction()`
 remains unavailable.
+
+### 5.38 2026-08-30 First bounded cleanup-confirmation vertical
+
+For T06, T13, and T14, implementation commit
+`685225ed92b76ee2e6f4800b9c97f8baf2af378d` adds the first narrow
+production-composed cleanup-confirmation watchdog. A managed two-node session
+reaches active final Admission over real authenticated protocol 1.7 and
+bilateral verified `FSM1`, sends and renders an encrypted frame, and then loses
+the participant authenticated-control connection independently. The production
+revocation callback closes admission and synchronously creates the generation's
+single cleanup timer before returning. The coordinator removes the generation
+from active authority, retains it as retiring, and starts the one real cleanup
+task.
+
+The tracer blocks the host Connection's owned `DisposeAsync` before it forwards
+to the real managed connection. This proves a genuinely unsettled owner rather
+than a delayed test assertion. The injected `TimeProvider` advances first to
+one tick before the ten-second deadline: cleanup remains retiring, the stable
+terminal failure is still absent, and a replacement Start remains pending with
+zero route, Prepare, Admission, capture, renderer, media, input, permission,
+Protection, or Emergency Stop authority. At exact equality, the watchdog wins,
+publishes the stable `host_cleanup_timeout` failure, and releases the shared
+bounded confirmation. The waiting replacement is rejected with
+`host_cleanup_unconfirmed`; its newly supplied resources are disposed without
+opening authority.
+
+Releasing the blocked Connection later lets the original real cleanup continue
+to completion. Both managed node graphs, routes, media budget, renderer,
+capture/input, protection, registrations, control generation, and connections
+drain; the retiring reference clears and the sole timer is released. Neither
+late success nor a second replacement Start clears the monotonic latch. The
+second Start is rejected before authority, and coordinator disposal exposes the
+same timeout failure instance.
+
+Local macOS Debug and Release verification passes the production-composed
+tracer `42/42`, Desktop `720/720`, and complete solution `2584/2584`. Both
+warning-as-error solution builds report zero warnings and zero errors. Format,
+explicit composition validation, the deterministic simulator, and the direct
+and transitive dependency-vulnerability audit pass. Exact implementation CI
+`33311180093` and CodeQL `33311180128` succeed. Downloaded artifacts prove
+`2584/2584` with every non-success counter zero on each hosted OS, Gitleaks
+208/0, CodeQL 52/0 with zero exact-ref open alerts, and all three reproducible
+unsigned packages verified.
+
+By fault origin this advances only CL Timeout from M to P. It
+does not cover a non-cooperative synchronous Emergency Stop prefix before the
+watchdog is armed, explicit Stop- or Dispose-first termination, timer setup or
+release failure, cleanup winning the equality race, late cleanup fault or OOM,
+pre-generation cleanup, or the complete cross-boundary reject/throw/cancel/
+timeout/revoke/disconnect/cleanup-fault matrix. The evidence is same-host
+managed loopback, not native API, physical Windows/macOS/Linux, packaged
+accessibility, signing, notarization, or release acceptance. Tasks 5, 5.5a, and
+5.5, aggregate acceptance, every later release gate, and the long-term Goal
+remain open. `CreateProduction()` must continue to report Remote Window
+unavailable.
 
 ## 6. Security state machine rules
 
