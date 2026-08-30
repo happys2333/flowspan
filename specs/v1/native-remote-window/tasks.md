@@ -1190,6 +1190,19 @@
       exception, cancellation, or unconfirmed result as the primary outcome;
       `FullyStopped == true` never repeats Stop.
       _Requirements: NR8.9-NR8.17, NR10_
+      - [ ] 5.5a.3a Deliver external Dispose-first bounded confirmation for a
+        stable active generation with an uncontended lifecycle gate. Set the
+        disposed gate, then close Admission and atomically publish
+        `active -> retiring`, the one real cleanup task, confirmation operation,
+        and watchdog before any blocking controller or owner call. Prove one
+        blocked host Connection owner, T-1 pending state, exact-equality
+        `host_cleanup_timeout`, the same public Task and exception instance for
+        concurrent/later external Dispose, cleanup attach-only behavior after a
+        later terminal callback's existing synchronous safety prefix, late true
+        drain, and immutable public outcome. Callback-origin Dispose remains a
+        non-waiting signal into that same operation; Start after explicit Dispose
+        preserves `ObjectDisposedException` before authority.
+        _Requirements: NR8.9-NR8.16, NR10_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

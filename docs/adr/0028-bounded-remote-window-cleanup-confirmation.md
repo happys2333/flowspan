@@ -58,11 +58,11 @@ cancels, replaces, abandons, or falsely completes the real cleanup task.
 ### Revision to ADR 0027
 
 This ADR narrows ADR 0027's external join statement. Concurrent Stop,
-revocation, fail-close, terminal callback, and Dispose paths still join one
-terminal transition and one real cleanup task. They join that task's completion
-only while bounded cleanup confirmation remains pending. If the watchdog wins,
-their bounded wait completes while the one real task continues under the same
-owner generation.
+revocation, fail-close, terminal callback, and external Dispose paths still join
+one terminal transition and one real cleanup task. They join that task's
+completion only while bounded cleanup confirmation remains pending. If the
+watchdog wins, their bounded wait completes while the one real task continues
+under the same owner generation.
 
 ADR 0027's other ownership rules remain unchanged:
 
@@ -125,6 +125,10 @@ Start reads the latch and retiring state before it can select a route, send
 Prepare, start capture, add a participant, publish media, or grant Driver input.
 V1 has no automatic reset. A late successful cleanup permits eventual object
 release, but recovery requires disposal and construction of a new coordinator.
+An explicit external Dispose sets the coordinator's disposed gate before its
+termination worker runs. A later Start on that object therefore keeps the normal
+`ObjectDisposedException` projection instead of exposing
+`host_cleanup_unconfirmed`; both projections occur before new authority.
 
 ### Watchdog policy and linearization
 
@@ -182,6 +186,19 @@ completion plus a terminal diagnostic ledger. This observation is not optional:
 it prevents detached non-fatal faults and OOM from becoming unobserved. Dispose
 called from an active generation callback retains its existing non-waiting
 recursion behavior while still initiating or joining the same real task.
+
+When external Dispose is the first terminal path, it sets the disposed gate
+before returning. Once its disposal worker obtains lifecycle ownership of a
+published active generation, the synchronous authority prefix closes frame
+admission and atomically changes `active -> retiring` while publishing the
+generation's one real cleanup task, confirmation operation, and watchdog. This
+prefix completes before any potentially blocking controller or owner call. The
+public Dispose task then awaits only bounded confirmation. If timeout wins,
+concurrent and later external Dispose calls observe the same task and stable
+`host_cleanup_timeout` instance; late real success or failure cannot mutate it.
+A callback-origin Dispose call returns a non-waiting completed `ValueTask` to
+avoid waiting on its own ancestry, but it starts or joins that same public
+operation for later external callers.
 
 A late successful cleanup releases every owner and budget but preserves the
 timeout and sticky latch. A late non-fatal failure is recorded exactly once with
@@ -290,12 +307,15 @@ physical devices. Those paths remain open and the checkpoint cannot close Task
 5. **Before** a timeout wakes a terminal callback waiter, **Flowspan shall**
    remove active authority and set the latch so the lifecycle semaphore can be
    released safely.
-6. **While** the cleanup-unconfirmed latch is set, **when** Start is attempted,
-   **Flowspan shall** return `host_cleanup_unconfirmed` before any route, Prepare,
+6. **While** the cleanup-unconfirmed latch is set on a coordinator that has not
+   entered explicit disposal, **when** Start is attempted, **Flowspan shall**
+   return `host_cleanup_unconfirmed` before any route, Prepare,
    capture, Admission, media, rendering, or Driver authority. A Start that arrives
    while cleanup is merely retiring and confirmation is still pending remains
    serialized by the lifecycle semaphore; cleanup success may then proceed,
-   whereas timeout sets the latch before that semaphore is released.
+   whereas timeout sets the latch before that semaphore is released. **After**
+   explicit Dispose sets the disposed gate, Start instead throws
+   `ObjectDisposedException` before granting authority.
 7. **When** real cleanup succeeds after timeout, **Flowspan shall** eventually
    release every owner and budget while preserving the timeout and latch.
 8. **When** real cleanup fails non-fatally after timeout, **Flowspan shall**
@@ -317,9 +337,11 @@ physical devices. Those paths remain open and the checkpoint cannot close Task
 12. **If** watchdog creation or arming fails non-fatally, **Flowspan shall**
     publish `watchdog_unavailable`, block restart, and continue observing real
     cleanup; **if** it fails with OOM, Flowspan shall preserve the fatal instance.
-13. **When** multiple Dispose calls overlap or follow a timeout, **Flowspan shall**
-    return the same public Dispose completion while exposing late cleanup
-    only through the separate real completion and diagnostics.
+13. **When** multiple external Dispose calls overlap or follow a timeout,
+    **Flowspan shall** return the same public Dispose completion and stable
+    timeout instance while exposing late cleanup only through the separate real
+    completion and diagnostics. A callback-origin Dispose may return without
+    waiting, but shall initiate or join that same operation.
 14. **When** late cleanup settles in v1, **Flowspan shall not** automatically
     reset the cleanup-unconfirmed latch or reactivate that coordinator.
 15. **Before** Task 5.5a closes, **Flowspan shall** apply equivalent bounded

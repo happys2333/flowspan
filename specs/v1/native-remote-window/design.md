@@ -577,6 +577,20 @@ changing the timeout. A late non-fatal fault is appended exactly once after the
 timeout and remains available to structured diagnostics and tests even though it
 cannot retroactively mutate an already returned Dispose task.
 
+When external Dispose is the first terminal path, it first sets the disposed
+gate. Once its worker obtains lifecycle ownership of a published active
+generation, it synchronously closes frame admission and atomically moves that
+generation to `retiring` while publishing the one real cleanup task,
+confirmation operation, and watchdog. No potentially blocking controller or
+owner boundary runs before that prefix completes. Concurrent and later external
+Dispose calls share the same underlying public task and, after timeout, the same
+stable `host_cleanup_timeout` instance. A Dispose call from generation callback
+ancestry returns a non-waiting completed `ValueTask`, but still initiates or
+joins that same operation for external observers. Start after explicit Dispose
+retains `ObjectDisposedException` precedence; a non-disposed coordinator whose
+terminal cleanup timed out exposes `host_cleanup_unconfirmed` instead. Both
+paths reject before granting authority.
+
 Failure projection uses semantic slots rather than thread-arrival order:
 terminal primary failures first, cleanup-confirmation timeout or watchdog setup
 failure second, watchdog-release failures third, and real owner-cleanup failures
@@ -603,6 +617,18 @@ latched. This single order may advance only CL Timeout from Missing to Partial.
 It does not cover explicit Stop or Dispose initiation, pre-generation cleanup,
 cleanup-wins races, watchdog setup/disposal failure, late cleanup fault, OOM,
 other active or pending owners, or their combinations.
+
+The first Task 5.5a.3 extension isolates external Dispose-first initiation on a
+stable active generation with an uncontended lifecycle gate. A manual cleanup
+clock and one blocked host Connection owner prove synchronous
+`active -> retiring` publication, one timer and real task, T-1 pending state,
+exact-equality `host_cleanup_timeout`, one shared public Dispose task and
+exception instance for concurrent and later external callers, then late true
+owner drain without public-result mutation. A terminal callback arriving after
+the Dispose claim may run its existing synchronous safety prefix, but its cleanup
+ownership may only attach to that same operation. Stop-first caller-token and
+fallback semantics, arbitrary race precedence, late faults/OOM, and timer or pre-
+generation failures remain later Task 5.5a.3 slices.
 
 ## 11. Testing and evidence
 

@@ -312,6 +312,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private long nextControlGeneration;
     private long nextPreparationGeneration;
     private RuntimeGeneration? retiring;
+    private int terminalCleanupAttachmentCount;
     private Exception? terminalFailure;
 
     public DesktopRemoteWindowHostCoordinator(
@@ -386,6 +387,24 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
         }
     }
+
+    internal bool IsRetiringAuthorityClosed
+    {
+        get
+        {
+            RuntimeGeneration? generation;
+            lock (terminalStateGate)
+            {
+                generation = retiring;
+            }
+
+            return generation?.IsAuthorityClosed == true;
+        }
+    }
+
+    // Internal diagnostic: terminal callbacks that joined published retiring work.
+    internal int TerminalCleanupAttachmentCount =>
+        Volatile.Read(ref terminalCleanupAttachmentCount);
 
     internal Exception? TerminalFailure
     {
@@ -927,17 +946,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         await gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await AwaitRetiringConfirmationAsync().ConfigureAwait(false);
-            RuntimeGeneration? generation = active;
-            active = null;
-            if (generation is not null)
+            Task<CleanupConfirmationResult>? confirmation =
+                ClaimOrJoinCleanupForDisposal();
+            if (confirmation is not null)
             {
-                Exception? cleanupFailure = await CleanupAsync(generation)
-                    .ConfigureAwait(false);
-                if (cleanupFailure is not null)
-                {
-                    RecordCleanupFailure(generation, cleanupFailure);
-                }
+                _ = await confirmation.ConfigureAwait(false);
             }
 
             if (TerminalFailure is { } terminal)
@@ -948,6 +961,38 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         finally
         {
             gate.Release();
+        }
+    }
+
+    private Task<CleanupConfirmationResult>?
+        ClaimOrJoinCleanupForDisposal()
+    {
+        lock (terminalStateGate)
+        {
+            if (retiring is not null)
+            {
+                return retiring.GetStartedCleanupConfirmationTask()
+                    ?? throw new InvalidOperationException(
+                        "A retiring Remote Window host generation has no cleanup confirmation.");
+            }
+
+            RuntimeGeneration? generation = active;
+            if (generation is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                generation.CloseAdmissionNow();
+            }
+            catch (Exception failure)
+            {
+                RecordTerminalFailureSafely(failure);
+            }
+
+            Volatile.Write(ref active, null);
+            return BeginTerminalCleanupUnderStateLock(generation);
         }
     }
 
@@ -1190,13 +1235,26 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     {
         lock (terminalStateGate)
         {
-            if (!ReferenceEquals(active, generation))
+            if (ReferenceEquals(active, generation))
             {
-                return null;
+                Volatile.Write(ref active, null);
+                return BeginTerminalCleanupUnderStateLock(generation);
             }
 
-            Volatile.Write(ref active, null);
-            return BeginTerminalCleanupUnderStateLock(generation);
+            Task<CleanupConfirmationResult>? existing =
+                generation.GetStartedCleanupConfirmationTask();
+            if (ReferenceEquals(retiring, generation))
+            {
+                if (existing is null)
+                {
+                    throw new InvalidOperationException(
+                        "A retiring Remote Window host generation has no cleanup confirmation.");
+                }
+
+                Interlocked.Increment(ref terminalCleanupAttachmentCount);
+            }
+
+            return existing;
         }
     }
 
@@ -1217,6 +1275,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private Task<CleanupConfirmationResult> BeginTerminalCleanupUnderStateLock(
         RuntimeGeneration generation)
     {
+        if (generation.GetStartedCleanupConfirmationTask() is { } existing)
+        {
+            return existing;
+        }
+
         SetRetiringGeneration(generation);
         return generation.EnsureCleanupConfirmationAsync(
             () => CleanupCoreAsync(
@@ -2638,6 +2701,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         public int ProtectionNotificationWaiterCount =>
             Volatile.Read(ref protectionNotificationWaiters);
+
+        public bool IsAuthorityClosed =>
+            !Admission.IsOpen
+            && Media.IsClosed
+            && ControlRegistration?.IsCurrent != true;
 
         public DesktopRemoteWindowHostStartRequest Request { get; } = request;
 

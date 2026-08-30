@@ -286,7 +286,14 @@ as Remote Window.
    controller Stop throws, is cancelled, or returns `FullyStopped == false`, the
    real task shall retain that primary outcome and run at most one owned
    no-caller-cancellation fallback Stop; it shall not run fallback after
-   `FullyStopped == true`.
+   `FullyStopped == true`. When external Dispose is the first terminal path, it
+   shall set the coordinator's disposed gate before returning. Once it obtains
+   lifecycle ownership of a published active generation, it shall synchronously
+   close admission, move that generation to retiring ownership, and publish the
+   one cleanup operation and watchdog before invoking any potentially blocking
+   controller or owner boundary. Dispose called from a generation callback shall
+   initiate or join that same operation without waiting from its own callback
+   ancestry.
 10. When the real termination task starts, Flowspan shall create exactly one
     cleanup-confirmation operation for that generation and attempt to arm at most
     one monotonic `TimeProvider` watchdog. The operation shall own one stable
@@ -301,20 +308,26 @@ as Remote Window.
     cleanup-unconfirmed latch before releasing the host lifecycle gate. The
     watchdog shall end only confirmation waiting; the retiring generation shall
     continue to own and observe real cleanup.
-12. While the cleanup-unconfirmed latch is set, when any Start is attempted,
-    Flowspan shall reject it with `host_cleanup_unconfirmed` before granting a
+12. While the cleanup-unconfirmed latch is set on a coordinator that has not
+    entered explicit disposal, when Start is attempted, Flowspan shall reject it
+    with `host_cleanup_unconfirmed` before granting a
     route, sending Prepare, starting capture, admitting a participant,
     publishing media, or creating Driver authority. A late successful cleanup
     shall release its owners but shall not clear the latch; v1 shall provide no
-    automatic reset on that coordinator.
+    automatic reset on that coordinator. After explicit Dispose has set the
+    disposed gate, Start shall instead preserve normal object-lifetime semantics
+    by throwing `ObjectDisposedException` before granting any authority.
 13. When real cleanup completes after confirmation timeout, Flowspan shall
     observe that completion independently of the already completed public wait.
     Late success shall preserve the timeout result, while a late non-fatal fault
     shall remain observable exactly once with its original identity and a
     deterministic order after the timeout. A completed shared Dispose result
-    shall not be mutated to report a later fault; repeated Dispose calls shall
-    share that completed result and late cleanup shall use a separate diagnostic
-    completion surface.
+    shall not be mutated to report a later fault; concurrent and later external
+    Dispose calls shall share that completed result and late cleanup shall use a
+    separate diagnostic completion surface. A callback-origin Dispose call may
+    return a non-waiting completed `ValueTask` to avoid self-drain, but shall
+    initiate or join the same public Dispose operation and real cleanup task that
+    later external callers observe.
 14. When terminal primary, watchdog, and cleanup failures coexist, Flowspan
     shall project them in the fixed order primary, cleanup-confirmation outcome,
     watchdog-release failure, then owner-cleanup failures in cleanup-step order.

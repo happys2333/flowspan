@@ -3768,6 +3768,268 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task DisposeFirstCleanupTimeoutIsStableAcrossConcurrentDisconnectAndLateDrain()
+    {
+        TimeSpan cleanupTimeout = TimeSpan.FromSeconds(10);
+        var cleanupTimeProvider = new ManualTimeProvider(Now);
+        using var host = new ReadyHostHarness(
+            cleanupTimeProvider: cleanupTimeProvider,
+            cleanupConfirmationTimeout: cleanupTimeout);
+        host.Connection.BlockDisposal = true;
+        Task? firstDisposal = null;
+        Task? revocationTask = null;
+        var disposalReturned = 0;
+        var disposalReturnedBeforeTimer = -1;
+        var retiringPublishedBeforeRevocation = false;
+        var retiringAuthorityClosedBeforeRevocation = false;
+        var controlRetainedBeforeRevocation = true;
+        var timerHookCount = 0;
+        TaskCompletionSource emergencyStopEntered = NewCompletion();
+        host.Capture.EmergencyStopping = () => emergencyStopEntered.TrySetResult();
+
+        try
+        {
+            Assert.True((await host.StartAsync()).Succeeded);
+            RemoteWindowMediaSessionBudget budget = Assert.IsType<
+                RemoteWindowMediaSessionBudget>(
+                    host.Coordinator.ActiveMediaBudget);
+            host.Capture.EmitFrame(sequence: 2);
+            await host.Connection.WaitForMediaFrameCountAsync(1);
+            int admittedRouteCount = host.Timeline.Count(entry =>
+                StringComparer.Ordinal.Equals(entry, "connection.route"));
+            int admittedPrepareCount = host.Timeline.Count(entry =>
+                StringComparer.Ordinal.Equals(entry, "connection.prepare"));
+            int admittedPublishCount = host.Timeline.Count(entry =>
+                StringComparer.Ordinal.Equals(entry, "connection.publish"));
+            int admittedCaptureCount = host.Capture.StartCount;
+            int admittedInputCount = host.Input.InjectCount;
+            int authorizationReservationCount =
+                host.Authorization.ReservationCount;
+            int permissionReservationCount =
+                host.Permissions.PreparationReservationCount;
+            int emergencyReadinessCount =
+                host.EmergencyStops.ReadinessReservationCount;
+            int emergencyRegistrationCount = host.Timeline.Count(entry =>
+                StringComparer.Ordinal.Equals(entry, "emergency_stop.register"));
+            cleanupTimeProvider.TimerCreated = () =>
+            {
+                Volatile.Write(
+                    ref disposalReturnedBeforeTimer,
+                    Volatile.Read(ref disposalReturned));
+                retiringPublishedBeforeRevocation =
+                    host.Coordinator.Snapshot is null
+                    && host.Coordinator.ActiveMediaBudget is null
+                    && host.Coordinator.HasRetiringGeneration;
+                retiringAuthorityClosedBeforeRevocation =
+                    host.Coordinator.IsRetiringAuthorityClosed;
+                controlRetainedBeforeRevocation =
+                    host.ControlPeer.HasRetainedGeneration;
+                Interlocked.Increment(ref timerHookCount);
+                Action revocation = host.Connection.CaptureRevocationCallback()
+                    ?? throw new InvalidOperationException(
+                        "The active host connection had no revocation callback.");
+                revocationTask = Task.Run(revocation);
+                emergencyStopEntered.Task
+                    .WaitAsync(TimeSpan.FromSeconds(5))
+                    .GetAwaiter()
+                    .GetResult();
+            };
+
+            firstDisposal = host.Coordinator.DisposeAsync().AsTask();
+            Volatile.Write(ref disposalReturned, 1);
+            Task concurrentDisposal = host.Coordinator.DisposeAsync().AsTask();
+
+            Assert.Same(firstDisposal, concurrentDisposal);
+            Assert.Equal(0, Volatile.Read(ref disposalReturnedBeforeTimer));
+            Assert.True(retiringPublishedBeforeRevocation);
+            Assert.True(retiringAuthorityClosedBeforeRevocation);
+            Assert.False(controlRetainedBeforeRevocation);
+            Assert.Null(host.Coordinator.Snapshot);
+            Assert.Null(host.Coordinator.ActiveMediaBudget);
+            Assert.True(host.Coordinator.HasRetiringGeneration);
+            Assert.Equal(1, cleanupTimeProvider.TimerCreateCount);
+            Assert.Equal(1, cleanupTimeProvider.ActiveTimerCount);
+            Assert.Equal(1, Volatile.Read(ref timerHookCount));
+            await Assert.IsType<Task>(revocationTask).WaitAsync(
+                TimeSpan.FromSeconds(5));
+            Assert.Equal(1, host.Coordinator.TerminalCleanupAttachmentCount);
+
+            ObjectDisposedException pendingStartFailure = await Assert.ThrowsAsync<
+                ObjectDisposedException>(async () =>
+                    await host.StartAsync()
+                        .AsTask()
+                        .WaitAsync(TimeSpan.FromSeconds(5)));
+
+            Assert.NotNull(pendingStartFailure.ObjectName);
+            await host.Connection.WaitForDisposeEnteredAsync();
+            await WaitForControlRouteClosedAsync(host.ControlPeer);
+            Assert.Equal(1, host.Connection.DisposeCount);
+            Assert.False(host.Connection.DisposalCompleted);
+            Assert.False(firstDisposal.IsCompleted);
+            Assert.Null(host.Coordinator.TerminalFailure);
+            Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
+            Assert.Equal(1, host.Capture.EmergencyStopCount);
+            Assert.Equal(1, host.Input.EmergencyStopCount);
+            Assert.Equal(1, host.Capture.StopCount);
+            Assert.Equal(1, host.Input.StopCount);
+            Assert.Equal(1, host.Connection.FailCloseCount);
+            Assert.False(host.ControlPeer.HasRetainedGeneration);
+            Assert.Equal(0, host.Permissions.ObserverCount);
+            Assert.True(host.Protection.IsDisposed);
+            Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+            host.Capture.EmitFrame(sequence: 3);
+            Assert.Single(host.Connection.MediaFrames);
+            Assert.Equal(admittedCaptureCount, host.Capture.StartCount);
+            Assert.Equal(admittedInputCount, host.Input.InjectCount);
+            Assert.Equal(
+                authorizationReservationCount,
+                host.Authorization.ReservationCount);
+            Assert.Equal(
+                permissionReservationCount,
+                host.Permissions.PreparationReservationCount);
+            Assert.Equal(
+                emergencyReadinessCount,
+                host.EmergencyStops.ReadinessReservationCount);
+            Assert.Equal(
+                emergencyRegistrationCount,
+                host.Timeline.Count(entry => StringComparer.Ordinal.Equals(
+                    entry,
+                    "emergency_stop.register")));
+
+            cleanupTimeProvider.Advance(
+                cleanupTimeout - TimeSpan.FromTicks(1));
+
+            Assert.False(firstDisposal.IsCompleted);
+            Assert.False(concurrentDisposal.IsCompleted);
+            Assert.Null(host.Coordinator.TerminalFailure);
+            Assert.True(host.Coordinator.HasRetiringGeneration);
+            Assert.Equal(1, cleanupTimeProvider.ActiveTimerCount);
+            Assert.False(host.Connection.DisposalCompleted);
+
+            cleanupTimeProvider.Advance(TimeSpan.FromTicks(1));
+
+            InvalidOperationException firstFailure = await Assert.ThrowsAsync<
+                InvalidOperationException>(async () =>
+                    await firstDisposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            InvalidOperationException concurrentFailure = await Assert.ThrowsAsync<
+                InvalidOperationException>(async () =>
+                    await concurrentDisposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            Task laterDisposal = host.Coordinator.DisposeAsync().AsTask();
+            InvalidOperationException laterFailure = await Assert.ThrowsAsync<
+                InvalidOperationException>(async () =>
+                    await laterDisposal.WaitAsync(TimeSpan.FromSeconds(5)));
+
+            Assert.Same(firstDisposal, laterDisposal);
+            Assert.Same(firstFailure, concurrentFailure);
+            Assert.Same(firstFailure, laterFailure);
+            Assert.Same(firstFailure, host.Coordinator.TerminalFailure);
+            Assert.Equal(
+                "Remote Window host cleanup confirmation failed "
+                    + "(host_cleanup_timeout).",
+                firstFailure.Message);
+            Assert.Equal(Now.Add(cleanupTimeout), cleanupTimeProvider.GetUtcNow());
+            Assert.True(host.Coordinator.HasRetiringGeneration);
+            Assert.Equal(1, cleanupTimeProvider.TimerCreateCount);
+            Assert.Equal(1, cleanupTimeProvider.ActiveTimerCount);
+            Assert.False(host.Connection.DisposalCompleted);
+
+            host.Connection.ReleaseDisposal();
+            await host.Connection.WaitForDisposeAsync();
+            await WaitForRetiringCleanupAsync(host.Coordinator);
+
+            Assert.False(host.Coordinator.HasRetiringGeneration);
+            Assert.Equal(1, cleanupTimeProvider.TimerCreateCount);
+            Assert.Equal(0, cleanupTimeProvider.ActiveTimerCount);
+            Assert.True(host.Connection.DisposalCompleted);
+            Assert.Equal(1, host.Connection.FailCloseCount);
+            Assert.Equal(1, host.Connection.DisposeCount);
+            Assert.Equal(0, host.Permissions.ObserverCount);
+            Assert.True(host.Protection.IsDisposed);
+            Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+            Assert.False(host.ControlPeer.HasRetainedGeneration);
+            Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
+            Assert.Same(firstFailure, host.Coordinator.TerminalFailure);
+
+            Task postDrainDisposal = host.Coordinator.DisposeAsync().AsTask();
+            InvalidOperationException postDrainFailure = await Assert.ThrowsAsync<
+                InvalidOperationException>(async () =>
+                    await postDrainDisposal.WaitAsync(TimeSpan.FromSeconds(5)));
+
+            Assert.Same(firstDisposal, postDrainDisposal);
+            Assert.Same(firstFailure, postDrainFailure);
+
+            ObjectDisposedException startFailure = await Assert.ThrowsAsync<
+                ObjectDisposedException>(async () => await host.StartAsync());
+
+            Assert.NotNull(startFailure.ObjectName);
+            Assert.Equal(
+                admittedRouteCount,
+                host.Timeline.Count(entry => StringComparer.Ordinal.Equals(
+                    entry,
+                    "connection.route")));
+            Assert.Equal(
+                admittedPrepareCount,
+                host.Timeline.Count(entry => StringComparer.Ordinal.Equals(
+                    entry,
+                    "connection.prepare")));
+            Assert.Equal(
+                admittedPublishCount,
+                host.Timeline.Count(entry => StringComparer.Ordinal.Equals(
+                    entry,
+                    "connection.publish")));
+            Assert.Equal(admittedCaptureCount, host.Capture.StartCount);
+            Assert.Equal(admittedInputCount, host.Input.InjectCount);
+            Assert.Equal(
+                authorizationReservationCount,
+                host.Authorization.ReservationCount);
+            Assert.Equal(
+                permissionReservationCount,
+                host.Permissions.PreparationReservationCount);
+            Assert.Equal(
+                emergencyReadinessCount,
+                host.EmergencyStops.ReadinessReservationCount);
+            Assert.Equal(
+                emergencyRegistrationCount,
+                host.Timeline.Count(entry => StringComparer.Ordinal.Equals(
+                    entry,
+                    "emergency_stop.register")));
+            Assert.Single(host.Connection.MediaFrames);
+        }
+        finally
+        {
+            if (firstDisposal is { IsCompleted: false }
+                && cleanupTimeProvider.TimerCreateCount > 0)
+            {
+                cleanupTimeProvider.Advance(
+                    DesktopRemoteWindowHostCoordinator
+                        .MaximumCleanupConfirmationTimeout);
+            }
+
+            host.Connection.ReleaseDisposal();
+            firstDisposal ??= host.Coordinator.DisposeAsync().AsTask();
+            if (firstDisposal is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await firstDisposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+
+            if (revocationTask is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await revocationTask.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+
+            if (host.Connection.DisposeCount > 0)
+            {
+                _ = await Record.ExceptionAsync(host.Connection.WaitForDisposeAsync);
+            }
+
+            _ = await Record.ExceptionAsync(async () =>
+                await WaitForRetiringCleanupAsync(host.Coordinator));
+        }
+    }
+
+    [Fact]
     public async Task ConcurrentAndLaterDisposeCallsShareCleanupFailure()
     {
         using var host = new ReadyHostHarness();
@@ -4366,6 +4628,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public int TimerCreateCount => Volatile.Read(ref timerCreateCount);
 
+        public Action? TimerCreated { get; set; }
+
         public int? TimerCreateThreadId
         {
             get
@@ -4416,6 +4680,10 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
                     comparand: 0);
                 Interlocked.Increment(ref timerCreateCount);
             }
+
+            Action? timerCreated = TimerCreated;
+            TimerCreated = null;
+            timerCreated?.Invoke();
 
             return timer;
         }
@@ -6129,12 +6397,14 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public void ReleaseFailClose() => failCloseRelease.TrySetResult();
 
-        public void Revoke()
+        public Action? CaptureRevocationCallback()
         {
             isCurrent = false;
             _ = CurrentConnectionPreparation?.Invalidate();
-            Volatile.Read(ref revoked)?.Invoke();
+            return Volatile.Read(ref revoked);
         }
+
+        public void Revoke() => CaptureRevocationCallback()?.Invoke();
     }
 
     private sealed record RemoteWindowMediaFrameSnapshot(
