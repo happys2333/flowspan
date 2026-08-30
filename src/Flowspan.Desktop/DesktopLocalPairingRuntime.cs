@@ -234,6 +234,7 @@ public sealed class DesktopLocalPairingRuntime : IAsyncDisposable
                         .Throw();
                 }
 
+                lifetimeCancellation.Token.ThrowIfCancellationRequested();
                 linkedCancellation.Token.ThrowIfCancellationRequested();
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
                 return;
