@@ -37,14 +37,13 @@ internal static class RemoteWindowSessionStopClassifier
     {
         const string retiredGeneration =
             "The authenticated Remote Window connection generation is no longer current.";
-        int endOfStreamCount = 0;
+        int ioFailureCount = 0;
         int retiredGenerationCount = 0;
         foreach (Exception failure in failures)
         {
-            if (failure.GetType() == typeof(EndOfStreamException)
-                && failure.InnerException is null)
+            if (failure is IOException)
             {
-                endOfStreamCount++;
+                ioFailureCount++;
             }
             else if (failure.GetType() == typeof(InvalidOperationException)
                 && failure.InnerException is null
@@ -61,7 +60,7 @@ internal static class RemoteWindowSessionStopClassifier
             }
         }
 
-        return endOfStreamCount == 1 && retiredGenerationCount > 0;
+        return ioFailureCount == 1 && retiredGenerationCount > 0;
     }
 }
 
@@ -79,12 +78,21 @@ public sealed class RemoteWindowSessionStopClassifierTests
                 new EndOfStreamException("test authenticated control EOF"),
                 new InvalidOperationException(retiredGeneration)),
             new InvalidOperationException(retiredGeneration));
+        var windowsOperationAborted = new AggregateException(
+            "The authenticated control session and its cleanup failed.",
+            new IOException(
+                "test authenticated control operation aborted",
+                new SocketException((int)SocketError.OperationAborted)),
+            new InvalidOperationException(retiredGeneration),
+            new InvalidOperationException(retiredGeneration));
         var wrongMessage = new AggregateException(
             new EndOfStreamException("test authenticated control EOF"),
             new InvalidOperationException($"{retiredGeneration} unexpected"));
         var standalone = new InvalidOperationException(retiredGeneration);
 
         Assert.True(RemoteWindowSessionStopClassifier.IsExpected(expected));
+        Assert.True(RemoteWindowSessionStopClassifier.IsExpected(
+            windowsOperationAborted));
         Assert.False(RemoteWindowSessionStopClassifier.IsExpected(wrongMessage));
         Assert.False(RemoteWindowSessionStopClassifier.IsExpected(standalone));
     }
