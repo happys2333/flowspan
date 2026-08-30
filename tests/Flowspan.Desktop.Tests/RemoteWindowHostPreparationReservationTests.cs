@@ -31,6 +31,479 @@ public sealed class RemoteWindowHostPreparationReservationTests
         RemoteWindowSessionId.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     [Fact]
+    public async Task ProtectionValidityMustBeBoundBeforeArm()
+    {
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            CreateRequest(),
+            RemoteWindowHostPreparationEpochBundle.Create());
+
+        Assert.False(reservation.TryArm(Now));
+
+        RemoteWindowHostPreparationTermination terminal =
+            await reservation.Terminal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(
+            RemoteWindowHostPreparationFact.Protection,
+            terminal.Fact);
+        Assert.Equal("native_protection_not_safe", terminal.ReasonCode);
+        Assert.Equal(
+            RemoteWindowHostPreparationCleanupScope.PreRoute,
+            terminal.CleanupScope);
+        Assert.Equal(
+            RemoteWindowHostPreparationPhase.Terminal,
+            reservation.Snapshot.Phase);
+        Assert.False(reservation.Snapshot.RouteMayBeOwned);
+        Assert.False(reservation.Snapshot.PrepareSendAdmitted);
+    }
+
+    [Fact]
+    public void ProtectionObservationBindingIsExactAndCollectingOnly()
+    {
+        RemoteWindowPreparationRequest request = CreateRequest();
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            request,
+            RemoteWindowHostPreparationEpochBundle.Create());
+        DateTimeOffset observedAt = Now;
+
+        Assert.True(reservation.TryBindProtectionObservation(observedAt));
+        Assert.True(reservation.TryBindProtectionObservation(observedAt));
+        Assert.False(reservation.TryBindProtectionObservation(
+            observedAt.AddMinutes(1)));
+
+        Assert.True(reservation.TryArm(observedAt));
+        Assert.False(reservation.TryBindProtectionObservation(observedAt));
+        Assert.False(reservation.Terminal.IsCompleted);
+        Assert.Equal(
+            RemoteWindowHostPreparationPhase.Armed,
+            reservation.Snapshot.Phase);
+    }
+
+    [Theory]
+    [InlineData(-1L)]
+    [InlineData(0L)]
+    public void ProtectionValidityBeforeOrAtBoundaryAllowsEveryTimedStage(
+        long admissionOffsetTicks)
+    {
+        RemoteWindowPreparationRequest request = CreateRequest();
+        DateTimeOffset observedAt = Now;
+        DateTimeOffset validThrough = observedAt.Add(
+            RemoteInputPolicy.MaximumProtectionAge);
+        DateTimeOffset admissionTime = validThrough.AddTicks(
+            admissionOffsetTicks);
+
+        AssertEveryTimedStageAllows(request, observedAt, admissionTime);
+    }
+
+    [Fact]
+    public void ProtectionNotBeforeEqualityAllowsEveryTimedStage()
+    {
+        RemoteWindowPreparationRequest request = CreateRequest();
+        DateTimeOffset observedAt = Now;
+        DateTimeOffset notBefore = observedAt.Subtract(
+            RemoteInputPolicy.MaximumFutureClockSkew);
+
+        AssertEveryTimedStageAllows(request, observedAt, notBefore);
+    }
+
+    [Fact]
+    public async Task ProtectionNotBeforeOverflowFailsClosed()
+    {
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            CreateRequest(),
+            RemoteWindowHostPreparationEpochBundle.Create());
+
+        Assert.False(reservation.TryBindProtectionObservation(
+            DateTimeOffset.MinValue));
+        Assert.False(reservation.TryArm(Now));
+
+        await AssertProtectionTermination(
+            reservation,
+            RemoteWindowHostPreparationCleanupScope.PreRoute);
+    }
+
+    [Fact]
+    public async Task ProtectionValidThroughOverflowFailsClosed()
+    {
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            CreateRequest(),
+            RemoteWindowHostPreparationEpochBundle.Create());
+
+        Assert.False(reservation.TryBindProtectionObservation(
+            DateTimeOffset.MaxValue));
+        Assert.False(reservation.TryArm(Now));
+
+        await AssertProtectionTermination(
+            reservation,
+            RemoteWindowHostPreparationCleanupScope.PreRoute);
+    }
+
+    [Fact]
+    public async Task ProtectionExpiryBeforeArmTerminatesPreRoute()
+    {
+        DateTimeOffset observedAt = Now
+            .Subtract(RemoteInputPolicy.MaximumProtectionAge)
+            .AddTicks(-1);
+        using RemoteWindowHostPreparationReservation reservation =
+            CreateBoundReservation(CreateRequest(), observedAt);
+
+        Assert.False(reservation.TryArm(Now));
+
+        await AssertProtectionTermination(
+            reservation,
+            RemoteWindowHostPreparationCleanupScope.PreRoute);
+    }
+
+    [Fact]
+    public async Task ProtectionExpiryBeforeRouteAdmissionTerminatesPreRoute()
+    {
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            CreateRequest(),
+            RemoteWindowHostPreparationEpochBundle.Create());
+        DateTimeOffset observedAt = Now
+            .Subtract(RemoteInputPolicy.MaximumProtectionAge)
+            .AddTicks(1);
+        DateTimeOffset validThrough = observedAt.Add(
+            RemoteInputPolicy.MaximumProtectionAge);
+        Assert.True(reservation.TryBindProtectionObservation(observedAt));
+        Assert.True(reservation.TryArm(Now));
+
+        Assert.False(reservation.TryAdmitRouteSelection(validThrough.AddTicks(1)));
+
+        RemoteWindowHostPreparationTermination terminal =
+            await reservation.Terminal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(
+            RemoteWindowHostPreparationFact.Protection,
+            terminal.Fact);
+        Assert.Equal("native_protection_not_safe", terminal.ReasonCode);
+        Assert.Equal(
+            RemoteWindowHostPreparationCleanupScope.PreRoute,
+            terminal.CleanupScope);
+        Assert.False(reservation.Snapshot.RouteMayBeOwned);
+        Assert.False(reservation.Snapshot.PrepareSendAdmitted);
+    }
+
+    [Fact]
+    public async Task ProtectionExpiryBeforePrepareSendConsumesOwnedRoute()
+    {
+        RemoteWindowPreparationRequest request = CreateRequest();
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            request,
+            RemoteWindowHostPreparationEpochBundle.Create());
+        DateTimeOffset observedAt = Now
+            .Subtract(RemoteInputPolicy.MaximumProtectionAge)
+            .AddTicks(1);
+        DateTimeOffset validThrough = observedAt.Add(
+            RemoteInputPolicy.MaximumProtectionAge);
+        Assert.True(reservation.TryBindProtectionObservation(observedAt));
+        Assert.True(reservation.TryArm(Now));
+        Assert.True(reservation.TryAdmitRouteSelection(Now));
+        Assert.True(reservation.CompleteRouteSelection());
+
+        Assert.False(reservation.TryAdmitPrepareSend(
+            request,
+            validThrough.AddTicks(1)));
+
+        RemoteWindowHostPreparationTermination terminal =
+            await reservation.Terminal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(
+            RemoteWindowHostPreparationFact.Protection,
+            terminal.Fact);
+        Assert.Equal("native_protection_not_safe", terminal.ReasonCode);
+        Assert.Equal(
+            RemoteWindowHostPreparationCleanupScope.ConsumeConnection,
+            terminal.CleanupScope);
+        Assert.True(reservation.Snapshot.RouteMayBeOwned);
+        Assert.False(reservation.Snapshot.PrepareSendAdmitted);
+    }
+
+    [Fact]
+    public async Task ClockRollbackBeforeProtectionWindowAtPrepareSendConsumesOwnedRoute()
+    {
+        RemoteWindowPreparationRequest request = CreateRequest();
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            request,
+            RemoteWindowHostPreparationEpochBundle.Create());
+        DateTimeOffset observedAt = Now;
+        Assert.True(reservation.TryBindProtectionObservation(observedAt));
+        Assert.True(reservation.TryArm(Now));
+        Assert.True(reservation.TryAdmitRouteSelection(Now));
+        Assert.True(reservation.CompleteRouteSelection());
+        DateTimeOffset rolledBack = observedAt
+            .Subtract(RemoteInputPolicy.MaximumFutureClockSkew)
+            .AddTicks(-1);
+
+        Assert.False(reservation.TryAdmitPrepareSend(request, rolledBack));
+
+        await AssertProtectionTermination(
+            reservation,
+            RemoteWindowHostPreparationCleanupScope.ConsumeConnection);
+        Assert.True(reservation.Snapshot.RouteMayBeOwned);
+        Assert.False(reservation.Snapshot.PrepareSendAdmitted);
+    }
+
+    [Theory]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.Collecting,
+        (int)RemoteWindowHostPreparationCleanupScope.PreRoute)]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.Armed,
+        (int)RemoteWindowHostPreparationCleanupScope.PreRoute)]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.RouteSelected,
+        (int)RemoteWindowHostPreparationCleanupScope.ConsumeConnection)]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.PrepareSending,
+        (int)RemoteWindowHostPreparationCleanupScope.ConsumeConnection)]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.ReadyMatched,
+        (int)RemoteWindowHostPreparationCleanupScope.ConsumeConnection)]
+    public async Task ClockRollbackBeforeProtectionWindowTerminatesEveryTimedStage(
+        int admissionPhaseValue,
+        int expectedCleanupScopeValue)
+    {
+        var admissionPhase =
+            (RemoteWindowHostPreparationPhase)admissionPhaseValue;
+        var expectedCleanupScope =
+            (RemoteWindowHostPreparationCleanupScope)expectedCleanupScopeValue;
+        RemoteWindowPreparationRequest request = CreateRequest();
+        DateTimeOffset observedAt = Now;
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            request,
+            RemoteWindowHostPreparationEpochBundle.Create());
+        Assert.True(reservation.TryBindProtectionObservation(observedAt));
+        AdvanceToPhase(reservation, request, admissionPhase);
+        DateTimeOffset rolledBack = observedAt
+            .Subtract(RemoteInputPolicy.MaximumFutureClockSkew)
+            .AddTicks(-1);
+
+        bool admitted = admissionPhase switch
+        {
+            RemoteWindowHostPreparationPhase.Collecting =>
+                reservation.TryArm(rolledBack),
+            RemoteWindowHostPreparationPhase.Armed =>
+                reservation.TryAdmitRouteSelection(rolledBack),
+            RemoteWindowHostPreparationPhase.RouteSelected =>
+                reservation.TryAdmitPrepareSend(request, rolledBack),
+            RemoteWindowHostPreparationPhase.PrepareSending =>
+                reservation.TryMatchReady(
+                    CreateReady(request),
+                    rolledBack),
+            RemoteWindowHostPreparationPhase.ReadyMatched =>
+                reservation.TryPromote(rolledBack),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(admissionPhaseValue)),
+        };
+
+        Assert.False(admitted);
+        await AssertProtectionTermination(reservation, expectedCleanupScope);
+        Assert.Equal(
+            admissionPhase is RemoteWindowHostPreparationPhase.RouteSelected
+                or RemoteWindowHostPreparationPhase.PrepareSending
+                or RemoteWindowHostPreparationPhase.ReadyMatched,
+            reservation.Snapshot.RouteMayBeOwned);
+    }
+
+    [Fact]
+    public async Task ProtectionExpiryBeforeReadyMatchConsumesOwnedRoute()
+    {
+        RemoteWindowPreparationRequest request = CreateRequest();
+        DateTimeOffset observedAt = Now
+            .Subtract(RemoteInputPolicy.MaximumProtectionAge)
+            .AddTicks(1);
+        using var reservation = CreateBoundReservation(
+            request,
+            observedAt);
+        Assert.True(reservation.TryArm(Now));
+        Assert.True(reservation.TryAdmitRouteSelection(Now));
+        Assert.True(reservation.CompleteRouteSelection());
+        Assert.True(reservation.TryAdmitPrepareSend(request, Now));
+
+        Assert.False(reservation.TryMatchReady(
+            CreateReady(request),
+            Now.AddTicks(2)));
+
+        RemoteWindowHostPreparationTermination terminal =
+            await reservation.Terminal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(
+            RemoteWindowHostPreparationFact.Protection,
+            terminal.Fact);
+        Assert.Equal("native_protection_not_safe", terminal.ReasonCode);
+        Assert.Equal(
+            RemoteWindowHostPreparationCleanupScope.ConsumeConnection,
+            terminal.CleanupScope);
+        Assert.True(reservation.Snapshot.RouteMayBeOwned);
+        Assert.True(reservation.Snapshot.PrepareSendAdmitted);
+    }
+
+    [Fact]
+    public async Task ProtectionExpiryBeforePromotionConsumesOwnedRoute()
+    {
+        RemoteWindowPreparationRequest request = CreateRequest();
+        DateTimeOffset observedAt = Now
+            .Subtract(RemoteInputPolicy.MaximumProtectionAge)
+            .AddTicks(1);
+        using var reservation = CreateBoundReservation(
+            request,
+            observedAt);
+        Assert.True(reservation.TryArm(Now));
+        Assert.True(reservation.TryAdmitRouteSelection(Now));
+        Assert.True(reservation.CompleteRouteSelection());
+        Assert.True(reservation.TryAdmitPrepareSend(request, Now));
+        Assert.True(reservation.TryMatchReady(CreateReady(request), Now));
+
+        Assert.False(reservation.TryPromote(Now.AddTicks(2)));
+
+        RemoteWindowHostPreparationTermination terminal =
+            await reservation.Terminal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(
+            RemoteWindowHostPreparationFact.Protection,
+            terminal.Fact);
+        Assert.Equal("native_protection_not_safe", terminal.ReasonCode);
+        Assert.Equal(
+            RemoteWindowHostPreparationCleanupScope.ConsumeConnection,
+            terminal.CleanupScope);
+        Assert.True(reservation.Snapshot.RouteMayBeOwned);
+        Assert.True(reservation.Snapshot.PrepareSendAdmitted);
+    }
+
+    [Theory]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.Collecting,
+        (int)RemoteWindowHostPreparationCleanupScope.PreRoute)]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.Armed,
+        (int)RemoteWindowHostPreparationCleanupScope.PreRoute)]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.RouteSelected,
+        (int)RemoteWindowHostPreparationCleanupScope.ConsumeConnection)]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.PrepareSending,
+        (int)RemoteWindowHostPreparationCleanupScope.ConsumeConnection)]
+    [InlineData(
+        (int)RemoteWindowHostPreparationPhase.ReadyMatched,
+        (int)RemoteWindowHostPreparationCleanupScope.ConsumeConnection)]
+    public async Task RequestDeadlineWinsWhenProtectionIsAlsoExpired(
+        int admissionPhaseValue,
+        int expectedCleanupScopeValue)
+    {
+        var admissionPhase =
+            (RemoteWindowHostPreparationPhase)admissionPhaseValue;
+        var expectedCleanupScope =
+            (RemoteWindowHostPreparationCleanupScope)expectedCleanupScopeValue;
+        RemoteWindowPreparationRequest request = CreateRequest();
+        DateTimeOffset observedAt = request.Deadline
+            .Subtract(RemoteInputPolicy.MaximumProtectionAge)
+            .AddTicks(-1);
+        DateTimeOffset beforeDeadline = request.Deadline.AddTicks(-1);
+        using RemoteWindowHostPreparationReservation reservation =
+            CreateBoundReservation(
+                request,
+                observedAt);
+        AdvanceToPhase(
+            reservation,
+            request,
+            admissionPhase,
+            beforeDeadline);
+
+        bool admitted = admissionPhase switch
+        {
+            RemoteWindowHostPreparationPhase.Collecting =>
+                reservation.TryArm(request.Deadline),
+            RemoteWindowHostPreparationPhase.Armed =>
+                reservation.TryAdmitRouteSelection(request.Deadline),
+            RemoteWindowHostPreparationPhase.RouteSelected =>
+                reservation.TryAdmitPrepareSend(request, request.Deadline),
+            RemoteWindowHostPreparationPhase.PrepareSending =>
+                reservation.TryMatchReady(
+                    CreateReady(request),
+                    request.Deadline),
+            RemoteWindowHostPreparationPhase.ReadyMatched =>
+                reservation.TryPromote(request.Deadline),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(admissionPhaseValue)),
+        };
+
+        Assert.False(admitted);
+        RemoteWindowHostPreparationTermination terminal =
+            await reservation.Terminal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(terminal.Fact);
+        Assert.Equal("preparation_expired", terminal.ReasonCode);
+        Assert.Equal(expectedCleanupScope, terminal.CleanupScope);
+    }
+
+    [Fact]
+    public async Task ProtectionMutationWinsOnceBeforeFreshnessExpiry()
+    {
+        RemoteWindowHostPreparationEpochBundle epochs =
+            RemoteWindowHostPreparationEpochBundle.Create();
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            CreateRequest(),
+            epochs);
+        Assert.True(reservation.TryBindProtectionObservation(
+            Now.Subtract(RemoteInputPolicy.MaximumProtectionAge)));
+        Assert.True(reservation.TryArm(Now));
+        Task<RemoteWindowHostPreparationTermination> terminalTask =
+            reservation.Terminal;
+
+        Assert.True(reservation.TryInvalidate(
+            HostGeneration,
+            RemoteWindowHostPreparationFact.Protection,
+            epochs.Get(RemoteWindowHostPreparationFact.Protection)));
+
+        RemoteWindowHostPreparationTermination terminal =
+            await terminalTask.WaitAsync(TimeSpan.FromSeconds(5));
+        RemoteWindowHostPreparationSnapshot terminalSnapshot =
+            reservation.Snapshot;
+        Assert.False(reservation.TryAdmitRouteSelection(Now.AddTicks(1)));
+        Assert.False(reservation.TryInvalidate(
+            HostGeneration,
+            RemoteWindowHostPreparationFact.Protection,
+            epochs.Get(RemoteWindowHostPreparationFact.Protection)));
+        Assert.Same(terminalTask, reservation.Terminal);
+        Assert.Same(terminal, reservation.Snapshot.Termination);
+        Assert.Equal(terminalSnapshot, reservation.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionFreshnessExpiryWinsOnceBeforeMutation()
+    {
+        RemoteWindowHostPreparationEpochBundle epochs =
+            RemoteWindowHostPreparationEpochBundle.Create();
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            CreateRequest(),
+            epochs);
+        Assert.True(reservation.TryBindProtectionObservation(
+            Now.Subtract(RemoteInputPolicy.MaximumProtectionAge)));
+        Assert.True(reservation.TryArm(Now));
+        Task<RemoteWindowHostPreparationTermination> terminalTask =
+            reservation.Terminal;
+
+        Assert.False(reservation.TryAdmitRouteSelection(Now.AddTicks(1)));
+
+        RemoteWindowHostPreparationTermination terminal =
+            await terminalTask.WaitAsync(TimeSpan.FromSeconds(5));
+        RemoteWindowHostPreparationSnapshot terminalSnapshot =
+            reservation.Snapshot;
+        Assert.False(reservation.TryInvalidate(
+            HostGeneration,
+            RemoteWindowHostPreparationFact.Protection,
+            epochs.Get(RemoteWindowHostPreparationFact.Protection)));
+        reservation.Dispose();
+        Assert.Same(terminalTask, reservation.Terminal);
+        Assert.Same(terminal, reservation.Snapshot.Termination);
+        Assert.Equal(terminalSnapshot, reservation.Snapshot);
+    }
+
+    [Fact]
     public async Task SourceInvalidationBeforeRouteAdmissionPreventsRoute()
     {
         RemoteWindowPreparationRequest request = CreateRequest();
@@ -255,6 +728,7 @@ public sealed class RemoteWindowHostPreparationReservationTests
             HostGeneration,
             request,
             RemoteWindowHostPreparationEpochBundle.Create());
+        Assert.True(beforeArm.TryBindProtectionObservation(Now));
 
         Assert.False(beforeArm.TryArm(request.Deadline));
 
@@ -465,7 +939,11 @@ public sealed class RemoteWindowHostPreparationReservationTests
         Assert.Equal(
             RemoteWindowHostPreparationPhase.Promoted,
             reservation.Snapshot.Phase);
-        Assert.False(reservation.TryPromote(Now));
+        RemoteWindowHostPreparationSnapshot promotedSnapshot =
+            reservation.Snapshot;
+        Task<RemoteWindowHostPreparationTermination> terminalTask =
+            reservation.Terminal;
+        Assert.False(reservation.TryPromote(request.Deadline.AddMinutes(1)));
         Assert.False(reservation.TryInvalidate(
             HostGeneration,
             RemoteWindowHostPreparationFact.Source,
@@ -475,6 +953,8 @@ public sealed class RemoteWindowHostPreparationReservationTests
         Assert.Equal(
             RemoteWindowHostPreparationPhase.Promoted,
             reservation.Snapshot.Phase);
+        Assert.Equal(promotedSnapshot, reservation.Snapshot);
+        Assert.Same(terminalTask, reservation.Terminal);
         Assert.False(reservation.Terminal.IsCompleted);
 
         using var foreignReservation = new RemoteWindowHostPreparationReservation(
@@ -517,9 +997,141 @@ public sealed class RemoteWindowHostPreparationReservationTests
             MirrorParticipantRole.ViewOnly,
             Now.AddSeconds(5));
 
+    private static RemoteWindowHostPreparationReservation CreateBoundReservation(
+        RemoteWindowPreparationRequest request,
+        DateTimeOffset observedAt)
+    {
+        var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            request,
+            RemoteWindowHostPreparationEpochBundle.Create());
+        Assert.True(reservation.TryBindProtectionObservation(observedAt));
+        return reservation;
+    }
+
+    private static void AssertEveryTimedStageAllows(
+        RemoteWindowPreparationRequest request,
+        DateTimeOffset observedAt,
+        DateTimeOffset admissionTime)
+    {
+        using (RemoteWindowHostPreparationReservation beforeArm =
+            CreateBoundReservation(request, observedAt))
+        {
+            Assert.True(beforeArm.TryArm(admissionTime));
+        }
+
+        using (RemoteWindowHostPreparationReservation beforeRoute =
+            CreateBoundReservation(request, observedAt))
+        {
+            Assert.True(beforeRoute.TryArm(observedAt));
+            Assert.True(beforeRoute.TryAdmitRouteSelection(admissionTime));
+        }
+
+        using (RemoteWindowHostPreparationReservation beforeSend =
+            CreateBoundReservation(request, observedAt))
+        {
+            Assert.True(beforeSend.TryArm(observedAt));
+            Assert.True(beforeSend.TryAdmitRouteSelection(observedAt));
+            Assert.True(beforeSend.CompleteRouteSelection());
+            Assert.True(beforeSend.TryAdmitPrepareSend(
+                request,
+                admissionTime));
+        }
+
+        using (RemoteWindowHostPreparationReservation beforeReady =
+            CreateBoundReservation(request, observedAt))
+        {
+            Assert.True(beforeReady.TryArm(observedAt));
+            Assert.True(beforeReady.TryAdmitRouteSelection(observedAt));
+            Assert.True(beforeReady.CompleteRouteSelection());
+            Assert.True(beforeReady.TryAdmitPrepareSend(request, observedAt));
+            Assert.True(beforeReady.TryMatchReady(
+                CreateReady(request),
+                admissionTime));
+        }
+
+        using (RemoteWindowHostPreparationReservation beforePromotion =
+            CreateBoundReservation(request, observedAt))
+        {
+            Assert.True(beforePromotion.TryArm(observedAt));
+            Assert.True(beforePromotion.TryAdmitRouteSelection(observedAt));
+            Assert.True(beforePromotion.CompleteRouteSelection());
+            Assert.True(beforePromotion.TryAdmitPrepareSend(
+                request,
+                observedAt));
+            Assert.True(beforePromotion.TryMatchReady(
+                CreateReady(request),
+                observedAt));
+            Assert.True(beforePromotion.TryPromote(admissionTime));
+        }
+    }
+
+    private static RemoteWindowPreparationResponse CreateReady(
+        RemoteWindowPreparationRequest request) =>
+        RemoteWindowPreparationResponse.Create(
+            request,
+            RemoteWindowPreparationOutcome.Ready,
+            "participant_ready");
+
+    private static async Task AssertProtectionTermination(
+        RemoteWindowHostPreparationReservation reservation,
+        RemoteWindowHostPreparationCleanupScope expectedCleanupScope)
+    {
+        RemoteWindowHostPreparationTermination terminal =
+            await reservation.Terminal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(
+            RemoteWindowHostPreparationFact.Protection,
+            terminal.Fact);
+        Assert.Equal("native_protection_not_safe", terminal.ReasonCode);
+        Assert.Equal(expectedCleanupScope, terminal.CleanupScope);
+        Assert.Equal(
+            RemoteWindowHostPreparationPhase.Terminal,
+            reservation.Snapshot.Phase);
+    }
+
+    private static void AdvanceToPhase(
+        RemoteWindowHostPreparationReservation reservation,
+        RemoteWindowPreparationRequest request,
+        RemoteWindowHostPreparationPhase targetPhase,
+        DateTimeOffset? transitionTime = null)
+    {
+        DateTimeOffset now = transitionTime ?? Now;
+        if (targetPhase == RemoteWindowHostPreparationPhase.Collecting)
+        {
+            return;
+        }
+
+        Assert.True(reservation.TryArm(now));
+        if (targetPhase == RemoteWindowHostPreparationPhase.Armed)
+        {
+            return;
+        }
+
+        Assert.True(reservation.TryAdmitRouteSelection(now));
+        Assert.True(reservation.CompleteRouteSelection());
+        if (targetPhase == RemoteWindowHostPreparationPhase.RouteSelected)
+        {
+            return;
+        }
+
+        Assert.True(reservation.TryAdmitPrepareSend(request, now));
+        if (targetPhase == RemoteWindowHostPreparationPhase.PrepareSending)
+        {
+            return;
+        }
+
+        Assert.True(reservation.TryMatchReady(CreateReady(request), now));
+        Assert.Equal(
+            RemoteWindowHostPreparationPhase.ReadyMatched,
+            targetPhase);
+    }
+
     private static void Arm(
-        RemoteWindowHostPreparationReservation reservation) =>
+        RemoteWindowHostPreparationReservation reservation)
+    {
+        Assert.True(reservation.TryBindProtectionObservation(Now));
         Assert.True(reservation.TryArm(Now));
+    }
 
     private static string ExpectedInvalidationReason(
         RemoteWindowHostPreparationFact fact) => fact switch

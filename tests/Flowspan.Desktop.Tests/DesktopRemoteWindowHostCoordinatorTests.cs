@@ -114,6 +114,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(1, connection.ConnectionPreparationReservationCount);
         Assert.False(connection.CurrentConnectionPreparation?.IsCurrent);
         Assert.Equal(1, connection.CurrentConnectionPreparation?.DisposeCount);
+        Assert.Equal(1, protection.PreparationReservationCount);
+        Assert.True(protection.CurrentPreparation?.IsCurrent);
         Assert.Empty(connection.MediaFrames);
         capture.EmitFrame(sequence: 3);
         await connection.WaitForMediaFrameCountAsync(1);
@@ -130,16 +132,21 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         AssertOrdered(
             timeline,
             "protection.read",
+            "protection.reserve",
             "connection.route",
             "connection.prepare",
             "connection.wait_media",
             "protection.subscribe",
             "protection.read",
             "emergency_stop.register",
+            "protection.promote",
+            "protection.capture_admit",
             "capture.start",
             "connection.publish",
             "connection.send_media");
         _ = await coordinator.StopAsync();
+        Assert.False(protection.CurrentPreparation?.IsCurrent);
+        Assert.Equal(1, protection.CurrentPreparation?.DisposeCount);
         Assert.Throws<InvalidOperationException>(() => controlPeer.SessionId);
     }
 
@@ -278,6 +285,629 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task ProtectionMutationDuringReservationRejectsBeforeObserverOrRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Protection.PreparationReserved = () => host.Protection.Publish(
+            UnsafeAt(Now));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.Equal(1, host.Protection.PreparationReservationCount);
+        Assert.False(host.Protection.CurrentPreparation?.IsCurrent);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionMutationAfterRouteSelectionPreventsPrepareWireAndCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.RouteAdmitted = () => host.Protection.Publish(
+            UnsafeAt(Now));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionMutationAfterPrepareSendPreventsReadyAuthority()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.PrepareSendAdmitted = () => host.Protection.Publish(
+            UnsafeAt(Now));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.Contains("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionMutationBeforeCaptureStartAdmissionPreventsCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Protection.CaptureStartAdmitting = () => host.Protection.Publish(
+            UnsafeAt(Now));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.Contains("protection.promote", host.Timeline);
+        Assert.Contains("protection.capture_admit", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.True(host.Capture.StopCount >= 1);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionMutationAfterCaptureStartAdmissionUsesStartingGate()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Protection.CaptureStartAdmitted = () => host.Protection.Publish(
+            UnsafeAt(Now));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("protection_blocked_during_start", failure.Message);
+        Assert.Contains("protection.capture_admit", host.Timeline);
+        Assert.Contains("capture.start", host.Timeline);
+        Assert.DoesNotContain("connection.publish", host.Timeline);
+        Assert.Equal(1, host.Capture.StartCount);
+        Assert.True(host.Capture.StopCount + host.Capture.EmergencyStopCount >= 1);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task FormalProtectionNotificationsPreserveTransientUnsafeOrder()
+    {
+        using var clock = new BlockingClock(Now);
+        using var host = new ReadyHostHarness(clock);
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        Assert.True((await host.StartAsync()).Succeeded);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            registration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                host.Protection.CurrentPreparation);
+
+        clock.BlockNextRead();
+        registration.LatchLive(SafeAt(Now));
+        Task firstNotify = Task.Run(registration.NotifyFormal);
+        Assert.True(clock.Blocked.Wait(TimeSpan.FromSeconds(5)));
+
+        registration.LatchLive(UnsafeAt(Now));
+        Task unsafeNotify = Task.Run(registration.NotifyFormal);
+        registration.LatchLive(SafeAt(Now));
+        Task finalSafeNotify = Task.Run(registration.NotifyFormal);
+        Assert.False(unsafeNotify.IsCompleted);
+        Assert.False(finalSafeNotify.IsCompleted);
+
+        clock.Release();
+        await Task.WhenAll(firstNotify, unsafeNotify, finalSafeNotify)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, host.Capture.PauseCount);
+        Assert.Equal(1, host.Capture.ResumeCount);
+        Assert.Equal(1, host.Input.PauseCount);
+        Assert.Equal(1, host.Input.ResumeCount);
+        Assert.Equal(RemoteWindowLifecycle.Active, coordinator.Snapshot?.Lifecycle);
+        _ = await coordinator.StopAsync();
+    }
+
+    [Fact]
+    public async Task LiveProtectionLatchBlocksInputBeforeNotifyAndSafeReopens()
+    {
+        using var host = new ReadyHostHarness(
+            role: MirrorParticipantRole.DriverEligible);
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        Assert.True((await host.StartAsync()).Succeeded);
+        RemoteWindowSharingSnapshot before = Assert.IsType<
+            RemoteWindowSharingSnapshot>(coordinator.Snapshot);
+        RemoteWindowParticipantState driver =
+            await host.ControlPeer.RequestDriverAsync(
+                RemoteWindowDriverRequest.Create(
+                    CorrelationId.From(Guid.NewGuid()),
+                    host.ControlPeer.SessionId,
+                    before.ActivityId,
+                    HostDeviceId,
+                    ParticipantDeviceId,
+                    Assert.IsType<long>(before.DriverLeaseEpoch),
+                    TimeSpan.FromSeconds(5),
+                    Now.AddSeconds(2)),
+                CancellationToken.None);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            registration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                host.Protection.CurrentPreparation);
+
+        RemoteWindowParticipantState initial =
+            await host.ControlPeer.SendInputAsync(
+                CreateInputRequest(driver, x: 0.25),
+                CancellationToken.None);
+        Assert.Equal(RemoteWindowControlOutcome.Applied, initial.Outcome);
+        Assert.Equal(1, host.Input.InjectCount);
+
+        registration.LatchLive(UnsafeAt(Now));
+        RemoteWindowParticipantState blocked =
+            await host.ControlPeer.SendInputAsync(
+                CreateInputRequest(driver, x: 0.5),
+                CancellationToken.None);
+
+        Assert.Equal(RemoteWindowControlOutcome.Rejected, blocked.Outcome);
+        Assert.Equal("protection_state_unknown", blocked.ReasonCode);
+        Assert.Equal(1, host.Input.InjectCount);
+        Assert.Equal(RemoteWindowLifecycle.Active, blocked.Lifecycle);
+        registration.NotifyFormal();
+        Assert.Equal(
+            RemoteWindowLifecycle.ProtectionPaused,
+            coordinator.Snapshot?.Lifecycle);
+
+        registration.LatchLive(SafeAt(Now.AddTicks(1)));
+        RemoteWindowParticipantState blockedSafe =
+            await host.ControlPeer.SendInputAsync(
+                CreateInputRequest(driver, x: 0.625),
+                CancellationToken.None);
+        Assert.Equal(RemoteWindowControlOutcome.Rejected, blockedSafe.Outcome);
+        Assert.Equal("protection_state_unknown", blockedSafe.ReasonCode);
+        Assert.Equal(1, host.Input.InjectCount);
+        registration.NotifyFormal();
+        RemoteWindowParticipantState resumed =
+            await host.ControlPeer.SendInputAsync(
+                CreateInputRequest(driver, x: 0.75),
+                CancellationToken.None);
+
+        Assert.Equal(RemoteWindowControlOutcome.Applied, resumed.Outcome);
+        Assert.Equal(2, host.Input.InjectCount);
+        Assert.Equal(RemoteWindowLifecycle.Active, resumed.Lifecycle);
+        _ = await coordinator.StopAsync();
+
+        RemoteWindowInputRequest CreateInputRequest(
+            RemoteWindowParticipantState state,
+            double x) => RemoteWindowInputRequest.Create(
+            CorrelationId.From(Guid.NewGuid()),
+            state.SessionId,
+            state.ActivityId,
+            HostDeviceId,
+            ParticipantDeviceId,
+            Assert.IsType<long>(state.DriverLeaseEpoch),
+            RemoteInputBatch.Create([RemoteInputEvent.PointerMove(x, 0.5)]),
+            Now.AddSeconds(2));
+    }
+
+    [Fact]
+    public async Task FormalProtectionSourceLossWaitsForEarlierNotification()
+    {
+        using var clock = new BlockingClock(Now);
+        using var host = new ReadyHostHarness(clock);
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        Assert.True((await host.StartAsync()).Succeeded);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            registration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                host.Protection.CurrentPreparation);
+
+        clock.BlockNextRead();
+        registration.LatchLive(SafeAt(Now));
+        Task firstNotify = Task.Run(registration.NotifyFormal);
+        Assert.True(clock.Blocked.Wait(TimeSpan.FromSeconds(5)));
+
+        registration.LatchSourceLoss();
+        Task sourceLossNotify = Task.Run(registration.NotifyFormal);
+        Assert.False(sourceLossNotify.IsCompleted);
+
+        clock.Release();
+        await Task.WhenAll(firstNotify, sourceLossNotify)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, host.Capture.EmergencyStopCount);
+        Assert.Equal(1, host.Input.EmergencyStopCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        await WaitForControlRouteClosedAsync(host.ControlPeer);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task FormalProtectionNotificationOutOfMemoryReplaysExactFailure()
+    {
+        using var clock = new BlockingClock(Now);
+        using var host = new ReadyHostHarness(clock);
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        Assert.True((await host.StartAsync()).Succeeded);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            registration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                host.Protection.CurrentPreparation);
+        INativeRemoteWindowProtectionFormalSink sink = registration.FormalSink;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_PROTECTION_NOTIFY_FATAL_CANARY");
+#pragma warning restore CA2201
+        clock.FailNext(injected);
+        sink.LatchNativeRemoteWindowProtectionObservationNow(
+            host.Protection.CreateNextObservation(SafeAt(Now)));
+
+        OutOfMemoryException first = Assert.Throws<OutOfMemoryException>(
+            sink.NotifyNativeRemoteWindowProtectionChanged);
+        OutOfMemoryException replay = Assert.Throws<OutOfMemoryException>(
+            sink.NotifyNativeRemoteWindowProtectionChanged);
+
+        Assert.Same(injected, first);
+        Assert.Same(injected, replay);
+        Assert.Equal(1, host.Capture.EmergencyStopCount);
+        Assert.Equal(1, host.Input.EmergencyStopCount);
+        await WaitForControlRouteClosedAsync(host.ControlPeer);
+    }
+
+    [Fact]
+    public async Task StaleCapturedProtectionNotifyContextMustJoinCurrentDrainer()
+    {
+        using var clock = new BlockingClock(Now);
+        using var host = new ReadyHostHarness(clock);
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        Assert.True((await host.StartAsync()).Succeeded);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            registration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                host.Protection.CurrentPreparation);
+        var releaseStale = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var staleEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? staleNotify = null;
+        clock.RunOnNextRead(() => staleNotify = Task.Run(async () =>
+        {
+            await releaseStale.Task;
+            staleEntered.TrySetResult();
+            registration.NotifyFormal();
+        }));
+        registration.LatchLive(SafeAt(Now.AddTicks(1)));
+        registration.NotifyFormal();
+        Task capturedNotify = Assert.IsAssignableFrom<Task>(staleNotify);
+
+        clock.BlockNextRead();
+        registration.LatchLive(SafeAt(Now.AddTicks(2)));
+        Task currentNotify = Task.Run(registration.NotifyFormal);
+        Assert.True(clock.Blocked.Wait(TimeSpan.FromSeconds(5)));
+        registration.LatchLive(UnsafeAt(Now.AddTicks(3)));
+        releaseStale.TrySetResult();
+        await staleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(SpinWait.SpinUntil(
+            () => coordinator.ActiveProtectionNotificationWaiterCount == 1,
+            TimeSpan.FromSeconds(5)));
+        Assert.False(capturedNotify.IsCompleted);
+
+        clock.Release();
+        await Task.WhenAll(currentNotify, capturedNotify)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(
+            RemoteWindowLifecycle.ProtectionPaused,
+            coordinator.Snapshot?.Lifecycle);
+        Assert.Equal(0, coordinator.ActiveProtectionNotificationWaiterCount);
+        _ = await coordinator.StopAsync();
+    }
+
+    [Fact]
+    public async Task NestedProtectionNotifyFindsActiveAncestorAcrossGenerations()
+    {
+        using var firstClock = new BlockingClock(Now);
+        using var secondClock = new BlockingClock(Now);
+        using var firstHost = new ReadyHostHarness(firstClock);
+        using var secondHost = new ReadyHostHarness(secondClock);
+        await using DesktopRemoteWindowHostCoordinator firstCoordinator =
+            firstHost.Coordinator;
+        await using DesktopRemoteWindowHostCoordinator secondCoordinator =
+            secondHost.Coordinator;
+        Assert.True((await firstHost.StartAsync()).Succeeded);
+        Assert.True((await secondHost.StartAsync()).Succeeded);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            firstRegistration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                firstHost.Protection.CurrentPreparation);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            secondRegistration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                secondHost.Protection.CurrentPreparation);
+
+        firstClock.RunOnNextRead(() =>
+        {
+            firstRegistration.LatchLive(SafeAt(Now.AddTicks(2)));
+            secondRegistration.LatchLive(SafeAt(Now.AddTicks(1)));
+            secondRegistration.NotifyFormal();
+        });
+        secondClock.RunOnNextRead(firstRegistration.NotifyFormal);
+        firstRegistration.LatchLive(SafeAt(Now.AddTicks(1)));
+
+        await Task.Run(firstRegistration.NotifyFormal)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(RemoteWindowLifecycle.Active, firstCoordinator.Snapshot?.Lifecycle);
+        Assert.Equal(
+            RemoteWindowLifecycle.Active,
+            secondCoordinator.Snapshot?.Lifecycle);
+        Assert.Equal(0, firstCoordinator.ActiveProtectionNotificationWaiterCount);
+        Assert.Equal(0, secondCoordinator.ActiveProtectionNotificationWaiterCount);
+        _ = await firstCoordinator.StopAsync();
+        _ = await secondCoordinator.StopAsync();
+    }
+
+    [Fact]
+    public async Task SymmetricProtectionNotifiersDoNotWaitOnEachOther()
+    {
+        using var firstClock = new BlockingClock(Now);
+        using var secondClock = new BlockingClock(Now);
+        using var firstHost = new ReadyHostHarness(firstClock);
+        using var secondHost = new ReadyHostHarness(secondClock);
+        await using DesktopRemoteWindowHostCoordinator firstCoordinator =
+            firstHost.Coordinator;
+        await using DesktopRemoteWindowHostCoordinator secondCoordinator =
+            secondHost.Coordinator;
+        Assert.True((await firstHost.StartAsync()).Succeeded);
+        Assert.True((await secondHost.StartAsync()).Succeeded);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            firstRegistration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                firstHost.Protection.CurrentPreparation);
+        RecordingProtectionSource.RecordingProtectionPreparationRegistration
+            secondRegistration = Assert.IsType<
+                RecordingProtectionSource
+                    .RecordingProtectionPreparationRegistration>(
+                secondHost.Protection.CurrentPreparation);
+        using var callbacksEntered = new CountdownEvent(2);
+        using var releaseCrossNotify = new ManualResetEventSlim(false);
+        using var firstCrossReturned = new ManualResetEventSlim(false);
+        using var secondCrossReturned = new ManualResetEventSlim(false);
+        firstClock.RunOnNextRead(() =>
+        {
+            callbacksEntered.Signal();
+            releaseCrossNotify.Wait();
+            secondRegistration.NotifyFormal();
+            firstCrossReturned.Set();
+        });
+        secondClock.RunOnNextRead(() =>
+        {
+            callbacksEntered.Signal();
+            releaseCrossNotify.Wait();
+            firstRegistration.NotifyFormal();
+            secondCrossReturned.Set();
+        });
+        firstRegistration.LatchLive(SafeAt(Now.AddTicks(1)));
+        secondRegistration.LatchLive(SafeAt(Now.AddTicks(1)));
+        Task firstNotify = Task.Run(firstRegistration.NotifyFormal);
+        Task secondNotify = Task.Run(secondRegistration.NotifyFormal);
+        Assert.True(callbacksEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        releaseCrossNotify.Set();
+        await Task.WhenAll(firstNotify, secondNotify)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(firstCrossReturned.IsSet);
+        Assert.True(secondCrossReturned.IsSet);
+        Assert.Equal(RemoteWindowLifecycle.Active, firstCoordinator.Snapshot?.Lifecycle);
+        Assert.Equal(
+            RemoteWindowLifecycle.Active,
+            secondCoordinator.Snapshot?.Lifecycle);
+        Assert.Equal(0, firstCoordinator.ActiveProtectionNotificationWaiterCount);
+        Assert.Equal(0, secondCoordinator.ActiveProtectionNotificationWaiterCount);
+        _ = await firstCoordinator.StopAsync();
+        _ = await secondCoordinator.StopAsync();
+    }
+
+    [Fact]
+    public async Task ProtectionPreparationConflictRejectsBeforeRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Protection.PreparationStatus =
+            NativeRemoteWindowProtectionPreparationReservationStatus
+                .ReservationConflict;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.Equal(1, host.Protection.PreparationReservationCount);
+        Assert.Null(host.Protection.CurrentPreparation);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionPreparationThrowIsRedactedBeforeRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_PROTECTION_RESERVE_CANARY");
+        host.Protection.PreparationFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionPreparationOutOfMemoryEscapesUnchanged()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_PROTECTION_RESERVE_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Protection.PreparationFailure = injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionPreparationCommitThenCallerCancellationRetainsOwner()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        var injected = new OperationCanceledException(cancellation.Token);
+        host.Protection.PreparationReserved = () =>
+        {
+            cancellation.Cancel();
+            throw injected;
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Same(injected, failure);
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(1, host.Protection.CurrentPreparation?.DisposeCount);
+        Assert.False(host.Protection.CurrentPreparation?.IsCurrent);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionPromotionThrowIsRedactedAndDrained()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_PROTECTION_PROMOTE_CANARY");
+        host.Protection.PromotionFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Protection.CurrentPreparation?.DisposeCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionPromotionOutOfMemoryEscapesUnchanged()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_PROTECTION_PROMOTE_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Protection.PromotionFailure = injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Protection.CurrentPreparation?.DisposeCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ProtectionPromotionCurrentnessThrowIsRedacted()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException(
+            "FLOWSPAN_PROTECTION_PROMOTION_CURRENT_CANARY");
+        host.Protection.CurrentReading = read => read == 1
+            ? true
+            : throw injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_protection_not_safe", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("protection.promote", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Protection.CurrentPreparation?.DisposeCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
     public async Task UnavailableEmergencyStopRejectsBeforeRouteOrPrepare()
     {
         using var host = new ReadyHostHarness();
@@ -293,6 +923,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(
             [
                 "protection.read",
+                "protection.reserve",
                 "emergency_stop.readiness",
                 "connection.dispose",
             ],
@@ -526,6 +1157,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(
             [
                 "protection.read",
+                "protection.reserve",
                 "emergency_stop.readiness",
                 "connection.dispose",
             ],
@@ -610,6 +1242,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(
             [
                 "protection.read",
+                "protection.reserve",
                 "emergency_stop.readiness",
                 "connection.dispose",
             ],
@@ -636,7 +1269,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         Assert.Contains("authenticated_connection_stale", failure.Message);
         Assert.Equal(
-            ["protection.read", "connection.dispose"],
+            ["protection.read", "protection.reserve", "connection.dispose"],
             host.Timeline);
         Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
         Assert.Equal(0, host.Capture.StartCount);
@@ -942,6 +1575,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(
             [
                 "protection.read",
+                "protection.reserve",
                 "emergency_stop.readiness",
                 "connection.dispose",
             ],
@@ -998,6 +1632,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(
             [
                 "protection.read",
+                "protection.reserve",
                 "emergency_stop.readiness",
                 "connection.dispose",
             ],
@@ -1024,7 +1659,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         Assert.Contains("native_source_stale", failure.Message);
         Assert.Equal(
-            ["protection.read", "connection.dispose"],
+            ["protection.read", "protection.reserve", "connection.dispose"],
             host.Timeline);
         Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
         Assert.Equal(0, host.Capture.StartCount);
@@ -1510,7 +2145,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         InvalidOperationException failure = await Assert.ThrowsAsync<
             InvalidOperationException>(async () => await host.StartAsync());
 
-        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.Contains("native_permission_denied", failure.Message);
         Assert.DoesNotContain("connection.route", host.Timeline);
         Assert.DoesNotContain("connection.prepare", host.Timeline);
         Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
@@ -1629,7 +2264,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Collection(
             failure.InnerExceptions,
             primary => Assert.Contains(
-                "authenticated_connection_stale",
+                "native_permission_denied",
                 Assert.IsType<InvalidOperationException>(primary).Message),
             cleanup => Assert.Same(injected, cleanup));
         Assert.DoesNotContain("connection.route", host.Timeline);
@@ -1662,6 +2297,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(
             [
                 "protection.read",
+                "protection.reserve",
                 "emergency_stop.readiness",
                 "connection.dispose",
             ],
@@ -1700,6 +2336,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(
             [
                 "protection.read",
+                "protection.reserve",
                 "emergency_stop.readiness",
                 "connection.dispose",
             ],
@@ -1736,7 +2373,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(cancellation.Token, failure.CancellationToken);
         Assert.Equal(2, host.Authorization.ReadCount);
         Assert.Equal(
-            ["protection.read", "connection.dispose"],
+            ["protection.read", "protection.reserve", "connection.dispose"],
             host.Timeline);
         Assert.Equal(0, host.EmergencyStops.ReadinessCheckCount);
         Assert.Equal(0, host.Capture.StartCount);
@@ -3208,6 +3845,11 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         observedAt,
         "test-protection");
 
+    private static ProtectionSnapshot UnsafeAt(DateTimeOffset observedAt) => new(
+        ProtectionKind.SecureInput,
+        observedAt,
+        "test-protection");
+
     private static RemoteWindowPreparationDeliveryResult ReadyPreparation(
         RemoteWindowPreparationRequest request) =>
         RemoteWindowPreparationDeliveryResult.Acknowledged(
@@ -3289,7 +3931,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public ReadyHostHarness(
             IClock? clock = null,
-            INativeRemoteWindowPermissionBoundary? permissionOverride = null)
+            INativeRemoteWindowPermissionBoundary? permissionOverride = null,
+            MirrorParticipantRole role = MirrorParticipantRole.ViewOnly)
         {
             registration = sources.RegisterGeneric(CreateMetadata());
             sourceLease = AcquireLease(sources, registration.Snapshot);
@@ -3311,8 +3954,13 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             {
                 PrepareResponse = ReadyPreparation,
             };
-            Authorization = new FixedAuthorizationSource(
-                CapabilityGrant.Of(Capability.MirrorView));
+            Authorization = new FixedAuthorizationSource(role ==
+                    MirrorParticipantRole.DriverEligible
+                ? CapabilityGrant.Of(
+                    Capability.MirrorView,
+                    Capability.MirrorDrive)
+                : CapabilityGrant.Of(Capability.MirrorView));
+            Role = role;
             Coordinator = new DesktopRemoteWindowHostCoordinator(
                 clock ?? new FixedClock(Now),
                 permissionOverride ?? Permissions,
@@ -3344,6 +3992,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public RecordingProtectionSource Protection { get; }
 
+        public MirrorParticipantRole Role { get; }
+
         public List<string> Timeline { get; } = [];
 
         public DesktopRemoteWindowHostStartRequest CreateRequest(
@@ -3353,7 +4003,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
                 ownerGeneration: 1,
                 connection,
                 protection,
-                MirrorParticipantRole.ViewOnly);
+                Role);
 
         public RecordingProtectionSource CreateProtection(
             ProtectionSnapshot? protection = null) => new(
@@ -3386,6 +4036,78 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     private sealed class MutableClock(DateTimeOffset utcNow) : IClock
     {
         public DateTimeOffset UtcNow { get; set; } = utcNow;
+    }
+
+    private sealed class BlockingClock(DateTimeOffset utcNow) :
+        IClock,
+        IDisposable
+    {
+        private readonly ManualResetEventSlim release = new(false);
+        private Action? nextReading;
+        private Exception? nextFailure;
+        private int blockNextRead;
+
+        public ManualResetEventSlim Blocked { get; } = new(false);
+
+        public DateTimeOffset UtcNow
+        {
+            get
+            {
+                Interlocked.Exchange(ref nextReading, null)?.Invoke();
+                Exception? failure = Interlocked.Exchange(
+                    ref nextFailure,
+                    null);
+                if (failure is not null)
+                {
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                        .Capture(failure)
+                        .Throw();
+                }
+
+                if (Interlocked.Exchange(ref blockNextRead, 0) != 0)
+                {
+                    Blocked.Set();
+                    release.Wait();
+                }
+
+                return utcNow;
+            }
+        }
+
+        public void BlockNextRead()
+        {
+            Blocked.Reset();
+            release.Reset();
+            Volatile.Write(ref blockNextRead, 1);
+        }
+
+        public void FailNext(Exception failure)
+        {
+            ArgumentNullException.ThrowIfNull(failure);
+            _ = Interlocked.Exchange(ref nextFailure, failure);
+        }
+
+        public void RunOnNextRead(Action callback)
+        {
+            ArgumentNullException.ThrowIfNull(callback);
+            if (Interlocked.CompareExchange(
+                    ref nextReading,
+                    callback,
+                    null) is not null)
+            {
+                throw new InvalidOperationException(
+                    "A test clock read callback is already pending.");
+            }
+        }
+
+        public void Release() => release.Set();
+
+        public void Dispose()
+        {
+            release.Set();
+            release.Dispose();
+            Blocked.Dispose();
+        }
     }
 
     private sealed class FixedAuthorizationSource(CapabilityGrant grant) :
@@ -3736,12 +4458,50 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
     private sealed class RecordingProtectionSource(
         List<string> timeline,
-        NativeRemoteWindowProtectionObservation observation) :
-        INativeProtectionSource
+        NativeRemoteWindowProtectionObservation initialObservation) :
+        INativeProtectionSource,
+        INativeRemoteWindowProtectionPreparationBoundary
     {
         private Action<NativeRemoteWindowProtectionObservation>? changed;
+        private NativeRemoteWindowProtectionObservation observation =
+            initialObservation;
+        private long nextObservationRevision = initialObservation.Revision;
+        private readonly long observationOwnerGeneration =
+            initialObservation.OwnerGeneration;
+        private readonly long observationSessionGeneration =
+            initialObservation.SessionGeneration;
+        private readonly long observationSourceGeneration =
+            initialObservation.SourceGeneration;
+        private readonly List<string> timeline = timeline;
+
+        public Action? CaptureStartAdmitted { get; set; }
+
+        public Action? CaptureStartAdmitting { get; set; }
+
+        public RecordingProtectionPreparationRegistration? CurrentPreparation
+        { get; private set; }
+
+        public Func<int, bool>? CurrentReading { get; set; }
 
         public bool IsDisposed { get; private set; }
+
+        public Exception? PreparationFailure { get; set; }
+
+        public Action? PreparationReserved { get; set; }
+
+        public int PreparationReservationCount { get; private set; }
+
+        public NativeRemoteWindowProtectionPreparationReservationStatus?
+            PreparationStatus
+        { get; set; }
+
+        public Action? PromotionCommitted { get; set; }
+
+        public Exception? PromotionFailure { get; set; }
+
+        public Exception? PromotionFailureAfterCommit { get; set; }
+
+        public bool PromotionResult { get; set; } = true;
 
         public Exception? ReadFailure { get; set; }
 
@@ -3770,14 +4530,260 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
                 throw failure;
             }
 
-            latest = observation;
+            latest = Volatile.Read(ref observation);
             return true;
+        }
+
+        public NativeRemoteWindowProtectionObservation CreateNextObservation(
+            ProtectionSnapshot protection)
+        {
+            ArgumentNullException.ThrowIfNull(protection);
+            NativeRemoteWindowProtectionObservation next =
+                NativeRemoteWindowProtectionObservation.Create(
+                    protection,
+                    observationOwnerGeneration,
+                    observationSessionGeneration,
+                    observationSourceGeneration,
+                    Interlocked.Increment(ref nextObservationRevision));
+            Volatile.Write(ref observation, next);
+            return next;
+        }
+
+        public void Publish(ProtectionSnapshot protection)
+        {
+            NativeRemoteWindowProtectionObservation published =
+                CreateNextObservation(protection);
+            RecordingProtectionPreparationRegistration? registration =
+                CurrentPreparation;
+            registration?.Publish(published);
+            changed?.Invoke(published);
+        }
+
+        public void Lose()
+        {
+            CurrentPreparation?.Lose();
+            changed = null;
+        }
+
+        NativeRemoteWindowProtectionPreparationReservationResult
+            INativeRemoteWindowProtectionPreparationBoundary
+                .TryReservePreparation(
+                    NativeRemoteWindowProtectionObservation expectedObservation,
+                    DateTimeOffset now,
+                    INativeRemoteWindowProtectionPreparationInvalidationSink
+                        invalidationSink)
+        {
+            timeline.Add("protection.reserve");
+            if (PreparationFailure is { } failure)
+            {
+                throw failure;
+            }
+
+            PreparationReservationCount++;
+            if (PreparationStatus is { } status)
+            {
+                return new(status, Registration: null);
+            }
+
+            NativeRemoteWindowProtectionObservation current =
+                Volatile.Read(ref observation);
+            if (expectedObservation != current
+                || current.Protection.Kind != ProtectionKind.Safe
+                || current.Protection.ObservedAt >
+                    now.Add(RemoteInputPolicy.MaximumFutureClockSkew)
+                || now - current.Protection.ObservedAt >
+                    RemoteInputPolicy.MaximumProtectionAge)
+            {
+                return new(
+                    NativeRemoteWindowProtectionPreparationReservationStatus
+                        .ObservationChanged,
+                    Registration: null);
+            }
+
+            if (CurrentPreparation?.IsActive == true)
+            {
+                return new(
+                    NativeRemoteWindowProtectionPreparationReservationStatus
+                        .ReservationConflict,
+                    Registration: null);
+            }
+
+            CurrentPreparation = new(
+                this,
+                invalidationSink,
+                CurrentReading);
+            invalidationSink
+                .OwnNativeRemoteWindowProtectionPreparationRegistration(
+                    CurrentPreparation);
+            PreparationReserved?.Invoke();
+            return new(
+                NativeRemoteWindowProtectionPreparationReservationStatus.Reserved,
+                CurrentPreparation);
         }
 
         public void Dispose()
         {
             IsDisposed = true;
+            Lose();
             changed = null;
+        }
+
+        public sealed class RecordingProtectionPreparationRegistration(
+            RecordingProtectionSource owner,
+            INativeRemoteWindowProtectionPreparationInvalidationSink sink,
+            Func<int, bool>? currentReading) :
+            INativeRemoteWindowProtectionPreparationRegistration
+        {
+            private INativeRemoteWindowProtectionFormalSink? formalSink;
+            private int currentReadCount;
+            private int disposeCount;
+            private int state = 1;
+
+            public int DisposeCount => Volatile.Read(ref disposeCount);
+
+            public bool IsActive => Volatile.Read(ref state) != 0;
+
+            public bool IsCurrent
+            {
+                get
+                {
+                    int read = Interlocked.Increment(ref currentReadCount);
+                    return currentReading?.Invoke(read) ?? IsActive;
+                }
+            }
+
+            public long RegistrationId => 1;
+
+            public INativeRemoteWindowProtectionFormalSink FormalSink =>
+                Volatile.Read(ref formalSink)
+                ?? throw new InvalidOperationException(
+                    "The test protection registration has not been promoted.");
+
+            public bool TryPromote(
+                DateTimeOffset now,
+                INativeRemoteWindowProtectionFormalSink promotedSink)
+            {
+                _ = now;
+                owner.timeline.Add("protection.promote");
+                if (owner.PromotionFailure is { } failure)
+                {
+                    throw failure;
+                }
+
+                if (!owner.PromotionResult
+                    || Interlocked.CompareExchange(ref state, 2, 1) != 1)
+                {
+                    return false;
+                }
+
+                formalSink = promotedSink;
+                owner.PromotionCommitted?.Invoke();
+                if (owner.PromotionFailureAfterCommit is { } committedFailure)
+                {
+                    throw committedFailure;
+                }
+
+                return true;
+            }
+
+            public bool TryAdmitCaptureStart(DateTimeOffset now)
+            {
+                _ = now;
+                owner.timeline.Add("protection.capture_admit");
+                owner.CaptureStartAdmitting?.Invoke();
+                if (Interlocked.CompareExchange(ref state, 3, 2) != 2)
+                {
+                    return false;
+                }
+
+                owner.CaptureStartAdmitted?.Invoke();
+                return true;
+            }
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref state, 0) != 0)
+                {
+                    Interlocked.Increment(ref disposeCount);
+                    formalSink = null;
+                }
+            }
+
+            public void LatchLive(ProtectionSnapshot protection)
+            {
+                if (Volatile.Read(ref state) != 3)
+                {
+                    throw new InvalidOperationException(
+                        "The test protection registration is not live.");
+                }
+
+                FormalSink.LatchNativeRemoteWindowProtectionObservationNow(
+                    owner.CreateNextObservation(protection));
+            }
+
+            public void LatchSourceLoss()
+            {
+                if (Interlocked.Exchange(ref state, 0) != 3)
+                {
+                    throw new InvalidOperationException(
+                        "The test protection registration is not live.");
+                }
+
+                FormalSink.LatchNativeRemoteWindowProtectionObservationNow(null);
+            }
+
+            public void NotifyFormal() =>
+                FormalSink.NotifyNativeRemoteWindowProtectionChanged();
+
+            public void Publish(
+                NativeRemoteWindowProtectionObservation published)
+            {
+                int current = Volatile.Read(ref state);
+                if (current == 1 && Interlocked.CompareExchange(
+                        ref state,
+                        0,
+                        1) == 1)
+                {
+                    sink.InvalidateNativeRemoteWindowProtectionPreparationNow();
+                    return;
+                }
+
+                if (current == 2 && Interlocked.CompareExchange(
+                        ref state,
+                        0,
+                        2) == 2)
+                {
+                    formalSink?
+                        .InvalidateNativeRemoteWindowProtectionBeforeCaptureNow();
+                    return;
+                }
+
+                if (current == 3 && formalSink is { } liveSink)
+                {
+                    liveSink.LatchNativeRemoteWindowProtectionObservationNow(
+                        published);
+                    liveSink.NotifyNativeRemoteWindowProtectionChanged();
+                }
+            }
+
+            public void Lose()
+            {
+                int current = Interlocked.Exchange(ref state, 0);
+                if (current == 1)
+                {
+                    sink.InvalidateNativeRemoteWindowProtectionPreparationNow();
+                }
+                else if (current == 2)
+                {
+                    formalSink?
+                        .InvalidateNativeRemoteWindowProtectionBeforeCaptureNow();
+                }
+                else if (current == 3 && formalSink is { } liveSink)
+                {
+                    liveSink.LatchNativeRemoteWindowProtectionObservationNow(null);
+                    liveSink.NotifyNativeRemoteWindowProtectionChanged();
+                }
+            }
         }
     }
 
@@ -4066,6 +5072,10 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public Action? EmergencyStopping { get; set; }
 
+        public int PauseCount { get; private set; }
+
+        public int ResumeCount { get; private set; }
+
         public int StopCount { get; private set; }
 
         public LocalBoundaryResult StopResult { get; set; } =
@@ -4097,11 +5107,18 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
                 CreateFrame(currentSource, sequence));
         }
 
-        public LocalBoundaryResult PauseNow(MirrorPauseReason reason) =>
-            LocalBoundaryResult.Confirmed("native_capture_paused");
+        public LocalBoundaryResult PauseNow(MirrorPauseReason reason)
+        {
+            _ = reason;
+            PauseCount++;
+            return LocalBoundaryResult.Confirmed("native_capture_paused");
+        }
 
-        public LocalBoundaryResult ResumeNow() =>
-            LocalBoundaryResult.Confirmed("native_capture_resumed");
+        public LocalBoundaryResult ResumeNow()
+        {
+            ResumeCount++;
+            return LocalBoundaryResult.Confirmed("native_capture_resumed");
+        }
 
         public LocalBoundaryResult EmergencyStopNow()
         {
@@ -4124,6 +5141,12 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     {
         public int EmergencyStopCount { get; private set; }
 
+        public int InjectCount { get; private set; }
+
+        public int PauseCount { get; private set; }
+
+        public int ResumeCount { get; private set; }
+
         public int StopCount { get; private set; }
 
         public ValueTask<LocalBoundaryResult> InjectAsync(
@@ -4132,15 +5155,23 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            InjectCount++;
             return ValueTask.FromResult(
                 LocalBoundaryResult.Confirmed("native_input_injected"));
         }
 
-        public LocalBoundaryResult PauseNow(MirrorPauseReason reason) =>
-            LocalBoundaryResult.Confirmed("native_input_paused");
+        public LocalBoundaryResult PauseNow(MirrorPauseReason reason)
+        {
+            _ = reason;
+            PauseCount++;
+            return LocalBoundaryResult.Confirmed("native_input_paused");
+        }
 
-        public LocalBoundaryResult ResumeNow() =>
-            LocalBoundaryResult.Confirmed("native_input_resumed");
+        public LocalBoundaryResult ResumeNow()
+        {
+            ResumeCount++;
+            return LocalBoundaryResult.Confirmed("native_input_resumed");
+        }
 
         public LocalBoundaryResult EmergencyStopNow()
         {

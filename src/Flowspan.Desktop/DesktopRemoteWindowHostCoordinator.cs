@@ -349,6 +349,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     internal RemoteWindowMediaSessionBudget? ActiveMediaBudget =>
         Volatile.Read(ref active)?.MediaBudget;
 
+    internal int ActiveProtectionNotificationWaiterCount =>
+        Volatile.Read(ref active)?.ProtectionNotificationWaiterCount ?? 0;
+
     internal Exception? TerminalFailure
     {
         get
@@ -481,7 +484,12 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     cancellationToken)
                 .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            _ = ReadCurrentSafeProtection(generation, source);
+            NativeRemoteWindowProtectionObservation protectionObservation =
+                ReadCurrentSafeProtection(generation, source);
+            ReserveProtectionPreparation(
+                generation,
+                protectionObservation,
+                cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             _ = ValidateCurrentHostFacts(request, generation, out _);
             cancellationToken.ThrowIfCancellationRequested();
@@ -558,13 +566,14 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 generation,
                 out _);
             RegisterProtectionObserver(generation);
-            ProtectionSnapshot initialProtection =
+            protectionObservation =
                 ReadCurrentSafeProtection(generation, source);
             cancellationToken.ThrowIfCancellationRequested();
             PromoteEmergencyStopReadiness(generation);
             cancellationToken.ThrowIfCancellationRequested();
             source = ValidateCurrentHostFacts(request, generation, out _);
-            initialProtection = ReadCurrentSafeProtection(generation, source);
+            protectionObservation =
+                ReadCurrentSafeProtection(generation, source);
             NativeRemoteWindowSourcePreparationRegistration sourceReservation =
                 generation.SourcePreparationRegistration
                 ?? throw StartFailure("native_source_stale");
@@ -608,6 +617,22 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     RemoteWindowHostPreparationFact.Authorization);
             }
 
+            INativeRemoteWindowProtectionPreparationRegistration
+                protectionReservation =
+                    generation.ProtectionPreparationRegistration
+                    ?? throw StartFailure("native_protection_not_safe");
+            if (!IsProtectionPreparationCurrent(
+                    protectionReservation,
+                    cancellationToken)
+                || !PromoteProtectionPreparation(
+                    generation,
+                    protectionReservation,
+                    cancellationToken))
+            {
+                _ = generation.PreparationReservation.TryInvalidate(
+                    RemoteWindowHostPreparationFact.Protection);
+            }
+
             if (!generation.PreparationReservation.TryPromote(
                     CanonicalUtc(clock.UtcNow)))
             {
@@ -626,7 +651,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             generation.AuthorizationPreparationRegistration = null;
 
             RemoteWindowCommandResult started = await controller.StartAsync(
-                    initialProtection,
+                    protectionObservation.Protection,
+                    protectionReservation,
                     cancellationToken)
                 .ConfigureAwait(false);
             if (!started.Succeeded)
@@ -1054,34 +1080,73 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private void RegisterProtectionObserver(RuntimeGeneration generation)
     {
         generation.ProtectionChanged = observation =>
+            OnProtectionObservation(
+                generation,
+                observation,
+                protectionAdmissionEpoch: null);
+        generation.FormalProtectionChanged = (observation, admissionEpoch) =>
+            OnProtectionObservation(generation, observation, admissionEpoch);
+        generation.ProtectionLost = () => OnProtectionSourceLost(generation);
+        generation.Request.Protection.Changed += generation.ProtectionChanged;
+        generation.ProtectionObserverRegistered = true;
+    }
+
+    private void OnProtectionObservation(
+        RuntimeGeneration generation,
+        NativeRemoteWindowProtectionObservation observation,
+        long? protectionAdmissionEpoch)
+    {
+        if (!generation.TryEnterCallback(
+                out RuntimeGeneration.CallbackLease? callback)
+            || callback is null)
         {
-            if (!generation.TryEnterCallback(
-                    out RuntimeGeneration.CallbackLease? callback)
-                || callback is null)
+            return;
+        }
+
+        using (callback)
+        {
+            if (!MatchesProtectionIdentity(generation, observation)
+                || !generation.TryAcceptProtectionRevision(
+                    observation.Revision,
+                    allowEqual: false))
             {
                 return;
             }
 
-            using (callback)
+            try
             {
-                if (!MatchesProtectionIdentity(generation, observation)
-                    || !generation.TryAcceptProtectionRevision(
-                        observation.Revision))
-                {
-                    return;
-                }
-
-                if (!IsFreshSafe(observation.Protection, clock.UtcNow))
-                {
-                    generation.CloseAdmissionNow();
-                }
-
-                _ = generation.Controller.ApplyProtectionSnapshot(
-                    observation.Protection);
+                _ = protectionAdmissionEpoch is { } admissionEpoch
+                    ? generation.Controller.ApplyProtectionSnapshot(
+                        observation.Protection,
+                        admissionEpoch)
+                    : generation.Controller.ApplyProtectionSnapshot(
+                        observation.Protection);
             }
-        };
-        generation.Request.Protection.Changed += generation.ProtectionChanged;
-        generation.ProtectionObserverRegistered = true;
+            catch (OutOfMemoryException)
+            {
+                RequestTerminalShutdown(generation, failCloseImmediately: true);
+                throw;
+            }
+            catch (Exception)
+            {
+                RequestTerminalShutdown(generation, failCloseImmediately: true);
+            }
+        }
+    }
+
+    private void OnProtectionSourceLost(RuntimeGeneration generation)
+    {
+        if (!generation.TryEnterCallback(
+                out RuntimeGeneration.CallbackLease? callback)
+            || callback is null)
+        {
+            return;
+        }
+
+        using (callback)
+        {
+            RequestTerminalShutdown(generation, failCloseImmediately: true);
+        }
     }
 
     private async ValueTask ReserveAuthorizationPreparationAsync(
@@ -1294,6 +1359,112 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
     }
 
+    private void ReserveProtectionPreparation(
+        RuntimeGeneration generation,
+        NativeRemoteWindowProtectionObservation expectedObservation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (generation.Request.Protection is not
+            INativeRemoteWindowProtectionPreparationBoundary boundary)
+        {
+            _ = generation.PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Protection);
+            throw StartFailure(GetPreparationReason(generation));
+        }
+
+        NativeRemoteWindowProtectionPreparationReservationResult result;
+        try
+        {
+            result = boundary.TryReservePreparation(
+                expectedObservation,
+                CanonicalUtc(clock.UtcNow),
+                generation);
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == cancellationToken)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("native_protection_not_safe");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (result.Status ==
+                NativeRemoteWindowProtectionPreparationReservationStatus.Reserved
+            && result.Registration is { } registration
+            && ReferenceEquals(
+                generation.ProtectionPreparationRegistration,
+                registration)
+            && IsProtectionPreparationCurrent(registration, cancellationToken))
+        {
+            if (generation.PreparationReservation.TryBindProtectionObservation(
+                    expectedObservation.Protection.ObservedAt))
+            {
+                return;
+            }
+        }
+
+        _ = generation.PreparationReservation.TryInvalidate(
+            RemoteWindowHostPreparationFact.Protection);
+        throw StartFailure(GetPreparationReason(generation));
+    }
+
+    private static bool IsProtectionPreparationCurrent(
+        INativeRemoteWindowProtectionPreparationRegistration registration,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return registration.IsCurrent;
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == cancellationToken)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("native_protection_not_safe");
+        }
+    }
+
+    private bool PromoteProtectionPreparation(
+        RuntimeGeneration generation,
+        INativeRemoteWindowProtectionPreparationRegistration registration,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        bool promoted;
+        try
+        {
+            promoted = registration.TryPromote(
+                CanonicalUtc(clock.UtcNow),
+                generation);
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == cancellationToken)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("native_protection_not_safe");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return promoted
+            && ReferenceEquals(
+                generation.ProtectionPreparationRegistration,
+                registration)
+            && IsProtectionPreparationCurrent(registration, cancellationToken);
+    }
+
     private void ReserveEmergencyStopReadiness(RuntimeGeneration generation)
     {
         LocalEmergencyStopReadinessReservationResult reservation;
@@ -1482,7 +1653,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         return current;
     }
 
-    private ProtectionSnapshot ReadCurrentSafeProtection(
+    private NativeRemoteWindowProtectionObservation ReadCurrentSafeProtection(
         RuntimeGeneration generation,
         NativeRemoteWindowSourceSnapshot source)
     {
@@ -1503,14 +1674,16 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             || observation is null
             || !MatchesProtectionIdentity(generation, observation)
             || observation.SourceGeneration != source.Source.SourceGeneration
-            || !generation.TryAcceptProtectionRevision(observation.Revision)
+            || !generation.TryAcceptProtectionRevision(
+                observation.Revision,
+                allowEqual: true)
             || !IsFreshSafe(observation.Protection, clock.UtcNow))
         {
             generation.CloseAdmissionNow();
             throw StartFailure("native_protection_not_safe");
         }
 
-        return observation.Protection;
+        return observation;
     }
 
     private static bool MatchesProtectionIdentity(
@@ -1638,6 +1811,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         CaptureFailure(
             failures,
             () => generation.ConnectionPreparationRegistration?.Dispose());
+        CaptureFailure(
+            failures,
+            () => generation.ProtectionPreparationRegistration?.Dispose());
         CaptureFailure(failures, generation.PreparationReservation.Dispose);
         if (generation.AuthorizationPreparationRegistration is { } authorization)
         {
@@ -1866,9 +2042,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         RemoteWindowPreparationRequest preparation,
         object callbackOwner) :
         INativeRemoteWindowPermissionPreparationInvalidationSink,
-        IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+        IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink,
+        INativeRemoteWindowProtectionPreparationInvalidationSink,
+        INativeRemoteWindowProtectionFormalSink
     {
         private static readonly AsyncLocal<CallbackScope?> CallbackAncestry = new();
+        private static readonly AsyncLocal<ProtectionNotificationScope?>
+            ProtectionNotificationAncestry = new();
         private NativeRemoteWindowPermissionSnapshot acceptedPermission =
             initialPermission;
         private readonly HashSet<CallbackLease> activeCallbacks = [];
@@ -1880,11 +2060,22 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             connectionPreparationRegistration;
         private INativeRemoteWindowPermissionPreparationRegistration?
             permissionPreparationRegistration;
+        private INativeRemoteWindowProtectionPreparationRegistration?
+            protectionPreparationRegistration;
         private readonly object connectionFailCloseGate = new();
         private readonly object cleanupGate = new();
         private bool callbacksRetired;
         private Task<Exception?>? cleanup;
         private Task<Exception?>? connectionFailClose;
+        private readonly Queue<ProtectionNotification>
+            pendingProtectionNotifications = new(
+                InMemoryNativeProtectionSource.MaximumPendingNotifications);
+        private long protectionNotificationDrained;
+        private long protectionNotificationEnqueued;
+        private Exception? protectionNotificationFailure;
+        private bool protectionNotificationTerminal;
+        private bool protectionNotificationDraining;
+        private int protectionNotificationWaiters;
         private long protectionRevision;
 
         public DesktopRemoteWindowFrameAdmissionSink Admission { get; } = admission;
@@ -1961,7 +2152,23 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             set;
         }
 
+        public Action<NativeRemoteWindowProtectionObservation, long>?
+            FormalProtectionChanged
+        {
+            get;
+            set;
+        }
+
         public bool ProtectionObserverRegistered { get; set; }
+
+        public Action? ProtectionLost { get; set; }
+
+        public INativeRemoteWindowProtectionPreparationRegistration?
+            ProtectionPreparationRegistration =>
+                Volatile.Read(ref protectionPreparationRegistration);
+
+        public int ProtectionNotificationWaiterCount =>
+            Volatile.Read(ref protectionNotificationWaiters);
 
         public DesktopRemoteWindowHostStartRequest Request { get; } = request;
 
@@ -2047,6 +2254,236 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             _ = PreparationReservation.TryInvalidate(
                 RemoteWindowHostPreparationFact.Permission);
 
+        void INativeRemoteWindowProtectionPreparationInvalidationSink
+            .OwnNativeRemoteWindowProtectionPreparationRegistration(
+                INativeRemoteWindowProtectionPreparationRegistration registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            INativeRemoteWindowProtectionPreparationRegistration? existing =
+                Interlocked.CompareExchange(
+                    ref protectionPreparationRegistration,
+                    registration,
+                    null);
+            if (existing is not null && !ReferenceEquals(existing, registration))
+            {
+                throw new InvalidOperationException(
+                    "A Remote Window host generation already owns a native protection Preparation registration.");
+            }
+        }
+
+        void INativeRemoteWindowProtectionPreparationInvalidationSink
+            .InvalidateNativeRemoteWindowProtectionPreparationNow() =>
+            _ = PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Protection);
+
+        void INativeRemoteWindowProtectionFormalSink
+            .InvalidateNativeRemoteWindowProtectionBeforeCaptureNow()
+        {
+            long protectionAdmissionEpoch =
+                Controller.CloseProtectionAdmissionNow();
+            lock (protectionGate)
+            {
+                protectionNotificationTerminal = true;
+                pendingProtectionNotifications.Clear();
+                EnqueueProtectionNotificationUnderGate(
+                    observation: null,
+                    protectionAdmissionEpoch);
+            }
+
+            _ = PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Protection);
+        }
+
+        void INativeRemoteWindowProtectionFormalSink
+            .LatchNativeRemoteWindowProtectionObservationNow(
+                NativeRemoteWindowProtectionObservation? observation)
+        {
+            long protectionAdmissionEpoch =
+                Controller.CloseProtectionAdmissionNow();
+            lock (protectionGate)
+            {
+                if (observation is null)
+                {
+                    protectionNotificationTerminal = true;
+                    pendingProtectionNotifications.Clear();
+                    EnqueueProtectionNotificationUnderGate(
+                        observation: null,
+                        protectionAdmissionEpoch);
+                    return;
+                }
+
+                if (protectionNotificationTerminal)
+                {
+                    return;
+                }
+
+                if (pendingProtectionNotifications.Count >=
+                    InMemoryNativeProtectionSource.MaximumPendingNotifications)
+                {
+                    protectionNotificationTerminal = true;
+                    pendingProtectionNotifications.Clear();
+                    EnqueueProtectionNotificationUnderGate(
+                        observation: null,
+                        protectionAdmissionEpoch);
+                    return;
+                }
+
+                EnqueueProtectionNotificationUnderGate(
+                    observation,
+                    protectionAdmissionEpoch);
+            }
+        }
+
+        private void EnqueueProtectionNotificationUnderGate(
+            NativeRemoteWindowProtectionObservation? observation,
+            long protectionAdmissionEpoch)
+        {
+            long sequence = checked(++protectionNotificationEnqueued);
+            pendingProtectionNotifications.Enqueue(
+                new ProtectionNotification(
+                    sequence,
+                    observation,
+                    protectionAdmissionEpoch));
+        }
+
+        void INativeRemoteWindowProtectionFormalSink
+            .NotifyNativeRemoteWindowProtectionChanged()
+        {
+            var drain = false;
+            Exception? existingFailure = null;
+            lock (protectionGate)
+            {
+                long targetSequence = protectionNotificationEnqueued;
+                while (true)
+                {
+                    existingFailure = protectionNotificationFailure;
+                    if (existingFailure is not null
+                        || protectionNotificationDrained >= targetSequence)
+                    {
+                        break;
+                    }
+
+                    if (!protectionNotificationDraining)
+                    {
+                        protectionNotificationDraining = true;
+                        drain = true;
+                        break;
+                    }
+
+                    if (HasActiveProtectionNotificationAncestry())
+                    {
+                        return;
+                    }
+
+                    Interlocked.Increment(ref protectionNotificationWaiters);
+                    try
+                    {
+                        Monitor.Wait(protectionGate);
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref protectionNotificationWaiters);
+                    }
+                }
+            }
+
+            if (existingFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(existingFailure).Throw();
+            }
+
+            if (!drain)
+            {
+                return;
+            }
+
+            ProtectionNotificationScope? inherited =
+                ProtectionNotificationAncestry.Value;
+            var notificationScope = new ProtectionNotificationScope(inherited);
+            ProtectionNotificationAncestry.Value = notificationScope;
+            try
+            {
+                while (true)
+                {
+                    ProtectionNotification notification;
+                    lock (protectionGate)
+                    {
+                        if (pendingProtectionNotifications.Count == 0)
+                        {
+                            protectionNotificationDraining = false;
+                            Monitor.PulseAll(protectionGate);
+                            return;
+                        }
+
+                        notification = pendingProtectionNotifications.Dequeue();
+                    }
+
+                    try
+                    {
+                        if (notification.Observation is null)
+                        {
+                            ProtectionLost?.Invoke();
+                        }
+                        else
+                        {
+                            FormalProtectionChanged?.Invoke(
+                                notification.Observation,
+                                notification.ProtectionAdmissionEpoch);
+                        }
+                    }
+                    catch (Exception failure)
+                    {
+                        lock (protectionGate)
+                        {
+                            protectionNotificationFailure ??= failure;
+                            pendingProtectionNotifications.Clear();
+                            protectionNotificationDrained =
+                                protectionNotificationEnqueued;
+                            protectionNotificationDraining = false;
+                            Monitor.PulseAll(protectionGate);
+                        }
+
+                        ExceptionDispatchInfo.Capture(failure).Throw();
+                        throw;
+                    }
+
+                    lock (protectionGate)
+                    {
+                        protectionNotificationDrained = Math.Max(
+                            protectionNotificationDrained,
+                            notification.Sequence);
+                        Monitor.PulseAll(protectionGate);
+                    }
+                }
+            }
+            finally
+            {
+                notificationScope.Deactivate();
+                if (ReferenceEquals(
+                        ProtectionNotificationAncestry.Value,
+                        notificationScope))
+                {
+                    ProtectionNotificationAncestry.Value = inherited;
+                }
+            }
+        }
+
+        private static bool HasActiveProtectionNotificationAncestry()
+        {
+            for (ProtectionNotificationScope? scope =
+                    ProtectionNotificationAncestry.Value;
+                scope is not null;
+                scope = scope.Previous)
+            {
+                if (scope.IsActive)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public bool TryEnterCallback(out CallbackLease? callback)
         {
             lock (callbackGate)
@@ -2122,11 +2559,14 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
         }
 
-        public bool TryAcceptProtectionRevision(long revision)
+        public bool TryAcceptProtectionRevision(
+            long revision,
+            bool allowEqual)
         {
             lock (protectionGate)
             {
-                if (revision < protectionRevision)
+                if (revision < protectionRevision
+                    || !allowEqual && revision == protectionRevision)
                 {
                     return false;
                 }
@@ -2201,6 +2641,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
         }
 
+        private readonly record struct ProtectionNotification(
+            long Sequence,
+            NativeRemoteWindowProtectionObservation? Observation,
+            long ProtectionAdmissionEpoch);
+
         private void ExitCallback(CallbackLease callback)
         {
             lock (callbackGate)
@@ -2260,6 +2705,18 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             public CallbackScope? Previous { get; } = previous;
 
             public void Activate() => Volatile.Write(ref active, 1);
+
+            public void Deactivate() => Volatile.Write(ref active, 0);
+        }
+
+        private sealed class ProtectionNotificationScope(
+            ProtectionNotificationScope? previous)
+        {
+            private int active = 1;
+
+            public bool IsActive => Volatile.Read(ref active) != 0;
+
+            public ProtectionNotificationScope? Previous { get; } = previous;
 
             public void Deactivate() => Volatile.Write(ref active, 0);
         }

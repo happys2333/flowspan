@@ -258,6 +258,1665 @@ public sealed class NativeRemoteWindowContractsTests
     }
 
     [Fact]
+    public void FreshSafeProtectionCanBeReservedExactly()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var sink = new RecordingProtectionPreparationInvalidationSink();
+
+        NativeRemoteWindowProtectionPreparationReservationResult result =
+            ((INativeRemoteWindowProtectionPreparationBoundary)source)
+            .TryReservePreparation(expected!, Now, sink);
+
+        Assert.Equal(
+            NativeRemoteWindowProtectionPreparationReservationStatus.Reserved,
+            result.Status);
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    result.Registration);
+        Assert.Same(registration, sink.Registration);
+        Assert.True(result.Reserved);
+        Assert.True(registration.IsCurrent);
+        Assert.True(registration.RegistrationId > 0);
+
+        registration.Dispose();
+        registration.Dispose();
+
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(0, sink.Count);
+    }
+
+    [Fact]
+    public void ProtectionMutationInvalidatesReservationBeforeOrdinaryObserver()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var order = new List<int>();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            null!;
+        var sink = new RecordingProtectionPreparationInvalidationSink(() =>
+        {
+            Assert.False(registration.IsCurrent);
+            Assert.True(
+                source.TryGetLatest(
+                    out NativeRemoteWindowProtectionObservation? committed));
+            Assert.Equal(
+                ProtectionKind.SecureInput,
+                committed?.Protection.Kind);
+            order.Add(1);
+        });
+        registration = Assert.IsAssignableFrom<
+            INativeRemoteWindowProtectionPreparationRegistration>(
+                ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                .TryReservePreparation(expected!, Now, sink)
+                .Registration);
+        source.Changed += _ =>
+        {
+            Assert.Equal(1, sink.Count);
+            order.Add(2);
+        };
+
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+        Assert.Equal([1, 2], order);
+    }
+
+    [Fact]
+    public void ProtectionReservationPromotesAndAdmitsExactCaptureStart()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var formalSink = new RecordingProtectionFormalSink();
+
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.IsCurrent);
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+        Assert.True(registration.IsCurrent);
+        Assert.False(registration.TryAdmitCaptureStart(Now));
+        Assert.Equal(0, preparationSink.Count);
+        Assert.Equal(0, formalSink.PreStartInvalidationCount);
+        Assert.Equal(0, formalSink.LatchCount);
+        Assert.Equal(0, formalSink.NotifyCount);
+    }
+
+    [Fact]
+    public void FormalPreStartMutationInvalidatesBeforeCaptureAndObserver()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var order = new List<int>();
+        RecordingProtectionFormalSink? formalSink = null;
+        formalSink = new RecordingProtectionFormalSink(
+            invalidatingPreStart: () =>
+            {
+                Assert.False(registration.IsCurrent);
+                order.Add(1);
+            });
+        Assert.True(registration.TryPromote(Now, formalSink));
+        source.Changed += _ =>
+        {
+            Assert.Equal(1, formalSink.PreStartInvalidationCount);
+            order.Add(2);
+        };
+
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.False(registration.IsCurrent);
+        Assert.False(registration.TryAdmitCaptureStart(Now));
+        Assert.Equal(0, preparationSink.Count);
+        Assert.Equal(1, formalSink.PreStartInvalidationCount);
+        Assert.Equal(0, formalSink.LatchCount);
+        Assert.Equal(0, formalSink.NotifyCount);
+        Assert.Equal([1, 2], order);
+    }
+
+    [Fact]
+    public void LiveMutationLatchesThenNotifiesBeforeOrdinaryObserver()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var order = new List<int>();
+        NativeRemoteWindowProtectionObservation? latched = null;
+        var formalSink = new RecordingProtectionFormalSink(
+            latching: observation =>
+            {
+                Assert.True(registration.IsCurrent);
+                Assert.True(
+                    source.TryGetLatest(
+                        out NativeRemoteWindowProtectionObservation? current));
+                Assert.Same(observation, current);
+                latched = observation;
+                order.Add(1);
+            },
+            notifying: () =>
+            {
+                Assert.NotNull(latched);
+                order.Add(2);
+            });
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+        source.Changed += observation =>
+        {
+            Assert.Same(latched, observation);
+            Assert.Equal(1, formalSink.NotifyCount);
+            order.Add(3);
+        };
+
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.True(registration.IsCurrent);
+        Assert.Equal(0, preparationSink.Count);
+        Assert.Equal(0, formalSink.PreStartInvalidationCount);
+        Assert.Equal(1, formalSink.LatchCount);
+        Assert.Equal(1, formalSink.NotifyCount);
+        Assert.Equal(ProtectionKind.SecureInput, latched?.Protection.Kind);
+        Assert.Equal([1, 2, 3], order);
+
+        registration.Dispose();
+    }
+
+    [Fact]
+    public void ProtectionSourceDisposeInvalidatesTemporaryOwnerAndReplaysFailure()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var failure = new IOException("protection-disposal-failure");
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            null!;
+        var sink = new RecordingProtectionPreparationInvalidationSink(
+            invalidating: () => Assert.False(registration.IsCurrent),
+            invalidationFailure: failure);
+        registration = Assert.IsAssignableFrom<
+            INativeRemoteWindowProtectionPreparationRegistration>(
+                ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                .TryReservePreparation(expected!, Now, sink)
+                .Registration);
+
+        IOException first = Assert.Throws<IOException>(source.Dispose);
+        IOException repeated = Assert.Throws<IOException>(source.Dispose);
+
+        Assert.Same(failure, first);
+        Assert.Same(first, repeated);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+        Assert.False(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? afterDispose));
+        Assert.Null(afterDispose);
+    }
+
+    [Fact]
+    public void ProtectionReservationRequiresEveryExactObservationField()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        var protection = new ProtectionSnapshot(
+            ProtectionKind.Safe,
+            Now,
+            "reservation-probe");
+        Assert.True(source.TryPublish(protection));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? current));
+        NativeRemoteWindowProtectionObservation[] mismatches =
+        [
+            NativeRemoteWindowProtectionObservation.Create(
+                protection,
+                ownerGeneration: 7,
+                current!.SessionGeneration,
+                current.SourceGeneration,
+                current.Revision),
+            NativeRemoteWindowProtectionObservation.Create(
+                protection,
+                current!.OwnerGeneration,
+                sessionGeneration: 7,
+                current.SourceGeneration,
+                current.Revision),
+            NativeRemoteWindowProtectionObservation.Create(
+                protection,
+                current!.OwnerGeneration,
+                current.SessionGeneration,
+                sourceGeneration: 7,
+                current.Revision),
+            NativeRemoteWindowProtectionObservation.Create(
+                protection,
+                current!.OwnerGeneration,
+                current.SessionGeneration,
+                current.SourceGeneration,
+                checked(current.Revision + 1)),
+            NativeRemoteWindowProtectionObservation.Create(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    protection.ObservedAt,
+                    protection.Source),
+                current!.OwnerGeneration,
+                current.SessionGeneration,
+                current.SourceGeneration,
+                current.Revision),
+            NativeRemoteWindowProtectionObservation.Create(
+                new ProtectionSnapshot(
+                    protection.Kind,
+                    protection.ObservedAt.AddTicks(1),
+                    protection.Source),
+                current!.OwnerGeneration,
+                current.SessionGeneration,
+                current.SourceGeneration,
+                current.Revision),
+            NativeRemoteWindowProtectionObservation.Create(
+                new ProtectionSnapshot(
+                    protection.Kind,
+                    protection.ObservedAt,
+                    "different-probe"),
+                current!.OwnerGeneration,
+                current.SessionGeneration,
+                current.SourceGeneration,
+                current.Revision),
+        ];
+        INativeRemoteWindowProtectionPreparationBoundary boundary = source;
+
+        foreach (
+            NativeRemoteWindowProtectionObservation mismatch in mismatches)
+        {
+            NativeRemoteWindowProtectionPreparationReservationResult result =
+                boundary.TryReservePreparation(
+                    mismatch,
+                    Now,
+                    new RecordingProtectionPreparationInvalidationSink());
+
+            Assert.Equal(
+                NativeRemoteWindowProtectionPreparationReservationStatus
+                    .ObservationChanged,
+                result.Status);
+            Assert.Null(result.Registration);
+        }
+    }
+
+    [Theory]
+    [InlineData(ProtectionKind.SensitiveWindow)]
+    [InlineData(ProtectionKind.SecureInput)]
+    [InlineData(ProtectionKind.ProtectedContent)]
+    [InlineData(ProtectionKind.Unknown)]
+    public void UnsafeProtectionCannotBeReserved(ProtectionKind kind)
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(kind, Now, "unsafe-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+
+        NativeRemoteWindowProtectionPreparationReservationResult result =
+            ((INativeRemoteWindowProtectionPreparationBoundary)source)
+            .TryReservePreparation(
+                expected!,
+                Now,
+                new RecordingProtectionPreparationInvalidationSink());
+
+        Assert.Equal(
+            NativeRemoteWindowProtectionPreparationReservationStatus
+                .ProtectionBlocked,
+            result.Status);
+        Assert.Null(result.Registration);
+    }
+
+    [Theory]
+    [InlineData(-500, true)]
+    [InlineData(-501, false)]
+    [InlineData(50, true)]
+    [InlineData(51, false)]
+    public void ProtectionReservationUsesInclusiveFreshnessBoundaries(
+        int observedOffsetMilliseconds,
+        bool expectedReserved)
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now.AddMilliseconds(observedOffsetMilliseconds),
+                    "freshness-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+
+        NativeRemoteWindowProtectionPreparationReservationResult result =
+            ((INativeRemoteWindowProtectionPreparationBoundary)source)
+            .TryReservePreparation(
+                expected!,
+                Now,
+                new RecordingProtectionPreparationInvalidationSink());
+
+        Assert.Equal(expectedReserved, result.Reserved);
+        Assert.Equal(
+            expectedReserved
+                ? NativeRemoteWindowProtectionPreparationReservationStatus
+                    .Reserved
+                : NativeRemoteWindowProtectionPreparationReservationStatus
+                    .ProtectionBlocked,
+            result.Status);
+        result.Registration?.Dispose();
+    }
+
+    [Fact]
+    public void TemporaryInvalidationUnwrapsNestedOutOfMemoryAfterObserver()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var fatal = new InjectedProtectionOutOfMemoryException(
+            "temporary-protection-fatal");
+        var composite = new AggregateException(
+            new IOException("temporary-protection-cleanup"),
+            new AggregateException(fatal));
+        var sink = new RecordingProtectionPreparationInvalidationSink(
+            invalidationFailure: composite);
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(expected!, Now, sink)
+                    .Registration);
+        int observerCount = 0;
+        source.Changed += _ => observerCount++;
+
+        OutOfMemoryException thrown = Assert.ThrowsAny<OutOfMemoryException>(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.Same(fatal, thrown);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+        Assert.Equal(1, observerCount);
+    }
+
+    [Fact]
+    public void FormalPreStartInvalidationUnwrapsNestedOutOfMemoryAfterObserver()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var fatal = new InjectedProtectionOutOfMemoryException(
+            "formal-protection-fatal");
+        var formalSink = new RecordingProtectionFormalSink(
+            preStartFailure: new AggregateException(
+                new IOException("formal-protection-cleanup"),
+                new AggregateException(fatal)));
+        Assert.True(registration.TryPromote(Now, formalSink));
+        int observerCount = 0;
+        source.Changed += _ => observerCount++;
+
+        OutOfMemoryException thrown = Assert.ThrowsAny<OutOfMemoryException>(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.Same(fatal, thrown);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, formalSink.PreStartInvalidationCount);
+        Assert.Equal(1, observerCount);
+    }
+
+    [Fact]
+    public void LiveSourceLossUnwrapsNestedOutOfMemoryAndReplaysIt()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var fatal = new InjectedProtectionOutOfMemoryException(
+            "live-source-loss-fatal");
+        var formalSink = new RecordingProtectionFormalSink(
+            latchFailure: new AggregateException(
+                new IOException("live-source-loss-cleanup"),
+                new AggregateException(fatal)));
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+
+        OutOfMemoryException first = Assert.ThrowsAny<OutOfMemoryException>(
+            source.Dispose);
+        OutOfMemoryException repeated = Assert.ThrowsAny<OutOfMemoryException>(
+            source.Dispose);
+
+        Assert.Same(fatal, first);
+        Assert.Same(first, repeated);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, formalSink.LatchCount);
+        Assert.Null(formalSink.Observation);
+        Assert.Equal(1, formalSink.NotifyCount);
+    }
+
+    [Fact]
+    public void OwnerClaimRollbackAllowsReplacementAndLateDisposeIsAbaSafe()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var ownerFailure = new IOException("protection-owner-claim-failure");
+        var failingSink = new RecordingProtectionPreparationInvalidationSink(
+            ownershipFailure: ownerFailure);
+
+        IOException thrown = Assert.Throws<IOException>(() =>
+            ((INativeRemoteWindowProtectionPreparationBoundary)source)
+            .TryReservePreparation(expected!, Now, failingSink));
+        INativeRemoteWindowProtectionPreparationRegistration failed =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    failingSink.Registration);
+        var replacementSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration replacement =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        replacementSink)
+                    .Registration);
+
+        failed.Dispose();
+
+        Assert.Same(ownerFailure, thrown);
+        Assert.False(failed.IsCurrent);
+        Assert.True(replacement.IsCurrent);
+        Assert.True(replacement.RegistrationId > failed.RegistrationId);
+        Assert.Same(replacement, replacementSink.Registration);
+
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.False(replacement.IsCurrent);
+        Assert.Equal(0, failingSink.Count);
+        Assert.Equal(1, replacementSink.Count);
+    }
+
+    [Fact]
+    public void SafeUnsafeSafeAbaCannotReviveOldProtectionReservation()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        var safe = new ProtectionSnapshot(
+            ProtectionKind.Safe,
+            Now,
+            "reservation-probe");
+        Assert.True(source.TryPublish(safe));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? firstSafe));
+        var firstSink = new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration first =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(firstSafe!, Now, firstSink)
+                    .Registration);
+
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now.AddMilliseconds(2),
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? secondSafe));
+
+        NativeRemoteWindowProtectionPreparationReservationResult stale =
+            ((INativeRemoteWindowProtectionPreparationBoundary)source)
+            .TryReservePreparation(
+                firstSafe!,
+                Now.AddMilliseconds(2),
+                new RecordingProtectionPreparationInvalidationSink());
+
+        Assert.False(first.IsCurrent);
+        Assert.Equal(1, firstSink.Count);
+        Assert.Equal(
+            checked(firstSafe!.Revision + 2),
+            secondSafe?.Revision);
+        Assert.Equal(
+            NativeRemoteWindowProtectionPreparationReservationStatus
+                .ObservationChanged,
+            stale.Status);
+        Assert.Null(stale.Registration);
+    }
+
+    [Fact]
+    public async Task ReservationCommitBlocksMutationUntilOwnerClaimReturns()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        using var ownerClaimEntered = new ManualResetEventSlim();
+        using var releaseOwnerClaim = new ManualResetEventSlim();
+        var sink = new RecordingProtectionPreparationInvalidationSink(
+            owning: _ =>
+            {
+                ownerClaimEntered.Set();
+                if (!releaseOwnerClaim.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    throw new TimeoutException(
+                        "Timed out releasing protection owner claim.");
+                }
+            });
+        Task<NativeRemoteWindowProtectionPreparationReservationResult>
+            reservation = RunOnDedicatedThread(() =>
+                ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                .TryReservePreparation(expected!, Now, sink));
+        Assert.True(ownerClaimEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        Task<bool> mutation = RunOnDedicatedThread(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+        try
+        {
+            Task first = await Task.WhenAny(
+                mutation,
+                Task.Delay(TimeSpan.FromMilliseconds(100)));
+            Assert.NotSame(mutation, first);
+        }
+        finally
+        {
+            releaseOwnerClaim.Set();
+        }
+
+        NativeRemoteWindowProtectionPreparationReservationResult reserved =
+            await reservation.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(await mutation.WaitAsync(TimeSpan.FromSeconds(5)));
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    reserved.Registration);
+        Assert.Equal(
+            NativeRemoteWindowProtectionPreparationReservationStatus.Reserved,
+            reserved.Status);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+    }
+
+    [Fact]
+    public async Task MutationCommitBlocksReservationUntilInvalidationReturns()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expectedSafe));
+        using var invalidationEntered = new ManualResetEventSlim();
+        using var releaseInvalidation = new ManualResetEventSlim();
+        var existingSink = new RecordingProtectionPreparationInvalidationSink(
+            invalidating: () =>
+            {
+                invalidationEntered.Set();
+                if (!releaseInvalidation.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    throw new TimeoutException(
+                        "Timed out releasing protection invalidation.");
+                }
+            });
+        _ = Assert.IsAssignableFrom<
+            INativeRemoteWindowProtectionPreparationRegistration>(
+                ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                .TryReservePreparation(expectedSafe!, Now, existingSink)
+                .Registration);
+        var unsafeProtection = new ProtectionSnapshot(
+            ProtectionKind.SecureInput,
+            Now.AddMilliseconds(1),
+            "secure-input-probe");
+        NativeRemoteWindowProtectionObservation expectedUnsafe =
+            NativeRemoteWindowProtectionObservation.Create(
+                unsafeProtection,
+                expectedSafe!.OwnerGeneration,
+                expectedSafe.SessionGeneration,
+                expectedSafe.SourceGeneration,
+                checked(expectedSafe.Revision + 1));
+        Task<bool> mutation = RunOnDedicatedThread(
+            () => source.TryPublish(unsafeProtection));
+        Assert.True(invalidationEntered.Wait(TimeSpan.FromSeconds(5)));
+        var newSink = new RecordingProtectionPreparationInvalidationSink();
+        Task<NativeRemoteWindowProtectionPreparationReservationResult>
+            reservation = RunOnDedicatedThread(() =>
+                ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                .TryReservePreparation(
+                    expectedUnsafe,
+                    Now.AddMilliseconds(1),
+                    newSink));
+
+        try
+        {
+            Task first = await Task.WhenAny(
+                reservation,
+                Task.Delay(TimeSpan.FromMilliseconds(100)));
+            Assert.NotSame(reservation, first);
+        }
+        finally
+        {
+            releaseInvalidation.Set();
+        }
+
+        Assert.True(await mutation.WaitAsync(TimeSpan.FromSeconds(5)));
+        NativeRemoteWindowProtectionPreparationReservationResult rejected =
+            await reservation.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(
+            NativeRemoteWindowProtectionPreparationReservationStatus
+                .ProtectionBlocked,
+            rejected.Status);
+        Assert.Null(rejected.Registration);
+        Assert.Equal(1, existingSink.Count);
+        Assert.Equal(0, newSink.Count);
+    }
+
+    [Fact]
+    public void TemporarySinkFailureCannotBlockObserverOrCommittedProtection()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var order = new List<int>();
+        var failure = new IOException("temporary-invalidation-failure");
+        var sink = new RecordingProtectionPreparationInvalidationSink(
+            invalidating: () => order.Add(1),
+            invalidationFailure: failure);
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(expected!, Now, sink)
+                    .Registration);
+        source.Changed += observation =>
+        {
+            Assert.Equal(ProtectionKind.SecureInput, observation.Protection.Kind);
+            Assert.False(registration.IsCurrent);
+            order.Add(2);
+        };
+
+        IOException thrown = Assert.Throws<IOException>(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.Same(failure, thrown);
+        Assert.Equal([1, 2], order);
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? committed));
+        Assert.Equal(ProtectionKind.SecureInput, committed?.Protection.Kind);
+        Assert.Equal(1, sink.Count);
+    }
+
+    [Fact]
+    public void LiveLatchAndNotifyFailuresAggregateBeforeOrdinaryObserver()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var order = new List<int>();
+        var latchFailure = new IOException("formal-latch-failure");
+        var notifyFailure = new InvalidOperationException(
+            "formal-notify-failure");
+        var formalSink = new RecordingProtectionFormalSink(
+            latching: _ => order.Add(1),
+            notifying: () => order.Add(2),
+            latchFailure: latchFailure,
+            notifyFailure: notifyFailure);
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+        source.Changed += _ =>
+        {
+            Assert.Equal(1, formalSink.LatchCount);
+            Assert.Equal(1, formalSink.NotifyCount);
+            order.Add(3);
+        };
+
+        AggregateException thrown = Assert.Throws<AggregateException>(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.Equal([latchFailure, notifyFailure], thrown.InnerExceptions);
+        Assert.Equal([1, 2, 3], order);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, formalSink.LatchCount);
+        Assert.Equal(1, formalSink.NotifyCount);
+    }
+
+    [Fact]
+    public void ProtectionSourceDisposeInvalidatesFormalPreStartOwner()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var formalSink = new RecordingProtectionFormalSink(
+            invalidatingPreStart: () => Assert.False(registration.IsCurrent));
+        Assert.True(registration.TryPromote(Now, formalSink));
+
+        source.Dispose();
+        source.Dispose();
+
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(0, preparationSink.Count);
+        Assert.Equal(1, formalSink.PreStartInvalidationCount);
+        Assert.Equal(0, formalSink.LatchCount);
+        Assert.Equal(0, formalSink.NotifyCount);
+    }
+
+    [Fact]
+    public void ProtectionSourceDisposeLatchesAndNotifiesLiveLoss()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var order = new List<int>();
+        RecordingProtectionFormalSink? formalSink = null;
+        formalSink = new RecordingProtectionFormalSink(
+            latching: observation =>
+            {
+                Assert.Null(observation);
+                Assert.False(registration.IsCurrent);
+                Assert.False(
+                    source.TryGetLatest(
+                        out NativeRemoteWindowProtectionObservation? afterLoss));
+                Assert.Null(afterLoss);
+                order.Add(1);
+            },
+            notifying: () =>
+            {
+                Assert.Equal(1, formalSink!.LatchCount);
+                order.Add(2);
+            });
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+
+        source.Dispose();
+        source.Dispose();
+
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, formalSink.LatchCount);
+        Assert.Null(formalSink.Observation);
+        Assert.Equal(1, formalSink.NotifyCount);
+        Assert.Equal([1, 2], order);
+    }
+
+    [Fact]
+    public void LiveSourceLossFailuresAggregateAndReplayStableInstance()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var latchFailure = new IOException("source-loss-latch-failure");
+        var notifyFailure = new InvalidOperationException(
+            "source-loss-notify-failure");
+        var formalSink = new RecordingProtectionFormalSink(
+            latchFailure: latchFailure,
+            notifyFailure: notifyFailure);
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+
+        AggregateException first = Assert.Throws<AggregateException>(
+            source.Dispose);
+        AggregateException repeated = Assert.Throws<AggregateException>(
+            source.Dispose);
+
+        Assert.Same(first, repeated);
+        Assert.Equal([latchFailure, notifyFailure], first.InnerExceptions);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, formalSink.LatchCount);
+        Assert.Equal(1, formalSink.NotifyCount);
+    }
+
+    [Fact]
+    public void PromotionRevalidatesFreshnessAndInvalidatesTemporaryOwner()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var formalSink = new RecordingProtectionFormalSink();
+
+        Assert.False(
+            registration.TryPromote(
+                Now.Add(RemoteInputPolicy.MaximumProtectionAge).AddTicks(1),
+                formalSink));
+
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, preparationSink.Count);
+        Assert.Equal(0, formalSink.PreStartInvalidationCount);
+        Assert.Equal(0, formalSink.LatchCount);
+        Assert.Equal(0, formalSink.NotifyCount);
+    }
+
+    [Fact]
+    public void CaptureStartAdmissionRevalidatesFreshnessUnderSourceGate()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        var formalSink = new RecordingProtectionFormalSink();
+        Assert.True(registration.TryPromote(Now, formalSink));
+
+        Assert.False(
+            registration.TryAdmitCaptureStart(
+                Now.Add(RemoteInputPolicy.MaximumProtectionAge).AddTicks(1)));
+
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(0, preparationSink.Count);
+        Assert.Equal(1, formalSink.PreStartInvalidationCount);
+        Assert.Equal(0, formalSink.LatchCount);
+        Assert.Equal(0, formalSink.NotifyCount);
+    }
+
+    [Fact]
+    public void ProtectionSourceRejectsASecondConcurrentReservation()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var firstSink = new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration first =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(expected!, Now, firstSink)
+                    .Registration);
+        var secondSink = new RecordingProtectionPreparationInvalidationSink();
+
+        NativeRemoteWindowProtectionPreparationReservationResult second =
+            ((INativeRemoteWindowProtectionPreparationBoundary)source)
+            .TryReservePreparation(expected!, Now, secondSink);
+
+        Assert.Equal(
+            NativeRemoteWindowProtectionPreparationReservationStatus
+                .ReservationConflict,
+            second.Status);
+        Assert.Null(second.Registration);
+        Assert.True(first.IsCurrent);
+        Assert.Equal(0, firstSink.Count);
+        Assert.Equal(0, secondSink.Count);
+        first.Dispose();
+    }
+
+    [Fact]
+    public async Task PromotionAndMutationSelectExactlyOneInvalidationOwner()
+    {
+        for (int attempt = 0; attempt < 32; attempt++)
+        {
+            using var source = new InMemoryNativeProtectionSource(
+                ownerGeneration: 3,
+                sessionGeneration: 5,
+                sourceGeneration: 4);
+            Assert.True(
+                source.TryPublish(
+                    new ProtectionSnapshot(
+                        ProtectionKind.Safe,
+                        Now,
+                        "reservation-probe")));
+            Assert.True(
+                source.TryGetLatest(
+                    out NativeRemoteWindowProtectionObservation? expected));
+            var preparationSink =
+                new RecordingProtectionPreparationInvalidationSink();
+            INativeRemoteWindowProtectionPreparationRegistration registration =
+                Assert.IsAssignableFrom<
+                    INativeRemoteWindowProtectionPreparationRegistration>(
+                        ((INativeRemoteWindowProtectionPreparationBoundary)
+                            source)
+                        .TryReservePreparation(
+                            expected!,
+                            Now,
+                            preparationSink)
+                        .Registration);
+            var formalSink = new RecordingProtectionFormalSink();
+            using var start = new ManualResetEventSlim();
+            Task<bool> promotion = RunOnDedicatedThread(() =>
+            {
+                start.Wait();
+                return registration.TryPromote(Now, formalSink);
+            });
+            Task<bool> mutation = RunOnDedicatedThread(() =>
+            {
+                start.Wait();
+                return source.TryPublish(
+                    new ProtectionSnapshot(
+                        ProtectionKind.SecureInput,
+                        Now.AddMilliseconds(1),
+                        "secure-input-probe"));
+            });
+
+            start.Set();
+            bool promoted = await promotion.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(await mutation.WaitAsync(TimeSpan.FromSeconds(5)));
+
+            Assert.False(registration.IsCurrent);
+            Assert.False(registration.TryAdmitCaptureStart(Now));
+            Assert.Equal(promoted ? 0 : 1, preparationSink.Count);
+            Assert.Equal(
+                promoted ? 1 : 0,
+                formalSink.PreStartInvalidationCount);
+            Assert.Equal(
+                1,
+                preparationSink.Count
+                    + formalSink.PreStartInvalidationCount);
+            Assert.Equal(0, formalSink.LatchCount);
+            Assert.Equal(0, formalSink.NotifyCount);
+        }
+    }
+
+    [Fact]
+    public async Task ReversedConcurrentNotifiesPreserveEveryLiveObservation()
+    {
+        using var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        using var firstNotifyEntered = new ManualResetEventSlim();
+        using var releaseFirstNotify = new ManualResetEventSlim();
+        using var secondNotifyDrained = new ManualResetEventSlim();
+        var formalSink = new QueuedProtectionFormalSink(
+            firstNotifyEntered,
+            releaseFirstNotify,
+            secondNotifyDrained);
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+        var ordinaryRevisions = new List<long>();
+        source.Changed += observation =>
+        {
+            lock (ordinaryRevisions)
+            {
+                Assert.Contains(
+                    formalSink.Delivered,
+                    delivered =>
+                        delivered?.Revision == observation.Revision);
+                ordinaryRevisions.Add(observation.Revision);
+            }
+        };
+
+        Task<bool> unsafeMutation = RunOnDedicatedThread(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+        Assert.True(firstNotifyEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task<bool> safeMutation = RunOnDedicatedThread(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now.AddMilliseconds(2),
+                    "safe-restoration-probe")));
+
+        try
+        {
+            Assert.True(secondNotifyDrained.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(await safeMutation.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(unsafeMutation.IsCompleted);
+            Assert.Equal(
+                [ProtectionKind.SecureInput, ProtectionKind.Safe],
+                formalSink.Delivered
+                    .Select(static observation => observation!.Protection.Kind)
+                    .ToArray());
+        }
+        finally
+        {
+            releaseFirstNotify.Set();
+        }
+
+        Assert.True(await unsafeMutation.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal([2L, 3L], ordinaryRevisions);
+        Assert.Equal([2L, 3L], formalSink.Delivered
+            .Select(static observation => observation!.Revision)
+            .ToArray());
+        Assert.True(registration.IsCurrent);
+        registration.Dispose();
+    }
+
+    [Fact]
+    public async Task LiveSourceDisposeDoesNotReturnBeforeLossNotifyReturns()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        using var notifyEntered = new ManualResetEventSlim();
+        using var releaseNotify = new ManualResetEventSlim();
+        var formalSink = new RecordingProtectionFormalSink(
+            notifying: () =>
+            {
+                notifyEntered.Set();
+                if (!releaseNotify.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    throw new TimeoutException(
+                        "Timed out releasing source-loss notification.");
+                }
+            });
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+
+        Task disposal = RunOnDedicatedThread(source.Dispose);
+        Assert.True(notifyEntered.Wait(TimeSpan.FromSeconds(5)));
+        try
+        {
+            Task first = await Task.WhenAny(
+                disposal,
+                Task.Delay(TimeSpan.FromMilliseconds(100)));
+            Assert.NotSame(disposal, first);
+            Assert.False(registration.IsCurrent);
+            Assert.Equal(1, formalSink.LatchCount);
+            Assert.Null(formalSink.Observation);
+        }
+        finally
+        {
+            releaseNotify.Set();
+        }
+
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, formalSink.NotifyCount);
+    }
+
+    [Fact]
+    public async Task LiveFormalCallbackCanDisposeItsOwnSourceWithoutDeadlock()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        int notifications = 0;
+        var formalSink = new RecordingProtectionFormalSink(
+            notifying: () =>
+            {
+                if (Interlocked.Increment(ref notifications) == 1)
+                {
+                    source.Dispose();
+                }
+            });
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+
+        Task<bool> mutation = RunOnDedicatedThread(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+
+        Assert.True(await mutation.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(2, formalSink.LatchCount);
+        Assert.Equal(2, formalSink.NotifyCount);
+        Assert.Equal(2, Volatile.Read(ref notifications));
+        Assert.False(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? afterDispose));
+        Assert.Null(afterDispose);
+        source.Dispose();
+    }
+
+    [Fact]
+    public async Task DisposeDrainsAnOlderInFlightFormalNotifyBeforeReturning()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        using var firstNotifyEntered = new ManualResetEventSlim();
+        using var releaseFirstNotify = new ManualResetEventSlim();
+        using var lossNotifyDrained = new ManualResetEventSlim();
+        var formalSink = new QueuedProtectionFormalSink(
+            firstNotifyEntered,
+            releaseFirstNotify,
+            lossNotifyDrained);
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+        Task<bool> mutation = RunOnDedicatedThread(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+        Assert.True(firstNotifyEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        Task disposal = RunOnDedicatedThread(source.Dispose);
+        try
+        {
+            Assert.True(lossNotifyDrained.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => formalSink.Delivered.Length == 2,
+                    TimeSpan.FromSeconds(5)));
+            Assert.False(mutation.IsCompleted);
+            Task first = await Task.WhenAny(
+                disposal,
+                Task.Delay(TimeSpan.FromMilliseconds(100)));
+            Assert.NotSame(disposal, first);
+        }
+        finally
+        {
+            releaseFirstNotify.Set();
+        }
+
+        Assert.True(await mutation.WaitAsync(TimeSpan.FromSeconds(5)));
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(2, formalSink.Delivered.Length);
+        Assert.Equal(ProtectionKind.SecureInput, formalSink.Delivered[0]
+            ?.Protection.Kind);
+        Assert.Null(formalSink.Delivered[1]);
+    }
+
+    [Fact]
+    public async Task DisposeReplaysFailureFromOlderInFlightFormalNotify()
+    {
+        var source = new InMemoryNativeProtectionSource(
+            ownerGeneration: 3,
+            sessionGeneration: 5,
+            sourceGeneration: 4);
+        Assert.True(
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.Safe,
+                    Now,
+                    "reservation-probe")));
+        Assert.True(
+            source.TryGetLatest(
+                out NativeRemoteWindowProtectionObservation? expected));
+        var preparationSink =
+            new RecordingProtectionPreparationInvalidationSink();
+        INativeRemoteWindowProtectionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowProtectionPreparationRegistration>(
+                    ((INativeRemoteWindowProtectionPreparationBoundary)source)
+                    .TryReservePreparation(
+                        expected!,
+                        Now,
+                        preparationSink)
+                    .Registration);
+        using var firstNotifyEntered = new ManualResetEventSlim();
+        using var releaseFirstNotify = new ManualResetEventSlim();
+        using var lossNotifyDrained = new ManualResetEventSlim();
+        var failure = new IOException("older-formal-notify-failure");
+        var formalSink = new QueuedProtectionFormalSink(
+            firstNotifyEntered,
+            releaseFirstNotify,
+            lossNotifyDrained,
+            failure);
+        Assert.True(registration.TryPromote(Now, formalSink));
+        Assert.True(registration.TryAdmitCaptureStart(Now));
+        Task<bool> mutation = RunOnDedicatedThread(() =>
+            source.TryPublish(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now.AddMilliseconds(1),
+                    "secure-input-probe")));
+        Assert.True(firstNotifyEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task disposal = RunOnDedicatedThread(source.Dispose);
+        Assert.True(lossNotifyDrained.Wait(TimeSpan.FromSeconds(5)));
+
+        releaseFirstNotify.Set();
+
+        IOException mutationFailure = await Assert.ThrowsAsync<IOException>(
+            async () => await mutation.WaitAsync(TimeSpan.FromSeconds(5)));
+        IOException disposalFailure = await Assert.ThrowsAsync<IOException>(
+            async () => await disposal.WaitAsync(TimeSpan.FromSeconds(5)));
+        IOException repeated = Assert.Throws<IOException>(source.Dispose);
+        Assert.Same(failure, mutationFailure);
+        Assert.Same(mutationFailure, disposalFailure);
+        Assert.Same(disposalFailure, repeated);
+        Assert.False(registration.IsCurrent);
+    }
+
+    [Fact]
     public async Task ProtectionDisposeWaitsForAnInFlightObserver()
     {
         var source = new InMemoryNativeProtectionSource(
@@ -1634,6 +3293,172 @@ public sealed class NativeRemoteWindowContractsTests
             Interlocked.Increment(ref count);
     }
 
+    private sealed class RecordingProtectionPreparationInvalidationSink(
+        Action? invalidating = null,
+        Exception? invalidationFailure = null,
+        Exception? ownershipFailure = null,
+        Action<INativeRemoteWindowProtectionPreparationRegistration>? owning =
+            null) :
+        INativeRemoteWindowProtectionPreparationInvalidationSink
+    {
+        private int count;
+
+        public int Count => Volatile.Read(ref count);
+
+        public INativeRemoteWindowProtectionPreparationRegistration?
+            Registration
+        { get; private set; }
+
+        public void OwnNativeRemoteWindowProtectionPreparationRegistration(
+            INativeRemoteWindowProtectionPreparationRegistration registration)
+        {
+            Registration = registration;
+            owning?.Invoke(registration);
+            if (ownershipFailure is not null)
+            {
+                throw ownershipFailure;
+            }
+        }
+
+        public void InvalidateNativeRemoteWindowProtectionPreparationNow()
+        {
+            Interlocked.Increment(ref count);
+            invalidating?.Invoke();
+            if (invalidationFailure is not null)
+            {
+                throw invalidationFailure;
+            }
+        }
+    }
+
+    private sealed class RecordingProtectionFormalSink(
+        Action? invalidatingPreStart = null,
+        Action<NativeRemoteWindowProtectionObservation?>? latching = null,
+        Action? notifying = null,
+        Exception? preStartFailure = null,
+        Exception? latchFailure = null,
+        Exception? notifyFailure = null) :
+        INativeRemoteWindowProtectionFormalSink
+    {
+        private int latchCount;
+        private int notifyCount;
+        private int preStartInvalidationCount;
+
+        public int LatchCount => Volatile.Read(ref latchCount);
+
+        public int NotifyCount => Volatile.Read(ref notifyCount);
+
+        public int PreStartInvalidationCount =>
+            Volatile.Read(ref preStartInvalidationCount);
+
+        public NativeRemoteWindowProtectionObservation? Observation
+        { get; private set; }
+
+        public void InvalidateNativeRemoteWindowProtectionBeforeCaptureNow()
+        {
+            Interlocked.Increment(ref preStartInvalidationCount);
+            invalidatingPreStart?.Invoke();
+            if (preStartFailure is not null)
+            {
+                throw preStartFailure;
+            }
+        }
+
+        public void LatchNativeRemoteWindowProtectionObservationNow(
+            NativeRemoteWindowProtectionObservation? observation)
+        {
+            Observation = observation;
+            Interlocked.Increment(ref latchCount);
+            latching?.Invoke(observation);
+            if (latchFailure is not null)
+            {
+                throw latchFailure;
+            }
+        }
+
+        public void NotifyNativeRemoteWindowProtectionChanged()
+        {
+            Interlocked.Increment(ref notifyCount);
+            notifying?.Invoke();
+            if (notifyFailure is not null)
+            {
+                throw notifyFailure;
+            }
+        }
+    }
+
+    private sealed class QueuedProtectionFormalSink(
+        ManualResetEventSlim firstNotifyEntered,
+        ManualResetEventSlim releaseFirstNotify,
+        ManualResetEventSlim secondNotifyDrained,
+        Exception? firstNotifyFailure = null) :
+        INativeRemoteWindowProtectionFormalSink
+    {
+        private readonly List<NativeRemoteWindowProtectionObservation?> delivered =
+            [];
+        private readonly object gate = new();
+        private int notifyCalls;
+        private readonly Queue<NativeRemoteWindowProtectionObservation?> pending =
+            [];
+
+        public NativeRemoteWindowProtectionObservation?[] Delivered
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return delivered.ToArray();
+                }
+            }
+        }
+
+        public void InvalidateNativeRemoteWindowProtectionBeforeCaptureNow() =>
+            throw new InvalidOperationException(
+                "The live queue cannot receive a pre-start invalidation.");
+
+        public void LatchNativeRemoteWindowProtectionObservationNow(
+            NativeRemoteWindowProtectionObservation? observation)
+        {
+            lock (gate)
+            {
+                pending.Enqueue(observation);
+            }
+        }
+
+        public void NotifyNativeRemoteWindowProtectionChanged()
+        {
+            int call = Interlocked.Increment(ref notifyCalls);
+            if (call == 1)
+            {
+                firstNotifyEntered.Set();
+                if (!releaseFirstNotify.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    throw new TimeoutException(
+                        "Timed out releasing the first protection notification.");
+                }
+            }
+
+            lock (gate)
+            {
+                while (pending.TryDequeue(
+                    out NativeRemoteWindowProtectionObservation? observation))
+                {
+                    delivered.Add(observation);
+                }
+            }
+
+            if (call == 2)
+            {
+                secondNotifyDrained.Set();
+            }
+
+            else if (call == 1 && firstNotifyFailure is not null)
+            {
+                throw firstNotifyFailure;
+            }
+        }
+    }
+
     private sealed class ExternalEmergencyStopRegistration(
         long ownerGeneration,
         long sessionGeneration) : ILocalEmergencyStopRegistration
@@ -1648,4 +3473,7 @@ public sealed class NativeRemoteWindowContractsTests
 
         public void Dispose() => Interlocked.Exchange(ref current, 0);
     }
+
+    private sealed class InjectedProtectionOutOfMemoryException(
+        string message) : OutOfMemoryException(message);
 }

@@ -106,6 +106,8 @@ internal sealed class RemoteWindowHostPreparationReservation :
     private bool prepareSendAdmitted;
     private RemoteWindowHostPreparationPhase phase =
         RemoteWindowHostPreparationPhase.Collecting;
+    private DateTimeOffset? protectionNotBefore;
+    private DateTimeOffset? protectionValidThrough;
     private bool routeMayBeOwned;
     private RemoteWindowHostPreparationTermination? termination;
 
@@ -145,6 +147,50 @@ internal sealed class RemoteWindowHostPreparationReservation :
     public Task<RemoteWindowHostPreparationTermination> Terminal =>
         terminalCompletion.Task;
 
+    public bool TryBindProtectionObservation(DateTimeOffset observedAt)
+    {
+        DateTimeOffset notBefore;
+        DateTimeOffset validThrough;
+        try
+        {
+            notBefore = observedAt.Subtract(
+                RemoteInputPolicy.MaximumFutureClockSkew);
+            validThrough = observedAt.Add(
+                RemoteInputPolicy.MaximumProtectionAge);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+
+        return TryBindProtectionInterval(notBefore, validThrough);
+    }
+
+    private bool TryBindProtectionInterval(
+        DateTimeOffset protectionNotBefore,
+        DateTimeOffset protectionValidThrough)
+    {
+        lock (gate)
+        {
+            if (termination is not null
+                || phase != RemoteWindowHostPreparationPhase.Collecting)
+            {
+                return false;
+            }
+
+            if (this.protectionNotBefore is { } boundNotBefore
+                && this.protectionValidThrough is { } boundValidThrough)
+            {
+                return boundNotBefore == protectionNotBefore
+                    && boundValidThrough == protectionValidThrough;
+            }
+
+            this.protectionNotBefore = protectionNotBefore;
+            this.protectionValidThrough = protectionValidThrough;
+            return true;
+        }
+    }
+
     public bool TryArm(DateTimeOffset now)
     {
         RemoteWindowHostPreparationTermination? expired = null;
@@ -156,15 +202,12 @@ internal sealed class RemoteWindowHostPreparationReservation :
                 return false;
             }
 
-            if (now < request.Deadline)
+            expired = GetTimeTermination(now);
+            if (expired is null)
             {
                 phase = RemoteWindowHostPreparationPhase.Armed;
                 return true;
             }
-
-            expired = new RemoteWindowHostPreparationTermination(
-                "preparation_expired",
-                RemoteWindowHostPreparationCleanupScope.PreRoute);
             termination = expired;
             phase = RemoteWindowHostPreparationPhase.Terminal;
         }
@@ -184,16 +227,13 @@ internal sealed class RemoteWindowHostPreparationReservation :
                 return false;
             }
 
-            if (now < request.Deadline)
+            expired = GetTimeTermination(now);
+            if (expired is null)
             {
                 routeMayBeOwned = true;
                 phase = RemoteWindowHostPreparationPhase.RouteAdmitted;
                 return true;
             }
-
-            expired = new RemoteWindowHostPreparationTermination(
-                "preparation_expired",
-                RemoteWindowHostPreparationCleanupScope.PreRoute);
             termination = expired;
             phase = RemoteWindowHostPreparationPhase.Terminal;
         }
@@ -261,16 +301,13 @@ internal sealed class RemoteWindowHostPreparationReservation :
                 return false;
             }
 
-            if (now < request.Deadline)
+            expired = GetTimeTermination(now);
+            if (expired is null)
             {
                 prepareSendAdmitted = true;
                 phase = RemoteWindowHostPreparationPhase.PrepareSending;
                 return true;
             }
-
-            expired = new RemoteWindowHostPreparationTermination(
-                "preparation_expired",
-                RemoteWindowHostPreparationCleanupScope.ConsumeConnection);
             termination = expired;
             phase = RemoteWindowHostPreparationPhase.Terminal;
         }
@@ -293,22 +330,27 @@ internal sealed class RemoteWindowHostPreparationReservation :
                 return false;
             }
 
-            string? failureReason = response.Request != request
-                ? "remote_window_ready_mismatch"
-                : now >= request.Deadline
-                    ? "preparation_expired"
-                    : response.Outcome != RemoteWindowPreparationOutcome.Ready
-                        ? response.ReasonCode
-                        : null;
-            if (failureReason is null)
+            if (response.Request != request)
+            {
+                failed = new RemoteWindowHostPreparationTermination(
+                    "remote_window_ready_mismatch",
+                    GetCleanupScope());
+            }
+            else
+            {
+                failed = GetTimeTermination(now);
+            }
+
+            if (failed is null
+                && response.Outcome == RemoteWindowPreparationOutcome.Ready)
             {
                 phase = RemoteWindowHostPreparationPhase.ReadyMatched;
                 return true;
             }
 
-            failed = new RemoteWindowHostPreparationTermination(
-                failureReason,
-                RemoteWindowHostPreparationCleanupScope.ConsumeConnection);
+            failed ??= new RemoteWindowHostPreparationTermination(
+                response.ReasonCode,
+                GetCleanupScope());
             termination = failed;
             phase = RemoteWindowHostPreparationPhase.Terminal;
         }
@@ -328,15 +370,12 @@ internal sealed class RemoteWindowHostPreparationReservation :
                 return false;
             }
 
-            if (now < request.Deadline)
+            expired = GetTimeTermination(now);
+            if (expired is null)
             {
                 phase = RemoteWindowHostPreparationPhase.Promoted;
                 return true;
             }
-
-            expired = new RemoteWindowHostPreparationTermination(
-                "preparation_expired",
-                RemoteWindowHostPreparationCleanupScope.ConsumeConnection);
             termination = expired;
             phase = RemoteWindowHostPreparationPhase.Terminal;
         }
@@ -368,9 +407,7 @@ internal sealed class RemoteWindowHostPreparationReservation :
 
             completed = new RemoteWindowHostPreparationTermination(
                 GetInvalidationReason(fact),
-                routeMayBeOwned
-                    ? RemoteWindowHostPreparationCleanupScope.ConsumeConnection
-                    : RemoteWindowHostPreparationCleanupScope.PreRoute,
+                GetCleanupScope(),
                 fact);
             termination = completed;
             phase = RemoteWindowHostPreparationPhase.Terminal;
@@ -412,6 +449,32 @@ internal sealed class RemoteWindowHostPreparationReservation :
             _ => throw new ArgumentOutOfRangeException(nameof(fact)),
         };
 
+    private RemoteWindowHostPreparationTermination? GetTimeTermination(
+        DateTimeOffset now)
+    {
+        if (now >= request.Deadline)
+        {
+            return new RemoteWindowHostPreparationTermination(
+                "preparation_expired",
+                GetCleanupScope());
+        }
+
+        return protectionNotBefore is null
+            || protectionValidThrough is null
+            || now < protectionNotBefore.Value
+            || now > protectionValidThrough.Value
+            ? new RemoteWindowHostPreparationTermination(
+                "native_protection_not_safe",
+                GetCleanupScope(),
+                RemoteWindowHostPreparationFact.Protection)
+            : null;
+    }
+
+    private RemoteWindowHostPreparationCleanupScope GetCleanupScope() =>
+        routeMayBeOwned
+            ? RemoteWindowHostPreparationCleanupScope.ConsumeConnection
+            : RemoteWindowHostPreparationCleanupScope.PreRoute;
+
     public void Dispose()
     {
         RemoteWindowHostPreparationTermination? completed = null;
@@ -425,9 +488,7 @@ internal sealed class RemoteWindowHostPreparationReservation :
 
             completed = new RemoteWindowHostPreparationTermination(
                 "host_preparation_disposed",
-                routeMayBeOwned
-                    ? RemoteWindowHostPreparationCleanupScope.ConsumeConnection
-                    : RemoteWindowHostPreparationCleanupScope.PreRoute);
+                GetCleanupScope());
             termination = completed;
             phase = RemoteWindowHostPreparationPhase.Terminal;
         }

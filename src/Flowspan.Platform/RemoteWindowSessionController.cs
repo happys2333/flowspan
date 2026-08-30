@@ -568,6 +568,7 @@ public sealed class RemoteWindowSessionController : IDisposable
     public const int MaximumParticipants = 16;
 
     private const int MaximumProtectionConvergenceAttempts = 8;
+    private static readonly object ProtectionAdmissionActivityOwner = new();
 
     private readonly IMirrorAuthorizationSource authorization;
     private readonly IRemoteWindowCaptureGate capture;
@@ -614,7 +615,14 @@ public sealed class RemoteWindowSessionController : IDisposable
     private MirrorSession? mirrorSession;
     private BoundedNativeRemoteWindowFrameSink? nativeBoundFrameSink;
     private bool nativeSourceInvalidated;
+    private int activeProtectionAdmissionUses;
+    private int protectionAdmissionDrainWaiters;
+    private long? pendingProtectionAdmissionOpenEpoch;
+    private ProtectionSnapshot? pendingProtectionAdmissionOpenObservation;
     private ProtectionSnapshot protection;
+    private bool protectionAdmissionClosed;
+    private long protectionAdmissionAppliedEpoch;
+    private long protectionAdmissionEpoch;
     private long protectionRevision;
     private long revision;
     private int lifetimeDrainWaiters;
@@ -804,9 +812,30 @@ public sealed class RemoteWindowSessionController : IDisposable
         }
     }
 
-    public async ValueTask<RemoteWindowCommandResult> StartAsync(
+    public ValueTask<RemoteWindowCommandResult> StartAsync(
         ProtectionSnapshot initialProtection,
+        CancellationToken cancellationToken = default) =>
+        StartCoreAsync(
+            initialProtection,
+            captureStartAdmission: null,
+            cancellationToken);
+
+    internal ValueTask<RemoteWindowCommandResult> StartAsync(
+        ProtectionSnapshot initialProtection,
+        IRemoteWindowCaptureStartAdmission captureStartAdmission,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(captureStartAdmission);
+        return StartCoreAsync(
+            initialProtection,
+            captureStartAdmission,
+            cancellationToken);
+    }
+
+    private async ValueTask<RemoteWindowCommandResult> StartCoreAsync(
+        ProtectionSnapshot initialProtection,
+        IRemoteWindowCaptureStartAdmission? captureStartAdmission,
+        CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(initialProtection);
@@ -863,6 +892,11 @@ public sealed class RemoteWindowSessionController : IDisposable
                 }
 
                 protection = initialProtection;
+                protectionAdmissionClosed = false;
+                protectionAdmissionEpoch++;
+                protectionAdmissionAppliedEpoch = protectionAdmissionEpoch;
+                pendingProtectionAdmissionOpenEpoch = null;
+                pendingProtectionAdmissionOpenObservation = null;
                 protectionRevision = checked(protectionRevision + 1);
                 sessionGeneration = checked(sessionGeneration + 1);
                 terminalStopConfirmed = false;
@@ -884,7 +918,41 @@ public sealed class RemoteWindowSessionController : IDisposable
             LocalBoundaryResult boundary;
             NativeRemoteWindowSourceUse? sourceUse = null;
             bool admissionConfirmed = false;
-            if (nativeSourceLease is not null
+            bool protectionAdmitted = true;
+            if (captureStartAdmission is not null)
+            {
+                try
+                {
+                    DateTimeOffset captureAdmissionNow = clock.UtcNow;
+                    protectionAdmitted =
+                        captureStartAdmission.TryAdmitCaptureStart(
+                            captureAdmissionNow);
+                }
+                catch (OutOfMemoryException)
+                {
+                    CompleteCaptureAdmission(
+                        admittedSessionGeneration,
+                        admissionConfirmed: false);
+                    _ = CleanupFailedStart(
+                        RemoteWindowLifecycle.Unavailable,
+                        admittedSessionGeneration);
+                    throw;
+                }
+                catch (Exception)
+                {
+                    protectionAdmitted = false;
+                }
+            }
+
+            if (!protectionAdmitted)
+            {
+                boundary = LocalBoundaryResult.Failed(
+                    "native_protection_not_safe");
+                CompleteCaptureAdmission(
+                    admittedSessionGeneration,
+                    admissionConfirmed: false);
+            }
+            else if (nativeSourceLease is not null
                 && !TryCreateNativeSourceUse(
                     admittedSessionGeneration,
                     out sourceUse))
@@ -1284,11 +1352,10 @@ public sealed class RemoteWindowSessionController : IDisposable
                         CreateSnapshot());
                 }
 
-                RemoteInputDecision decision = remoteInputPolicy.Evaluate(
+                RemoteInputDecision decision = EvaluateRemoteInputUnderLock(
                     mirrorSession,
                     peerDeviceId,
                     driverLeaseEpoch,
-                    protection,
                     authorizationNow);
                 if (decision != RemoteInputDecision.Allowed)
                 {
@@ -1341,11 +1408,10 @@ public sealed class RemoteWindowSessionController : IDisposable
                 if (mirrorSession is not null)
                 {
                     RemoteInputDecision postBoundaryDecision =
-                        remoteInputPolicy.Evaluate(
+                        EvaluateRemoteInputUnderLock(
                             mirrorSession,
                             peerDeviceId,
                             driverLeaseEpoch,
-                            protection,
                             postBoundaryNow);
                     if (postBoundaryDecision != RemoteInputDecision.Allowed)
                     {
@@ -1368,6 +1434,27 @@ public sealed class RemoteWindowSessionController : IDisposable
         {
             ReleaseNormalOperation();
         }
+    }
+
+    private RemoteInputDecision EvaluateRemoteInputUnderLock(
+        MirrorSession session,
+        DeviceId peerDeviceId,
+        long driverLeaseEpoch,
+        DateTimeOffset now)
+    {
+        if (protectionAdmissionClosed
+            && (protectionAdmissionEpoch != protectionAdmissionAppliedEpoch
+                || IsFreshSafe(protection, now)))
+        {
+            return RemoteInputDecision.ProtectionStateUnknown;
+        }
+
+        return remoteInputPolicy.Evaluate(
+            session,
+            peerDeviceId,
+            driverLeaseEpoch,
+            protection,
+            now);
     }
 
     public async ValueTask<RemoteWindowCommandResult> ReconcilePeerCapabilitiesAsync(
@@ -1616,6 +1703,119 @@ public sealed class RemoteWindowSessionController : IDisposable
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(observation);
+        return ApplyProtectionSnapshotCore(
+            observation,
+            CloseProtectionAdmissionNow());
+    }
+
+    internal RemoteWindowProtectionResult ApplyProtectionSnapshot(
+        ProtectionSnapshot observation,
+        long protectionAdmissionEpoch)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(observation);
+        return ApplyProtectionSnapshotCore(
+            observation,
+            protectionAdmissionEpoch);
+    }
+
+    internal long CloseProtectionAdmissionNow()
+    {
+        lock (stateLock)
+        {
+            protectionAdmissionClosed = true;
+            protectionAdmissionEpoch++;
+            pendingProtectionAdmissionOpenEpoch = null;
+            pendingProtectionAdmissionOpenObservation = null;
+            return protectionAdmissionEpoch;
+        }
+    }
+
+    internal int ActiveProtectionAdmissionUseCount
+    {
+        get
+        {
+            lock (stateLock)
+            {
+                return activeProtectionAdmissionUses;
+            }
+        }
+    }
+
+    internal int ProtectionAdmissionDrainWaiterCount
+    {
+        get
+        {
+            lock (stateLock)
+            {
+                return protectionAdmissionDrainWaiters;
+            }
+        }
+    }
+
+    private ProtectionAdmissionUse? TryAcquireProtectionAdmissionUse()
+    {
+        lock (stateLock)
+        {
+            if (protectionAdmissionClosed
+                || Volatile.Read(ref disposed) != 0)
+            {
+                return null;
+            }
+
+            activeProtectionAdmissionUses = checked(
+                activeProtectionAdmissionUses + 1);
+            NativeRemoteWindowDrainActivityScope activityScope =
+                NativeRemoteWindowDrainActivityScope.Enter(
+                    ProtectionAdmissionActivityOwner,
+                    new object());
+            return new ProtectionAdmissionUse(this, activityScope);
+        }
+    }
+
+    private void ReleaseProtectionAdmissionUse()
+    {
+        lock (stateLock)
+        {
+            activeProtectionAdmissionUses--;
+            if (activeProtectionAdmissionUses == 0)
+            {
+                TryCompletePendingProtectionAdmissionOpenUnderLock();
+            }
+
+            Monitor.PulseAll(stateLock);
+        }
+    }
+
+    private void WaitForProtectionAdmissionUseDrain()
+    {
+        lock (stateLock)
+        {
+            while (activeProtectionAdmissionUses != 0)
+            {
+                if (NativeRemoteWindowDrainActivityScope.IsActiveForOwner(
+                        ProtectionAdmissionActivityOwner))
+                {
+                    return;
+                }
+
+                protectionAdmissionDrainWaiters++;
+                try
+                {
+                    Monitor.Wait(stateLock);
+                }
+                finally
+                {
+                    protectionAdmissionDrainWaiters--;
+                }
+            }
+        }
+    }
+
+    private RemoteWindowProtectionResult ApplyProtectionSnapshotCore(
+        ProtectionSnapshot observation,
+        long acceptedProtectionAdmissionEpoch)
+    {
         using LifetimeOperationLease lifetimeOperation = EnterLifetimeOperation();
         int currentThreadId = Environment.CurrentManagedThreadId;
         long expectedSessionGeneration;
@@ -1635,6 +1835,8 @@ public sealed class RemoteWindowSessionController : IDisposable
             expectedSessionGeneration = sessionGeneration;
             ownsReconciliation = protectionBoundaryThreads.Add(currentThreadId);
             protection = observation;
+            protectionAdmissionAppliedEpoch =
+                acceptedProtectionAdmissionEpoch;
             protectionRevision = checked(protectionRevision + 1);
         }
 
@@ -1684,10 +1886,13 @@ public sealed class RemoteWindowSessionController : IDisposable
                 }
             }
 
-            return immediateResult
+            RemoteWindowProtectionResult result = immediateResult
                 ?? ConvergeProtectionGatesCore(
                     activateStartingWithoutResume: false,
                     expectedSessionGeneration: expectedSessionGeneration);
+            WaitForProtectionAdmissionUseDrain();
+            TryOpenProtectionAdmission(result);
+            return result;
         }
         finally
         {
@@ -1699,6 +1904,57 @@ public sealed class RemoteWindowSessionController : IDisposable
                 }
             }
         }
+    }
+
+    private void TryOpenProtectionAdmission(RemoteWindowProtectionResult result)
+    {
+        lock (stateLock)
+        {
+            if (!CanOpenProtectionAdmissionUnderLock(result))
+            {
+                return;
+            }
+
+            if (activeProtectionAdmissionUses == 0)
+            {
+                protectionAdmissionClosed = false;
+                pendingProtectionAdmissionOpenEpoch = null;
+                pendingProtectionAdmissionOpenObservation = null;
+                return;
+            }
+
+            pendingProtectionAdmissionOpenEpoch = protectionAdmissionEpoch;
+            pendingProtectionAdmissionOpenObservation = protection;
+        }
+    }
+
+    private bool CanOpenProtectionAdmissionUnderLock(
+        RemoteWindowProtectionResult result) =>
+        protectionAdmissionEpoch == protectionAdmissionAppliedEpoch
+        && protectionAdmissionClosed
+        && result.Status is RemoteWindowCommandStatus.Applied
+            or RemoteWindowCommandStatus.AlreadyApplied
+        && !result.Blocked
+        && lifecycle == RemoteWindowLifecycle.Active
+        && captureState == RemoteWindowCaptureState.Capturing;
+
+    private void TryCompletePendingProtectionAdmissionOpenUnderLock()
+    {
+        if (activeProtectionAdmissionUses != 0
+            || pendingProtectionAdmissionOpenEpoch is not { } pendingEpoch
+            || pendingEpoch != protectionAdmissionEpoch
+            || pendingEpoch != protectionAdmissionAppliedEpoch
+            || pendingProtectionAdmissionOpenObservation is not { } pending
+            || !ReferenceEquals(protection, pending)
+            || lifecycle != RemoteWindowLifecycle.Active
+            || captureState != RemoteWindowCaptureState.Capturing)
+        {
+            return;
+        }
+
+        protectionAdmissionClosed = false;
+        pendingProtectionAdmissionOpenEpoch = null;
+        pendingProtectionAdmissionOpenObservation = null;
     }
 
     private RemoteWindowProtectionResult ApplyReentrantProtectionObservation(
@@ -3378,6 +3634,7 @@ public sealed class RemoteWindowSessionController : IDisposable
                         ?? throw new InvalidOperationException(
                             "A native Remote Window capture requires a frame destination."),
                     TryEnterFrameDeliveryOperation,
+                    TryAcquireProtectionAdmissionUse,
                     fault => OnNativeFrameSinkFault(exactSourceUse, fault));
                 BoundedNativeRemoteWindowFrameSink? previous =
                     Interlocked.Exchange(
@@ -3425,12 +3682,28 @@ public sealed class RemoteWindowSessionController : IDisposable
 
             using (sourceScope)
             {
+                using ProtectionAdmissionUse? protectionUse =
+                    TryAcquireProtectionAdmissionUse();
+                if (protectionUse is null)
+                {
+                    return LocalBoundaryResult.Failed(
+                        "native_protection_not_safe");
+                }
+
                 return await nativeInput.InjectAsync(
                         exactSourceUse,
                         batch,
                         cancellationToken)
                     .ConfigureAwait(false);
             }
+        }
+
+        using ProtectionAdmissionUse? semanticProtectionUse =
+            TryAcquireProtectionAdmissionUse();
+        if (semanticProtectionUse is null)
+        {
+            return LocalBoundaryResult.Failed(
+                "native_protection_not_safe");
         }
 
         return await semanticInput!
@@ -3500,6 +3773,7 @@ public sealed class RemoteWindowSessionController : IDisposable
             return sessionGeneration == sourceUse.SessionGeneration
                 && lifecycle == RemoteWindowLifecycle.Active
                 && captureState == RemoteWindowCaptureState.Capturing
+                && !protectionAdmissionClosed
                 && IsFreshSafe(protection, now);
         }
     }
@@ -3717,6 +3991,27 @@ public sealed class RemoteWindowSessionController : IDisposable
             }
 
             owner.ExitLifetimeOperation(activityScope);
+        }
+    }
+
+    private sealed class ProtectionAdmissionUse(
+        RemoteWindowSessionController owner,
+        NativeRemoteWindowDrainActivityScope activityScope) : IDisposable
+    {
+        private RemoteWindowSessionController? owner = owner;
+
+        public void Dispose()
+        {
+            RemoteWindowSessionController? current = Interlocked.Exchange(
+                ref owner,
+                null);
+            if (current is null)
+            {
+                return;
+            }
+
+            activityScope.Dispose();
+            current.ReleaseProtectionAdmissionUse();
         }
     }
 

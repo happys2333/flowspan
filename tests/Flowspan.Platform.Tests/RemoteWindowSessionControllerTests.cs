@@ -69,6 +69,731 @@ public sealed class RemoteWindowSessionControllerTests
     }
 
     [Fact]
+    public async Task ProtectionCaptureStartAdmissionRejectsBeforeNativeCapture()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var sessions = new RecordingSharingSessionBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            sessions,
+            TimeSpan.FromSeconds(10));
+        var admission = new RecordingCaptureStartAdmission(
+            _ => false,
+            () => controller.Snapshot.Lifecycle);
+
+        RemoteWindowCommandResult result = await controller.StartAsync(
+            SafeAt(Now),
+            admission,
+            CancellationToken.None);
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, result.Status);
+        Assert.Equal("native_protection_not_safe", result.ReasonCode);
+        Assert.Equal(1, admission.CallCount);
+        Assert.Equal(
+            RemoteWindowLifecycle.Starting,
+            admission.ObservedLifecycle);
+        Assert.Empty(capture.SourceUses);
+        Assert.Empty(input.SourceUses);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(0, input.StopCallCount);
+        Assert.Equal(0, sessions.DisconnectAllCallCount);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, result.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task ProtectionCaptureStartAdmissionThrowFailsClosedWithoutCanaryLeak()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        var failure = new IOException("FLOWSPAN_PROTECTION_ADMISSION_CANARY");
+        var admission = new RecordingCaptureStartAdmission(
+            _ => throw failure);
+
+        RemoteWindowCommandResult result = await controller.StartAsync(
+            SafeAt(Now),
+            admission,
+            CancellationToken.None);
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, result.Status);
+        Assert.Equal("native_protection_not_safe", result.ReasonCode);
+        Assert.DoesNotContain(failure.Message, result.ToString());
+        Assert.Equal(1, admission.CallCount);
+        Assert.Empty(capture.SourceUses);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, result.Snapshot.Lifecycle);
+    }
+
+    [Fact]
+    public async Task ProtectionCaptureStartAdmissionOutOfMemoryCleansUpThenEscapesRaw()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        var failure = new InjectedOutOfMemoryException(
+            "FLOWSPAN_PROTECTION_ADMISSION_OOM");
+        var admission = new RecordingCaptureStartAdmission(
+            _ => throw failure);
+
+        OutOfMemoryException thrown = await Assert.ThrowsAnyAsync<
+            OutOfMemoryException>(async () => await controller.StartAsync(
+                SafeAt(Now),
+                admission,
+                CancellationToken.None));
+
+        Assert.Same(failure, thrown);
+        Assert.Equal(1, admission.CallCount);
+        Assert.Empty(capture.SourceUses);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task ProtectionMutationWinningCaptureStartAdmissionPreventsNativeCapture()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        using var admission = new BlockingCaptureStartAdmission();
+        Task<RemoteWindowCommandResult> starting = RunOnDedicatedThread(() =>
+            controller.StartAsync(
+                    SafeAt(Now),
+                    admission,
+                    CancellationToken.None)
+                .AsTask()
+                .GetAwaiter()
+                .GetResult());
+        Assert.True(admission.Entered.Wait(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(
+            RemoteWindowLifecycle.Starting,
+            controller.Snapshot.Lifecycle);
+        admission.Resolve(admitted: false);
+        RemoteWindowCommandResult result = await starting.WaitAsync(
+            TimeSpan.FromSeconds(5));
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, result.Status);
+        Assert.Equal("native_protection_not_safe", result.ReasonCode);
+        Assert.Equal(1, admission.CallCount);
+        Assert.Empty(capture.SourceUses);
+        Assert.Equal(1, capture.StopCallCount);
+    }
+
+    [Fact]
+    public async Task ProtectionMutationAfterCaptureStartAdmissionObservesStartingAndConverges()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        RemoteWindowProtectionResult? mutation = null;
+        var admission = new RecordingCaptureStartAdmission(
+            _ =>
+            {
+                mutation = controller.ApplyProtectionSnapshot(
+                    new ProtectionSnapshot(
+                        ProtectionKind.SecureInput,
+                        Now,
+                        "test-probe"));
+                return true;
+            },
+            () => controller.Snapshot.Lifecycle);
+
+        RemoteWindowCommandResult result = await controller.StartAsync(
+            SafeAt(Now),
+            admission,
+            CancellationToken.None);
+
+        Assert.Equal(1, admission.CallCount);
+        Assert.Equal(
+            RemoteWindowLifecycle.Starting,
+            admission.ObservedLifecycle);
+        Assert.NotNull(mutation);
+        Assert.True(mutation.Blocked);
+        Assert.Equal(RemoteWindowCommandStatus.Applied, mutation.Status);
+        Assert.Equal(RemoteWindowCommandStatus.ProtectionBlocked, result.Status);
+        Assert.Equal("protection_blocked_during_start", result.ReasonCode);
+        Assert.Single(capture.SourceUses);
+        Assert.True(capture.PauseEntered.IsSet);
+        Assert.Equal(RemoteWindowLifecycle.ProtectionPaused, result.Snapshot.Lifecycle);
+        Assert.NotEqual(
+            RemoteWindowCaptureState.Capturing,
+            result.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task LatchedProtectionGateBlocksFrameAndInputUntilSafeResume()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var authorization = new MutableMirrorAuthorizationSource();
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        var destination = new DisposingNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            authorization,
+            capture,
+            input,
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        Assert.True((await controller.StartAsync(SafeAt(Now))).Succeeded);
+        authorization.SetGrant(
+            Peer,
+            CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive));
+        Assert.True((await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.DriverEligible)).Succeeded);
+        RemoteWindowCommandResult transferred =
+            await controller.TransferDriverAsync(
+                Peer,
+                TimeSpan.FromSeconds(10));
+        long driverEpoch = Assert.IsType<long>(
+            transferred.Snapshot.DriverLeaseEpoch);
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame initialFrame, _) = CreateNativeFrame(
+            sourceUse,
+            sequence: 1);
+        frameSink.TakeOwnership(sourceUse, initialFrame);
+        RemoteInputAttemptResult initialInput = await controller.InjectInputAsync(
+            Peer,
+            driverEpoch,
+            RemoteInputBatch.Create(
+                [RemoteInputEvent.PointerMove(0.25, 0.75)]));
+        Assert.Equal(RemoteInputDecision.Allowed, initialInput.Decision);
+        Assert.Equal([1L], destination.Sequences);
+        Assert.Single(input.Batches);
+
+        long unsafeEpoch = controller.CloseProtectionAdmissionNow();
+        (NativeRemoteWindowFrame blockedFrame, RecordingMemoryOwner blockedOwner) =
+            CreateNativeFrame(sourceUse, sequence: 2);
+        frameSink.TakeOwnership(sourceUse, blockedFrame);
+        RemoteInputAttemptResult blockedInput = await controller.InjectInputAsync(
+            Peer,
+            driverEpoch,
+            RemoteInputBatch.Create(
+                [RemoteInputEvent.PointerMove(0.5, 0.5)]));
+
+        Assert.Equal([1L], destination.Sequences);
+        Assert.Equal(1, blockedOwner.DisposeCount);
+        Assert.Equal(
+            RemoteInputDecision.ProtectionStateUnknown,
+            blockedInput.Decision);
+        Assert.Single(input.Batches);
+        RemoteWindowProtectionResult blocked =
+            controller.ApplyProtectionSnapshot(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now,
+                    "test-latched-unsafe"),
+                unsafeEpoch);
+        Assert.True(blocked.Blocked);
+
+        long safeEpoch = controller.CloseProtectionAdmissionNow();
+        RemoteWindowProtectionResult resumed =
+            controller.ApplyProtectionSnapshot(
+                SafeAt(Now.AddTicks(1)),
+                safeEpoch);
+        Assert.False(resumed.Blocked);
+        (NativeRemoteWindowFrame resumedFrame, _) = CreateNativeFrame(
+            sourceUse,
+            sequence: 3);
+        frameSink.TakeOwnership(sourceUse, resumedFrame);
+        RemoteInputAttemptResult resumedInput = await controller.InjectInputAsync(
+            Peer,
+            driverEpoch,
+            RemoteInputBatch.Create(
+                [RemoteInputEvent.PointerMove(0.75, 0.25)]));
+
+        Assert.Equal([1L, 3L], destination.Sequences);
+        Assert.Equal(RemoteInputDecision.Allowed, resumedInput.Decision);
+        Assert.Equal(2, input.Batches.Count);
+    }
+
+    [Fact]
+    public async Task ProtectionAdmissionUseSpansCompleteNativeInputBoundary()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var authorization = new MutableMirrorAuthorizationSource();
+        var capture = new RecordingNativeCaptureBoundary();
+        var input = new RecordingNativeInputBoundary();
+        input.BlockInjection();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            authorization,
+            capture,
+            input,
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        Assert.True((await controller.StartAsync(SafeAt(Now))).Succeeded);
+        authorization.SetGrant(
+            Peer,
+            CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive));
+        Assert.True((await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.DriverEligible)).Succeeded);
+        RemoteWindowCommandResult transferred =
+            await controller.TransferDriverAsync(
+                Peer,
+                TimeSpan.FromSeconds(10));
+        long driverEpoch = Assert.IsType<long>(
+            transferred.Snapshot.DriverLeaseEpoch);
+        Task<RemoteInputAttemptResult> admittedInput = RunOnDedicatedThread(() =>
+            controller.InjectInputAsync(
+                    Peer,
+                    driverEpoch,
+                    RemoteInputBatch.Create(
+                        [RemoteInputEvent.PointerMove(0.25, 0.75)]))
+                .AsTask()
+                .GetAwaiter()
+                .GetResult());
+        Task<RemoteWindowProtectionResult>? blocking = null;
+        try
+        {
+            Assert.True(input.InjectionEntered.Wait(TimeSpan.FromSeconds(5)));
+            Assert.Equal(1, controller.ActiveProtectionAdmissionUseCount);
+
+            long unsafeEpoch = controller.CloseProtectionAdmissionNow();
+            blocking = Task.Run(() => controller.ApplyProtectionSnapshot(
+                new ProtectionSnapshot(
+                    ProtectionKind.SecureInput,
+                    Now,
+                    "test-use-scope-unsafe"),
+                unsafeEpoch));
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.ProtectionAdmissionDrainWaiterCount == 1,
+                TimeSpan.FromSeconds(5)));
+            Assert.False(admittedInput.IsCompleted);
+            Assert.False(blocking.IsCompleted);
+            Assert.Equal(1, controller.ActiveProtectionAdmissionUseCount);
+        }
+        finally
+        {
+            input.ReleaseInjection();
+        }
+
+        RemoteInputAttemptResult completed = await admittedInput.WaitAsync(
+            TimeSpan.FromSeconds(5));
+        RemoteWindowProtectionResult blocked = await Assert.IsAssignableFrom<
+                Task<RemoteWindowProtectionResult>>(blocking)
+            .WaitAsync(
+            TimeSpan.FromSeconds(5));
+
+        Assert.Equal(
+            RemoteInputDecision.SensitiveSurface,
+            completed.Decision);
+        Assert.Single(input.Batches);
+        Assert.Equal(0, controller.ActiveProtectionAdmissionUseCount);
+        Assert.Equal(0, controller.ProtectionAdmissionDrainWaiterCount);
+        Assert.True(blocked.Blocked);
+        RemoteInputAttemptResult rejected = await controller.InjectInputAsync(
+            Peer,
+            driverEpoch,
+            RemoteInputBatch.Create(
+                [RemoteInputEvent.PointerMove(0.5, 0.5)]));
+        Assert.Equal(
+            RemoteInputDecision.SensitiveSurface,
+            rejected.Decision);
+        Assert.Single(input.Batches);
+    }
+
+    [Fact]
+    public async Task ProtectionAdmissionUseSpansCompleteFrameDestination()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var destination = new BlockingNativeFrameSink();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            destination,
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        Assert.True((await controller.StartAsync(SafeAt(Now))).Succeeded);
+        NativeRemoteWindowSourceUse sourceUse = Assert.Single(capture.SourceUses);
+        INativeRemoteWindowFrameSink frameSink = Assert.Single(capture.FrameSinks);
+        (NativeRemoteWindowFrame admittedFrame, RecordingMemoryOwner admittedOwner) =
+            CreateNativeFrame(sourceUse, sequence: 1);
+        Task admittedDelivery = RunOnDedicatedThread(
+            () => frameSink.TakeOwnership(sourceUse, admittedFrame));
+        Task<RemoteWindowProtectionResult>? blocking = null;
+        long unsafeEpoch = 0;
+        try
+        {
+            Assert.True(destination.FrameEntered.Wait(TimeSpan.FromSeconds(5)));
+            Assert.Equal(1, controller.ActiveProtectionAdmissionUseCount);
+
+            unsafeEpoch = controller.CloseProtectionAdmissionNow();
+            blocking = Task.Run(() => controller.ApplyProtectionSnapshot(
+                new ProtectionSnapshot(
+                    ProtectionKind.ProtectedContent,
+                    Now,
+                    "test-frame-use-scope-unsafe"),
+                unsafeEpoch));
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.ProtectionAdmissionDrainWaiterCount == 1,
+                TimeSpan.FromSeconds(5)));
+            (NativeRemoteWindowFrame rejectedFrame,
+                RecordingMemoryOwner rejectedOwner) = CreateNativeFrame(
+                sourceUse,
+                sequence: 2);
+            frameSink.TakeOwnership(sourceUse, rejectedFrame);
+            Assert.Equal(1, rejectedOwner.DisposeCount);
+            Assert.Equal(1, controller.ActiveProtectionAdmissionUseCount);
+            Assert.False(blocking.IsCompleted);
+        }
+        finally
+        {
+            destination.ReleaseFrame();
+        }
+
+        await admittedDelivery.WaitAsync(TimeSpan.FromSeconds(5));
+        RemoteWindowProtectionResult blocked = await Assert.IsAssignableFrom<
+                Task<RemoteWindowProtectionResult>>(blocking)
+            .WaitAsync(
+            TimeSpan.FromSeconds(5));
+        Assert.Equal(1, admittedOwner.DisposeCount);
+        Assert.Equal(0, controller.ActiveProtectionAdmissionUseCount);
+        Assert.Equal(0, controller.ProtectionAdmissionDrainWaiterCount);
+        Assert.True(blocked.Blocked);
+    }
+
+    [Fact]
+    public async Task ReentrantSafeProtectionDefersOpenUntilInputUseExits()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var authorization = new MutableMirrorAuthorizationSource();
+        var input = new RecordingNativeInputBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            authorization,
+            new RecordingNativeCaptureBoundary(),
+            input,
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        Assert.True((await controller.StartAsync(SafeAt(Now))).Succeeded);
+        authorization.SetGrant(
+            Peer,
+            CapabilityGrant.Of(Capability.MirrorView, Capability.MirrorDrive));
+        Assert.True((await controller.AddParticipantAsync(
+            Peer,
+            MirrorParticipantRole.DriverEligible)).Succeeded);
+        RemoteWindowCommandResult transferred =
+            await controller.TransferDriverAsync(
+                Peer,
+                TimeSpan.FromSeconds(10));
+        long driverEpoch = Assert.IsType<long>(
+            transferred.Snapshot.DriverLeaseEpoch);
+        RemoteWindowProtectionResult? safeResult = null;
+        int activeUseDuringCallback = 0;
+        input.Injecting = () =>
+        {
+            activeUseDuringCallback =
+                controller.ActiveProtectionAdmissionUseCount;
+            long safeEpoch = controller.CloseProtectionAdmissionNow();
+            safeResult = controller.ApplyProtectionSnapshot(
+                SafeAt(Now.AddTicks(1)),
+                safeEpoch);
+            Assert.Equal(1, controller.ActiveProtectionAdmissionUseCount);
+        };
+
+        RemoteInputAttemptResult first = await controller.InjectInputAsync(
+            Peer,
+            driverEpoch,
+            RemoteInputBatch.Create(
+                [RemoteInputEvent.PointerMove(0.25, 0.75)]));
+
+        Assert.Equal(1, activeUseDuringCallback);
+        Assert.NotNull(safeResult);
+        Assert.False(safeResult.Blocked);
+        Assert.Equal(RemoteInputDecision.Allowed, first.Decision);
+        Assert.Equal(0, controller.ActiveProtectionAdmissionUseCount);
+        input.Injecting = null;
+        RemoteInputAttemptResult second = await controller.InjectInputAsync(
+            Peer,
+            driverEpoch,
+            RemoteInputBatch.Create(
+                [RemoteInputEvent.PointerMove(0.75, 0.25)]));
+        Assert.Equal(RemoteInputDecision.Allowed, second.Decision);
+        Assert.Equal(2, input.Batches.Count);
+    }
+
+    [Fact]
+    public async Task ProtectionCaptureStartAdmissionUsesFreshPostStartingClock()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var clock = new ScriptedClock(Now);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            clock,
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        DateTimeOffset expired = Now.Add(
+            RemoteInputPolicy.MaximumProtectionAge).AddTicks(1);
+        clock.SetReads(Now, expired, expired);
+        DateTimeOffset? observedAtAdmission = null;
+        var admission = new RecordingCaptureStartAdmission(now =>
+        {
+            observedAtAdmission = now;
+            return now - Now <= RemoteInputPolicy.MaximumProtectionAge;
+        });
+
+        RemoteWindowCommandResult result = await controller.StartAsync(
+            SafeAt(Now),
+            admission,
+            CancellationToken.None);
+
+        Assert.Equal(expired, observedAtAdmission);
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, result.Status);
+        Assert.Equal("native_protection_not_safe", result.ReasonCode);
+        Assert.Empty(capture.SourceUses);
+        Assert.Equal(1, capture.StopCallCount);
+    }
+
+    [Fact]
+    public async Task ProtectionCaptureStartClockThrowFailsClosedWithoutCanaryLeak()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var clock = new ScriptedClock(Now);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            clock,
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        var failure = new IOException("FLOWSPAN_CAPTURE_ADMISSION_CLOCK_CANARY");
+        clock.SetReads(Now);
+        clock.FailNext(failure);
+        var admission = new RecordingCaptureStartAdmission(_ => true);
+
+        RemoteWindowCommandResult result = await controller.StartAsync(
+            SafeAt(Now),
+            admission,
+            CancellationToken.None);
+
+        Assert.Equal(RemoteWindowCommandStatus.BoundaryFailed, result.Status);
+        Assert.Equal("native_protection_not_safe", result.ReasonCode);
+        Assert.DoesNotContain(failure.Message, result.ToString());
+        Assert.Equal(0, admission.CallCount);
+        Assert.Empty(capture.SourceUses);
+        Assert.Equal(1, capture.StopCallCount);
+    }
+
+    [Fact]
+    public async Task ProtectionCaptureStartClockOutOfMemoryCleansUpThenEscapesRaw()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var clock = new ScriptedClock(Now);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            clock,
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        var failure = new InjectedOutOfMemoryException(
+            "FLOWSPAN_CAPTURE_ADMISSION_CLOCK_OOM");
+        clock.SetReads(Now);
+        clock.FailNext(failure);
+        var admission = new RecordingCaptureStartAdmission(_ => true);
+
+        OutOfMemoryException thrown = await Assert.ThrowsAnyAsync<
+            OutOfMemoryException>(async () => await controller.StartAsync(
+                SafeAt(Now),
+                admission,
+                CancellationToken.None));
+
+        Assert.Same(failure, thrown);
+        Assert.Equal(0, admission.CallCount);
+        Assert.Empty(capture.SourceUses);
+        Assert.Equal(1, capture.StopCallCount);
+        Assert.Equal(RemoteWindowLifecycle.Unavailable, controller.Snapshot.Lifecycle);
+        Assert.Equal(RemoteWindowCaptureState.Stopped, controller.Snapshot.CaptureState);
+    }
+
+    [Fact]
+    public async Task ProtectionCaptureStartAdmissionCancellationAndStopDoNotDeadlock()
+    {
+        using var registry = new NativeRemoteWindowSourceRegistry(Host);
+        using NativeRemoteWindowSourceRegistration registration =
+            registry.RegisterGeneric(NativeMetadata());
+        using NativeRemoteWindowSourceLease lease = AcquireNativeLease(
+            registry,
+            registration.Snapshot);
+        var capture = new RecordingNativeCaptureBoundary();
+        using var controller = new RemoteWindowSessionController(
+            lease,
+            ownerGeneration: 11,
+            new MutableClock(Now),
+            new MutableMirrorAuthorizationSource(),
+            capture,
+            new RecordingNativeInputBoundary(),
+            new DisposingNativeFrameSink(),
+            new RecordingSharingSessionBoundary(),
+            TimeSpan.FromSeconds(10));
+        using var admission = new BlockingCaptureStartAdmission();
+        using var cancellation = new CancellationTokenSource();
+        Task<RemoteWindowCommandResult> starting = RunOnDedicatedThread(() =>
+            controller.StartAsync(
+                    SafeAt(Now),
+                    admission,
+                    cancellation.Token)
+                .AsTask()
+                .GetAwaiter()
+                .GetResult());
+        Assert.True(admission.Entered.Wait(TimeSpan.FromSeconds(5)));
+
+        cancellation.Cancel();
+        Task<RemoteWindowStopResult> stopping = controller.StopAsync().AsTask();
+        admission.Resolve(admitted: true);
+
+        OperationCanceledException cancelled = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await starting.WaitAsync(
+                TimeSpan.FromSeconds(5)));
+        RemoteWindowStopResult stopped = await stopping.WaitAsync(
+            TimeSpan.FromSeconds(5));
+
+        Assert.Equal(cancellation.Token, cancelled.CancellationToken);
+        Assert.Equal(1, admission.CallCount);
+        Assert.Empty(capture.SourceUses);
+        Assert.True(stopped.FullyStopped);
+        Assert.Equal(RemoteWindowLifecycle.Ended, controller.Snapshot.Lifecycle);
+    }
+
+    [Fact]
     public async Task ClosedNativeSourceCannotCrossCaptureBoundary()
     {
         using var registry = new NativeRemoteWindowSourceRegistry(Host);
@@ -4359,6 +5084,115 @@ public sealed class RemoteWindowSessionControllerTests
         }
     }
 
+    private sealed class ScriptedClock(DateTimeOffset utcNow) : IClock
+    {
+        private readonly object gate = new();
+        private readonly Queue<DateTimeOffset> reads = [];
+        private DateTimeOffset current = utcNow;
+        private Exception? nextFailure;
+
+        public DateTimeOffset UtcNow
+        {
+            get
+            {
+                lock (gate)
+                {
+                    if (reads.Count > 0)
+                    {
+                        current = reads.Dequeue();
+                        return current;
+                    }
+
+                    if (nextFailure is { } failure)
+                    {
+                        nextFailure = null;
+                        throw failure;
+                    }
+
+                    return current;
+                }
+            }
+        }
+
+        public void SetReads(params DateTimeOffset[] values)
+        {
+            lock (gate)
+            {
+                reads.Clear();
+                foreach (DateTimeOffset value in values)
+                {
+                    reads.Enqueue(value);
+                }
+            }
+        }
+
+        public void FailNext(Exception failure)
+        {
+            ArgumentNullException.ThrowIfNull(failure);
+            lock (gate)
+            {
+                nextFailure = failure;
+            }
+        }
+    }
+
+    private sealed class RecordingCaptureStartAdmission(
+        Func<DateTimeOffset, bool> admit,
+        Func<RemoteWindowLifecycle>? observeLifecycle = null) :
+        IRemoteWindowCaptureStartAdmission
+    {
+        private int callCount;
+
+        public int CallCount => Volatile.Read(ref callCount);
+
+        public RemoteWindowLifecycle? ObservedLifecycle { get; private set; }
+
+        public bool TryAdmitCaptureStart(DateTimeOffset now)
+        {
+            Interlocked.Increment(ref callCount);
+            ObservedLifecycle = observeLifecycle?.Invoke();
+            return admit(now);
+        }
+    }
+
+    private sealed class BlockingCaptureStartAdmission :
+        IRemoteWindowCaptureStartAdmission,
+        IDisposable
+    {
+        private readonly ManualResetEventSlim release = new(false);
+        private int admitted;
+        private int callCount;
+
+        public ManualResetEventSlim Entered { get; } = new(false);
+
+        public int CallCount => Volatile.Read(ref callCount);
+
+        public bool TryAdmitCaptureStart(DateTimeOffset now)
+        {
+            _ = now;
+            Interlocked.Increment(ref callCount);
+            Entered.Set();
+            release.Wait();
+            return Volatile.Read(ref admitted) != 0;
+        }
+
+        public void Resolve(bool admitted)
+        {
+            Volatile.Write(ref this.admitted, admitted ? 1 : 0);
+            release.Set();
+        }
+
+        public void Dispose()
+        {
+            release.Set();
+            release.Dispose();
+            Entered.Dispose();
+        }
+    }
+
+    private sealed class InjectedOutOfMemoryException(string message) :
+        OutOfMemoryException(message);
+
     private sealed class MutableMirrorAuthorizationSource : IMirrorAuthorizationSource
     {
         private readonly Dictionary<DeviceId, CapabilityGrant> grants = [];
@@ -4700,6 +5534,8 @@ public sealed class RemoteWindowSessionControllerTests
 
         public List<RemoteInputBatch> Batches { get; } = [];
 
+        public Action? Injecting { get; set; }
+
         public ManualResetEventSlim InjectionEntered => injectionEntered;
 
         public Func<RemoteWindowSharingSnapshot>? Snapshot { get; set; }
@@ -4726,6 +5562,7 @@ public sealed class RemoteWindowSessionControllerTests
             SourceUses.Add(sourceUse);
             Batches.Add(batch);
             injectionEntered.Set();
+            Injecting?.Invoke();
             releaseInjection?.Wait(cancellationToken);
             return ValueTask.FromResult(
                 LocalBoundaryResult.Confirmed("native_input_injected"));

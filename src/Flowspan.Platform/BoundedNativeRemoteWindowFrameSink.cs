@@ -21,6 +21,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
     private INativeRemoteWindowFrameSink? destination;
     private bool delivering;
     private Func<IDisposable?>? enterDelivery;
+    private Func<IDisposable?>? enterDeliveryAdmission;
     private NativeRemoteWindowSourceUse? expectedSourceUse;
     private Action<NativeRemoteWindowFrameSinkFault>? faulted;
     private long highestAcceptedSequence;
@@ -37,6 +38,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
             static () => true,
             destination,
             enterDelivery: null,
+            enterDeliveryAdmission: null,
             faulted: null)
     {
     }
@@ -52,6 +54,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
             canDeliver,
             destination,
             enterDelivery: null,
+            enterDeliveryAdmission: null,
             faulted: faulted)
     {
     }
@@ -62,6 +65,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
         Func<bool> canDeliver,
         INativeRemoteWindowFrameSink destination,
         Func<IDisposable?>? enterDelivery,
+        Func<IDisposable?>? enterDeliveryAdmission,
         Action<NativeRemoteWindowFrameSinkFault>? faulted)
     {
         this.expectedSourceUse = expectedSourceUse
@@ -73,6 +77,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
         this.destination = destination
             ?? throw new ArgumentNullException(nameof(destination));
         this.enterDelivery = enterDelivery;
+        this.enterDeliveryAdmission = enterDeliveryAdmission;
         this.faulted = faulted;
     }
 
@@ -203,6 +208,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
             canDeliver = null;
             destination = null;
             enterDelivery = null;
+            enterDeliveryAdmission = null;
             faulted = null;
         }
 
@@ -273,6 +279,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
 
                 NativeRemoteWindowSourceUse? expected = null;
                 INativeRemoteWindowFrameSink? currentDestination = null;
+                Func<IDisposable?>? currentEnterDeliveryAdmission = null;
                 bool rejectClosed;
                 lock (gate)
                 {
@@ -283,6 +290,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
                     {
                         expected = expectedSourceUse;
                         currentDestination = destination;
+                        currentEnterDeliveryAdmission = enterDeliveryAdmission;
                     }
                 }
 
@@ -293,8 +301,34 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
                     return;
                 }
 
+                IDisposable? deliveryAdmission = null;
                 try
                 {
+                    if (currentEnterDeliveryAdmission is not null)
+                    {
+                        try
+                        {
+                            deliveryAdmission =
+                                currentEnterDeliveryAdmission();
+                        }
+                        catch (Exception)
+                        {
+                            DisposeFrame(current);
+                            CloseForFault(
+                                NativeRemoteWindowFrameSinkFault
+                                    .DeliveryPolicyUnavailable);
+                            CompleteDelivery();
+                            return;
+                        }
+
+                        if (deliveryAdmission is null)
+                        {
+                            DisposeFrame(current);
+                            CompleteDeliveryAndDiscardPending();
+                            return;
+                        }
+                    }
+
                     currentDestination!.TakeOwnership(expected!, current);
                 }
                 catch (Exception)
@@ -304,6 +338,10 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
                         NativeRemoteWindowFrameSinkFault.DestinationFailed);
                     CompleteDelivery();
                     return;
+                }
+                finally
+                {
+                    deliveryAdmission?.Dispose();
                 }
 
                 NativeRemoteWindowFrame? next;
@@ -398,6 +436,7 @@ public sealed class BoundedNativeRemoteWindowFrameSink :
             canDeliver = null;
             destination = null;
             enterDelivery = null;
+            enterDeliveryAdmission = null;
             callback = faulted;
             faulted = null;
         }

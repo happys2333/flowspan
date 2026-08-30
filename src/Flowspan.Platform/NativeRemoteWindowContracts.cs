@@ -345,7 +345,7 @@ public interface INativeProtectionSource : IDisposable
         out NativeRemoteWindowProtectionObservation? observation);
 }
 
-public sealed class InMemoryNativeProtectionSource : INativeProtectionSource
+public sealed partial class InMemoryNativeProtectionSource : INativeProtectionSource
 {
     public const int MaximumPendingNotifications = 8;
 
@@ -407,6 +407,9 @@ public sealed class InMemoryNativeProtectionSource : INativeProtectionSource
         NativeRemoteWindowProtectionObservation observation;
         Action<NativeRemoteWindowProtectionObservation>[] observers;
         bool drainNotifications;
+        Exception? preparationFailure;
+        ProtectionFormalNotification? formalNotification;
+        ProtectionNotification notification;
         lock (gate)
         {
             if (Volatile.Read(ref disposed) != 0)
@@ -441,15 +444,79 @@ public sealed class InMemoryNativeProtectionSource : INativeProtectionSource
             }
 
             latest = observation;
-            pendingNotifications.Enqueue(
-                new ProtectionNotification(observation, observers, overflow));
-            drainNotifications = !notificationDraining;
-            notificationDraining = true;
+            ProtectionMutationCallbacks preparation =
+                CommitProtectionPreparationMutationUnderGate(observation);
+            preparationFailure = preparation.Failure;
+            formalNotification = preparation.FormalNotification;
+            notification = new(
+                observation,
+                observers,
+                overflow,
+                formalNotification is null);
+            pendingNotifications.Enqueue(notification);
+            if (formalNotification is not null)
+            {
+                BeginProtectionFormalNotificationUnderGate();
+            }
+
+            drainNotifications = notification.Ready
+                && !notificationDraining;
+            if (drainNotifications)
+            {
+                notificationDraining = true;
+            }
+        }
+
+        if (formalNotification is { } formal)
+        {
+            NativeRemoteWindowDrainActivityScope? callbackScope = null;
+            try
+            {
+                callbackScope = NativeRemoteWindowDrainActivityScope.Enter(
+                    this,
+                    notification);
+                formal.Sink.NotifyNativeRemoteWindowProtectionChanged();
+            }
+            catch (Exception exception)
+            {
+                DeactivateLiveProtectionPreparationAfterNotificationFailure(
+                    formal.Registration);
+                preparationFailure = preparationFailure is null
+                    ? exception
+                    : CombineProtectionFailures(
+                        preparationFailure,
+                        exception);
+            }
+            finally
+            {
+                callbackScope?.Dispose();
+                lock (gate)
+                {
+                    notification.Ready = true;
+                    if (!notificationDraining
+                        && pendingNotifications.Count != 0)
+                    {
+                        notificationDraining = true;
+                        drainNotifications = true;
+                    }
+
+                    CompleteProtectionFormalNotificationUnderGate(
+                        preparationFailure);
+                }
+            }
         }
 
         if (drainNotifications)
         {
             DrainNotifications();
+        }
+
+        if (preparationFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(
+                    FindOutOfMemoryException(preparationFailure)
+                        ?? preparationFailure)
+                .Throw();
         }
 
         return true;
@@ -470,6 +537,15 @@ public sealed class InMemoryNativeProtectionSource : INativeProtectionSource
                 if (pendingNotifications.Count == 0)
                 {
                     notificationDraining = false;
+                    TryFinalizeProtectionDisposalUnderGate();
+                    Monitor.PulseAll(gate);
+                    return;
+                }
+
+                if (!pendingNotifications.Peek().Ready)
+                {
+                    notificationDraining = false;
+                    TryFinalizeProtectionDisposalUnderGate();
                     Monitor.PulseAll(gate);
                     return;
                 }
@@ -547,42 +623,132 @@ public sealed class InMemoryNativeProtectionSource : INativeProtectionSource
     public void Dispose()
     {
         bool firstDisposal = Interlocked.Exchange(ref disposed, 1) == 0;
-        lock (gate)
+        Exception? failure;
+        ProtectionFormalNotification? formalNotification = null;
+        if (!firstDisposal)
         {
-            if (firstDisposal)
+            lock (gate)
             {
-                latest = null;
-                changed = null;
-                pendingNotifications.Clear();
+                while (!protectionDisposalFinalized
+                    && !NativeRemoteWindowDrainActivityScope
+                        .HasActiveAncestry())
+                {
+                    Monitor.Wait(gate);
+                }
+
+                failure = protectionDisposalFailure;
             }
 
-            bool callbackDrainRequired = notificationDraining
-                && !NativeRemoteWindowDrainActivityScope.IsActiveFor(
+            if (failure is not null)
+            {
+                ExceptionDispatchInfo.Capture(
+                        FindOutOfMemoryException(failure) ?? failure)
+                    .Throw();
+            }
+
+            return;
+        }
+
+        lock (gate)
+        {
+            latest = null;
+            changed = null;
+            pendingNotifications.Clear();
+            ProtectionMutationCallbacks preparation =
+                LoseProtectionPreparationUnderGate();
+            if (preparation.Failure is not null)
+            {
+                RecordProtectionDisposalFailureUnderGate(
+                    preparation.Failure);
+            }
+
+            formalNotification = preparation.FormalNotification;
+        }
+
+        if (formalNotification is { } formal)
+        {
+            Exception? notificationFailure = null;
+            NativeRemoteWindowDrainActivityScope? callbackScope = null;
+            try
+            {
+                callbackScope = NativeRemoteWindowDrainActivityScope.Enter(
                     this,
-                    activeCallbackToken);
-            if (callbackDrainRequired
-                && !NativeRemoteWindowDrainActivityScope.HasActiveAncestry())
+                    formal);
+                formal.Sink.NotifyNativeRemoteWindowProtectionChanged();
+            }
+            catch (Exception exception)
+            {
+                notificationFailure = exception;
+            }
+            finally
+            {
+                callbackScope?.Dispose();
+            }
+
+            if (notificationFailure is not null)
+            {
+                lock (gate)
+                {
+                    RecordProtectionDisposalFailureUnderGate(
+                        notificationFailure);
+                }
+            }
+        }
+
+        lock (gate)
+        {
+            protectionDisposalCleanupCommitted = true;
+            TryFinalizeProtectionDisposalUnderGate();
+            bool canWait = !NativeRemoteWindowDrainActivityScope
+                .HasActiveAncestry();
+            bool countOrdinaryDrainWaiter = canWait && notificationDraining;
+            if (countOrdinaryDrainWaiter)
             {
                 Interlocked.Increment(ref callbackDrainWaiters);
-                try
+            }
+
+            try
+            {
+                while (!protectionDisposalFinalized && canWait)
                 {
-                    while (notificationDraining)
-                    {
-                        Monitor.Wait(gate);
-                    }
+                    Monitor.Wait(gate);
                 }
-                finally
+            }
+            finally
+            {
+                if (countOrdinaryDrainWaiter)
                 {
                     Interlocked.Decrement(ref callbackDrainWaiters);
                 }
             }
+
+            failure = protectionDisposalFailure;
+        }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(
+                    FindOutOfMemoryException(failure) ?? failure)
+                .Throw();
         }
     }
 
-    private sealed record ProtectionNotification(
-        NativeRemoteWindowProtectionObservation Observation,
-        Action<NativeRemoteWindowProtectionObservation>[] Observers,
-        bool Overflowed);
+    private sealed class ProtectionNotification(
+        NativeRemoteWindowProtectionObservation observation,
+        Action<NativeRemoteWindowProtectionObservation>[] observers,
+        bool overflowed,
+        bool ready)
+    {
+        public NativeRemoteWindowProtectionObservation Observation { get; } =
+            observation;
+
+        public Action<NativeRemoteWindowProtectionObservation>[] Observers
+        { get; } = observers;
+
+        public bool Overflowed { get; } = overflowed;
+
+        public bool Ready { get; set; } = ready;
+    }
 }
 
 public enum LocalEmergencyStopCause
