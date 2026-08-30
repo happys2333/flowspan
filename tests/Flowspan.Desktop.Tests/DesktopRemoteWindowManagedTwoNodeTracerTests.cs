@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
@@ -11,6 +12,83 @@ using Flowspan.Security;
 using Flowspan.Transport;
 
 namespace Flowspan.Desktop.Tests;
+
+internal static class RemoteWindowSessionStopClassifier
+{
+    public static bool IsExpected(Exception exception) => exception switch
+    {
+        AggregateException aggregate => IsExpectedAggregate(aggregate),
+        OperationCanceledException or IOException or InvalidDataException
+            or ObjectDisposedException => true,
+        _ => false,
+    };
+
+    private static bool IsExpectedAggregate(AggregateException aggregate)
+    {
+        ReadOnlyCollection<Exception> failures =
+            aggregate.Flatten().InnerExceptions;
+        return failures.Count > 0
+            && (failures.All(IsExpected)
+                || IsExpectedRetiredGenerationShutdown(failures));
+    }
+
+    private static bool IsExpectedRetiredGenerationShutdown(
+        ReadOnlyCollection<Exception> failures)
+    {
+        const string retiredGeneration =
+            "The authenticated Remote Window connection generation is no longer current.";
+        int endOfStreamCount = 0;
+        int retiredGenerationCount = 0;
+        foreach (Exception failure in failures)
+        {
+            if (failure.GetType() == typeof(EndOfStreamException)
+                && failure.InnerException is null)
+            {
+                endOfStreamCount++;
+            }
+            else if (failure.GetType() == typeof(InvalidOperationException)
+                && failure.InnerException is null
+                && string.Equals(
+                    failure.Message,
+                    retiredGeneration,
+                    StringComparison.Ordinal))
+            {
+                retiredGenerationCount++;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        return endOfStreamCount == 1 && retiredGenerationCount > 0;
+    }
+}
+
+public sealed class RemoteWindowSessionStopClassifierTests
+{
+    [Fact]
+    public void AcceptsOnlyExactRetiredGenerationShutdownAggregate()
+    {
+        const string retiredGeneration =
+            "The authenticated Remote Window connection generation is no longer current.";
+        var expected = new AggregateException(
+            "The authenticated control session and its cleanup failed.",
+            new AggregateException(
+                "The authenticated control session and its cleanup failed.",
+                new EndOfStreamException("test authenticated control EOF"),
+                new InvalidOperationException(retiredGeneration)),
+            new InvalidOperationException(retiredGeneration));
+        var wrongMessage = new AggregateException(
+            new EndOfStreamException("test authenticated control EOF"),
+            new InvalidOperationException($"{retiredGeneration} unexpected"));
+        var standalone = new InvalidOperationException(retiredGeneration);
+
+        Assert.True(RemoteWindowSessionStopClassifier.IsExpected(expected));
+        Assert.False(RemoteWindowSessionStopClassifier.IsExpected(wrongMessage));
+        Assert.False(RemoteWindowSessionStopClassifier.IsExpected(standalone));
+    }
+}
 
 public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 {
@@ -4027,7 +4105,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
             Exception? failure = await Record.ExceptionAsync(async () =>
                 await running.WaitAsync(TimeSpan.FromSeconds(5)));
-            if (failure is null || IsExpectedSessionStop(failure))
+            if (failure is null
+                || RemoteWindowSessionStopClassifier.IsExpected(failure))
             {
                 return;
             }
@@ -5715,20 +5794,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         {
             await running.WaitAsync(TimeSpan.FromSeconds(5));
         }
-        catch (Exception exception) when (IsExpectedSessionStop(exception))
+        catch (Exception exception) when (
+            RemoteWindowSessionStopClassifier.IsExpected(exception))
         {
         }
     }
-
-    private static bool IsExpectedSessionStop(Exception exception) => exception switch
-    {
-        AggregateException aggregate =>
-            aggregate.Flatten().InnerExceptions.Count > 0
-            && aggregate.Flatten().InnerExceptions.All(IsExpectedSessionStop),
-        OperationCanceledException or IOException or InvalidDataException
-            or ObjectDisposedException => true,
-        _ => false,
-    };
 
     private static async Task ObserveListenerStopAsync(
         Task running,

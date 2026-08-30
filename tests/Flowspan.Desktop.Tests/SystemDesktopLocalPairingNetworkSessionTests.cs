@@ -593,6 +593,227 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
     }
 
     [Fact]
+    public async Task ChangedPublicationUsesNonThreadPoolWorker()
+    {
+        using DeviceIdentity identity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Desk");
+        using DeviceIdentity peerIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Peer");
+        await using var trust = new TrustSessionCoordinator(
+            new InMemoryTrustStore());
+        using var decisions = new DesktopPairingDecisionSource();
+        var dns = new RecordingDnsSdTransport();
+        var factory = new SystemDesktopLocalPairingNetworkFactory(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust),
+            decisions,
+            () => new TcpListener(IPAddress.Loopback, 0),
+            () => new DesktopDnsSdTransport(dns, dns),
+            () => new BlockingAdvertisementDelay());
+        await using IDesktopLocalPairingNetworkSession session =
+            await factory.StartAsync();
+        var callerContext = new AsyncLocal<object?>();
+        var callerMarker = new object();
+        var publicationEntered = new TaskCompletionSource<(
+            bool IsThreadPoolThread,
+            bool InheritedCallerContext)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Changed += () => publicationEntered.TrySetResult((
+            Thread.CurrentThread.IsThreadPoolThread,
+            ReferenceEquals(callerContext.Value, callerMarker)));
+        DnsSdServiceSnapshot snapshot = CreateDiscoverySnapshot(peerIdentity);
+        callerContext.Value = callerMarker;
+        try
+        {
+            dns.RaiseServiceChanged(snapshot);
+        }
+        finally
+        {
+            callerContext.Value = null;
+        }
+
+        (bool isThreadPoolThread, bool inheritedCallerContext) =
+            await publicationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(isThreadPoolThread);
+        Assert.False(inheritedCallerContext);
+    }
+
+    [Fact]
+    public async Task PublicationWorkerFailureFailsClosedAndDisposeReplaysExactFailure()
+    {
+        using DeviceIdentity identity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Desk");
+        using DeviceIdentity peerIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Peer");
+        await using var trust = new TrustSessionCoordinator(
+            new InMemoryTrustStore());
+        using var decisions = new DesktopPairingDecisionSource();
+        var dns = new RecordingDnsSdTransport();
+        var factory = new SystemDesktopLocalPairingNetworkFactory(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust),
+            decisions,
+            () => new TcpListener(IPAddress.Loopback, 0),
+            () => new DesktopDnsSdTransport(dns, dns),
+            () => new BlockingAdvertisementDelay());
+        IDesktopLocalPairingNetworkSession session = await factory.StartAsync();
+        int port = session.ListeningPort;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var failure = new OutOfMemoryException("test publication worker failure");
+#pragma warning restore CA2201
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Changed += () =>
+        {
+            entered.TrySetResult();
+            throw failure;
+        };
+
+        dns.RaiseServiceChanged(CreateDiscoverySnapshot(peerIdentity));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(SpinWait.SpinUntil(
+            () => session.IsFaulted,
+            TimeSpan.FromSeconds(5)));
+        Task firstDispose = session.DisposeAsync().AsTask();
+        Exception? first = await Record.ExceptionAsync(() => firstDispose);
+        Task laterDispose = session.DisposeAsync().AsTask();
+        Exception? later = await Record.ExceptionAsync(() => laterDispose);
+
+        Assert.Same(failure, first);
+        Assert.Same(failure, later);
+        Assert.Same(firstDispose, laterDispose);
+        var rebound = new TcpListener(IPAddress.Loopback, port);
+        try
+        {
+            rebound.Start();
+        }
+        finally
+        {
+            rebound.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task PublicationSelfDisposeThenFailureReplaysExactFailureToExternalDispose()
+    {
+        using DeviceIdentity identity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Desk");
+        using DeviceIdentity peerIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Peer");
+        await using var trust = new TrustSessionCoordinator(
+            new InMemoryTrustStore());
+        using var decisions = new DesktopPairingDecisionSource();
+        var dns = new RecordingDnsSdTransport();
+        var factory = new SystemDesktopLocalPairingNetworkFactory(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust),
+            decisions,
+            () => new TcpListener(IPAddress.Loopback, 0),
+            () => new DesktopDnsSdTransport(dns, dns),
+            () => new BlockingAdvertisementDelay());
+        IDesktopLocalPairingNetworkSession session = await factory.StartAsync();
+        int port = session.ListeningPort;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var failure = new OutOfMemoryException("test self-dispose publication failure");
+#pragma warning restore CA2201
+        var selfDisposeCompleted = new TaskCompletionSource<Exception?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Changed += () =>
+        {
+            selfDisposeCompleted.TrySetResult(Record.Exception(
+                () => session.DisposeAsync().AsTask().GetAwaiter().GetResult()));
+            throw failure;
+        };
+
+        dns.RaiseServiceChanged(CreateDiscoverySnapshot(peerIdentity));
+        Assert.Null(await selfDisposeCompleted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5)));
+        Task externalDispose = session.DisposeAsync().AsTask();
+        Exception? external = await Record.ExceptionAsync(() => externalDispose);
+        Task laterDispose = session.DisposeAsync().AsTask();
+        Exception? later = await Record.ExceptionAsync(() => laterDispose);
+
+        Assert.Same(failure, external);
+        Assert.Same(failure, later);
+        Assert.Same(externalDispose, laterDispose);
+        var rebound = new TcpListener(IPAddress.Loopback, port);
+        try
+        {
+            rebound.Start();
+        }
+        finally
+        {
+            rebound.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task PublicationSelfDisposeFailureAndCleanupFailureRemainOrdered()
+    {
+        using DeviceIdentity identity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Desk");
+        using DeviceIdentity peerIdentity = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Peer");
+        await using var trust = new TrustSessionCoordinator(
+            new InMemoryTrustStore());
+        using var decisions = new DesktopPairingDecisionSource();
+        var dns = new FailingWithdrawalDnsSdTransport();
+        var factory = new SystemDesktopLocalPairingNetworkFactory(
+            _ => ValueTask.FromResult(identity),
+            _ => ValueTask.FromResult(trust),
+            decisions,
+            () => new TcpListener(IPAddress.Loopback, 0),
+            () => new DesktopDnsSdTransport(dns, dns),
+            () => new BlockingAdvertisementDelay());
+        IDesktopLocalPairingNetworkSession session = await factory.StartAsync();
+        int port = session.ListeningPort;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var failure = new OutOfMemoryException(
+            "test self-dispose publication plus cleanup failure");
+#pragma warning restore CA2201
+        var selfDisposeCompleted = new TaskCompletionSource<Exception?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Changed += () =>
+        {
+            selfDisposeCompleted.TrySetResult(Record.Exception(
+                () => session.DisposeAsync().AsTask().GetAwaiter().GetResult()));
+            throw failure;
+        };
+
+        dns.RaiseServiceChanged(CreateDiscoverySnapshot(peerIdentity));
+        Assert.Null(await selfDisposeCompleted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5)));
+        AggregateException external = await Assert.ThrowsAsync<AggregateException>(
+            () => session.DisposeAsync().AsTask());
+        AggregateException later = await Assert.ThrowsAsync<AggregateException>(
+            () => session.DisposeAsync().AsTask());
+
+        Assert.Same(external, later);
+        Assert.Collection(
+            external.InnerExceptions,
+            first => Assert.Same(failure, first),
+            second => Assert.Same(dns.WithdrawalFailure, second));
+        Assert.Equal(1, dns.WithdrawCount);
+        var rebound = new TcpListener(IPAddress.Loopback, port);
+        try
+        {
+            rebound.Start();
+        }
+        finally
+        {
+            rebound.Stop();
+        }
+    }
+
+    [Fact]
     public async Task CancellationObserverJoinsTheSameWithdrawalFailure()
     {
         using DeviceIdentity identity = CreateIdentity(
@@ -1221,14 +1442,19 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
         IDnsSdServiceBrowser,
         IDnsSdServicePublisher
     {
+        private Action<DnsSdServiceSnapshot>? serviceChanged;
+
         public bool IsPublished { get; private set; }
 
         public int WithdrawCount { get; private set; }
 
+        public IOException WithdrawalFailure { get; } = new(
+            "CANARY_WITHDRAW_FAILURE");
+
         public event Action<DnsSdServiceSnapshot>? ServiceChanged
         {
-            add { }
-            remove { }
+            add => serviceChanged += value;
+            remove => serviceChanged -= value;
         }
 
         public event Action<string>? ServiceRemoved
@@ -1247,10 +1473,13 @@ public sealed class SystemDesktopLocalPairingNetworkSessionTests
         {
         }
 
+        public void RaiseServiceChanged(DnsSdServiceSnapshot snapshot) =>
+            serviceChanged?.Invoke(snapshot);
+
         public void Withdraw()
         {
             WithdrawCount++;
-            throw new IOException("CANARY_WITHDRAW_FAILURE");
+            throw WithdrawalFailure;
         }
     }
 

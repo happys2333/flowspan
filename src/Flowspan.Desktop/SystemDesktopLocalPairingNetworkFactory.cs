@@ -300,6 +300,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         private PublicationLease? activePublication;
         private bool publicationClosed;
         private TaskCompletionSource? publicationDrainCompletion;
+        private Exception? publicationWorkerFailure;
         private bool publicationWorkerRunning;
         private Task? supervisionTask;
         private int disposed;
@@ -436,7 +437,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
         {
             PublicationLease? callerLease = CurrentPublication.Value;
             Task publicationDrainTask;
-            TaskCompletionSource? drainToComplete = null;
+            bool selfDisposal = false;
             bool startDisposal = false;
             lock (publicationGate)
             {
@@ -454,34 +455,24 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                     && ReferenceEquals(callerLease.Owner, this)
                     && ReferenceEquals(activePublication, callerLease))
                 {
-                    callerLease.ExcludedFromDisposalDrain = true;
-                    drainToComplete = publicationDrainCompletion;
+                    selfDisposal = true;
                 }
 
                 publicationDrainTask = GetPublicationDrainTask();
             }
 
-            drainToComplete?.TrySetResult();
             if (startDisposal)
             {
                 _ = DisposeAndCompleteAsync(publicationDrainTask);
             }
 
-            return new ValueTask(disposalCompletion.Task);
+            return selfDisposal
+                ? ValueTask.CompletedTask
+                : new ValueTask(disposalCompletion.Task);
         }
 
-        private Task GetPublicationDrainTask()
-        {
-            if (activePublication is null
-                || activePublication.ExcludedFromDisposalDrain)
-            {
-                return Task.CompletedTask;
-            }
-
-            publicationDrainCompletion ??= new TaskCompletionSource(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            return publicationDrainCompletion.Task;
-        }
+        private Task GetPublicationDrainTask() =>
+            publicationDrainCompletion?.Task ?? Task.CompletedTask;
 
         private async Task DisposeAndCompleteAsync(Task publicationDrainTask)
         {
@@ -498,7 +489,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
 
         private async Task DisposeResourcesAsync(Task publicationDrainTask)
         {
-            var failures = new List<Exception>();
+            var cleanupFailures = new List<Exception>();
             pairingDecisions.RunWithCancellationPublicationsDeferred(() =>
             {
                 try
@@ -507,16 +498,16 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 }
                 catch (Exception exception)
                 {
-                    failures.Add(exception);
+                    AddFailureByReference(cleanupFailures, exception);
                 }
 
                 try
                 {
                     advertisementPublisher.StopPublishing();
                 }
-                catch
+                catch (Exception exception)
                 {
-                    // The recorded withdrawal failure is added after the loop drains.
+                    AddFailureByReference(cleanupFailures, exception);
                 }
             });
 
@@ -526,7 +517,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             }
             catch (Exception exception)
             {
-                failures.Add(exception);
+                AddFailureByReference(cleanupFailures, exception);
             }
 
             try
@@ -535,7 +526,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             }
             catch (Exception exception)
             {
-                failures.Add(exception);
+                AddFailureByReference(cleanupFailures, exception);
             }
 
             Task pairingDrainTask = WaitForPairingOperationsAsync();
@@ -544,20 +535,35 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 DrainLoopAsync(advertisementTask),
                 DrainLoopAsync(supervisionTask));
 
-            await publicationDrainTask.ConfigureAwait(false);
+            Exception? publicationPrimaryFailure = null;
+            try
+            {
+                await publicationDrainTask.ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                publicationPrimaryFailure = exception;
+            }
+
+            if (Volatile.Read(ref publicationWorkerFailure) is
+                { } retainedPublicationFailure)
+            {
+                publicationPrimaryFailure = retainedPublicationFailure;
+            }
+
             try
             {
                 await pairingDrainTask.ConfigureAwait(false);
             }
             catch (Exception exception)
             {
-                failures.Add(exception);
+                AddFailureByReference(cleanupFailures, exception);
             }
 
             await loopDrainTask.ConfigureAwait(false);
             if (advertisementPublisher.WithdrawalFailure is { } withdrawalFailure)
             {
-                failures.Add(withdrawalFailure);
+                AddFailureByReference(cleanupFailures, withdrawalFailure);
             }
             candidates.SnapshotChanged -= OnChanged;
             inbound.PairingCompleted -= OnPairingCompleted;
@@ -568,7 +574,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             }
             catch (Exception exception)
             {
-                failures.Add(exception);
+                AddFailureByReference(cleanupFailures, exception);
             }
 
             try
@@ -577,21 +583,43 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             }
             catch (Exception exception)
             {
-                failures.Add(exception);
+                AddFailureByReference(cleanupFailures, exception);
             }
 
             lifetimeCancellation.Dispose();
             pairingGate.Dispose();
-            if (failures.Count == 1)
+            var orderedFailures = new List<Exception>(
+                cleanupFailures.Count + (publicationPrimaryFailure is null ? 0 : 1));
+            if (publicationPrimaryFailure is not null)
             {
-                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+                orderedFailures.Add(publicationPrimaryFailure);
             }
 
-            if (failures.Count > 1)
+            foreach (Exception cleanupFailure in cleanupFailures)
+            {
+                AddFailureByReference(orderedFailures, cleanupFailure);
+            }
+
+            if (orderedFailures.Count == 1)
+            {
+                ExceptionDispatchInfo.Capture(orderedFailures[0]).Throw();
+            }
+
+            if (orderedFailures.Count > 1)
             {
                 throw new AggregateException(
                     "One or more local pairing network resources failed to close.",
-                    failures);
+                    orderedFailures);
+            }
+        }
+
+        private static void AddFailureByReference(
+            List<Exception> failures,
+            Exception candidate)
+        {
+            if (!failures.Any(failure => ReferenceEquals(failure, candidate)))
+            {
+                failures.Add(candidate);
             }
         }
 
@@ -755,7 +783,7 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
 
         private void QueuePublication(PublicationKind kind)
         {
-            bool startWorker = false;
+            TaskCompletionSource? workerCompletion = null;
             lock (publicationGate)
             {
                 if (publicationClosed
@@ -768,87 +796,174 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 if (!publicationWorkerRunning)
                 {
                     publicationWorkerRunning = true;
-                    startWorker = true;
+                    workerCompletion = new TaskCompletionSource(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    publicationDrainCompletion = workerCompletion;
                 }
             }
 
-            if (startWorker)
+            if (workerCompletion is not null)
             {
-                _ = Task.Run(ProcessPublications);
+                try
+                {
+                    StartPublicationWorker(workerCompletion);
+                }
+                catch
+                {
+                    RollBackPublicationWorkerStart(workerCompletion);
+                    throw;
+                }
             }
         }
 
-        private void ProcessPublications()
+        private void StartPublicationWorker(TaskCompletionSource completion)
         {
-            while (true)
+            if (ExecutionContext.IsFlowSuppressed())
             {
-                PublicationKind publication;
-                PublicationLease lease;
+                QueueLongRunningPublicationWorker(completion);
+                return;
+            }
+
+            using (ExecutionContext.SuppressFlow())
+            {
+                QueueLongRunningPublicationWorker(completion);
+            }
+        }
+
+        private void QueueLongRunningPublicationWorker(
+            TaskCompletionSource completion) =>
+            // Publication must start even when unrelated blocking work has
+            // exhausted the process ThreadPool. The gate still admits at most
+            // one of these dedicated workers per session.
+            _ = Task.Factory.StartNew(
+                () => ProcessPublications(completion),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning
+                    | TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default);
+
+        private void RollBackPublicationWorkerStart(
+            TaskCompletionSource completion)
+        {
+            lock (publicationGate)
+            {
+                if (ReferenceEquals(publicationDrainCompletion, completion))
+                {
+                    publicationWorkerRunning = false;
+                    publicationDrainCompletion = null;
+                    pendingPublications.Clear();
+                    pendingPublicationKinds.Clear();
+                }
+            }
+
+            completion.TrySetResult();
+        }
+
+        private void ProcessPublications(TaskCompletionSource workerCompletion)
+        {
+            Exception? workerFailure = null;
+            try
+            {
+                while (true)
+                {
+                    PublicationKind publication;
+                    PublicationLease lease;
+                    lock (publicationGate)
+                    {
+                        if (publicationClosed)
+                        {
+                            pendingPublications.Clear();
+                            pendingPublicationKinds.Clear();
+                        }
+
+                        if (pendingPublications.Count == 0)
+                        {
+                            if (ReferenceEquals(
+                                    publicationDrainCompletion,
+                                    workerCompletion))
+                            {
+                                publicationWorkerRunning = false;
+                            }
+
+                            return;
+                        }
+
+                        publication = pendingPublications.Dequeue();
+                        pendingPublicationKinds.Remove(publication);
+                        lease = new PublicationLease(this);
+                        activePublication = lease;
+                    }
+
+                    PublicationLease? previous = CurrentPublication.Value;
+                    CurrentPublication.Value = lease;
+                    try
+                    {
+                        switch (publication)
+                        {
+                            case PublicationKind.Changed:
+                                PublishChanged();
+                                break;
+                            case PublicationKind.TrustChanged:
+                                PublishTrustChanged();
+                                break;
+                            case PublicationKind.Faulted:
+                                PublishFaulted();
+                                break;
+                            default:
+                                throw new InvalidOperationException(
+                                    $"Unknown local pairing publication kind: {publication}.");
+                        }
+                    }
+                    finally
+                    {
+                        lease.Deactivate();
+                        CurrentPublication.Value = previous;
+                        CompletePublication(lease);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                workerFailure = exception;
+                Interlocked.CompareExchange(
+                    ref publicationWorkerFailure,
+                    exception,
+                    null);
+                Interlocked.CompareExchange(ref faulted, 1, 0);
+                _ = DisposeAsync().AsTask();
+            }
+            finally
+            {
                 lock (publicationGate)
                 {
-                    if (publicationClosed)
-                    {
-                        pendingPublications.Clear();
-                        pendingPublicationKinds.Clear();
-                    }
-
-                    if (pendingPublications.Count == 0)
+                    if (ReferenceEquals(
+                            publicationDrainCompletion,
+                            workerCompletion))
                     {
                         publicationWorkerRunning = false;
-                        return;
-                    }
-
-                    publication = pendingPublications.Dequeue();
-                    pendingPublicationKinds.Remove(publication);
-                    lease = new PublicationLease(this);
-                    activePublication = lease;
-                }
-
-                PublicationLease? previous = CurrentPublication.Value;
-                CurrentPublication.Value = lease;
-                try
-                {
-                    switch (publication)
-                    {
-                        case PublicationKind.Changed:
-                            PublishChanged();
-                            break;
-                        case PublicationKind.TrustChanged:
-                            PublishTrustChanged();
-                            break;
-                        case PublicationKind.Faulted:
-                            PublishFaulted();
-                            break;
-                        default:
-                            throw new InvalidOperationException(
-                                $"Unknown local pairing publication kind: {publication}.");
                     }
                 }
-                finally
+
+                if (workerFailure is null)
                 {
-                    lease.Deactivate();
-                    CurrentPublication.Value = previous;
-                    CompletePublication(lease);
+                    workerCompletion.TrySetResult();
+                }
+                else
+                {
+                    workerCompletion.TrySetException(workerFailure);
                 }
             }
         }
 
         private void CompletePublication(PublicationLease lease)
         {
-            TaskCompletionSource? drainToComplete = null;
             lock (publicationGate)
             {
                 if (ReferenceEquals(activePublication, lease))
                 {
                     activePublication = null;
-                    if (publicationClosed)
-                    {
-                        drainToComplete = publicationDrainCompletion;
-                    }
                 }
             }
-
-            drainToComplete?.TrySetResult();
         }
 
         private void PublishTrustChanged()
@@ -860,7 +975,8 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 {
                     subscriber();
                 }
-                catch
+                catch (Exception exception) when (
+                    exception is not OutOfMemoryException)
                 {
                     // Presentation callbacks cannot own network lifetime.
                 }
@@ -882,7 +998,8 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 {
                     subscriber(this);
                 }
-                catch
+                catch (Exception exception) when (
+                    exception is not OutOfMemoryException)
                 {
                     // Lifecycle observers cannot own network cleanup.
                 }
@@ -902,7 +1019,8 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
                 {
                     subscriber();
                 }
-                catch
+                catch (Exception exception) when (
+                    exception is not OutOfMemoryException)
                 {
                     // Presentation callbacks cannot own network lifetime.
                 }
@@ -945,8 +1063,6 @@ internal sealed class SystemDesktopLocalPairingNetworkFactory :
             private int active = 1;
 
             public bool Active => Volatile.Read(ref active) != 0;
-
-            public bool ExcludedFromDisposalDrain { get; set; }
 
             public SystemDesktopLocalPairingNetworkSession Owner { get; } = owner;
 
