@@ -1108,9 +1108,19 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     }
 
     [Fact]
-    public async Task TxP0P2AuthenticatedControlDisconnectWhileRendererPreparationIsBlockedFailsClosedAndDrains()
+    public Task TxP0P2ExactDeadlineWhileRendererPreparationIsBlockedFailsClosedAndDrains() =>
+        RunTxP0P2BlockedRendererTerminationScenarioAsync(expireDeadline: true);
+
+    [Fact]
+    public Task TxP0P2AuthenticatedControlDisconnectWhileRendererPreparationIsBlockedFailsClosedAndDrains() =>
+        RunTxP0P2BlockedRendererTerminationScenarioAsync(expireDeadline: false);
+
+    private static async Task RunTxP0P2BlockedRendererTerminationScenarioAsync(
+        bool expireDeadline)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var hostTimeProvider = new ManualTimeProvider(Now);
+        var participantTimeProvider = new ManualTimeProvider(Now);
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
             HostDeviceId,
             "Host");
@@ -1137,7 +1147,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             replacePeer: null,
             replaceInventoryPeer: null,
             swapPeer: null,
-            timeProvider: FixedTimeProvider.Instance,
+            hostTimeProvider,
             remoteWindowPeer: controlPeer,
             remoteWindowMediaSessions: hostMedia);
         var renderer = new RecordingRenderer();
@@ -1149,7 +1159,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             TryAcquireParticipantConnection,
             receivePolicy,
             rendererFactory,
-            FixedTimeProvider.Instance);
+            participantTimeProvider);
         await using var preparationPeerOwner = preparationPeer;
         var observingPreparationPeer =
             new DisconnectObservingPreparationPeer(preparationPeer);
@@ -1158,7 +1168,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             replacePeer: null,
             replaceInventoryPeer: null,
             swapPeer: null,
-            timeProvider: FixedTimeProvider.Instance,
+            participantTimeProvider,
             remoteWindowMediaSessions: participantMedia,
             remoteWindowPreparationPeer: observingPreparationPeer);
         await using var participantHandlerOwner = participantHandler;
@@ -1168,7 +1178,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         var resolver = new DesktopRemoteWindowPeerEndpointResolver(
             participantTrust,
             () => ImmutableArray.Create(CreateCandidate(hostIdentity, endpoint)),
-            FixedTimeProvider.Instance);
+            participantTimeProvider);
         var participantSessionHandler = new DesktopRemoteWindowPeerSessionHandler(
             participantHandler,
             resolver);
@@ -1178,7 +1188,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             hostTrust,
             hostHandler,
             hostMedia,
-            timeProvider: FixedTimeProvider.Instance);
+            timeProvider: hostTimeProvider);
         using var listenerStop = new CancellationTokenSource();
         Task listenerRun = listener.RunAsync(listenerStop.Token).AsTask();
         AuthenticatedTcpControlConnection? participantConnection = null;
@@ -1211,7 +1221,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 sourceSnapshot.Source.SourceGeneration,
                 revision: 1));
         await using var coordinator = new DesktopRemoteWindowHostCoordinator(
-            new FixedClock(Now),
+            hostTimeProvider,
             permissions,
             new TrustMirrorAuthorizationSource(hostTrust),
             capture,
@@ -1305,26 +1315,55 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(0, hostConnection.MediaSendCount);
             Assert.Equal(0, renderer.RenderCount);
 
-            disconnecting = participantConnection.DisposeAsync().AsTask();
-            await observingPreparationPeer.PeerDisconnectEntered.Task.WaitAsync(
-                deadline.Token);
-            await rendererFactory.CancellationObserved.Task.WaitAsync(
-                deadline.Token);
-            RemoteWindowHostPreparationTermination termination =
-                await reservation.Terminal.WaitAsync(deadline.Token);
+            RemoteWindowPreparationRequest preparationRequest =
+                rendererFactory.Request;
+            Assert.Equal(Now.AddSeconds(10), preparationRequest.Deadline);
+            Assert.True(
+                hostTimeProvider.GetUtcNow() < preparationRequest.Deadline);
+            Assert.True(
+                participantTimeProvider.GetUtcNow() < preparationRequest.Deadline);
+            RemoteWindowHostPreparationTermination? termination = null;
+            if (expireDeadline)
+            {
+                participantTimeProvider.Advance(
+                    preparationRequest.Deadline
+                    - participantTimeProvider.GetUtcNow());
+                Assert.Equal(
+                    preparationRequest.Deadline,
+                    participantTimeProvider.GetUtcNow());
+                Assert.True(
+                    hostTimeProvider.GetUtcNow() < preparationRequest.Deadline);
+                await rendererFactory.CancellationObserved.Task.WaitAsync(
+                    deadline.Token);
+                Assert.False(
+                    observingPreparationPeer.PeerDisconnectEntered.Task.IsCompleted);
+                Assert.False(reservation.Terminal.IsCompleted);
+                Assert.Equal(
+                    RemoteWindowHostPreparationPhase.PrepareSending,
+                    reservation.Snapshot.Phase);
+            }
+            else
+            {
+                disconnecting = participantConnection.DisposeAsync().AsTask();
+                await observingPreparationPeer.PeerDisconnectEntered.Task.WaitAsync(
+                    deadline.Token);
+                await rendererFactory.CancellationObserved.Task.WaitAsync(
+                    deadline.Token);
+                termination = await reservation.Terminal.WaitAsync(deadline.Token);
+                Assert.Equal(
+                    RemoteWindowHostPreparationFact.Connection,
+                    termination.Fact);
+                Assert.Equal(
+                    "authenticated_connection_stale",
+                    termination.ReasonCode);
+                Assert.Equal(
+                    RemoteWindowHostPreparationCleanupScope.ConsumeConnection,
+                    termination.CleanupScope);
+                Assert.Equal(
+                    RemoteWindowHostPreparationPhase.Terminal,
+                    reservation.Snapshot.Phase);
+            }
 
-            Assert.Equal(
-                RemoteWindowHostPreparationFact.Connection,
-                termination.Fact);
-            Assert.Equal(
-                "authenticated_connection_stale",
-                termination.ReasonCode);
-            Assert.Equal(
-                RemoteWindowHostPreparationCleanupScope.ConsumeConnection,
-                termination.CleanupScope);
-            Assert.Equal(
-                RemoteWindowHostPreparationPhase.Terminal,
-                reservation.Snapshot.Phase);
             Assert.True(reservation.Snapshot.PrepareSendAdmitted);
             Assert.False(
                 observingPreparationPeer.PeerDisconnectCompleted.Task.IsCompleted);
@@ -1348,16 +1387,64 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(
                 RemoteWindowPreparationOutcome.Rejected,
                 participantResponse.Outcome);
-            Assert.Equal("preparation_cancelled", participantResponse.ReasonCode);
+            Assert.Equal(
+                expireDeadline
+                    ? "preparation_expired"
+                    : "preparation_cancelled",
+                participantResponse.ReasonCode);
+            Assert.True(
+                hostTimeProvider.GetUtcNow() < preparationRequest.Deadline);
+            if (expireDeadline)
+            {
+                await observingPreparationPeer.PeerDisconnectEntered.Task.WaitAsync(
+                    deadline.Token);
+            }
+
             await observingPreparationPeer.PeerDisconnectCompleted.Task.WaitAsync(
                 deadline.Token);
-            await disconnecting.WaitAsync(deadline.Token);
+            if (disconnecting is not null)
+            {
+                await disconnecting.WaitAsync(deadline.Token);
+            }
+
+            termination ??= await reservation.Terminal.WaitAsync(deadline.Token);
             InvalidOperationException failure = await Assert.ThrowsAsync<
                 InvalidOperationException>(async () => await starting);
 
+            if (expireDeadline)
+            {
+                Assert.True(
+                    (termination, failure.Message) is
+                    (
+                    {
+                        Fact: RemoteWindowHostPreparationFact.Connection,
+                        ReasonCode: "authenticated_connection_stale",
+                    },
+                        "Remote Window host start failed (authenticated_connection_stale)."
+                    )
+                    or
+                    (
+                    {
+                        Fact: null,
+                        ReasonCode: "host_preparation_disposed",
+                    },
+                        "Remote Window host start failed (remote_window_prepare_not_acknowledged)."
+                    ),
+                    $"Unexpected host deadline outcome: {termination}; {failure.Message}");
+            }
+            else
+            {
+                Assert.Equal(
+                    "Remote Window host start failed (authenticated_connection_stale).",
+                    failure.Message);
+            }
+
             Assert.Equal(
-                "Remote Window host start failed (authenticated_connection_stale).",
-                failure.Message);
+                RemoteWindowHostPreparationCleanupScope.ConsumeConnection,
+                termination.CleanupScope);
+            Assert.Equal(
+                RemoteWindowHostPreparationPhase.Terminal,
+                reservation.Snapshot.Phase);
             Assert.Null(failure.InnerException);
             Assert.NotEqual(
                 RemoteWindowControlDeliveryStatus.Acknowledged,
@@ -5707,6 +5794,125 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         public override DateTimeOffset GetUtcNow() => Now;
     }
 
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) :
+        TimeProvider,
+        IClock
+    {
+        private readonly Lock gate = new();
+        private readonly List<ManualTimer> timers = [];
+        private DateTimeOffset utcNow = utcNow;
+
+        public DateTimeOffset UtcNow => GetUtcNow();
+
+        public void Advance(TimeSpan elapsed)
+        {
+            List<ManualTimer> candidates;
+            DateTimeOffset now;
+            lock (gate)
+            {
+                utcNow = utcNow.Add(elapsed);
+                now = utcNow;
+                candidates = timers.ToList();
+            }
+
+            foreach (ManualTimer timer in candidates.Where(timer => timer.IsDue(now)))
+            {
+                timer.Fire(now);
+            }
+        }
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            lock (gate)
+            {
+                timers.Add(timer);
+            }
+
+            return timer;
+        }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            lock (gate)
+            {
+                return utcNow;
+            }
+        }
+
+        private sealed class ManualTimer(
+            ManualTimeProvider owner,
+            TimerCallback callback,
+            object? state) : ITimer
+        {
+            private DateTimeOffset dueAt = DateTimeOffset.MaxValue;
+            private bool disposed;
+            private TimeSpan period = Timeout.InfiniteTimeSpan;
+
+            public bool Change(TimeSpan dueTime, TimeSpan newPeriod)
+            {
+                lock (owner.gate)
+                {
+                    if (disposed)
+                    {
+                        return false;
+                    }
+
+                    dueAt = dueTime == Timeout.InfiniteTimeSpan
+                        ? DateTimeOffset.MaxValue
+                        : owner.utcNow.Add(dueTime);
+                    period = newPeriod;
+                    return true;
+                }
+            }
+
+            public void Dispose()
+            {
+                lock (owner.gate)
+                {
+                    disposed = true;
+                    owner.timers.Remove(this);
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+
+            public void Fire(DateTimeOffset now)
+            {
+                lock (owner.gate)
+                {
+                    if (disposed || dueAt > now)
+                    {
+                        return;
+                    }
+
+                    dueAt = period == Timeout.InfiniteTimeSpan
+                        ? DateTimeOffset.MaxValue
+                        : now.Add(period);
+                }
+
+                callback(state);
+            }
+
+            public bool IsDue(DateTimeOffset now)
+            {
+                lock (owner.gate)
+                {
+                    return !disposed && dueAt <= now;
+                }
+            }
+        }
+    }
+
     private sealed class ObservingHostConnection(
         AuthenticatedDesktopRemoteWindowHostConnection inner,
         RecordingCaptureBoundary capture,
@@ -6637,6 +6843,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public int PrepareCount => Volatile.Read(ref prepareCount);
 
+        public RemoteWindowPreparationRequest Request { get; private set; } = null!;
+
         public TaskCompletionSource Returned { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -6646,6 +6854,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         {
             ArgumentNullException.ThrowIfNull(request);
             Assert.Equal(1, Interlocked.Increment(ref prepareCount));
+            Request = request;
             using CancellationTokenRegistration registration =
                 cancellationToken.UnsafeRegister(
                     static state => ((TaskCompletionSource)state!).TrySetResult(),
