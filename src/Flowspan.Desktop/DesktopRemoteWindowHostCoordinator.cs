@@ -156,6 +156,32 @@ internal sealed class BorrowedDesktopRemoteWindowMediaSink(
         connection.SendAsync(frame, cancellationToken);
 }
 
+internal interface IDesktopRemoteWindowControllerStopBoundary
+{
+    public ValueTask<RemoteWindowStopResult> StopAsync(
+        RemoteWindowSessionController controller,
+        CancellationToken cancellationToken);
+}
+
+internal sealed class DesktopRemoteWindowControllerStopBoundary :
+    IDesktopRemoteWindowControllerStopBoundary
+{
+    public static DesktopRemoteWindowControllerStopBoundary Instance { get; } =
+        new();
+
+    private DesktopRemoteWindowControllerStopBoundary()
+    {
+    }
+
+    public ValueTask<RemoteWindowStopResult> StopAsync(
+        RemoteWindowSessionController controller,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(controller);
+        return controller.StopAsync(cancellationToken);
+    }
+}
+
 internal sealed record DesktopRemoteWindowHostStartRequest
 {
     public DesktopRemoteWindowHostStartRequest(
@@ -293,6 +319,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private readonly IClock clock;
     private readonly TimeSpan cleanupConfirmationTimeout;
     private readonly TimeProvider cleanupTimeProvider;
+    private readonly IDesktopRemoteWindowControllerStopBoundary controllerStops;
     private readonly object callbackOwner = new();
     private readonly DesktopRemoteWindowHostControlPeer controlPeer;
     private readonly TaskCompletionSource disposalCompletion = new(
@@ -327,7 +354,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         TimeSpan ownerLeaseDuration,
         TimeSpan preparationLifetime,
         TimeProvider? cleanupTimeProvider = null,
-        TimeSpan? cleanupConfirmationTimeout = null)
+        TimeSpan? cleanupConfirmationTimeout = null,
+        IDesktopRemoteWindowControllerStopBoundary? controllerStops = null)
     {
         this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
         this.permissions = permissions
@@ -342,6 +370,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             ?? throw new ArgumentNullException(nameof(emergencyStops));
         this.controlPeer = controlPeer
             ?? throw new ArgumentNullException(nameof(controlPeer));
+        this.controllerStops = controllerStops
+            ?? DesktopRemoteWindowControllerStopBoundary.Instance;
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(
             ownerLeaseDuration,
             TimeSpan.Zero);
@@ -854,59 +884,56 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 ExceptionDispatchInfo.Capture(unconfirmed).Throw();
             }
 
-            RuntimeGeneration generation = active
-                ?? throw new InvalidOperationException(
-                    "No Remote Window host session is active.");
-            active = null;
-            generation.CloseAdmissionNow();
-            RemoteWindowStopResult? result = null;
-            Exception? stopFailure = null;
-            try
+            var stop = new ExplicitStopOperation(cancellationToken);
+            Task<CleanupConfirmationResult> confirmation;
+            lock (terminalStateGate)
             {
-                result = await generation.Controller.StopAsync(cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                stopFailure = exception;
-            }
+                RuntimeGeneration generation = active
+                    ?? throw new InvalidOperationException(
+                        "No Remote Window host session is active.");
+                try
+                {
+                    generation.CloseAdmissionNow();
+                }
+                catch (Exception failure)
+                {
+                    RecordTerminalFailureSafely(failure);
+                }
 
-            Exception? cleanupFailure = await CleanupAsync(
+                Volatile.Write(ref active, null);
+                confirmation = BeginTerminalCleanupUnderStateLock(
                     generation,
-                    controllerAlreadyStopped: result is not null)
+                    stop);
+            }
+
+            CleanupConfirmationResult bounded = await confirmation
                 .ConfigureAwait(false);
-            if (result is { FullyStopped: false })
+            if (bounded.Status != CleanupConfirmationStatus.CleanupCompleted
+                || bounded.Failure is not null)
             {
-                RecordTerminalFailure(CreateUnconfirmedStopFailure(
-                    "stop",
-                    result.CaptureBoundary,
-                    result.InputBoundary,
-                    result.SessionBoundary));
+                Exception failure = TerminalFailure
+                    ?? bounded.Failure
+                    ?? new InvalidOperationException(
+                        "Remote Window host cleanup confirmation failed without a diagnostic outcome.");
+                ExceptionDispatchInfo.Capture(failure).Throw();
             }
 
-            if (stopFailure is not null && cleanupFailure is not null)
+            ExplicitStopOutcome outcome = await stop.Completion
+                .ConfigureAwait(false);
+            if (outcome.Failure is not null)
             {
-                RecordCleanupFailure(generation, cleanupFailure);
-                throw new AggregateException(
-                    "Remote Window host stop and cleanup both failed.",
-                    stopFailure,
-                    cleanupFailure);
+                ExceptionDispatchInfo.Capture(outcome.Failure).Throw();
             }
 
-            if (stopFailure is not null)
-            {
-                ExceptionDispatchInfo.Capture(stopFailure).Throw();
-            }
-
-            if (cleanupFailure is not null)
-            {
-                RecordCleanupFailure(generation, cleanupFailure);
-                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
-            }
-
-            return result
+            RemoteWindowStopResult result = outcome.Result
                 ?? throw new InvalidOperationException(
                     "Remote Window host stop completed without a result.");
+            if (result.FullyStopped && TerminalFailure is { } terminal)
+            {
+                ExceptionDispatchInfo.Capture(terminal).Throw();
+            }
+
+            return result;
         }
         finally
         {
@@ -1273,7 +1300,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     }
 
     private Task<CleanupConfirmationResult> BeginTerminalCleanupUnderStateLock(
-        RuntimeGeneration generation)
+        RuntimeGeneration generation,
+        ExplicitStopOperation? explicitStop = null)
     {
         if (generation.GetStartedCleanupConfirmationTask() is { } existing)
         {
@@ -1282,9 +1310,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         SetRetiringGeneration(generation);
         return generation.EnsureCleanupConfirmationAsync(
-            () => CleanupCoreAsync(
-                generation,
-                controllerAlreadyStopped: false),
+            () => CleanupCoreAsync(generation, explicitStop),
             cleanupTimeProvider,
             cleanupConfirmationTimeout,
             failure => CommitCleanupUnconfirmed(generation, failure),
@@ -2096,15 +2122,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
     }
 
-    private Task<Exception?> CleanupAsync(
-        RuntimeGeneration generation,
-        bool controllerAlreadyStopped = false) =>
+    private Task<Exception?> CleanupAsync(RuntimeGeneration generation) =>
         generation.EnsureCleanupAsync(
-            () => CleanupCoreAsync(generation, controllerAlreadyStopped));
+            () => CleanupCoreAsync(generation, explicitStop: null));
 
     private async Task<Exception?> CleanupCoreAsync(
         RuntimeGeneration generation,
-        bool controllerAlreadyStopped)
+        ExplicitStopOperation? explicitStop)
     {
         Task callbackDrain = generation.RetireCallbacks();
         var failures = new List<Exception>();
@@ -2146,26 +2170,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         await callbackDrain.ConfigureAwait(false);
 
-        if (!controllerAlreadyStopped)
-        {
-            try
-            {
-                RemoteWindowStopResult stopped =
-                    await generation.Controller.StopAsync().ConfigureAwait(false);
-                if (!stopped.FullyStopped)
-                {
-                    failures.Add(CreateUnconfirmedStopFailure(
-                        "cleanup stop",
-                        stopped.CaptureBoundary,
-                        stopped.InputBoundary,
-                        stopped.SessionBoundary));
-                }
-            }
-            catch (Exception exception)
-            {
-                failures.Add(exception);
-            }
-        }
+        await StopControllerForCleanupAsync(
+                generation,
+                explicitStop,
+                failures)
+            .ConfigureAwait(false);
 
         CaptureFailure(
             failures,
@@ -2210,6 +2219,93 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 "Remote Window host cleanup failed.",
                 failures),
         };
+    }
+
+    private async Task StopControllerForCleanupAsync(
+        RuntimeGeneration generation,
+        ExplicitStopOperation? explicitStop,
+        List<Exception> failures)
+    {
+        if (explicitStop is null)
+        {
+            try
+            {
+                RemoteWindowStopResult stopped =
+                    await controllerStops.StopAsync(
+                            generation.Controller,
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+                if (!stopped.FullyStopped)
+                {
+                    failures.Add(CreateUnconfirmedStopFailure(
+                        "cleanup stop",
+                        stopped.CaptureBoundary,
+                        stopped.InputBoundary,
+                        stopped.SessionBoundary));
+                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            return;
+        }
+
+        RemoteWindowStopResult? initialResult = null;
+        Exception? initialFailure = null;
+        try
+        {
+            initialResult = await controllerStops.StopAsync(
+                    generation.Controller,
+                    explicitStop.CallerCancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            initialFailure = failure;
+        }
+
+        if (initialFailure is not null)
+        {
+            RecordTerminalFailureSafely(initialFailure);
+        }
+        else if (initialResult is { FullyStopped: false })
+        {
+            RecordTerminalFailureSafely(CreateUnconfirmedStopFailure(
+                "stop",
+                initialResult.CaptureBoundary,
+                initialResult.InputBoundary,
+                initialResult.SessionBoundary));
+        }
+
+        explicitStop.Complete(initialResult, initialFailure);
+        if (initialFailure is null && initialResult is { FullyStopped: true })
+        {
+            return;
+        }
+
+        try
+        {
+            RemoteWindowStopResult fallback =
+                await controllerStops.StopAsync(
+                        generation.Controller,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            if (!fallback.FullyStopped
+                && initialResult is not { FullyStopped: false })
+            {
+                failures.Add(CreateUnconfirmedStopFailure(
+                    "fallback stop",
+                    fallback.CaptureBoundary,
+                    fallback.InputBoundary,
+                    fallback.SessionBoundary));
+            }
+        }
+        catch (Exception failure)
+        {
+            failures.Add(failure);
+        }
     }
 
     private static async ValueTask<Exception?> CleanupUnstartedAsync(
@@ -2410,6 +2506,39 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private sealed record CleanupConfirmationResult(
         CleanupConfirmationStatus Status,
         Exception? Failure);
+
+    private sealed record ExplicitStopOutcome(
+        RemoteWindowStopResult? Result,
+        Exception? Failure);
+
+    private sealed class ExplicitStopOperation(
+        CancellationToken callerCancellation)
+    {
+        private readonly TaskCompletionSource<ExplicitStopOutcome> completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public CancellationToken CallerCancellation { get; } =
+            callerCancellation;
+
+        public Task<ExplicitStopOutcome> Completion => completion.Task;
+
+        public void Complete(
+            RemoteWindowStopResult? result,
+            Exception? failure)
+        {
+            if ((result is null) == (failure is null))
+            {
+                throw new InvalidOperationException(
+                    "An explicit Remote Window host Stop must complete with exactly one result or failure.");
+            }
+
+            if (!completion.TrySetResult(new(result, failure)))
+            {
+                throw new InvalidOperationException(
+                    "The explicit Remote Window host Stop outcome was already completed.");
+            }
+        }
+    }
 
     private sealed class CleanupConfirmationOperation
     {

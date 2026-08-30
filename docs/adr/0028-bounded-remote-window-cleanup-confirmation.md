@@ -6,6 +6,8 @@
 - Decision owners: Flowspan maintainers
 - First vertical: active terminal disconnect with one blocked cleanup owner
 - Second vertical: external Dispose-first with one blocked Connection owner
+- Third vertical under verification: explicit Stop-first on one stable active
+  generation
 - Final v1 scope: runtime-generation and pre-generation host cleanup
 
 ## Context
@@ -94,13 +96,20 @@ teardown, including:
 6. media, control, protection, and authenticated-connection disposal; and
 7. final Admission and remaining generation-owner release.
 
-An explicit Stop may use its exact caller token for its first controller Stop
-attempt. If that attempt throws, is cancelled, or returns
-`FullyStopped == false`, its exception or unconfirmed boundary result is retained
-as a terminal primary outcome, then at most one owned no-caller-cancellation
-fallback Stop and all later cleanup continue inside the same real task. A
-`FullyStopped == true` result does not trigger fallback. The cleanup-confirmation
-watchdog never supplies a token to controller Stop or any later owner.
+After an explicit Stop claims a generation, it may use its exact caller token
+only for the first controller Stop attempt. The claimed generation's one real
+task, confirmation operation, and watchdog are published before that attempt or
+any other potentially blocking owner call begins. If the first attempt throws,
+is cancelled, or returns `FullyStopped == false`, its original exception or
+unconfirmed boundary result is retained as the terminal primary outcome. The
+same real task then invokes exactly one owned fallback Stop with
+`CancellationToken.None` and continues all later cleanup without caller
+cancellation. A `FullyStopped == true` first result does not trigger a second
+Stop. The caller token never controls the confirmation operation, fallback
+Stop, or later owner release. The original thrown or cancelled outcome remains
+the terminal primary after a successful fallback: later Start stays fail-closed
+with `host_cleanup_unconfirmed`, and coordinator Dispose exposes that same
+primary instance.
 
 The current `controllerAlreadyStopped` first-caller input is not part of the new
 contract. All callers observe one generation-owned termination result rather
@@ -329,6 +338,39 @@ cleanup fault/OOM, pre-generation cleanup, every other owner, native/physical
 execution, signing, notarization, and release acceptance remain open. It cannot
 close Task 5.5a or make `CreateProduction()` available.
 
+### Planned Stop-first implementation checkpoint
+
+Task 5.5a.3b is a narrow portable coordinator slice for one stable active
+generation and an uncontended lifecycle gate. Stop-first claims the generation,
+closes Admission, and publishes `active -> retiring`, the one real cleanup task,
+one confirmation operation, and one watchdog before invoking controller Stop or
+any other potentially blocking owner. The exact caller token is passed only to
+the first controller Stop attempt.
+
+Two deterministic, low-risk scenarios freeze this boundary. In the first, the
+caller token is cancelled after publication and before the confirmation
+deadline. The first Stop observes that exact cancellation, the real task retains
+it as the primary outcome, invokes exactly one fallback Stop with
+`CancellationToken.None`, and finishes cleanup without turning caller
+cancellation into cleanup cancellation. Public Stop and later coordinator
+Dispose expose the same cancellation instance, while restart on that coordinator
+remains fail-closed.
+
+In the second, the first Stop remains blocked through T-1 and exact deadline
+equality. Timeout wins confirmation while the same task and generation remain
+retiring; releasing the Stop later returns `FullyStopped == true`, performs no
+fallback Stop, and lets that same real task drain without changing the published
+timeout.
+
+This planned checkpoint does not freeze race precedence among concurrent Stop,
+Dispose, and callback initiators; ordinary-throw and `FullyStopped == false`
+combinations; lifecycle-gate contention; timer creation, arm, release, or
+callback faults; late cleanup fault or OOM; pre-generation cleanup; or a blocked
+owner other than controller Stop. Those remain later Task 5.5a.3 slices. The
+checkpoint cannot close Task 5.5a.3, Task 5.5a, Task 5.5, any native, physical,
+signing, notarization, or release gate, or the Goal, and it cannot make
+`CreateProduction()` available.
+
 ## EARS acceptance criteria
 
 1. **When** any terminal path claims a host generation, **Flowspan shall** close
@@ -364,12 +406,13 @@ close Task 5.5a or make `CreateProduction()` available.
    expose the first original OOM instance on the real completion and fatal
    diagnostic lane without converting it to a bounded reason or aggregate.
 10. **When** Stop, revocation, fail-close, terminal callback, and Dispose race,
-    **Flowspan shall** share one terminal transition and real task, execute one
-    initial controller Stop attempt plus at most one no-caller-cancellation
-    fallback when that attempt throws, is cancelled, or returns
-    `FullyStopped == false`, skip fallback after `FullyStopped == true`, share
-    exactly one fail-close task when a route may be owned, and attempt each
-    acquired owner's release exactly once.
+    **Flowspan shall** share one terminal transition and real task. An explicit
+    Stop that owns the initial controller attempt shall pass its exact caller
+    token only to that attempt, invoke exactly one `CancellationToken.None`
+    fallback when the attempt throws, is cancelled, or returns
+    `FullyStopped == false`, and skip fallback after `FullyStopped == true`.
+    Flowspan shall share exactly one fail-close task when a route may be owned
+    and attempt each acquired owner's release exactly once.
 11. **When** cleanup completion and watchdog expiry race, **Flowspan shall**
     commit exactly one winner and prevent the losing path from changing public
     state or releasing an owner twice.

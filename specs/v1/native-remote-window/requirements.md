@@ -284,16 +284,25 @@ as Remote Window.
    or cleanup-confirmation timeout shall not cancel, replace, or abandon the real
    task or release an owner that the task has not settled. If an initial explicit
    controller Stop throws, is cancelled, or returns `FullyStopped == false`, the
-   real task shall retain that primary outcome and run at most one owned
-   no-caller-cancellation fallback Stop; it shall not run fallback after
-   `FullyStopped == true`. When external Dispose is the first terminal path, it
-   shall set the coordinator's disposed gate before returning. Once it obtains
-   lifecycle ownership of a published active generation, it shall synchronously
-   close admission, move that generation to retiring ownership, and publish the
-   one cleanup operation and watchdog before invoking any potentially blocking
-   controller or owner boundary. Dispose called from a generation callback shall
-   initiate or join that same operation without waiting from its own callback
-   ancestry.
+   real task shall retain that primary outcome and run exactly one owned
+   fallback Stop with `CancellationToken.None`; it shall not run fallback after
+   `FullyStopped == true`. When explicit Stop is the first terminal path, it
+   shall claim the generation and publish `active -> retiring`, the one real
+   cleanup task, confirmation operation, and watchdog before invoking any
+   potentially blocking Stop or owner call. Its exact caller token shall apply
+   only to the first controller Stop attempt and shall not cancel the fallback,
+   confirmation operation, or later owner release. A thrown or cancelled first
+   Stop outcome shall remain the terminal primary after a successful fallback:
+   public Stop and later Dispose shall expose the same original instance, and
+   later Start on that coordinator shall reject with
+   `host_cleanup_unconfirmed`. When external Dispose is the first terminal path,
+   it shall set the coordinator's disposed gate before returning. Once it
+   obtains lifecycle ownership of a published active generation, it shall
+   synchronously close admission, move that generation to
+   retiring ownership, and publish the one cleanup operation and watchdog before
+   invoking any potentially blocking controller or owner boundary. Dispose
+   called from a generation callback shall initiate or join that same operation
+   without waiting from its own callback ancestry.
 10. When the real termination task starts, Flowspan shall create exactly one
     cleanup-confirmation operation for that generation and attempt to arm at most
     one monotonic `TimeProvider` watchdog. The operation shall own one stable
@@ -390,6 +399,18 @@ as Remote Window.
    renderer flow after admission, exact Driver input return, Emergency Stop, and
    empty controller/renderer/queue/attachment/route/directory/control ownership
    after teardown. This tracer shall not be labelled native or physical evidence.
+7. The Task 5.5a.3b Stop-first coordinator evidence shall isolate one stable
+   active generation behind an uncontended lifecycle gate and use two separate
+   deterministic scenarios. One shall cancel the exact caller token after
+   cleanup publication and before the confirmation deadline and prove exactly
+   one `CancellationToken.None` fallback, the same cancellation instance from
+   public Stop and later Dispose, and fail-closed restart. The other shall block
+   the first controller Stop through T-1 and exact deadline equality, then prove
+   timeout retention and late drain without fallback after
+   `FullyStopped == true`. This slice shall not be treated as evidence for
+   concurrent Stop/Dispose/callback precedence, ordinary throw,
+   `FullyStopped == false`, lifecycle-gate contention, timer faults, late cleanup
+   fault or OOM, pre-generation cleanup, or any other blocked owner.
 
 ## 4. Non-goals
 

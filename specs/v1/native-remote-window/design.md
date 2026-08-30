@@ -523,14 +523,21 @@ ownership before any await, watchdog arm, or task publication. The task then
 includes controller Stop, callback retirement, fact-reservation release,
 Emergency Stop release, connection fail-close, media and control teardown,
 protection disposal, authenticated connection disposal, and final Admission
-release. An explicit Stop may supply its caller token to the first controller
-Stop attempt, but a failure or cancellation of that attempt becomes a terminal
-primary outcome and cannot cancel the remainder of the owned task. A returned
-`FullyStopped == false` result is likewise an unconfirmed primary outcome. These
-three paths run at most one owned no-caller-cancellation fallback Stop; a
-`FullyStopped == true` result does not. All required fallback Stop and owner
-release remain inside that same task. This replaces the earlier shape in which
-explicit controller Stop could wait outside the shared cleanup task.
+release. After explicit Stop claims the generation, it may supply its exact
+caller token only to the first controller Stop attempt. The one real cleanup
+task, confirmation operation, and watchdog are published before that attempt or
+any other potentially blocking owner call. A throw or exact caller cancellation
+from the first attempt becomes a terminal primary outcome and cannot cancel the
+remainder of the owned task. A returned `FullyStopped == false` result is
+likewise an unconfirmed primary outcome. Each of those three paths invokes
+exactly one owned fallback Stop with `CancellationToken.None`; a
+`FullyStopped == true` first result does not repeat Stop. All fallback Stop and
+owner release remain inside that same task. This replaces the earlier shape in
+which explicit controller Stop could wait outside the shared cleanup task. A
+thrown or cancelled initial outcome remains the terminal primary even when
+fallback cleanup succeeds before the deadline; public Stop and later Dispose
+expose the same instance, and later Start remains fail-closed with
+`host_cleanup_unconfirmed`.
 
 The coordinator separates three states. `active` grants the only live host
 authority and is cleared before cleanup confirmation waits. `retiring` retains
@@ -629,6 +636,25 @@ the Dispose claim may run its existing synchronous safety prefix, but its cleanu
 ownership may only attach to that same operation. Stop-first caller-token and
 fallback semantics, arbitrary race precedence, late faults/OOM, and timer or pre-
 generation failures remain later Task 5.5a.3 slices.
+
+The next Task 5.5a.3b slice isolates Stop-first initiation on one stable active
+generation with an uncontended lifecycle gate. Before controller Stop can
+block, the coordinator closes Admission and publishes `active -> retiring`, the
+one real cleanup task, one confirmation operation, and one watchdog. Two
+separate deterministic scenarios keep the slice auditable. The
+caller-cancel-before-deadline scenario cancels only after publication and proves
+the first Stop receives the exact caller token, preserves its cancellation as
+the primary outcome, then performs exactly one successful fallback with
+`CancellationToken.None` while confirmation and remaining cleanup stay live.
+Public Stop and later Dispose expose that same cancellation instance, and
+restart on the coordinator remains fail-closed after true cleanup drains.
+
+The blocked-Stop scenario proves T-1 remains pending, exact equality publishes
+`host_cleanup_timeout`, and a late `FullyStopped == true` release drains the
+same real task without fallback or public-result mutation. Concurrent
+Stop/Dispose/callback precedence, ordinary throw and `FullyStopped == false`
+combinations, lifecycle-gate contention, timer faults, late cleanup fault/OOM,
+pre-generation cleanup, and other blocked owners remain open after this slice.
 
 ## 11. Testing and evidence
 

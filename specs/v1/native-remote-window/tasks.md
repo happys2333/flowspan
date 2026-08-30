@@ -1228,6 +1228,28 @@
         `CreateProduction()` remains unavailable. Details are in the
         [Dispose-first bounded cleanup evidence](../../../docs/evidence/2026-08-30-dispose-first-bounded-cleanup.md).
         _Requirements: NR8.9-NR8.16, NR10_
+      - [ ] 5.5a.3b Deliver Stop-first bounded confirmation for one stable active
+        generation with an uncontended lifecycle gate. Claim the generation,
+        close Admission, and publish `active -> retiring`, one real cleanup
+        task, one confirmation operation, and one watchdog before any
+        potentially blocking controller Stop or owner call. The exact caller
+        token applies only to the first controller Stop attempt. Freeze two
+        separate deterministic scenarios: (1) cancel that token after
+        publication and before the confirmation deadline, retain the exact
+        cancellation as primary, invoke exactly one fallback with
+        `CancellationToken.None`, complete the same real cleanup, expose the
+        same cancellation from public Stop and later Dispose, and keep restart
+        fail-closed; and (2) block the first Stop through T-1 and exact deadline
+        equality, publish `host_cleanup_timeout`, then release a
+        `FullyStopped == true` result and
+        drain the same real task without a fallback or timeout mutation. Keep
+        concurrent Stop/Dispose/callback precedence, ordinary throw,
+        `FullyStopped == false` combinations, lifecycle-gate contention, timer
+        faults, late cleanup fault/OOM, pre-generation cleanup, and every other
+        blocked owner open. This slice closes none of Tasks 5, 5.5a.3, 5.5a, or
+        5.5, any native/physical/signing/notarization/release gate, or the Goal,
+        and it does not make `CreateProduction()` available.
+        _Requirements: NR8.9-NR8.16, NR10_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
