@@ -603,37 +603,67 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         var staleEntered = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         Task? staleNotify = null;
-        clock.RunOnNextRead(() => staleNotify = Task.Run(async () =>
+        Task? currentNotify = null;
+        try
         {
-            await releaseStale.Task;
-            staleEntered.TrySetResult();
+            clock.RunOnNextRead(() => staleNotify = Task.Factory.StartNew(
+                () =>
+                {
+                    releaseStale.Task.GetAwaiter().GetResult();
+                    staleEntered.TrySetResult();
+                    registration.NotifyFormal();
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning
+                    | TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default));
+            registration.LatchLive(SafeAt(Now.AddTicks(1)));
             registration.NotifyFormal();
-        }));
-        registration.LatchLive(SafeAt(Now.AddTicks(1)));
-        registration.NotifyFormal();
-        Task capturedNotify = Assert.IsAssignableFrom<Task>(staleNotify);
+            Task capturedNotify = Assert.IsAssignableFrom<Task>(staleNotify);
 
-        clock.BlockNextRead();
-        registration.LatchLive(SafeAt(Now.AddTicks(2)));
-        Task currentNotify = Task.Run(registration.NotifyFormal);
-        Assert.True(clock.Blocked.Wait(TimeSpan.FromSeconds(5)));
-        registration.LatchLive(UnsafeAt(Now.AddTicks(3)));
-        releaseStale.TrySetResult();
-        await staleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.True(SpinWait.SpinUntil(
-            () => coordinator.ActiveProtectionNotificationWaiterCount == 1,
-            TimeSpan.FromSeconds(5)));
-        Assert.False(capturedNotify.IsCompleted);
+            clock.BlockNextRead();
+            registration.LatchLive(SafeAt(Now.AddTicks(2)));
+            currentNotify = Task.Factory.StartNew(
+                registration.NotifyFormal,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning
+                    | TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default);
+            Assert.True(clock.Blocked.Wait(TimeSpan.FromSeconds(5)));
+            registration.LatchLive(UnsafeAt(Now.AddTicks(3)));
+            releaseStale.TrySetResult();
+            await staleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(SpinWait.SpinUntil(
+                () => coordinator.ActiveProtectionNotificationWaiterCount == 1,
+                TimeSpan.FromSeconds(5)));
+            Assert.False(capturedNotify.IsCompleted);
 
-        clock.Release();
-        await Task.WhenAll(currentNotify, capturedNotify)
-            .WaitAsync(TimeSpan.FromSeconds(5));
+            clock.Release();
+            await Task.WhenAll(currentNotify, capturedNotify)
+                .WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(
-            RemoteWindowLifecycle.ProtectionPaused,
-            coordinator.Snapshot?.Lifecycle);
-        Assert.Equal(0, coordinator.ActiveProtectionNotificationWaiterCount);
-        _ = await coordinator.StopAsync();
+            Assert.Equal(
+                RemoteWindowLifecycle.ProtectionPaused,
+                coordinator.Snapshot?.Lifecycle);
+            Assert.Equal(0, coordinator.ActiveProtectionNotificationWaiterCount);
+            _ = await coordinator.StopAsync();
+        }
+        finally
+        {
+            releaseStale.TrySetResult();
+            clock.Release();
+            if (currentNotify is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await currentNotify.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+
+            if (staleNotify is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await staleNotify.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+        }
     }
 
     [Fact]
