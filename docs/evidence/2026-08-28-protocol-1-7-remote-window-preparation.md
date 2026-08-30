@@ -1146,3 +1146,47 @@ native/physical/signing/notarization/release gate, and the long-term Goal remain
 open. The local rows and hosted runs are managed contract evidence, not native
 API, physical two-Device, signed, notarized, or release proof.
 `CreateProduction()` remains unavailable.
+
+## 2026-08-30 late cleanup-failure ledger
+
+Implementation commit `4daf82ce2eaeaba582eaf541fdf643daa4f7b73b`
+completes only Task 5.5a.3c, the two-owner late non-fatal ledger extension of
+ADR 0028. This is one deterministic managed Desktop coordinator row, not an
+additional production-composed two-node tracer. The tracer class therefore
+remains at 42 cases.
+
+External Dispose first terminates one stable active generation behind an
+uncontended lifecycle gate. Formal Emergency Stop registration disposal
+produces nested non-fatal owner failure A in its existing cleanup-step position.
+The later authenticated host Connection disposal remains blocked through T-1
+and exact deadline equality, so the shared public Dispose task publishes one
+stable `host_cleanup_timeout` while the real cleanup result remains pending.
+
+Releasing the Connection produces owner failure B and lets every remaining safe
+cleanup step run. Recursive terminal-ledger append preserves the exact timeout,
+A, and B instances while exposing precisely one flat aggregate ordered as
+`[timeout, A, B]`. No nested aggregate remains, and joining or repeated Dispose
+observations cannot append the real cleanup result twice or mutate the public
+task. Every tracked owner and budget drains, the sole timer releases, and
+`retiring` clears.
+
+Local macOS Debug and Release verification reports focused `1/1`, twenty fresh
+focused processes per configuration with `20/20` executions, coordinator
+`120/120`, Desktop `724/724`, and solution `2588/2588`, with warning-as-error
+builds and all supporting quality gates passing. Exact-SHA CI `33318946768` and
+CodeQL `33318946770` succeed. Downloaded artifacts prove `2588/2588` on every
+hosted OS with every non-success counter zero, Gitleaks 208/0, CodeQL 52/0 with
+zero exact-ref open alerts, and three reproducible version-`0.1.226` unsigned
+packages. Exact jobs, artifacts, digests, commands, and limits are retained in
+[`2026-08-30-late-cleanup-failure-ledger.md`](2026-08-30-late-cleanup-failure-ledger.md).
+
+This direct evidence stays within the already-Partial CL Timeout and CL
+Cleanup-fault cells and changes no matrix status. Fatal OOM, other late-failure
+combinations, ordinary Stop throw or `FullyStopped == false`, timer faults,
+cleanup-completion winner and equality races, lifecycle-gate contention,
+pre-generation cleanup, other initiators and owners, and the complete
+deterministic failure ledger remain Task 5.5a.3 work. Tasks 5, 5.5a.3, 5.5a,
+and 5.5, every native/physical/signing/notarization/release gate, and the
+long-term Goal remain open. The local row and hosted runs are managed contract
+evidence, not native API, physical two-Device, signed, notarized, or release
+proof. `CreateProduction()` remains unavailable.

@@ -2379,6 +2379,53 @@ boundary matrix remain open. Therefore Tasks 5, 5.5a.3, 5.5a, and 5.5,
 and the Goal remain open. Hosted results are managed contract evidence, not
 native or physical-device proof.
 
+### 2026-08-30 late cleanup-failure ledger
+
+Exact implementation `4daf82ce2eaeaba582eaf541fdf643daa4f7b73b`
+adds one deterministic managed coordinator row for Task 5.5a.3c. External
+Dispose first terminates one stable active generation behind an uncontended
+lifecycle gate. Formal Emergency Stop registration disposal throws deeply
+nested non-fatal owner failure A. The later authenticated host Connection
+disposal blocks before throwing owner failure B.
+
+`DisposeFirstTimeoutKeepsPublicFailureStableAndFlattensLateOwnerFailures`
+proves the shared public Dispose Task and real cleanup remain pending with one
+timer and retiring generation at T-1. Exact equality publishes one stable
+`host_cleanup_timeout`. Releasing the Connection later allows every remaining
+safe owner cleanup step to run and appends the one real cleanup result. The
+terminal diagnostic becomes exactly one flat aggregate ordered
+`[timeout, A, B]`, preserving all leaf identities with no aggregate child,
+while every external Dispose observation keeps the same Task and timeout.
+
+The preceding implementation produced direct children
+`[timeout, Aggregate(A, B)]`; the focused no-nesting assertion supplied the TDD
+RED. A breadth-first/flatten mutation produced `[timeout, B, A]` and failed the
+semantic-order assertion. The final deep-A/direct-B fixture freezes recursive
+stored-order traversal. Strict reviews report zero P0, P1, or P2 findings.
+
+Local macOS Debug and Release verification passes focused `1/1`, twenty fresh
+focused processes per configuration with `20/20` executions, coordinator
+`120/120`, Desktop `724/724`, and complete solution `2588/2588`. Both warning-
+as-error builds, format, diff, explicit Desktop composition, simulator, and
+direct/transitive NuGet vulnerability checks pass. Exact-SHA CI `33318946768`
+run 226 attempt 1 and CodeQL `33318946770` run 226 attempt 1 succeed. Every
+hosted OS artifact contains 12 TRX files and `2588/2588` passing tests with all
+non-success counters zero; Gitleaks is 208/0, CodeQL is 52/0 with zero exact-ref
+open alerts, and all three reproducible version-`0.1.226` unsigned-package jobs
+pass. Commands, exact jobs, artifact IDs and digests, scope, and limitations are
+in the [late cleanup-failure ledger evidence](../evidence/2026-08-30-late-cleanup-failure-ledger.md).
+
+This closes only Task 5.5a.3c. The row adds direct evidence within the already-
+Partial CL Timeout and CL Cleanup-fault cells but changes no matrix status and
+adds no 43rd production-composed tracer. Fatal OOM, other late-failure
+combinations, ordinary Stop throw, `FullyStopped == false`, timer faults,
+cleanup-winner/equality races, lifecycle-gate contention, pre-generation
+cleanup, other initiators and owners, and the complete deterministic failure
+ledger remain open. Therefore Tasks 5, 5.5a.3, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open. Hosted results are managed contract evidence, not
+native or physical-device proof.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

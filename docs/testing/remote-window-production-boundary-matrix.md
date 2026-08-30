@@ -181,13 +181,22 @@ each hosted OS, Gitleaks 208/0, CodeQL 52/0 with zero exact-ref open alerts, and
 all three reproducible version-`0.1.224` unsigned packages verified. This closes
 only Task 5.5a.3b. It adds no 43rd production-composed tracer and changes no
 matrix status; CL Cancel and CL Timeout remain Partial.
+The [late cleanup-failure ledger evidence](../evidence/2026-08-30-late-cleanup-failure-ledger.md)
+records one additional coordinator CL Timeout plus Cleanup-fault order at exact
+implementation commit `4daf82c`. Exact-SHA CI `33318946768` and CodeQL
+`33318946770` succeeded; downloaded artifacts prove `2588/2588` with every
+non-success counter zero on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with
+zero exact-ref open alerts, and all three reproducible version-`0.1.226`
+unsigned packages verified. This closes only Task 5.5a.3c. It adds no 43rd
+production-composed tracer and changes no matrix status; CL Timeout and CL
+Cleanup-fault remain Partial.
 The tracer results above are same-host **managed loopback runs on macOS**. The
-external Dispose-first and explicit Stop-first local rows are managed Desktop
-harnesses rather than loopback traces. Hosted Windows, macOS, and Linux results
-remain managed and contract evidence. None of them is native API, physical
-two-device, signed-package, or notarization evidence. `CreateProduction()` must
-continue to report Remote Window unavailable until the native runtime gates are
-independently satisfied.
+external Dispose-first, explicit Stop-first, and late cleanup-failure ledger
+local rows are managed Desktop harnesses rather than loopback traces. Hosted
+Windows, macOS, and Linux results remain managed and contract evidence. None of
+them is native API, physical two-device, signed-package, or notarization
+evidence. `CreateProduction()` must continue to report Remote Window unavailable
+until the native runtime gates are independently satisfied.
 
 ## Boundary families
 
@@ -757,6 +766,13 @@ Revoke, and Disconnect. In particular, a failure before HC is not HC evidence.
   exact-equality timeout while controller Stop remains blocked, no fallback
   after a late `FullyStopped == true` result, complete late owner drain, and
   immutable timeout identity.
+- [`DesktopRemoteWindowHostCoordinatorTests.DisposeFirstTimeoutKeepsPublicFailureStableAndFlattensLateOwnerFailures`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowHostCoordinatorTests.cs)
+  adds one Dispose-first CL Timeout plus Cleanup-fault order. It proves T-1
+  pending state, exact-equality stable timeout, ordered Emergency Stop
+  registration and authenticated Connection disposal failures, recursive flat
+  `[timeout, A, B]` leaf identity, exactly-once late result recording, immutable
+  shared public Dispose completion, and complete owner, budget, timer, and
+  retiring-generation drain.
 
 The remaining renderer, active/pending frame, queue, attachment, route,
 directory, controller, protection FIFO/admission-use, permission-observer,
@@ -764,7 +780,8 @@ sharing-session, Emergency Stop, and control-owner fault injections and their
 meaningful combinations remain open. CL Cancel and CL Timeout remain Partial:
 concurrent initiator precedence, ordinary throw and `FullyStopped == false`,
 lifecycle-gate contention, other owners, timer faults, cleanup-winner races,
-late failure/OOM, and pre-generation bounded cleanup remain untested.
+fatal OOM, other late-failure combinations, and pre-generation bounded cleanup
+remain untested. CL Cleanup-fault also remains Partial.
 
 ### E-TRACE — production-composed managed loopback
 
@@ -802,6 +819,9 @@ late failure/OOM, and pre-generation bounded cleanup remain untested.
 - The [explicit Stop-first evidence](../evidence/2026-08-30-stop-first-bounded-cleanup.md)
   adds two more coordinator contract rows but no production-composed tracer
   execution; the executable tracer class still remains at 42 cases.
+- The [late cleanup-failure ledger evidence](../evidence/2026-08-30-late-cleanup-failure-ledger.md)
+  adds one coordinator contract row but no production-composed tracer execution;
+  the executable tracer class still remains at 42 cases.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -898,8 +918,8 @@ one direct row for each applicable gap. The presently known gaps are:
    zero retained owner/budget counts; and the remaining cleanup-timeout
    initiators and combinations beyond active disconnect, external Dispose-first,
    and explicit Stop-first; lifecycle-gate contention; owners; winner races;
-   timer faults; late failures/OOM; and pre-generation paths beyond the three
-   implemented initiator slices.
+   timer faults; fatal OOM and other late-failure combinations; and pre-generation
+   paths beyond the implemented initiator slices.
 
 Task 5.5a remains unchecked while any applicable cell is P or M. Task 5.5,
 native platform work, physical two-device runs, package lifecycle, signing,

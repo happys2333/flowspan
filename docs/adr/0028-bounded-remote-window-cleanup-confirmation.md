@@ -1,13 +1,13 @@
 # ADR 0028: Bounded Remote Window cleanup confirmation
 
-- Status: Accepted implementation contract; three bounded verticals implemented,
+- Status: Accepted implementation contract; four bounded verticals implemented,
   remaining implementation and evidence pending
 - Date: 2026-08-30
 - Decision owners: Flowspan maintainers
 - First vertical: active terminal disconnect with one blocked cleanup owner
 - Second vertical: external Dispose-first with one blocked Connection owner
 - Third vertical: explicit Stop-first on one stable active generation
-- Next planned vertical: Dispose-first late non-fatal ledger flattening with two
+- Fourth vertical: Dispose-first late non-fatal ledger flattening with two
   ordered owner failures
 - Final v1 scope: runtime-generation and pre-generation host cleanup
 
@@ -388,9 +388,10 @@ cleanup; or a blocked owner other than controller Stop. Those remain later Task
 notarization, and release gate, and the Goal remain open. `CreateProduction()`
 remains unavailable.
 
-### Planned two-owner late-failure checkpoint
+### Two-owner late-failure implementation checkpoint
 
-Task 5.5a.3c is an intentionally narrow, unchecked coordinator slice. External
+Implementation commit `4daf82ce2eaeaba582eaf541fdf643daa4f7b73b`
+completes Task 5.5a.3c as one intentionally narrow coordinator slice. External
 Dispose is the first terminal initiator for one stable active generation behind
 an uncontended lifecycle gate. Formal Emergency Stop registration disposal
 produces non-fatal owner failure A in its existing cleanup-step position. The
@@ -400,7 +401,7 @@ public Dispose result. Releasing the Connection produces non-fatal owner failure
 B and permits the real cleanup task to attempt every remaining safe owner
 release and settle after the public timeout.
 
-The final terminal ledger must be exactly one flat aggregate whose ordered inner
+The final terminal ledger is exactly one flat aggregate whose ordered inner
 exceptions are `[stable timeout, owner A, owner B]`. The first leaf is the exact
 timeout instance already exposed by the shared public Dispose task; A and B are
 the exact injected instances. No nested `AggregateException` remains and the
@@ -409,14 +410,25 @@ Dispose calls keep the same public task and timeout instance. Late settlement
 drains every tracked owner and budget, the watchdog timer, and `retiring`
 without mutating that public result.
 
-The only planned production behavior change is recursive flattening of
-non-fatal aggregates during terminal-ledger append. This checkpoint does not
-change cleanup order or initiation and does not cover OOM, ordinary Stop throw
-or `FullyStopped == false`, timer creation/arm/release/callback faults,
-cleanup-completion wins, lifecycle-gate contention, pre-generation cleanup,
-another initiator or owner combination, or a production-composed tracer. It
-promotes no matrix cell, closes none of Tasks 5, 5.5a.3, 5.5a, or 5.5, and does
-not make `CreateProduction()` available.
+Local Debug and Release verification passes the focused row `1/1`, twenty fresh
+focused processes per configuration with `20/20` executions, coordinator
+`120/120`, Desktop `724/724`, and solution `2588/2588`. Exact-SHA CI
+`33318946768` and CodeQL `33318946770` succeed; all three hosted OSes pass
+`2588/2588`, Gitleaks reports 208/0, CodeQL reports 52/0 with zero exact-ref
+open alerts, and all three reproducible version-`0.1.226` unsigned-package jobs
+pass. Exact jobs, artifacts, digests, commands, and limitations are retained in
+the [late cleanup-failure ledger evidence](../evidence/2026-08-30-late-cleanup-failure-ledger.md).
+
+The production behavior change is limited to recursively flattening non-fatal
+aggregates during terminal-ledger append. This checkpoint closes only Task
+5.5a.3c. It changes no cleanup ordering, owner behavior, terminal initiation,
+timeout policy, production-composed tracer count, or matrix status. It does not
+cover OOM, ordinary Stop throw or `FullyStopped == false`, timer creation, arm,
+release, or callback faults, cleanup-completion wins, lifecycle-gate contention,
+pre-generation cleanup, another initiator or owner combination, or the complete
+deterministic failure ledger. Tasks 5, 5.5a.3, 5.5a, and 5.5, every native,
+physical, signing, notarization, and release gate, and the Goal remain open.
+`CreateProduction()` remains unavailable.
 
 ## EARS acceptance criteria
 

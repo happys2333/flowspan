@@ -1276,7 +1276,7 @@
         Details are in the
         [Stop-first bounded cleanup evidence](../../../docs/evidence/2026-08-30-stop-first-bounded-cleanup.md).
         _Requirements: NR8.9-NR8.16, NR10_
-      - [ ] 5.5a.3c Deliver the narrow external Dispose-first late-failure ledger
+      - [x] 5.5a.3c Deliver the narrow external Dispose-first late-failure ledger
         slice for one stable active generation and an uncontended lifecycle gate.
         Inject non-fatal owner failure A at formal Emergency Stop registration
         disposal, block the later authenticated host Connection disposal through
@@ -1297,6 +1297,32 @@
         production-composed tracer. Keep Tasks 5, 5.5a.3, 5.5a, and 5.5, every
         native/physical/signing/notarization/release gate, and the Goal open;
         keep `CreateProduction()` unavailable and promote no matrix cell.
+        Exact implementation
+        `4daf82ce2eaeaba582eaf541fdf643daa4f7b73b` recursively flattens
+        non-fatal terminal-ledger aggregates and adds one deterministic
+        coordinator row. The old implementation exposed direct children
+        `[timeout, Aggregate(A, B)]`; a breadth-first/flatten mutation exposed
+        `[timeout, B, A]`. The final deep-A/direct-B fixture proves exact flat
+        `[timeout, A, B]` order and identity, one real-cleanup append, immutable
+        shared public Dispose Task and timeout, T-1 pending state, exact-equality
+        timeout, and complete late owner, budget, timer, and retiring drain.
+        Strict reviews report zero P0/P1/P2. Local Debug/Release passes focused
+        `1/1`, twenty fresh processes per configuration with `20/20`
+        executions, coordinator `120/120`, Desktop `724/724`, and solution
+        `2588/2588`; builds, format, diff, composition, simulator, and dependency
+        audit pass. Exact-SHA CI `33318946768` and CodeQL `33318946770`
+        succeed. Each hosted OS passes `2588/2588` with every non-success
+        counter zero, Gitleaks reports 208/0, CodeQL reports 52/0 with zero
+        exact-ref open alerts, and all three reproducible version-`0.1.226`
+        unsigned packages pass. This closes only Task 5.5a.3c, adds no 43rd
+        tracer, and changes no matrix status. Fatal OOM, other late-failure
+        combinations, ordinary Stop throw, `FullyStopped == false`, timer
+        faults, cleanup-winner/equality races, lifecycle-gate contention,
+        pre-generation cleanup, other initiators and owners, and the complete
+        deterministic failure ledger remain open. Tasks 5, 5.5a.3, 5.5a, and
+        5.5 and the Goal remain open; `CreateProduction()` remains unavailable.
+        Details are in the
+        [late cleanup-failure ledger evidence](../../../docs/evidence/2026-08-30-late-cleanup-failure-ledger.md).
         _Requirements: NR8.9-NR8.16, NR10.8_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,

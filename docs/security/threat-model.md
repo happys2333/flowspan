@@ -1869,6 +1869,52 @@ notarization, or release proof. Tasks 5, 5.5a.3, 5.5a, and 5.5, every native/
 physical/release gate, and the Goal remain open. `CreateProduction()` remains
 unavailable.
 
+### 5.41 2026-08-30 Late cleanup-failure ledger
+
+For T06, T13, and T14, exact implementation
+`4daf82ce2eaeaba582eaf541fdf643daa4f7b73b` completes one narrow
+Dispose-first late non-fatal cleanup-failure slice. One stable active generation
+behind an uncontended lifecycle gate enters the ADR 0028 bounded terminal path.
+Formal Emergency Stop registration disposal injects deeply nested owner failure
+A at its existing cleanup-step position. The later authenticated host Connection
+disposal blocks before injecting owner failure B.
+
+At T-1, public Dispose, real cleanup, retiring ownership, the Connection owner,
+and the sole watchdog remain pending with no terminal failure. Exact equality
+publishes one stable `host_cleanup_timeout` through the immutable shared public
+Dispose task. Releasing the Connection produces B and lets every remaining safe
+owner release run. Terminal-ledger append recursively traverses stored aggregate
+children, retains the original timeout, A, and B instances, and exposes exactly
+one flat diagnostic aggregate ordered `[timeout, A, B]` with no aggregate child.
+
+Concurrent, at-timeout, later, and post-drain external Dispose calls retain the
+same public Task and timeout instance; the late diagnostic cannot rewrite that
+completed public result. The generation's real cleanup result is appended once.
+Capture/input Stop, fail-close, authenticated Connection, formal and preparation
+registrations, Protection, control, Admission, media budget, timer, and retiring
+ownership all drain under the existing cleanup order.
+
+Local Debug and Release verification passes focused `1/1`, twenty fresh focused
+processes per configuration with `20/20` executions, coordinator `120/120`,
+Desktop `724/724`, and full solution `2588/2588`; warning-as-error builds and
+all supporting quality gates pass. Exact-SHA CI `33318946768` and CodeQL
+`33318946770` succeed. Downloaded artifacts prove `2588/2588` with every
+non-success counter zero on all three hosted OSes, Gitleaks 208/0, CodeQL 52/0
+with zero exact-ref open alerts, and three reproducible version-`0.1.226`
+unsigned packages. Exact commands, jobs, artifacts, digests, and limits are in
+the [late cleanup-failure ledger evidence](../evidence/2026-08-30-late-cleanup-failure-ledger.md).
+
+This closes only Task 5.5a.3c. It adds managed coordinator evidence within the
+already-Partial CL Timeout and CL Cleanup-fault cells, adds no 43rd
+production-composed tracer, and changes no matrix status. Fatal OOM, other late-
+failure combinations, ordinary Stop throw or `FullyStopped == false`, timer
+faults, cleanup-winner/equality races, lifecycle-gate contention, pre-generation
+cleanup, other initiators and owners, and the complete deterministic failure
+ledger remain open. This is not native API, physical two-Device, packaged
+accessibility, signing, notarization, or release proof. Tasks 5, 5.5a.3, 5.5a,
+and 5.5, every native/physical/release gate, and the Goal remain open.
+`CreateProduction()` remains unavailable.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
