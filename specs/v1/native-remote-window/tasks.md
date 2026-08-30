@@ -1276,6 +1276,28 @@
         Details are in the
         [Stop-first bounded cleanup evidence](../../../docs/evidence/2026-08-30-stop-first-bounded-cleanup.md).
         _Requirements: NR8.9-NR8.16, NR10_
+      - [ ] 5.5a.3c Deliver the narrow external Dispose-first late-failure ledger
+        slice for one stable active generation and an uncontended lifecycle gate.
+        Inject non-fatal owner failure A at formal Emergency Stop registration
+        disposal, block the later authenticated host Connection disposal through
+        T-1 pending state and exact-equality cleanup-confirmation timeout, then
+        release it to produce non-fatal owner failure B. Freeze the terminal
+        ledger as exactly the flat sequence
+        `[stable timeout, owner A, owner B]`: retain the timeout instance exposed
+        by the shared immutable public Dispose task, retain the exact A and B
+        instances, leave no nested `AggregateException`, and append the real
+        cleanup result once. Prove concurrent, later, and post-drain external
+        Dispose calls share the same Task and timeout, every tracked owner and
+        budget drains, the timer drains, and `retiring` clears after late
+        settlement. Limit the production change to recursively flattening
+        non-fatal aggregates during terminal-ledger append. Do not claim OOM,
+        ordinary Stop throw or `FullyStopped == false`, timer faults,
+        cleanup-completion wins, lifecycle-gate contention, pre-generation
+        cleanup, another initiator or owner combination, or a
+        production-composed tracer. Keep Tasks 5, 5.5a.3, 5.5a, and 5.5, every
+        native/physical/signing/notarization/release gate, and the Goal open;
+        keep `CreateProduction()` unavailable and promote no matrix cell.
+        _Requirements: NR8.9-NR8.16, NR10.8_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

@@ -2396,13 +2396,60 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
 
             terminalFailure = terminalFailure is null
-                ? failure
-                : new AggregateException(
-                    "Multiple Remote Window terminal cleanup failures occurred.",
-                    terminalFailure,
-                    failure);
+                ? FlattenNonFatalTerminalFailure(failure)
+                : CombineNonFatalTerminalFailures(terminalFailure, failure);
         }
     }
+
+    private static Exception CombineNonFatalTerminalFailures(
+        Exception existing,
+        Exception appended)
+    {
+        var leaves = new List<Exception>();
+        AppendNonFatalTerminalLeaves(leaves, existing);
+        AppendNonFatalTerminalLeaves(leaves, appended);
+        return CreateNonFatalTerminalFailure(leaves, existing);
+    }
+
+    private static Exception FlattenNonFatalTerminalFailure(Exception failure)
+    {
+        if (failure is not AggregateException)
+        {
+            return failure;
+        }
+
+        var leaves = new List<Exception>();
+        AppendNonFatalTerminalLeaves(leaves, failure);
+        return CreateNonFatalTerminalFailure(leaves, failure);
+    }
+
+    private static void AppendNonFatalTerminalLeaves(
+        List<Exception> leaves,
+        Exception failure)
+    {
+        if (failure is AggregateException aggregate)
+        {
+            foreach (Exception inner in aggregate.InnerExceptions)
+            {
+                AppendNonFatalTerminalLeaves(leaves, inner);
+            }
+
+            return;
+        }
+
+        leaves.Add(failure);
+    }
+
+    private static Exception CreateNonFatalTerminalFailure(
+        List<Exception> leaves,
+        Exception emptyFallback) => leaves.Count switch
+        {
+            0 => emptyFallback,
+            1 => leaves[0],
+            _ => new AggregateException(
+                "Multiple Remote Window terminal cleanup failures occurred.",
+                leaves),
+        };
 
     private void RecordTerminalFailureSafely(Exception failure)
     {

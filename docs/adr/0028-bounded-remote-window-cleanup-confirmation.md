@@ -7,6 +7,8 @@
 - First vertical: active terminal disconnect with one blocked cleanup owner
 - Second vertical: external Dispose-first with one blocked Connection owner
 - Third vertical: explicit Stop-first on one stable active generation
+- Next planned vertical: Dispose-first late non-fatal ledger flattening with two
+  ordered owner failures
 - Final v1 scope: runtime-generation and pre-generation host cleanup
 
 ## Context
@@ -228,11 +230,14 @@ Terminal projection uses semantic slots rather than thread-arrival order:
 3. watchdog disarm or release failure; and
 4. real owner-cleanup failures in the fixed cleanup-step order.
 
-Non-fatal aggregates are flat, retain their original exception instances, and
-are created in that order. A timeout already returned to a public caller remains
-stable; the ledger may subsequently expose the ordered timeout-plus-late-fault
-diagnostic projection. Each generation records its real cleanup failure at most
-once.
+When a non-fatal `AggregateException` is appended, the ledger recursively
+enumerates its inner exceptions in their stored order until only non-aggregate
+leaves remain. The resulting aggregate is flat, retains every original leaf
+instance, and is created in the semantic order above. A timeout already returned
+to a public caller remains stable; the ledger may subsequently expose the
+ordered timeout-plus-late-fault diagnostic projection. Each generation records
+its real cleanup failure at most once, regardless of the number of joining
+terminal observers or Dispose callers.
 
 ### Fatal exhaustion
 
@@ -383,6 +388,36 @@ cleanup; or a blocked owner other than controller Stop. Those remain later Task
 notarization, and release gate, and the Goal remain open. `CreateProduction()`
 remains unavailable.
 
+### Planned two-owner late-failure checkpoint
+
+Task 5.5a.3c is an intentionally narrow, unchecked coordinator slice. External
+Dispose is the first terminal initiator for one stable active generation behind
+an uncontended lifecycle gate. Formal Emergency Stop registration disposal
+produces non-fatal owner failure A in its existing cleanup-step position. The
+later authenticated host Connection disposal remains blocked through T-1
+pending state while exact-equality cleanup-confirmation timeout publishes the
+public Dispose result. Releasing the Connection produces non-fatal owner failure
+B and permits the real cleanup task to attempt every remaining safe owner
+release and settle after the public timeout.
+
+The final terminal ledger must be exactly one flat aggregate whose ordered inner
+exceptions are `[stable timeout, owner A, owner B]`. The first leaf is the exact
+timeout instance already exposed by the shared public Dispose task; A and B are
+the exact injected instances. No nested `AggregateException` remains and the
+real cleanup result is appended once. Concurrent, later, and post-drain external
+Dispose calls keep the same public task and timeout instance. Late settlement
+drains every tracked owner and budget, the watchdog timer, and `retiring`
+without mutating that public result.
+
+The only planned production behavior change is recursive flattening of
+non-fatal aggregates during terminal-ledger append. This checkpoint does not
+change cleanup order or initiation and does not cover OOM, ordinary Stop throw
+or `FullyStopped == false`, timer creation/arm/release/callback faults,
+cleanup-completion wins, lifecycle-gate contention, pre-generation cleanup,
+another initiator or owner combination, or a production-composed tracer. It
+promotes no matrix cell, closes none of Tasks 5, 5.5a.3, 5.5a, or 5.5, and does
+not make `CreateProduction()` available.
+
 ## EARS acceptance criteria
 
 1. **When** any terminal path claims a host generation, **Flowspan shall** close
@@ -440,6 +475,12 @@ remains unavailable.
     reset the cleanup-unconfirmed latch or reactivate that coordinator.
 15. **Before** Task 5.5a closes, **Flowspan shall** apply equivalent bounded
     confirmation and late-owner retention to pre-generation cleanup.
+16. **When** the Task 5.5a.3c Dispose-first scenario settles after public
+    timeout with ordered non-fatal owner failures A and B, **Flowspan shall**
+    expose exactly `[stable timeout, owner A, owner B]` as one flat terminal
+    aggregate with original leaf identities and one real-cleanup record, while
+    preserving the shared public Dispose task and timeout and draining the timer
+    and retiring ownership.
 
 ## Rejected alternatives
 

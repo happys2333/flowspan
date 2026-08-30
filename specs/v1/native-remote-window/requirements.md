@@ -340,6 +340,12 @@ as Remote Window.
 14. When terminal primary, watchdog, and cleanup failures coexist, Flowspan
     shall project them in the fixed order primary, cleanup-confirmation outcome,
     watchdog-release failure, then owner-cleanup failures in cleanup-step order.
+    When a non-fatal `AggregateException` is appended to that terminal ledger,
+    Flowspan shall recursively enumerate its inner exceptions in their stored
+    order, retain each original non-aggregate leaf instance, and publish one flat
+    aggregate with no nested `AggregateException`. Each generation's real
+    cleanup result shall be appended at most once, regardless of how many
+    terminal observers or Dispose callers join it.
     If a direct or nested failure contains an `OutOfMemoryException`, the first
     such exception shall dominate the failure projection by its original
     instance and shall not be converted into a bounded rejection, timeout, or
@@ -411,6 +417,23 @@ as Remote Window.
    concurrent Stop/Dispose/callback precedence, ordinary throw,
    `FullyStopped == false`, lifecycle-gate contention, timer faults, late cleanup
    fault or OOM, pre-generation cleanup, or any other blocked owner.
+8. The Task 5.5a.3c late-failure coordinator evidence shall isolate external
+   Dispose-first termination of one stable active generation behind an
+   uncontended lifecycle gate. It shall capture non-fatal owner failure A from
+   formal Emergency Stop registration disposal, block the later authenticated
+   host Connection disposal through T-1 pending state and exact-equality
+   cleanup-confirmation timeout, and then release that boundary to produce
+   non-fatal owner failure B. After real cleanup settles, the terminal ledger
+   shall be exactly the flat sequence
+   `[stable timeout, owner A, owner B]`: the timeout shall be the same instance
+   exposed by the immutable shared public Dispose task, A and B shall retain
+   their original identities, no nested aggregate shall remain, and the real
+   cleanup result shall be recorded once. All tracked owners and budgets shall
+   drain, the watchdog timer shall drain, and retiring ownership shall clear.
+   This slice shall not be treated as evidence for OOM, ordinary Stop
+   throw or `FullyStopped == false`, timer faults, cleanup-completion wins,
+   lifecycle-gate contention, pre-generation cleanup, another initiator or
+   owner combination, or a production-composed tracer.
 
 ## 4. Non-goals
 

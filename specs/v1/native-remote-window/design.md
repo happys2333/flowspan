@@ -601,12 +601,15 @@ paths reject before granting authority.
 Failure projection uses semantic slots rather than thread-arrival order:
 terminal primary failures first, cleanup-confirmation timeout or watchdog setup
 failure second, watchdog-release failures third, and real owner-cleanup failures
-in the fixed cleanup-step order last. Aggregates are flat and retain original
-non-fatal exception instances. A direct or nested `OutOfMemoryException`
-dominates that projection by its first original instance. Cleanup continues
-through independently safe later owner steps, but OOM is never wrapped as a
-rejection, timeout, or aggregate. The separate real completion is always
-observed, including when its fatal result arrives after the public timeout.
+in the fixed cleanup-step order last. Terminal-ledger append recursively expands
+each non-fatal `AggregateException` in stored inner-exception order until only
+non-aggregate leaves remain. The resulting aggregate is flat, retains every
+original leaf instance, and records each generation's real cleanup result only
+once. A direct or nested `OutOfMemoryException` dominates that projection by its
+first original instance. Cleanup continues through independently safe later
+owner steps, but OOM is never wrapped as a rejection, timeout, or aggregate. The
+separate real completion is always observed, including when its fatal result
+arrives after the public timeout.
 
 The final v1 contract applies the same model to resources acquired before a
 `RuntimeGeneration` exists. Pre-generation validation cleanup will own one real
@@ -655,6 +658,30 @@ same real task without fallback or public-result mutation. Concurrent
 Stop/Dispose/callback precedence, ordinary throw and `FullyStopped == false`
 combinations, lifecycle-gate contention, timer faults, late cleanup fault/OOM,
 pre-generation cleanup, and other blocked owners remain open after this slice.
+
+The planned Task 5.5a.3c slice returns to external Dispose-first termination for
+one stable active generation and an uncontended lifecycle gate. Formal Emergency
+Stop registration disposal produces non-fatal owner failure A in its existing
+cleanup-step position. The later authenticated host Connection disposal remains
+blocked through T-1 pending state and exact-equality cleanup-confirmation
+timeout, so external Dispose first publishes its stable timeout and the real
+cleanup result cannot settle. Releasing the Connection produces non-fatal owner
+failure B and lets every remaining safe cleanup step run. Terminal-ledger append
+must then expose exactly the flat leaf
+sequence `[stable timeout, owner A, owner B]`, preserving all three exception
+identities, retaining no nested `AggregateException`, and recording the real
+cleanup result once. Concurrent, later, and post-drain external Dispose calls
+continue to share the same immutable public task and timeout instance; late
+settlement drains every tracked owner and budget, the timer, and `retiring`
+without changing that result.
+
+The production change for this slice is limited to recursively flattening
+non-fatal aggregates as they are appended to the terminal ledger. It does not
+change cleanup ordering, owner behavior, terminal initiation, or timeout policy,
+and its direct coordinator evidence does not cover OOM, ordinary Stop throw or
+`FullyStopped == false`, timer faults, cleanup-completion wins, lifecycle-gate
+contention, pre-generation cleanup, other initiators or owners, or a
+production-composed tracer.
 
 ## 11. Testing and evidence
 
