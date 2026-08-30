@@ -429,6 +429,10 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
 
             generation.SourcePreparationRegistration = sourcePreparation;
+            ReservePermissionPreparation(
+                generation,
+                initialPermission,
+                cancellationToken);
             RegisterEarlySafetyObservers(generation);
             await ReserveAuthorizationPreparationAsync(
                     generation,
@@ -528,6 +532,18 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     RemoteWindowHostPreparationFact.Source);
             }
 
+            INativeRemoteWindowPermissionPreparationRegistration
+                permissionReservation =
+                    generation.PermissionPreparationRegistration
+                    ?? throw StartFailure("native_permission_unavailable");
+            if (!IsPermissionPreparationCurrent(
+                    permissionReservation,
+                    cancellationToken))
+            {
+                _ = generation.PreparationReservation.TryInvalidate(
+                    RemoteWindowHostPreparationFact.Permission);
+            }
+
             IDesktopRemoteWindowHostAuthorizationRegistration
                 authorizationReservation =
                     generation.AuthorizationPreparationRegistration
@@ -546,6 +562,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
             sourceReservation.Dispose();
             generation.SourcePreparationRegistration = null;
+            permissionReservation.Dispose();
+            generation.ClearPermissionPreparationRegistration(
+                permissionReservation);
             await authorizationReservation.DisposeAsync().ConfigureAwait(false);
             generation.AuthorizationPreparationRegistration = null;
 
@@ -1067,6 +1086,95 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
     }
 
+    private void ReservePermissionPreparation(
+        RuntimeGeneration generation,
+        NativeRemoteWindowPermissionSnapshot expectedSnapshot,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (permissions is not
+            INativeRemoteWindowPermissionPreparationBoundary boundary)
+        {
+            throw StartFailure("native_permission_unavailable");
+        }
+
+        NativeRemoteWindowPermissionPreparationReservationResult result;
+        try
+        {
+            result = boundary.TryReservePreparation(
+                expectedSnapshot,
+                generation.Request.Role,
+                generation);
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == cancellationToken)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("native_permission_unavailable");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (result.Status ==
+                NativeRemoteWindowPermissionPreparationReservationStatus.Reserved
+            && result.Registration is not null)
+        {
+            if (!ReferenceEquals(
+                    generation.PermissionPreparationRegistration,
+                    result.Registration))
+            {
+                throw StartFailure("native_permission_unavailable");
+            }
+
+            if (IsPermissionPreparationCurrent(
+                    result.Registration,
+                    cancellationToken))
+            {
+                return;
+            }
+
+            _ = generation.PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Permission);
+            throw StartFailure(GetPreparationReason(generation));
+        }
+
+        if (result.Status is
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .SnapshotChanged or
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .PermissionDenied)
+        {
+            _ = generation.PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Permission);
+            throw StartFailure(GetPreparationReason(generation));
+        }
+
+        throw StartFailure("native_permission_unavailable");
+    }
+
+    private static bool IsPermissionPreparationCurrent(
+        INativeRemoteWindowPermissionPreparationRegistration registration,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return registration.IsCurrent;
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == cancellationToken)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("native_permission_unavailable");
+        }
+    }
+
     private void ReserveEmergencyStopReadiness(RuntimeGeneration generation)
     {
         LocalEmergencyStopReadinessReservationResult reservation;
@@ -1405,6 +1513,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         CaptureFailure(
             failures,
             () => generation.SourcePreparationRegistration?.Dispose());
+        CaptureFailure(
+            failures,
+            () => generation.PermissionPreparationRegistration?.Dispose());
         CaptureFailure(failures, generation.PreparationReservation.Dispose);
         if (generation.AuthorizationPreparationRegistration is { } authorization)
         {
@@ -1631,7 +1742,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         NativeRemoteWindowPermissionSnapshot initialPermission,
         long preparationGeneration,
         RemoteWindowPreparationRequest preparation,
-        object callbackOwner)
+        object callbackOwner) :
+        INativeRemoteWindowPermissionPreparationInvalidationSink
     {
         private static readonly AsyncLocal<CallbackScope?> CallbackAncestry = new();
         private NativeRemoteWindowPermissionSnapshot acceptedPermission =
@@ -1641,6 +1753,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         private readonly object callbackOwner = callbackOwner;
         private readonly object protectionGate = new();
         private readonly object permissionGate = new();
+        private INativeRemoteWindowPermissionPreparationRegistration?
+            permissionPreparationRegistration;
         private readonly object connectionFailCloseGate = new();
         private readonly object cleanupGate = new();
         private bool callbacksRetired;
@@ -1708,6 +1822,10 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         public bool PermissionObserverRegistered { get; set; }
 
+        public INativeRemoteWindowPermissionPreparationRegistration?
+            PermissionPreparationRegistration =>
+                Volatile.Read(ref permissionPreparationRegistration);
+
         public Action<NativeRemoteWindowProtectionObservation>? ProtectionChanged
         {
             get;
@@ -1733,6 +1851,38 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             Admission.CloseNow();
             Media.StopNow();
         }
+
+        public void ClearPermissionPreparationRegistration(
+            INativeRemoteWindowPermissionPreparationRegistration registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            _ = Interlocked.CompareExchange(
+                ref permissionPreparationRegistration,
+                null,
+                registration);
+        }
+
+        void INativeRemoteWindowPermissionPreparationInvalidationSink
+            .OwnNativeRemoteWindowPermissionPreparationRegistration(
+                INativeRemoteWindowPermissionPreparationRegistration registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            INativeRemoteWindowPermissionPreparationRegistration? existing =
+                Interlocked.CompareExchange(
+                    ref permissionPreparationRegistration,
+                    registration,
+                    null);
+            if (existing is not null && !ReferenceEquals(existing, registration))
+            {
+                throw new InvalidOperationException(
+                    "A Remote Window host generation already owns a native permission Preparation registration.");
+            }
+        }
+
+        void INativeRemoteWindowPermissionPreparationInvalidationSink
+            .InvalidateNativeRemoteWindowPermissionPreparationNow() =>
+            _ = PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Permission);
 
         public bool TryEnterCallback(out CallbackLease? callback)
         {

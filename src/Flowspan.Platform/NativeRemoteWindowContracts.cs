@@ -79,7 +79,8 @@ public interface INativeRemoteWindowPermissionBoundary : IAsyncDisposable
 }
 
 public sealed class UnavailableNativeRemoteWindowPermissionBoundary :
-    INativeRemoteWindowPermissionBoundary
+    INativeRemoteWindowPermissionBoundary,
+    INativeRemoteWindowPermissionPreparationBoundary
 {
     private static readonly NativeRemoteWindowPermissionSnapshot Snapshot =
         NativeRemoteWindowPermissionSnapshot.Create(
@@ -118,6 +119,26 @@ public sealed class UnavailableNativeRemoteWindowPermissionBoundary :
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    NativeRemoteWindowPermissionPreparationReservationResult
+        INativeRemoteWindowPermissionPreparationBoundary.TryReservePreparation(
+            NativeRemoteWindowPermissionSnapshot expectedSnapshot,
+            Flowspan.Domain.MirrorParticipantRole frozenRole,
+            INativeRemoteWindowPermissionPreparationInvalidationSink
+                invalidationSink)
+    {
+        ArgumentNullException.ThrowIfNull(expectedSnapshot);
+        ArgumentNullException.ThrowIfNull(invalidationSink);
+        if (!Enum.IsDefined(frozenRole))
+        {
+            throw new ArgumentOutOfRangeException(nameof(frozenRole));
+        }
+
+        return new(
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .BoundaryUnavailable,
+            Registration: null);
+    }
 }
 
 public enum NativeRemoteWindowPixelFormat

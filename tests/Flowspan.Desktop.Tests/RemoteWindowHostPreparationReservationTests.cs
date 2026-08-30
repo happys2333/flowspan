@@ -1,4 +1,5 @@
 using Flowspan.Domain;
+using Flowspan.Platform;
 using Flowspan.Protocol;
 using Flowspan.Transport;
 
@@ -55,6 +56,28 @@ public sealed class RemoteWindowHostPreparationReservationTests
             terminal.CleanupScope);
         Assert.False(reservation.Snapshot.RouteMayBeOwned);
         Assert.False(reservation.Snapshot.PrepareSendAdmitted);
+    }
+
+    [Fact]
+    public async Task PermissionPreparationSinkInvalidatesBeforeRouteAdmission()
+    {
+        using var reservation = new RemoteWindowHostPreparationReservation(
+            HostGeneration,
+            CreateRequest(),
+            RemoteWindowHostPreparationEpochBundle.Create());
+        Arm(reservation);
+        var sink = new PermissionPreparationSink(reservation);
+
+        sink.InvalidateNativeRemoteWindowPermissionPreparationNow();
+
+        Assert.False(reservation.TryAdmitRouteSelection(Now));
+        RemoteWindowHostPreparationTermination terminal =
+            await reservation.Terminal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(RemoteWindowHostPreparationFact.Permission, terminal.Fact);
+        Assert.Equal("native_permission_denied", terminal.ReasonCode);
+        Assert.Equal(
+            RemoteWindowHostPreparationCleanupScope.PreRoute,
+            terminal.CleanupScope);
     }
 
     [Fact]
@@ -521,4 +544,19 @@ public sealed class RemoteWindowHostPreparationReservationTests
             CancellationToken.None,
             TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default);
+
+    private sealed class PermissionPreparationSink(
+        RemoteWindowHostPreparationReservation reservation) :
+        INativeRemoteWindowPermissionPreparationInvalidationSink
+    {
+        public void OwnNativeRemoteWindowPermissionPreparationRegistration(
+            INativeRemoteWindowPermissionPreparationRegistration registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+        }
+
+        public void InvalidateNativeRemoteWindowPermissionPreparationNow() =>
+            _ = reservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Permission);
+    }
 }

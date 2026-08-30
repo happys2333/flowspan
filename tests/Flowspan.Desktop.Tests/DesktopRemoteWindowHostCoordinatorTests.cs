@@ -106,6 +106,11 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             authorization.AuthenticatedFingerprint);
         Assert.False(authorization.CurrentReservation?.IsCurrent);
         Assert.Equal(1, authorization.CurrentReservation?.DisposeCount);
+        Assert.Equal(1, permissions.PreparationReservationCount);
+        Assert.False(permissions.CurrentPreparationRegistration?.IsCurrent);
+        Assert.Equal(
+            1,
+            permissions.CurrentPreparationRegistration?.DisposeCount);
         Assert.Empty(connection.MediaFrames);
         capture.EmitFrame(sequence: 3);
         await connection.WaitForMediaFrameCountAsync(1);
@@ -814,6 +819,33 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task PermissionMutationAfterRouteSelectionPreventsPrepareWireAndCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.BeforePrepareSendAdmission = () =>
+            host.Permissions.Publish(
+                NativeRemoteWindowPermissionSnapshot.Create(
+                    NativeRemoteWindowPermissionState.Revoked,
+                    NativeRemoteWindowPermissionState.Granted,
+                    ownerGeneration: 1,
+                    revision: 2));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_denied", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
     public async Task SourceInvalidationDuringRouteFailureReportsStableReason()
     {
         using var host = new ReadyHostHarness();
@@ -896,6 +928,33 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             InvalidOperationException>(async () => await host.StartAsync());
 
         Assert.Contains("mirror_capability_denied", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.Contains("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PermissionMutationAfterPrepareSendPreventsReadyAuthority()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.PrepareSendAdmitted = () => host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 2));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_denied", failure.Message);
         Assert.Contains("connection.route", host.Timeline);
         Assert.Contains("connection.prepare", host.Timeline);
         Assert.DoesNotContain("connection.wait_media", host.Timeline);
@@ -1136,6 +1195,87 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task PermissionMutationDuringReservationRejectsBeforeObserverRouteOrPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Permissions.PreparationReserved = () => host.Permissions.Publish(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 2));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_denied", failure.Message);
+        Assert.Equal(1, host.Permissions.PreparationReservationCount);
+        Assert.False(host.Permissions.CurrentPreparationRegistration?.IsCurrent);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PermissionSnapshotReplacementDuringReservationRejectsBeforeRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Permissions.Preparing = () => host.Permissions.ReplaceCurrent(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Granted,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 2));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_denied", failure.Message);
+        Assert.Equal(1, host.Permissions.PreparationReservationCount);
+        Assert.Null(host.Permissions.CurrentPreparationRegistration);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationAfterPermissionReservationReleasesGuard()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.Permissions.PreparationReserved = cancellation.Cancel;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(1, host.Permissions.PreparationReservationCount);
+        Assert.False(host.Permissions.CurrentPreparationRegistration?.IsCurrent);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
     public async Task PreRoutePermissionRevocationWaitsForStartedFailCloseFailure()
     {
         using var host = new ReadyHostHarness();
@@ -1302,6 +1442,454 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(1, host.Connection.DisposeCount);
         Assert.True(host.Protection.IsDisposed);
         Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PermissionPreparationThrowIsRedactedBeforeObserverOrRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_PERMISSION_RESERVE_CANARY");
+        host.Permissions.PreparationFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PermissionPreparationCommitThenThrowRetainsCleanupOwner()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException(
+            "FLOWSPAN_PERMISSION_COMMITTED_RESERVE_CANARY");
+        host.Permissions.PreparationReserved = () => throw injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.False(host.Permissions.CurrentPreparationRegistration?.IsCurrent);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PermissionPreparationCommitThenCallerCancellationRetainsOwner()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        var injected = new OperationCanceledException(cancellation.Token);
+        host.Permissions.PreparationReserved = () =>
+        {
+            cancellation.Cancel();
+            throw injected;
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Same(injected, failure);
+        Assert.False(host.Permissions.CurrentPreparationRegistration?.IsCurrent);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PermissionPreparationCommitThenOutOfMemoryRetainsOwner()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_PERMISSION_COMMITTED_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Permissions.PreparationReserved = () => throw injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.False(host.Permissions.CurrentPreparationRegistration?.IsCurrent);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task GrantedBoundaryWithoutPreparationContractFailsClosed()
+    {
+        var permissions = new GrantedPermissionBoundaryWithoutPreparation();
+        using var host = new ReadyHostHarness(permissionOverride: permissions);
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.Equal(1, permissions.SnapshotReadCount);
+        Assert.Equal(0, permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PermissionPreparationOutOfMemoryEscapesUnchangedAndStillCleansUp()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_PERMISSION_RESERVE_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Permissions.PreparationFailure = injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationDuringPermissionPreparationPreservesExactToken()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        var injected = new OperationCanceledException(cancellation.Token);
+        host.Permissions.Preparing = cancellation.Cancel;
+        host.Permissions.PreparationFailure = injected;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Same(injected, failure);
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ForeignPermissionPreparationCancellationIsRedactedWhenCallerCancels()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var callerCancellation = new CancellationTokenSource();
+        using var foreignCancellation = new CancellationTokenSource();
+        const string canary = "FLOWSPAN_PERMISSION_FOREIGN_CANCEL_CANARY";
+        host.Permissions.Preparing = callerCancellation.Cancel;
+        host.Permissions.PreparationFailure = new OperationCanceledException(
+            canary,
+            innerException: null,
+            foreignCancellation.Token);
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                callerCancellation.Token));
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.DoesNotContain(canary, failure.ToString());
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task InitialPermissionRegistrationReadThrowIsRedactedAndOwned()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_PERMISSION_CURRENT_CANARY");
+        host.Permissions.PreparationCurrentReading = _ => throw injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task InitialPermissionRegistrationReadPreservesExactCallerCancellation()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        var injected = new OperationCanceledException(cancellation.Token);
+        host.Permissions.PreparationCurrentReading = _ =>
+        {
+            cancellation.Cancel();
+            throw injected;
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Same(injected, failure);
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task InitialPermissionRegistrationForeignCancellationIsRedacted()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var callerCancellation = new CancellationTokenSource();
+        using var foreignCancellation = new CancellationTokenSource();
+        const string canary = "FLOWSPAN_PERMISSION_CURRENT_FOREIGN_CANARY";
+        host.Permissions.PreparationCurrentReading = _ =>
+        {
+            callerCancellation.Cancel();
+            throw new OperationCanceledException(
+                canary,
+                innerException: null,
+                foreignCancellation.Token);
+        };
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                callerCancellation.Token));
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.DoesNotContain(canary, failure.ToString());
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task InitialPermissionRegistrationOutOfMemoryEscapesUnchanged()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_PERMISSION_CURRENT_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Permissions.PreparationCurrentReading = _ => throw injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PromotionPermissionRegistrationReadThrowIsRedactedAndDrained()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException(
+            "FLOWSPAN_PERMISSION_PROMOTION_CURRENT_CANARY");
+        host.Permissions.PreparationCurrentReading = read => read == 1
+            ? true
+            : throw injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PromotionPermissionRegistrationForeignCancellationIsRedacted()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var callerCancellation = new CancellationTokenSource();
+        using var foreignCancellation = new CancellationTokenSource();
+        const string canary = "FLOWSPAN_PERMISSION_PROMOTION_FOREIGN_CANARY";
+        host.Permissions.PreparationCurrentReading = read =>
+        {
+            if (read == 1)
+            {
+                return true;
+            }
+
+            callerCancellation.Cancel();
+            throw new OperationCanceledException(
+                canary,
+                innerException: null,
+                foreignCancellation.Token);
+        };
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                callerCancellation.Token));
+
+        Assert.Contains("native_permission_unavailable", failure.Message);
+        Assert.DoesNotContain(canary, failure.ToString());
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PromotionPermissionRegistrationPreservesExactCallerCancellation()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        var injected = new OperationCanceledException(cancellation.Token);
+        host.Permissions.PreparationCurrentReading = read =>
+        {
+            if (read == 1)
+            {
+                return true;
+            }
+
+            cancellation.Cancel();
+            throw injected;
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Same(injected, failure);
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PromotionPermissionRegistrationOutOfMemoryEscapesUnchanged()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_PERMISSION_PROMOTION_CURRENT_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Permissions.PreparationCurrentReading = read => read == 1
+            ? true
+            : throw injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(
+            1,
+            host.Permissions.CurrentPreparationRegistration?.DisposeCount);
         Assert.Null(coordinator.Snapshot);
     }
 
@@ -2371,7 +2959,9 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         private readonly NativeRemoteWindowSourceRegistration registration;
         private readonly NativeRemoteWindowSourceLease sourceLease;
 
-        public ReadyHostHarness(IClock? clock = null)
+        public ReadyHostHarness(
+            IClock? clock = null,
+            INativeRemoteWindowPermissionBoundary? permissionOverride = null)
         {
             registration = sources.RegisterGeneric(CreateMetadata());
             sourceLease = AcquireLease(sources, registration.Snapshot);
@@ -2397,7 +2987,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
                 CapabilityGrant.Of(Capability.MirrorView));
             Coordinator = new DesktopRemoteWindowHostCoordinator(
                 clock ?? new FixedClock(Now),
-                Permissions,
+                permissionOverride ?? Permissions,
                 Authorization,
                 Capture,
                 Input,
@@ -2579,9 +3169,67 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         }
     }
 
+    private sealed class GrantedPermissionBoundaryWithoutPreparation :
+        INativeRemoteWindowPermissionBoundary
+    {
+        private static readonly NativeRemoteWindowPermissionSnapshot Snapshot =
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Granted,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 1);
+        private Action<NativeRemoteWindowPermissionSnapshot>? changed;
+
+        public event Action<NativeRemoteWindowPermissionSnapshot>? Changed
+        {
+            add
+            {
+                changed += value;
+                ObserverCount++;
+            }
+            remove
+            {
+                changed -= value;
+                ObserverCount--;
+            }
+        }
+
+        public int ObserverCount { get; private set; }
+
+        public int SnapshotReadCount { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            changed = null;
+            ObserverCount = 0;
+            return ValueTask.CompletedTask;
+        }
+
+        public NativeRemoteWindowPermissionSnapshot GetSnapshot()
+        {
+            SnapshotReadCount++;
+            return Snapshot;
+        }
+
+        public ValueTask<NativeRemoteWindowPermissionSnapshot>
+            RequestCapturePermissionAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(Snapshot);
+        }
+
+        public ValueTask<NativeRemoteWindowPermissionSnapshot>
+            RequestInputPermissionAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(Snapshot);
+        }
+    }
+
     private sealed class RecordingPermissionBoundary(
         NativeRemoteWindowPermissionSnapshot snapshot) :
-        INativeRemoteWindowPermissionBoundary
+        INativeRemoteWindowPermissionBoundary,
+        INativeRemoteWindowPermissionPreparationBoundary
     {
         private Action<NativeRemoteWindowPermissionSnapshot>? changed;
         private NativeRemoteWindowPermissionSnapshot current = snapshot;
@@ -2602,6 +3250,20 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public int ObserverCount { get; private set; }
 
+        public RecordingPermissionPreparationRegistration?
+            CurrentPreparationRegistration
+        { get; private set; }
+
+        public int PreparationReservationCount { get; private set; }
+
+        public Action? PreparationReserved { get; set; }
+
+        public Exception? PreparationFailure { get; set; }
+
+        public Action? Preparing { get; set; }
+
+        public Func<int, bool>? PreparationCurrentReading { get; set; }
+
         public Exception? SnapshotFailure { get; set; }
 
         public int SnapshotReadCount { get; private set; }
@@ -2615,6 +3277,55 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             }
 
             return current;
+        }
+
+        public NativeRemoteWindowPermissionPreparationReservationResult
+            TryReservePreparation(
+                NativeRemoteWindowPermissionSnapshot expectedSnapshot,
+                MirrorParticipantRole frozenRole,
+                INativeRemoteWindowPermissionPreparationInvalidationSink
+                    invalidationSink)
+        {
+            ArgumentNullException.ThrowIfNull(expectedSnapshot);
+            ArgumentNullException.ThrowIfNull(invalidationSink);
+            Preparing?.Invoke();
+            if (PreparationFailure is { } failure)
+            {
+                throw failure;
+            }
+
+            PreparationReservationCount++;
+            if (expectedSnapshot != current)
+            {
+                return new(
+                    NativeRemoteWindowPermissionPreparationReservationStatus
+                        .SnapshotChanged,
+                    Registration: null);
+            }
+
+            bool allowed = current.Capture
+                    == NativeRemoteWindowPermissionState.Granted
+                && (frozenRole != MirrorParticipantRole.DriverEligible
+                    || current.Input
+                        == NativeRemoteWindowPermissionState.Granted);
+            if (!allowed)
+            {
+                return new(
+                    NativeRemoteWindowPermissionPreparationReservationStatus
+                        .PermissionDenied,
+                    Registration: null);
+            }
+
+            CurrentPreparationRegistration = new(
+                invalidationSink,
+                PreparationCurrentReading);
+            invalidationSink
+                .OwnNativeRemoteWindowPermissionPreparationRegistration(
+                    CurrentPreparationRegistration);
+            PreparationReserved?.Invoke();
+            return new(
+                NativeRemoteWindowPermissionPreparationReservationStatus.Reserved,
+                CurrentPreparationRegistration);
         }
 
         public ValueTask<NativeRemoteWindowPermissionSnapshot>
@@ -2640,6 +3351,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         public void Publish(NativeRemoteWindowPermissionSnapshot snapshot)
         {
             current = snapshot;
+            CurrentPreparationRegistration?.Invalidate();
             changed?.Invoke(snapshot);
         }
 
@@ -2652,6 +3364,46 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public void ReplaceCurrent(
             NativeRemoteWindowPermissionSnapshot snapshot) => current = snapshot;
+
+        public sealed class RecordingPermissionPreparationRegistration(
+            INativeRemoteWindowPermissionPreparationInvalidationSink sink,
+            Func<int, bool>? readingCurrent) :
+            INativeRemoteWindowPermissionPreparationRegistration
+        {
+            private int disposed;
+            private int currentReadCount;
+            private INativeRemoteWindowPermissionPreparationInvalidationSink?
+                sink = sink;
+
+            public int DisposeCount { get; private set; }
+
+            public int CurrentReadCount => Volatile.Read(ref currentReadCount);
+
+            public bool IsCurrent
+            {
+                get
+                {
+                    int read = Interlocked.Increment(ref currentReadCount);
+                    return readingCurrent?.Invoke(read)
+                        ?? Volatile.Read(ref disposed) == 0;
+                }
+            }
+
+            public void Dispose()
+            {
+                DisposeCount++;
+                _ = Interlocked.Exchange(ref sink, null);
+                _ = Interlocked.Exchange(ref disposed, 1);
+            }
+
+            public void Invalidate()
+            {
+                INativeRemoteWindowPermissionPreparationInvalidationSink? target =
+                    Interlocked.Exchange(ref sink, null);
+                _ = Interlocked.Exchange(ref disposed, 1);
+                target?.InvalidateNativeRemoteWindowPermissionPreparationNow();
+            }
+        }
     }
 
     private sealed class RecordingProtectionSource(
@@ -3207,6 +3959,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public Action? RouteAdmitted { get; set; }
 
+        public Action? BeforePrepareSendAdmission { get; set; }
+
         public Action? PrepareSendAdmitted { get; set; }
 
         public ProtocolVersion ProtocolVersion { get; set; } =
@@ -3298,6 +4052,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            BeforePrepareSendAdmission?.Invoke();
             if (!admission.TryAdmitPrepareSend(request, Now))
             {
                 return ValueTask.FromResult(

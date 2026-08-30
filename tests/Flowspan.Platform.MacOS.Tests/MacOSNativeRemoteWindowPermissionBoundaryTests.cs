@@ -1,9 +1,753 @@
+using Flowspan.Domain;
 using Flowspan.Platform.MacOS;
 
 namespace Flowspan.Platform.MacOS.Tests;
 
 public sealed class MacOSNativeRemoteWindowPermissionBoundaryTests
 {
+    [Fact]
+    public void GrantedViewOnlySnapshotCanBeReservedWithoutPrompt()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot expected = boundary.GetSnapshot();
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+
+        NativeRemoteWindowPermissionPreparationReservationResult result =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                expected,
+                MirrorParticipantRole.ViewOnly,
+                sink);
+
+        Assert.Equal(
+            NativeRemoteWindowPermissionPreparationReservationStatus.Reserved,
+            result.Status);
+        Assert.True(result.Reserved);
+        INativeRemoteWindowPermissionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    result.Registration);
+        Assert.Same(registration, sink.Registration);
+        Assert.True(registration.IsCurrent);
+        Assert.Equal(1, interop.PreflightCalls);
+        Assert.Equal(0, interop.RequestCalls);
+
+        registration.Dispose();
+
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(0, sink.Count);
+    }
+
+    [Fact]
+    public void OwnerClaimFailureRollsBackRegistrationAndAllowsRetry()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot expected = boundary.GetSnapshot();
+        var failure = new IOException("permission-owner-claim-failure");
+        var failingSink = new RecordingPermissionPreparationInvalidationSink(
+            ownershipFailure: failure);
+        INativeRemoteWindowPermissionPreparationBoundary preparationBoundary =
+            boundary;
+
+        IOException thrown = Assert.Throws<IOException>(() =>
+            preparationBoundary.TryReservePreparation(
+                expected,
+                MirrorParticipantRole.ViewOnly,
+                failingSink));
+
+        Assert.Same(failure, thrown);
+        Assert.False(failingSink.Registration?.IsCurrent);
+        Assert.Equal(0, failingSink.Count);
+        var replacementSink =
+            new RecordingPermissionPreparationInvalidationSink();
+        NativeRemoteWindowPermissionPreparationReservationResult replacement =
+            preparationBoundary.TryReservePreparation(
+                expected,
+                MirrorParticipantRole.ViewOnly,
+                replacementSink);
+        Assert.True(replacement.Reserved);
+        Assert.Same(replacement.Registration, replacementSink.Registration);
+    }
+
+    [Fact]
+    public void PermissionMutationInvalidatesReservationBeforeChangedObserver()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot expected = boundary.GetSnapshot();
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+        NativeRemoteWindowPermissionPreparationReservationResult result =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                expected,
+                MirrorParticipantRole.ViewOnly,
+                sink);
+        INativeRemoteWindowPermissionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    result.Registration);
+        bool observerSawInvalidation = false;
+        boundary.Changed += _ =>
+        {
+            observerSawInvalidation = !registration.IsCurrent
+                && sink.Count == 1;
+        };
+        interop.PreflightResult = false;
+
+        NativeRemoteWindowPermissionSnapshot revoked = boundary.GetSnapshot();
+
+        Assert.Equal(
+            NativeRemoteWindowPermissionState.Revoked,
+            revoked.Capture);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+        Assert.True(observerSawInvalidation);
+    }
+
+    [Fact]
+    public async Task DisposeInvalidatesAllPermissionReservationsInOrder()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot expected = boundary.GetSnapshot();
+        var order = new List<int>();
+        var firstSink = new RecordingPermissionPreparationInvalidationSink(
+            () => order.Add(1));
+        var secondSink = new RecordingPermissionPreparationInvalidationSink(
+            () => order.Add(2));
+        INativeRemoteWindowPermissionPreparationBoundary preparationBoundary =
+            boundary;
+        INativeRemoteWindowPermissionPreparationRegistration first =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    preparationBoundary.TryReservePreparation(
+                        expected,
+                        MirrorParticipantRole.ViewOnly,
+                        firstSink).Registration);
+        INativeRemoteWindowPermissionPreparationRegistration second =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    preparationBoundary.TryReservePreparation(
+                        expected,
+                        MirrorParticipantRole.ViewOnly,
+                        secondSink).Registration);
+
+        await boundary.DisposeAsync();
+
+        Assert.False(first.IsCurrent);
+        Assert.False(second.IsCurrent);
+        Assert.Equal(1, firstSink.Count);
+        Assert.Equal(1, secondSink.Count);
+        Assert.Equal([1, 2], order);
+    }
+
+    [Fact]
+    public void DriverEligibleReservationReportsUnavailableInputCapability()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot expected = boundary.GetSnapshot();
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+
+        NativeRemoteWindowPermissionPreparationReservationResult result =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                expected,
+                MirrorParticipantRole.DriverEligible,
+                sink);
+
+        Assert.Equal(
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .BoundaryUnavailable,
+            result.Status);
+        Assert.False(result.Reserved);
+        Assert.Null(result.Registration);
+        Assert.Equal(0, sink.Count);
+        Assert.Equal(1, interop.PreflightCalls);
+        Assert.Equal(0, interop.RequestCalls);
+    }
+
+    [Fact]
+    public void PreparationReservationRequiresTheExactPermissionSnapshot()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(
+            interop,
+            ownerGeneration: 7);
+        NativeRemoteWindowPermissionSnapshot current = boundary.GetSnapshot();
+        NativeRemoteWindowPermissionSnapshot[] mismatches =
+        [
+            NativeRemoteWindowPermissionSnapshot.Create(
+                current.Capture,
+                current.Input,
+                ownerGeneration: 8,
+                current.Revision),
+            NativeRemoteWindowPermissionSnapshot.Create(
+                current.Capture,
+                current.Input,
+                current.OwnerGeneration,
+                checked(current.Revision + 1)),
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Denied,
+                current.Input,
+                current.OwnerGeneration,
+                current.Revision),
+            NativeRemoteWindowPermissionSnapshot.Create(
+                current.Capture,
+                NativeRemoteWindowPermissionState.Granted,
+                current.OwnerGeneration,
+                current.Revision),
+        ];
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+        INativeRemoteWindowPermissionPreparationBoundary preparationBoundary =
+            boundary;
+
+        foreach (NativeRemoteWindowPermissionSnapshot mismatch in mismatches)
+        {
+            NativeRemoteWindowPermissionPreparationReservationResult result =
+                preparationBoundary.TryReservePreparation(
+                    mismatch,
+                    MirrorParticipantRole.ViewOnly,
+                    sink);
+
+            Assert.Equal(
+                NativeRemoteWindowPermissionPreparationReservationStatus
+                    .SnapshotChanged,
+                result.Status);
+            Assert.Null(result.Registration);
+        }
+
+        Assert.Equal(0, sink.Count);
+        Assert.Equal(1, interop.PreflightCalls);
+        Assert.Equal(0, interop.RequestCalls);
+    }
+
+    [Fact]
+    public async Task ViewOnlyReservationRequiresGrantedCapturePermission()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            RequestResult = false,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot denied =
+            await boundary.RequestCapturePermissionAsync(CancellationToken.None);
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+
+        NativeRemoteWindowPermissionPreparationReservationResult result =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                denied,
+                MirrorParticipantRole.ViewOnly,
+                sink);
+
+        Assert.Equal(
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .PermissionDenied,
+            result.Status);
+        Assert.False(result.Reserved);
+        Assert.Null(result.Registration);
+        Assert.Equal(0, sink.Count);
+        Assert.Equal(0, interop.PreflightCalls);
+        Assert.Equal(1, interop.RequestCalls);
+    }
+
+    [Fact]
+    public void SamePermissionFactPreservesRevisionAndReservation()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot granted = boundary.GetSnapshot();
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+        NativeRemoteWindowPermissionPreparationReservationResult result =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                granted,
+                MirrorParticipantRole.ViewOnly,
+                sink);
+        using INativeRemoteWindowPermissionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    result.Registration);
+
+        NativeRemoteWindowPermissionSnapshot repeated = boundary.GetSnapshot();
+
+        Assert.Same(granted, repeated);
+        Assert.Equal(granted.Revision, repeated.Revision);
+        Assert.True(registration.IsCurrent);
+        Assert.Equal(0, sink.Count);
+        Assert.Equal(2, interop.PreflightCalls);
+        Assert.Equal(0, interop.RequestCalls);
+    }
+
+    [Fact]
+    public void RevokedThenRegrantedPermissionDoesNotReviveOldReservation()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot firstGrant = boundary.GetSnapshot();
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+        NativeRemoteWindowPermissionPreparationReservationResult firstResult =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                firstGrant,
+                MirrorParticipantRole.ViewOnly,
+                sink);
+        INativeRemoteWindowPermissionPreparationRegistration firstRegistration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    firstResult.Registration);
+        interop.PreflightResult = false;
+        NativeRemoteWindowPermissionSnapshot revoked = boundary.GetSnapshot();
+        interop.PreflightResult = true;
+
+        NativeRemoteWindowPermissionSnapshot secondGrant = boundary.GetSnapshot();
+        NativeRemoteWindowPermissionPreparationReservationResult staleResult =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                firstGrant,
+                MirrorParticipantRole.ViewOnly,
+                new RecordingPermissionPreparationInvalidationSink());
+
+        Assert.Equal(1, firstGrant.Revision);
+        Assert.Equal(2, revoked.Revision);
+        Assert.Equal(3, secondGrant.Revision);
+        Assert.Equal(
+            NativeRemoteWindowPermissionState.Granted,
+            secondGrant.Capture);
+        Assert.False(firstRegistration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+        Assert.Equal(
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .SnapshotChanged,
+            staleResult.Status);
+        Assert.Null(staleResult.Registration);
+    }
+
+    [Fact]
+    public async Task ReservationThatWinsRaceIsInvalidatedByLaterCommit()
+    {
+        using var mutationObserved = new ManualResetEventSlim();
+        using var releaseMutation = new ManualResetEventSlim();
+        int observation = 0;
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            Preflight = () =>
+            {
+                if (Interlocked.Increment(ref observation) == 1)
+                {
+                    return true;
+                }
+
+                mutationObserved.Set();
+                if (!releaseMutation.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    throw new TimeoutException(
+                        "Timed out releasing permission mutation.");
+                }
+
+                return false;
+            },
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot granted = boundary.GetSnapshot();
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+        Task<NativeRemoteWindowPermissionSnapshot> mutation = Task.Run(
+            boundary.GetSnapshot);
+        Assert.True(mutationObserved.Wait(TimeSpan.FromSeconds(5)));
+
+        NativeRemoteWindowPermissionPreparationReservationResult result;
+        try
+        {
+            result =
+                ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+                .TryReservePreparation(
+                    granted,
+                    MirrorParticipantRole.ViewOnly,
+                    sink);
+        }
+        finally
+        {
+            releaseMutation.Set();
+        }
+
+        NativeRemoteWindowPermissionSnapshot revoked =
+            await mutation.WaitAsync(TimeSpan.FromSeconds(5));
+        INativeRemoteWindowPermissionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    result.Registration);
+        Assert.Equal(
+            NativeRemoteWindowPermissionPreparationReservationStatus.Reserved,
+            result.Status);
+        Assert.Equal(
+            NativeRemoteWindowPermissionState.Revoked,
+            revoked.Capture);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+        Assert.Equal(2, interop.PreflightCalls);
+        Assert.Equal(0, interop.RequestCalls);
+    }
+
+    [Fact]
+    public async Task CommitThatWinsRaceRejectsReservationAgainstNewDeniedFact()
+    {
+        using var invalidationEntered = new ManualResetEventSlim();
+        using var releaseInvalidation = new ManualResetEventSlim();
+        using var reservationAttempted = new ManualResetEventSlim();
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot granted = boundary.GetSnapshot();
+        var oldSink = new RecordingPermissionPreparationInvalidationSink(() =>
+        {
+            invalidationEntered.Set();
+            if (!releaseInvalidation.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException(
+                    "Timed out releasing permission invalidation.");
+            }
+        });
+        NativeRemoteWindowPermissionPreparationReservationResult oldResult =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                granted,
+                MirrorParticipantRole.ViewOnly,
+                oldSink);
+        INativeRemoteWindowPermissionPreparationRegistration oldRegistration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    oldResult.Registration);
+        NativeRemoteWindowPermissionSnapshot expectedRevoked =
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Revoked,
+                NativeRemoteWindowPermissionState.Unsupported,
+                granted.OwnerGeneration,
+                checked(granted.Revision + 1));
+        interop.PreflightResult = false;
+        Task<NativeRemoteWindowPermissionSnapshot> mutation = Task.Run(
+            boundary.GetSnapshot);
+        Assert.True(invalidationEntered.Wait(TimeSpan.FromSeconds(5)));
+        var newSink = new RecordingPermissionPreparationInvalidationSink();
+        Task<NativeRemoteWindowPermissionPreparationReservationResult>
+            reservation = Task.Run(() =>
+            {
+                reservationAttempted.Set();
+                return ((INativeRemoteWindowPermissionPreparationBoundary)
+                    boundary).TryReservePreparation(
+                        expectedRevoked,
+                        MirrorParticipantRole.ViewOnly,
+                        newSink);
+            });
+        Assert.True(reservationAttempted.Wait(TimeSpan.FromSeconds(5)));
+
+        try
+        {
+            Task first = await Task.WhenAny(
+                reservation,
+                Task.Delay(TimeSpan.FromMilliseconds(100)));
+            Assert.NotSame(reservation, first);
+        }
+        finally
+        {
+            releaseInvalidation.Set();
+        }
+
+        NativeRemoteWindowPermissionSnapshot revoked =
+            await mutation.WaitAsync(TimeSpan.FromSeconds(5));
+        NativeRemoteWindowPermissionPreparationReservationResult result =
+            await reservation.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(expectedRevoked, revoked);
+        Assert.False(oldRegistration.IsCurrent);
+        Assert.Equal(1, oldSink.Count);
+        Assert.Equal(
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .PermissionDenied,
+            result.Status);
+        Assert.Null(result.Registration);
+        Assert.Equal(0, newSink.Count);
+    }
+
+    [Fact]
+    public void SinkFailureCannotBlockOtherInvalidationsOrChangedObservers()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot granted = boundary.GetSnapshot();
+        var order = new List<int>();
+        var failure = new IOException("permission-invalidation-failure");
+        INativeRemoteWindowPermissionPreparationRegistration first = null!;
+        INativeRemoteWindowPermissionPreparationRegistration second = null!;
+        var firstSink = new RecordingPermissionPreparationInvalidationSink(
+            () =>
+            {
+                Assert.False(first.IsCurrent);
+                Assert.False(second.IsCurrent);
+                order.Add(1);
+            },
+            failure);
+        var secondSink = new RecordingPermissionPreparationInvalidationSink(
+            () =>
+            {
+                Assert.False(first.IsCurrent);
+                Assert.False(second.IsCurrent);
+                order.Add(2);
+            });
+        INativeRemoteWindowPermissionPreparationBoundary preparationBoundary =
+            boundary;
+        first = Assert.IsAssignableFrom<
+            INativeRemoteWindowPermissionPreparationRegistration>(
+                preparationBoundary.TryReservePreparation(
+                    granted,
+                    MirrorParticipantRole.ViewOnly,
+                    firstSink).Registration);
+        second = Assert.IsAssignableFrom<
+            INativeRemoteWindowPermissionPreparationRegistration>(
+                preparationBoundary.TryReservePreparation(
+                    granted,
+                    MirrorParticipantRole.ViewOnly,
+                    secondSink).Registration);
+        boundary.Changed += snapshot =>
+        {
+            Assert.Equal(
+                NativeRemoteWindowPermissionState.Revoked,
+                snapshot.Capture);
+            Assert.False(first.IsCurrent);
+            Assert.False(second.IsCurrent);
+            order.Add(3);
+        };
+        interop.PreflightResult = false;
+
+        IOException thrown = Assert.Throws<IOException>(boundary.GetSnapshot);
+
+        Assert.Same(failure, thrown);
+        Assert.False(first.IsCurrent);
+        Assert.False(second.IsCurrent);
+        Assert.Equal(1, firstSink.Count);
+        Assert.Equal(1, secondSink.Count);
+        Assert.Equal([1, 2, 3], order);
+        NativeRemoteWindowPermissionSnapshot committed = boundary.GetSnapshot();
+        Assert.Equal(
+            NativeRemoteWindowPermissionState.Revoked,
+            committed.Capture);
+        Assert.Equal(2, committed.Revision);
+    }
+
+    [Fact]
+    public void MultipleSinkFailuresAreAggregatedInRegistrationOrder()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot granted = boundary.GetSnapshot();
+        var firstFailure = new IOException("first-permission-failure");
+        var secondFailure = new InvalidOperationException(
+            "second-permission-failure");
+        INativeRemoteWindowPermissionPreparationBoundary preparationBoundary =
+            boundary;
+        INativeRemoteWindowPermissionPreparationRegistration first =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    preparationBoundary.TryReservePreparation(
+                        granted,
+                        MirrorParticipantRole.ViewOnly,
+                        new RecordingPermissionPreparationInvalidationSink(
+                            failure: firstFailure)).Registration);
+        INativeRemoteWindowPermissionPreparationRegistration second =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    preparationBoundary.TryReservePreparation(
+                        granted,
+                        MirrorParticipantRole.ViewOnly,
+                        new RecordingPermissionPreparationInvalidationSink(
+                            failure: secondFailure)).Registration);
+        interop.PreflightResult = false;
+
+        AggregateException aggregate = Assert.Throws<AggregateException>(
+            boundary.GetSnapshot);
+
+        Assert.Equal([firstFailure, secondFailure], aggregate.InnerExceptions);
+        Assert.False(first.IsCurrent);
+        Assert.False(second.IsCurrent);
+        Assert.Equal(
+            NativeRemoteWindowPermissionState.Revoked,
+            boundary.GetSnapshot().Capture);
+    }
+
+    [Fact]
+    public async Task DisposeRetainsStableInvalidationFailure()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot granted = boundary.GetSnapshot();
+        var failure = new IOException("dispose-permission-failure");
+        var sink = new RecordingPermissionPreparationInvalidationSink(
+            failure: failure);
+        INativeRemoteWindowPermissionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+                    .TryReservePreparation(
+                        granted,
+                        MirrorParticipantRole.ViewOnly,
+                        sink).Registration);
+
+        IOException first = await Assert.ThrowsAsync<IOException>(
+            async () => await boundary.DisposeAsync());
+        IOException repeated = await Assert.ThrowsAsync<IOException>(
+            async () => await boundary.DisposeAsync());
+
+        Assert.Same(failure, first);
+        Assert.Same(first, repeated);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+    }
+
+    [Fact]
+    public async Task DisposeRetainsStableOutOfMemoryFailure()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot granted = boundary.GetSnapshot();
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var failure = new OutOfMemoryException(
+            "fatal-dispose-permission-invalidation-failure");
+#pragma warning restore CA2201
+        var sink = new RecordingPermissionPreparationInvalidationSink(
+            failure: failure);
+        INativeRemoteWindowPermissionPreparationRegistration registration =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+                    .TryReservePreparation(
+                        granted,
+                        MirrorParticipantRole.ViewOnly,
+                        sink).Registration);
+
+        OutOfMemoryException first = await Assert.ThrowsAsync<OutOfMemoryException>(
+            async () => await boundary.DisposeAsync());
+        OutOfMemoryException repeated =
+            await Assert.ThrowsAsync<OutOfMemoryException>(
+                async () => await boundary.DisposeAsync());
+
+        Assert.Same(failure, first);
+        Assert.Same(first, repeated);
+        Assert.False(registration.IsCurrent);
+        Assert.Equal(1, sink.Count);
+    }
+
+    [Fact]
+    public void OutOfMemoryFromInvalidationEscapesRawAfterAllDeactivation()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot granted = boundary.GetSnapshot();
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var failure = new OutOfMemoryException(
+            "fatal-permission-invalidation-failure");
+#pragma warning restore CA2201
+        INativeRemoteWindowPermissionPreparationBoundary preparationBoundary =
+            boundary;
+        INativeRemoteWindowPermissionPreparationRegistration first =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    preparationBoundary.TryReservePreparation(
+                        granted,
+                        MirrorParticipantRole.ViewOnly,
+                        new RecordingPermissionPreparationInvalidationSink(
+                            failure: failure)).Registration);
+        INativeRemoteWindowPermissionPreparationRegistration second =
+            Assert.IsAssignableFrom<
+                INativeRemoteWindowPermissionPreparationRegistration>(
+                    preparationBoundary.TryReservePreparation(
+                        granted,
+                        MirrorParticipantRole.ViewOnly,
+                        new RecordingPermissionPreparationInvalidationSink())
+                    .Registration);
+        interop.PreflightResult = false;
+
+        OutOfMemoryException thrown = Assert.Throws<OutOfMemoryException>(
+            boundary.GetSnapshot);
+
+        Assert.Same(failure, thrown);
+        Assert.False(first.IsCurrent);
+        Assert.False(second.IsCurrent);
+        Assert.Equal(
+            NativeRemoteWindowPermissionState.Revoked,
+            boundary.GetSnapshot().Capture);
+    }
+
+    [Fact]
+    public async Task DisposedBoundaryRejectsPreparationAsUnavailable()
+    {
+        var interop = new RecordingScreenCapturePermissionInterop
+        {
+            PreflightResult = true,
+        };
+        var boundary = new MacOSNativeRemoteWindowPermissionBoundary(interop);
+        NativeRemoteWindowPermissionSnapshot expected = boundary.GetSnapshot();
+        await boundary.DisposeAsync();
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+
+        NativeRemoteWindowPermissionPreparationReservationResult result =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                expected,
+                MirrorParticipantRole.ViewOnly,
+                sink);
+
+        Assert.Equal(
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .BoundaryUnavailable,
+            result.Status);
+        Assert.Null(result.Registration);
+        Assert.Equal(0, sink.Count);
+        Assert.Equal(1, interop.PreflightCalls);
+        Assert.Equal(0, interop.RequestCalls);
+    }
+
     [Fact]
     public void SnapshotPreflightsCaptureWithoutRequestingPermission()
     {
@@ -607,6 +1351,41 @@ public sealed class MacOSNativeRemoteWindowPermissionBoundaryTests
             }
 
             return Request?.Invoke() ?? RequestResult;
+        }
+    }
+
+    private sealed class RecordingPermissionPreparationInvalidationSink(
+        Action? invalidating = null,
+        Exception? failure = null,
+        Exception? ownershipFailure = null) :
+        INativeRemoteWindowPermissionPreparationInvalidationSink
+    {
+        private int count;
+
+        public int Count => Volatile.Read(ref count);
+
+        public INativeRemoteWindowPermissionPreparationRegistration?
+            Registration
+        { get; private set; }
+
+        public void OwnNativeRemoteWindowPermissionPreparationRegistration(
+            INativeRemoteWindowPermissionPreparationRegistration registration)
+        {
+            Registration = registration;
+            if (ownershipFailure is not null)
+            {
+                throw ownershipFailure;
+            }
+        }
+
+        public void InvalidateNativeRemoteWindowPermissionPreparationNow()
+        {
+            Interlocked.Increment(ref count);
+            invalidating?.Invoke();
+            if (failure is not null)
+            {
+                throw failure;
+            }
         }
     }
 }

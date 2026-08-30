@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Flowspan.Domain;
 using Flowspan.Platform;
 
 namespace Flowspan.Platform.Tests;
@@ -43,6 +44,31 @@ public sealed class NativeRemoteWindowContractsTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () => await boundary.RequestInputPermissionAsync(
                 cancellation.Token));
+    }
+
+    [Fact]
+    public void UnavailablePermissionBoundaryRejectsPreparationWithoutPrompt()
+    {
+        UnavailableNativeRemoteWindowPermissionBoundary boundary =
+            UnavailableNativeRemoteWindowPermissionBoundary.Instance;
+        NativeRemoteWindowPermissionSnapshot expected = boundary.GetSnapshot();
+        var sink = new RecordingPermissionPreparationInvalidationSink();
+
+        NativeRemoteWindowPermissionPreparationReservationResult result =
+            ((INativeRemoteWindowPermissionPreparationBoundary)boundary)
+            .TryReservePreparation(
+                expected,
+                MirrorParticipantRole.ViewOnly,
+                sink);
+
+        Assert.Equal(
+            NativeRemoteWindowPermissionPreparationReservationStatus
+                .BoundaryUnavailable,
+            result.Status);
+        Assert.False(result.Reserved);
+        Assert.Null(result.Registration);
+        Assert.Null(sink.Registration);
+        Assert.Equal(0, sink.Count);
     }
 
     [Fact]
@@ -1587,6 +1613,25 @@ public sealed class NativeRemoteWindowContractsTests
                 throw failure;
             }
         }
+    }
+
+    private sealed class RecordingPermissionPreparationInvalidationSink :
+        INativeRemoteWindowPermissionPreparationInvalidationSink
+    {
+        private int count;
+
+        public int Count => Volatile.Read(ref count);
+
+        public INativeRemoteWindowPermissionPreparationRegistration?
+            Registration
+        { get; private set; }
+
+        public void OwnNativeRemoteWindowPermissionPreparationRegistration(
+            INativeRemoteWindowPermissionPreparationRegistration registration) =>
+            Registration = registration;
+
+        public void InvalidateNativeRemoteWindowPermissionPreparationNow() =>
+            Interlocked.Increment(ref count);
     }
 
     private sealed class ExternalEmergencyStopRegistration(
