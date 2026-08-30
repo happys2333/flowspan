@@ -91,6 +91,7 @@ internal sealed record RemoteWindowHostPreparationSnapshot(
 
 internal sealed class RemoteWindowHostPreparationReservation :
     IDisposable,
+    ILocalEmergencyStopReadinessInvalidationSink,
     INativeRemoteWindowSourcePreparationReservation,
     IRemoteWindowHostPreparationAdmission
 {
@@ -384,6 +385,10 @@ internal sealed class RemoteWindowHostPreparationReservation :
     void INativeRemoteWindowSourcePreparationReservation
         .InvalidateSourcePreparationNow() =>
         _ = TryInvalidate(RemoteWindowHostPreparationFact.Source);
+
+    void ILocalEmergencyStopReadinessInvalidationSink
+        .InvalidateEmergencyStopReadinessNow() =>
+        _ = TryInvalidate(RemoteWindowHostPreparationFact.EmergencyStop);
 
     private static string GetInvalidationReason(
         RemoteWindowHostPreparationFact fact) => fact switch

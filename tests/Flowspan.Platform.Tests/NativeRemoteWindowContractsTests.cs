@@ -680,6 +680,296 @@ public sealed class NativeRemoteWindowContractsTests
     }
 
     [Fact]
+    public void EmergencyReadinessReservationInstallsNoCallbackUntilPromotion()
+    {
+        using var registrar = new InMemoryLocalEmergencyStopRegistrar();
+        var invalidated = new RecordingEmergencyStopReadinessInvalidationSink();
+        LocalEmergencyStopActivation? activation = null;
+
+        LocalEmergencyStopReadinessReservationResult reserved =
+            registrar.TryReserveReadiness(
+                ownerGeneration: 7,
+                sessionGeneration: 9,
+                invalidated);
+        ILocalEmergencyStopReadinessReservation reservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                reserved.Reservation);
+
+        Assert.True(reserved.Reserved);
+        Assert.True(reservation.IsCurrent);
+        Assert.Equal(7, reservation.OwnerGeneration);
+        Assert.Equal(9, reservation.SessionGeneration);
+        Assert.False(registrar.Trigger());
+        Assert.Equal(0, invalidated.Count);
+        Assert.Equal(
+            "emergency_stop_registration_conflict",
+            registrar.CheckReadiness().ReasonCode);
+        Assert.False(registrar.TryRegister(1, 1, _ => { }).Registered);
+
+        LocalEmergencyStopRegistrationResult promoted = reservation.TryPromote(
+            observed => activation = observed);
+
+        Assert.True(promoted.Registered);
+        Assert.NotSame(reservation, promoted.Registration);
+        Assert.True(registrar.Trigger());
+        Assert.False(reservation.IsCurrent);
+        Assert.Equal(LocalEmergencyStopCause.UserAction, activation?.Cause);
+        Assert.Equal(7, activation?.OwnerGeneration);
+        Assert.Equal(9, activation?.SessionGeneration);
+        Assert.Equal(0, invalidated.Count);
+    }
+
+    [Fact]
+    public void ReleasedEmergencyReadinessReservationCannotPromoteOrAffectAbaReplacement()
+    {
+        using var registrar = new InMemoryLocalEmergencyStopRegistrar();
+        var firstInvalidated =
+            new RecordingEmergencyStopReadinessInvalidationSink();
+        LocalEmergencyStopReadinessReservationResult first =
+            registrar.TryReserveReadiness(1, 1, firstInvalidated);
+        ILocalEmergencyStopReadinessReservation firstReservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                first.Reservation);
+
+        firstReservation.Dispose();
+        var secondInvalidated =
+            new RecordingEmergencyStopReadinessInvalidationSink();
+        LocalEmergencyStopReadinessReservationResult second =
+            registrar.TryReserveReadiness(1, 1, secondInvalidated);
+        ILocalEmergencyStopReadinessReservation secondReservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                second.Reservation);
+        LocalEmergencyStopRegistrationResult stalePromotion =
+            firstReservation.TryPromote(_ => { });
+        firstReservation.Dispose();
+
+        Assert.True(second.Reserved);
+        Assert.True(secondReservation.IsCurrent);
+        Assert.False(stalePromotion.Registered);
+        Assert.Equal(
+            "emergency_stop_readiness_stale",
+            stalePromotion.Boundary.ReasonCode);
+        Assert.Equal(0, firstInvalidated.Count);
+        Assert.Equal(0, secondInvalidated.Count);
+    }
+
+    [Fact]
+    public void EmergencyReadinessLossInvalidatesBeforeReplacementAndRejectsPromotion()
+    {
+        using var registrar = new InMemoryLocalEmergencyStopRegistrar();
+        var invalidated = new RecordingEmergencyStopReadinessInvalidationSink();
+        LocalEmergencyStopReadinessReservationResult reserved =
+            registrar.TryReserveReadiness(3, 5, invalidated);
+        ILocalEmergencyStopReadinessReservation reservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                reserved.Reservation);
+
+        Assert.True(registrar.LoseRegistration());
+        LocalEmergencyStopRegistrationResult promoted = reservation.TryPromote(
+            _ => { });
+        LocalEmergencyStopReadinessReservationResult replacement =
+            registrar.TryReserveReadiness(
+                3,
+                5,
+                new RecordingEmergencyStopReadinessInvalidationSink());
+
+        Assert.Equal(1, invalidated.Count);
+        Assert.False(reservation.IsCurrent);
+        Assert.False(promoted.Registered);
+        Assert.Equal(
+            "emergency_stop_readiness_stale",
+            promoted.Boundary.ReasonCode);
+        Assert.True(replacement.Reserved);
+        replacement.Reservation?.Dispose();
+    }
+
+    [Fact]
+    public void PromotedEmergencyReadinessLossUsesFormalCallbackNotPreparationSink()
+    {
+        using var registrar = new InMemoryLocalEmergencyStopRegistrar();
+        var invalidated = new RecordingEmergencyStopReadinessInvalidationSink();
+        LocalEmergencyStopActivation? activation = null;
+        LocalEmergencyStopReadinessReservationResult reserved =
+            registrar.TryReserveReadiness(3, 5, invalidated);
+        ILocalEmergencyStopReadinessReservation reservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                reserved.Reservation);
+        LocalEmergencyStopRegistrationResult promoted = reservation.TryPromote(
+            observed => activation = observed);
+
+        Assert.True(promoted.Registered);
+        Assert.True(registrar.LoseRegistration());
+
+        Assert.Equal(0, invalidated.Count);
+        Assert.Equal(LocalEmergencyStopCause.RegistrationLost, activation?.Cause);
+        Assert.Equal(3, activation?.OwnerGeneration);
+        Assert.Equal(5, activation?.SessionGeneration);
+        Assert.False(reservation.IsCurrent);
+    }
+
+    [Fact]
+    public void EmergencyRegistrarDisposalSignalsPromotedRegistrationLoss()
+    {
+        var registrar = new InMemoryLocalEmergencyStopRegistrar();
+        var invalidated = new RecordingEmergencyStopReadinessInvalidationSink();
+        LocalEmergencyStopActivation? activation = null;
+        LocalEmergencyStopReadinessReservationResult reserved =
+            registrar.TryReserveReadiness(3, 5, invalidated);
+        ILocalEmergencyStopReadinessReservation reservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                reserved.Reservation);
+        LocalEmergencyStopRegistrationResult promoted = reservation.TryPromote(
+            observed => activation = observed);
+        ILocalEmergencyStopRegistration registration = Assert.IsAssignableFrom<
+            ILocalEmergencyStopRegistration>(promoted.Registration);
+
+        registrar.Dispose();
+
+        Assert.Equal(0, invalidated.Count);
+        Assert.Equal(LocalEmergencyStopCause.RegistrationLost, activation?.Cause);
+        Assert.Equal(3, activation?.OwnerGeneration);
+        Assert.Equal(5, activation?.SessionGeneration);
+        Assert.False(registration.IsCurrent);
+        Assert.False(reservation.IsCurrent);
+        registrar.Dispose();
+    }
+
+    [Fact]
+    public async Task EmergencyReadinessPromotionAndLossLinearizeToOneOwner()
+    {
+        for (int attempt = 0; attempt < 64; attempt++)
+        {
+            using var registrar = new InMemoryLocalEmergencyStopRegistrar();
+            var invalidated =
+                new RecordingEmergencyStopReadinessInvalidationSink();
+            int activationCount = 0;
+            LocalEmergencyStopReadinessReservationResult reserved =
+                registrar.TryReserveReadiness(3, 5, invalidated);
+            ILocalEmergencyStopReadinessReservation reservation =
+                Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                    reserved.Reservation);
+            using var start = new Barrier(participantCount: 3);
+            Task<LocalEmergencyStopRegistrationResult> promotion =
+                RunOnDedicatedThread(() =>
+                {
+                    start.SignalAndWait();
+                    return reservation.TryPromote(
+                        _ => Interlocked.Increment(ref activationCount));
+                });
+            Task<bool> loss = RunOnDedicatedThread(() =>
+            {
+                start.SignalAndWait();
+                return registrar.LoseRegistration();
+            });
+
+            start.SignalAndWait();
+            LocalEmergencyStopRegistrationResult promoted = await promotion
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            bool lost = await loss.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(lost);
+            Assert.Equal(
+                1,
+                invalidated.Count + Volatile.Read(ref activationCount));
+            if (promoted.Boundary.Succeeded)
+            {
+                Assert.Equal(0, invalidated.Count);
+                Assert.Equal(1, Volatile.Read(ref activationCount));
+            }
+            else
+            {
+                Assert.Equal("emergency_stop_readiness_stale", promoted.Boundary.ReasonCode);
+                Assert.Equal(1, invalidated.Count);
+                Assert.Equal(0, Volatile.Read(ref activationCount));
+            }
+
+            Assert.False(reservation.IsCurrent);
+        }
+    }
+
+    [Fact]
+    public void EmergencyRegistrarDisposalInvalidatesReservedReadinessExactlyOnce()
+    {
+        var registrar = new InMemoryLocalEmergencyStopRegistrar();
+        var invalidated = new RecordingEmergencyStopReadinessInvalidationSink();
+        LocalEmergencyStopReadinessReservationResult reserved =
+            registrar.TryReserveReadiness(1, 1, invalidated);
+        ILocalEmergencyStopReadinessReservation reservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                reserved.Reservation);
+
+        registrar.Dispose();
+        registrar.Dispose();
+
+        Assert.Equal(1, invalidated.Count);
+        Assert.False(reservation.IsCurrent);
+        Assert.False(reservation.TryPromote(_ => { }).Registered);
+    }
+
+    [Fact]
+    public void EmergencyRegistrarRetainsReadinessInvalidationFailureAcrossDispose()
+    {
+        var registrar = new InMemoryLocalEmergencyStopRegistrar();
+        var injected = new IOException(
+            "emergency readiness disposal invalidation failure");
+        var invalidated = new RecordingEmergencyStopReadinessInvalidationSink(
+            injected);
+        LocalEmergencyStopReadinessReservationResult reserved =
+            registrar.TryReserveReadiness(1, 1, invalidated);
+        ILocalEmergencyStopReadinessReservation reservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                reserved.Reservation);
+
+        IOException first = Assert.Throws<IOException>(registrar.Dispose);
+        IOException repeated = Assert.Throws<IOException>(registrar.Dispose);
+        LocalEmergencyStopReadinessReservationResult afterDispose =
+            registrar.TryReserveReadiness(
+                2,
+                2,
+                new RecordingEmergencyStopReadinessInvalidationSink());
+
+        Assert.Same(injected, first);
+        Assert.Same(injected, repeated);
+        Assert.Equal(1, invalidated.Count);
+        Assert.False(reservation.IsCurrent);
+        Assert.False(afterDispose.Reserved);
+        Assert.Equal(
+            "emergency_stop_registrar_unavailable",
+            afterDispose.Boundary.ReasonCode);
+    }
+
+    [Fact]
+    public void EmergencyReadinessSinkFailureDoesNotRetainTheRegistrarSlot()
+    {
+        using var registrar = new InMemoryLocalEmergencyStopRegistrar();
+        var injected = new IOException(
+            "emergency readiness invalidation failure");
+        var invalidated = new RecordingEmergencyStopReadinessInvalidationSink(
+            injected);
+        LocalEmergencyStopReadinessReservationResult reserved =
+            registrar.TryReserveReadiness(1, 1, invalidated);
+        ILocalEmergencyStopReadinessReservation reservation =
+            Assert.IsAssignableFrom<ILocalEmergencyStopReadinessReservation>(
+                reserved.Reservation);
+
+        IOException failure = Assert.Throws<IOException>(() =>
+        {
+            _ = registrar.LoseRegistration();
+        });
+        LocalEmergencyStopReadinessReservationResult replacement =
+            registrar.TryReserveReadiness(
+                2,
+                2,
+                new RecordingEmergencyStopReadinessInvalidationSink());
+
+        Assert.Same(injected, failure);
+        Assert.Equal(1, invalidated.Count);
+        Assert.False(reservation.IsCurrent);
+        Assert.True(replacement.Reserved);
+        replacement.Reservation?.Dispose();
+    }
+
+    [Fact]
     public void EmergencyReadinessTracksConflictReleaseAndRegistrarDisposal()
     {
         var registrar = new InMemoryLocalEmergencyStopRegistrar();
@@ -1279,6 +1569,24 @@ public sealed class NativeRemoteWindowContractsTests
         public Memory<byte> Memory => buffer;
 
         public void Dispose() => DisposeCount++;
+    }
+
+    private sealed class RecordingEmergencyStopReadinessInvalidationSink(
+        Exception? failure = null) :
+        ILocalEmergencyStopReadinessInvalidationSink
+    {
+        private int count;
+
+        public int Count => Volatile.Read(ref count);
+
+        public void InvalidateEmergencyStopReadinessNow()
+        {
+            Interlocked.Increment(ref count);
+            if (failure is not null)
+            {
+                throw failure;
+            }
+        }
     }
 
     private sealed class ExternalEmergencyStopRegistration(

@@ -136,6 +136,10 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         await using DesktopRemoteWindowHostCoordinator coordinator =
             host.Coordinator;
         var injected = new IOException("FLOWSPAN_ADMISSION_PUBLISH_CANARY");
+        bool emergencyReleasedAfterStop = false;
+        host.EmergencyStops.RegistrationDisposing = () =>
+            emergencyReleasedAfterStop = host.Capture.StopCount > 0
+                && host.Input.StopCount > 0;
         host.Connection.PublishFailure = injected;
 
         InvalidOperationException failure = await Assert.ThrowsAsync<
@@ -150,6 +154,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(1, host.Capture.StartCount);
         Assert.Equal(1, host.Capture.StopCount);
         Assert.Equal(1, host.Input.StopCount);
+        Assert.True(emergencyReleasedAfterStop);
         Assert.Equal(1, host.Connection.FailCloseCount);
         Assert.Equal(1, host.Connection.DisposeCount);
         Assert.Equal(0, host.Permissions.ObserverCount);
@@ -285,6 +290,87 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(0, host.Permissions.ObserverCount);
         Assert.True(host.Protection.IsDisposed);
         Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task EmergencyReadinessLossBeforeRouteRejectsWithoutWireAuthority()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.EmergencyStops.ReadinessReserved = () => Assert.True(
+            host.EmergencyStops.LoseReadiness());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_readiness_unavailable", failure.Message);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationAfterEmergencyReadinessReservationPreservesToken()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.EmergencyStops.ReadinessReserved = cancellation.Cancel;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(1, host.EmergencyStops.ReadinessReservationCount);
+        Assert.Equal(1, host.EmergencyStops.ReadinessReservationDisposeCount);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationBeforeEmergencyPromotionInstallsNoFormalOwner()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.Protection.Reading = () =>
+        {
+            if (host.Protection.SnapshotReadCount == 2)
+            {
+                cancellation.Cancel();
+            }
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("emergency_stop.register", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.EmergencyStops.ReadinessReservationCount);
+        Assert.Equal(1, host.EmergencyStops.ReadinessReservationDisposeCount);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
         Assert.Null(coordinator.Snapshot);
     }
 
@@ -557,6 +643,29 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task EmergencyReadinessLossAfterRouteAdmissionPreventsPrepareAndCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.RouteAdmitted = () =>
+            Assert.True(host.EmergencyStops.LoseReadiness());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_readiness_unavailable", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
     public async Task SourceInvalidationDuringRouteFailureReportsStableReason()
     {
         using var host = new ReadyHostHarness();
@@ -599,6 +708,176 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(1, host.Connection.FailCloseCount);
         Assert.Equal(1, host.Connection.DisposeCount);
         Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task EmergencyReadinessLossAfterPrepareSendPreventsReadyAuthority()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.PrepareSendAdmitted = () =>
+            Assert.True(host.EmergencyStops.LoseReadiness());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_readiness_unavailable", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.Contains("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("emergency_stop.register", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task EmergencyReadinessPromotionFailureAfterReadyIsRedactedAndFailsClosed()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("EMERGENCY_PROMOTION_CANARY");
+        host.EmergencyStops.PromotionFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_registration_failed", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.Contains("emergency_stop.register", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task EmergencyPromotionSideEffectThenThrowRetainsCleanupOwner()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("EMERGENCY_PROMOTION_COMMIT_CANARY");
+        bool emergencyReleasedAfterStop = false;
+        host.EmergencyStops.RegistrationDisposing = () =>
+            emergencyReleasedAfterStop = host.Capture.StopCount > 0
+                && host.Input.StopCount > 0;
+        host.EmergencyStops.PromotionFailureAfterCommit = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_registration_failed", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Contains("emergency_stop.register", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.True(emergencyReleasedAfterStop);
+        Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task EmergencyActivationDuringPromotionCannotAuthorizeCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.EmergencyStops.PromotionCommitted = () => Assert.True(
+            host.EmergencyStops.CurrentRegistration!.Trigger(
+                LocalEmergencyStopCause.RegistrationLost));
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_readiness_unavailable", failure.Message);
+        Assert.Contains("emergency_stop.register", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task EmergencyRegistrarDisposalAfterPromotionCannotAuthorizeCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Authorization.Reading = () =>
+        {
+            if (host.Authorization.ReadCount == 5)
+            {
+                host.EmergencyStops.Dispose();
+            }
+        };
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("emergency_stop_readiness_unavailable", failure.Message);
+        Assert.Contains("emergency_stop.register", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.True(host.EmergencyStops.CurrentRegistration?.IsCurrent is not true);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task CallerCancellationAfterEmergencyPromotionPreservesOwnerAndToken()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.EmergencyStops.PromotionCommitted = cancellation.Cancel;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Contains("emergency_stop.register", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task FormalEmergencyRegistrationRemainsUntilNativeBoundariesStop()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        bool disposedAfterBoundaries = false;
+        host.EmergencyStops.RegistrationDisposing = () =>
+            disposedAfterBoundaries = host.Capture.StopCount > 0
+                && host.Input.StopCount > 0;
+        Assert.True((await host.StartAsync()).Succeeded);
+
+        RemoteWindowStopResult stopped = await coordinator.StopAsync();
+
+        Assert.True(stopped.FullyStopped);
+        Assert.True(disposedAfterBoundaries);
+        Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
     }
 
     [Fact]
@@ -1745,6 +2024,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(1, connection.DisposeCount);
         Assert.Equal(0, permissions.ObserverCount);
         Assert.True(protection.IsDisposed);
+        Assert.Equal(1, emergencyStops.ReadinessReservationCount);
+        Assert.Equal(1, emergencyStops.ReadinessReservationDisposeCount);
         Assert.Null(emergencyStops.CurrentRegistration);
         Assert.Null(coordinator.Snapshot);
     }
@@ -2170,7 +2451,31 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public int ReadinessCheckCount { get; private set; }
 
+        public int ReadinessReservationDisposeCount { get; private set; }
+
+        public int ReadinessReservationCount { get; private set; }
+
+        public Action? ReadinessReserved { get; set; }
+
+        public Action? PromotionCommitted { get; set; }
+
+        public Exception? PromotionFailure { get; set; }
+
+        public Exception? PromotionFailureAfterCommit { get; set; }
+
+        public LocalBoundaryResult PromotionResult { get; set; } =
+            LocalBoundaryResult.Confirmed("emergency_stop_registered");
+
+        public Action? RegistrationDisposing { get; set; }
+
         public RecordingEmergencyStopRegistration? CurrentRegistration
+        {
+            get;
+            private set;
+        }
+
+        public RecordingEmergencyStopReadinessReservation?
+            CurrentReadinessReservation
         {
             get;
             private set;
@@ -2189,6 +2494,40 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             return ReadinessResult;
         }
 
+        public LocalEmergencyStopReadinessReservationResult TryReserveReadiness(
+            long ownerGeneration,
+            long sessionGeneration,
+            ILocalEmergencyStopReadinessInvalidationSink invalidationSink)
+        {
+            LocalBoundaryResult readiness = CheckReadiness();
+            if (!readiness.Succeeded)
+            {
+                return LocalEmergencyStopReadinessReservationResult.Rejected(
+                    readiness.ReasonCode);
+            }
+
+            if (CurrentReadinessReservation?.IsCurrent == true
+                || CurrentRegistration?.IsCurrent == true)
+            {
+                return LocalEmergencyStopReadinessReservationResult.Rejected(
+                    "emergency_stop_registration_conflict");
+            }
+
+            ReadinessReservationCount++;
+            CurrentReadinessReservation =
+                new RecordingEmergencyStopReadinessReservation(
+                    this,
+                    ownerGeneration,
+                    sessionGeneration,
+                    invalidationSink);
+            LocalEmergencyStopReadinessReservationResult result =
+                LocalEmergencyStopReadinessReservationResult.Confirmed(
+                CurrentReadinessReservation,
+                "emergency_stop_readiness_reserved");
+            ReadinessReserved?.Invoke();
+            return result;
+        }
+
         public LocalEmergencyStopRegistrationResult TryRegister(
             long ownerGeneration,
             long sessionGeneration,
@@ -2198,19 +2537,142 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             CurrentRegistration = new RecordingEmergencyStopRegistration(
                 ownerGeneration,
                 sessionGeneration,
-                callback);
+                callback,
+                RegistrationDisposing);
             return LocalEmergencyStopRegistrationResult.Confirmed(
                 CurrentRegistration,
                 "emergency_stop_registered");
         }
 
-        public void Dispose() => CurrentRegistration?.Dispose();
+        public bool LoseReadiness() =>
+            CurrentReadinessReservation?.Invalidate() == true;
+
+        public void Dispose()
+        {
+            CurrentReadinessReservation?.Dispose();
+            if (CurrentRegistration?.IsCurrent == true)
+            {
+                _ = CurrentRegistration.Trigger(
+                    LocalEmergencyStopCause.RegistrationLost);
+            }
+
+            CurrentRegistration?.Dispose();
+        }
+
+        internal void Release(
+            RecordingEmergencyStopReadinessReservation reservation)
+        {
+            if (ReferenceEquals(CurrentReadinessReservation, reservation))
+            {
+                CurrentReadinessReservation = null;
+            }
+
+            ReadinessReservationDisposeCount++;
+        }
+
+        internal LocalEmergencyStopRegistrationResult Promote(
+            RecordingEmergencyStopReadinessReservation reservation,
+            Action<LocalEmergencyStopActivation> callback)
+        {
+            timeline.Add("emergency_stop.register");
+            if (PromotionFailure is { } failure)
+            {
+                throw failure;
+            }
+
+            if (!ReferenceEquals(CurrentReadinessReservation, reservation)
+                || !reservation.IsCurrent)
+            {
+                return LocalEmergencyStopRegistrationResult.Rejected(
+                    "emergency_stop_readiness_stale");
+            }
+
+            if (!PromotionResult.Succeeded)
+            {
+                return LocalEmergencyStopRegistrationResult.Rejected(
+                    PromotionResult.ReasonCode);
+            }
+
+            CurrentRegistration = new RecordingEmergencyStopRegistration(
+                reservation.OwnerGeneration,
+                reservation.SessionGeneration,
+                callback,
+                RegistrationDisposing);
+            reservation.CommitPromotion(CurrentRegistration);
+            CurrentReadinessReservation = null;
+            LocalEmergencyStopRegistrationResult result =
+                LocalEmergencyStopRegistrationResult.Confirmed(
+                    CurrentRegistration,
+                    PromotionResult.ReasonCode);
+            PromotionCommitted?.Invoke();
+            if (PromotionFailureAfterCommit is { } committedFailure)
+            {
+                throw committedFailure;
+            }
+
+            return result;
+        }
+    }
+
+    private sealed class RecordingEmergencyStopReadinessReservation(
+        RecordingEmergencyStopRegistrar registrar,
+        long ownerGeneration,
+        long sessionGeneration,
+        ILocalEmergencyStopReadinessInvalidationSink invalidationSink) :
+        ILocalEmergencyStopReadinessReservation
+    {
+        private ILocalEmergencyStopReadinessInvalidationSink? invalidationSink =
+            invalidationSink;
+        private RecordingEmergencyStopRegistration? promotedRegistration;
+
+        public bool IsCurrent => Volatile.Read(ref invalidationSink) is not null;
+
+        public long OwnerGeneration { get; } = ownerGeneration;
+
+        public long SessionGeneration { get; } = sessionGeneration;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref invalidationSink, null) is not null)
+            {
+                registrar.Release(this);
+                return;
+            }
+
+            Interlocked.Exchange(ref promotedRegistration, null)?.Dispose();
+        }
+
+        public LocalEmergencyStopRegistrationResult TryPromote(
+            Action<LocalEmergencyStopActivation> callback) =>
+            registrar.Promote(this, callback);
+
+        public void CommitPromotion(
+            RecordingEmergencyStopRegistration registration)
+        {
+            promotedRegistration = registration;
+            _ = Interlocked.Exchange(ref invalidationSink, null);
+        }
+
+        public bool Invalidate()
+        {
+            ILocalEmergencyStopReadinessInvalidationSink? sink =
+                Interlocked.Exchange(ref invalidationSink, null);
+            if (sink is null)
+            {
+                return false;
+            }
+
+            registrar.Release(this);
+            sink.InvalidateEmergencyStopReadinessNow();
+            return true;
+        }
     }
 
     private sealed class RecordingEmergencyStopRegistration(
         long ownerGeneration,
         long sessionGeneration,
-        Action<LocalEmergencyStopActivation> callback) :
+        Action<LocalEmergencyStopActivation> callback,
+        Action? disposing = null) :
         ILocalEmergencyStopRegistration
     {
         private Action<LocalEmergencyStopActivation>? callback = callback;
@@ -2221,7 +2683,30 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public bool IsCurrent => callback is not null;
 
-        public void Dispose() => callback = null;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref callback, null) is not null)
+            {
+                disposing?.Invoke();
+            }
+        }
+
+        public bool Trigger(LocalEmergencyStopCause cause)
+        {
+            Action<LocalEmergencyStopActivation>? activation =
+                Interlocked.Exchange(ref callback, null);
+            if (activation is null)
+            {
+                return false;
+            }
+
+            activation(LocalEmergencyStopActivation.Create(
+                OwnerGeneration,
+                SessionGeneration,
+                sequence: 1,
+                cause));
+            return true;
+        }
     }
 
     private sealed class RecordingCaptureBoundary(List<string> timeline) :

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.ExceptionServices;
 using System.Text.Json.Serialization;
 
 namespace Flowspan.Platform;
@@ -625,16 +626,84 @@ public interface ILocalEmergencyStopRegistration : IDisposable
     public bool IsCurrent { get; }
 }
 
+public interface ILocalEmergencyStopReadinessInvalidationSink
+{
+    // This mutation-gate callback must be bounded and non-blocking. It may only
+    // latch the owning host Preparation reservation; it must not invoke native
+    // work, cleanup, UI, or arbitrary callbacks.
+    public void InvalidateEmergencyStopReadinessNow();
+}
+
+public interface ILocalEmergencyStopReadinessReservation : IDisposable
+{
+    public long OwnerGeneration { get; }
+
+    public long SessionGeneration { get; }
+
+    public bool IsCurrent { get; }
+
+    public LocalEmergencyStopRegistrationResult TryPromote(
+        Action<LocalEmergencyStopActivation> callback);
+}
+
 public interface ILocalEmergencyStopRegistrar : IDisposable
 {
     // This prompt-free probe must not claim registration ownership. Callers
     // must still register and revalidate the exact generation before authority.
     public LocalBoundaryResult CheckReadiness();
 
+    public LocalEmergencyStopReadinessReservationResult TryReserveReadiness(
+        long ownerGeneration,
+        long sessionGeneration,
+        ILocalEmergencyStopReadinessInvalidationSink invalidationSink);
+
     public LocalEmergencyStopRegistrationResult TryRegister(
         long ownerGeneration,
         long sessionGeneration,
         Action<LocalEmergencyStopActivation> callback);
+}
+
+public sealed record LocalEmergencyStopReadinessReservationResult
+{
+    private LocalEmergencyStopReadinessReservationResult(
+        LocalBoundaryResult boundary,
+        ILocalEmergencyStopReadinessReservation? reservation)
+    {
+        Boundary = boundary;
+        Reservation = reservation;
+    }
+
+    public LocalBoundaryResult Boundary { get; }
+
+    public ILocalEmergencyStopReadinessReservation? Reservation { get; }
+
+    public bool Reserved => Boundary.Succeeded
+        && Reservation?.IsCurrent == true;
+
+    public static LocalEmergencyStopReadinessReservationResult Confirmed(
+        ILocalEmergencyStopReadinessReservation reservation,
+        string reasonCode)
+    {
+        ArgumentNullException.ThrowIfNull(reservation);
+        if (!reservation.IsCurrent)
+        {
+            throw new ArgumentException(
+                "A confirmed local Emergency Stop readiness reservation must be current.",
+                nameof(reservation));
+        }
+
+        return new LocalEmergencyStopReadinessReservationResult(
+            LocalBoundaryResult.Confirmed(reasonCode),
+            reservation);
+    }
+
+    public static LocalEmergencyStopReadinessReservationResult Rejected(
+        string reasonCode) => new(
+            LocalBoundaryResult.Failed(reasonCode),
+            reservation: null);
+
+    public override string ToString() =>
+        $"Local Emergency Stop readiness reservation ({Boundary.Status}, {Boundary.ReasonCode})";
 }
 
 public sealed record LocalEmergencyStopRegistrationResult
@@ -685,10 +754,11 @@ public sealed class InMemoryLocalEmergencyStopRegistrar :
 {
     private readonly object gate = new();
     private int callbackDrainWaiters;
-    private InMemoryLocalEmergencyStopRegistration? current;
+    private InMemoryLocalEmergencyStopOwner? current;
+    private Exception? disposalFailure;
     private int disposed;
     private object? invokingCallbackToken;
-    private InMemoryLocalEmergencyStopRegistration? invokingRegistration;
+    private InMemoryLocalEmergencyStopOwner? invokingRegistration;
     private long sequence;
 
     internal int CallbackDrainWaiterCount =>
@@ -708,6 +778,39 @@ public sealed class InMemoryLocalEmergencyStopRegistrar :
                 ? LocalBoundaryResult.Failed(
                     "emergency_stop_registration_conflict")
                 : LocalBoundaryResult.Confirmed("emergency_stop_ready");
+        }
+    }
+
+    public LocalEmergencyStopReadinessReservationResult TryReserveReadiness(
+        long ownerGeneration,
+        long sessionGeneration,
+        ILocalEmergencyStopReadinessInvalidationSink invalidationSink)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(ownerGeneration, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(sessionGeneration, 1);
+        ArgumentNullException.ThrowIfNull(invalidationSink);
+        lock (gate)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return LocalEmergencyStopReadinessReservationResult.Rejected(
+                    "emergency_stop_registrar_unavailable");
+            }
+
+            if (current?.IsCurrent == true || invokingRegistration is not null)
+            {
+                return LocalEmergencyStopReadinessReservationResult.Rejected(
+                    "emergency_stop_registration_conflict");
+            }
+
+            current = InMemoryLocalEmergencyStopOwner.CreateReserved(
+                this,
+                ownerGeneration,
+                sessionGeneration,
+                invalidationSink);
+            return LocalEmergencyStopReadinessReservationResult.Confirmed(
+                current.ReadinessReservation,
+                "emergency_stop_readiness_reserved");
         }
     }
 
@@ -731,13 +834,39 @@ public sealed class InMemoryLocalEmergencyStopRegistrar :
                 return Rejected("emergency_stop_registration_conflict");
             }
 
-            current = new InMemoryLocalEmergencyStopRegistration(
+            current = InMemoryLocalEmergencyStopOwner.CreateRegistered(
                 this,
                 ownerGeneration,
                 sessionGeneration,
                 callback);
             return LocalEmergencyStopRegistrationResult.Confirmed(
-                current,
+                current.Registration,
+                "emergency_stop_registered");
+        }
+    }
+
+    internal LocalEmergencyStopRegistrationResult TryPromoteReadiness(
+        InMemoryLocalEmergencyStopReadinessReservation reservation,
+        Action<LocalEmergencyStopActivation> callback)
+    {
+        ArgumentNullException.ThrowIfNull(reservation);
+        ArgumentNullException.ThrowIfNull(callback);
+        lock (gate)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return Rejected("emergency_stop_registrar_unavailable");
+            }
+
+            InMemoryLocalEmergencyStopOwner owner = reservation.Owner;
+            if (!ReferenceEquals(current, owner)
+                || !owner.TryPromoteUnderRegistrarGate(callback))
+            {
+                return Rejected("emergency_stop_readiness_stale");
+            }
+
+            return LocalEmergencyStopRegistrationResult.Confirmed(
+                owner.Registration,
                 "emergency_stop_registered");
         }
     }
@@ -749,34 +878,89 @@ public sealed class InMemoryLocalEmergencyStopRegistrar :
 
     private bool Trigger(LocalEmergencyStopCause cause)
     {
-        Action<LocalEmergencyStopActivation> callback;
-        object callbackToken;
-        InMemoryLocalEmergencyStopRegistration registration;
-        LocalEmergencyStopActivation activation;
+        Action<LocalEmergencyStopActivation>? callback = null;
+        object? callbackToken = null;
+        InMemoryLocalEmergencyStopOwner? registration = null;
+        LocalEmergencyStopActivation? activation = null;
+        Exception? readinessFailure = null;
+        bool readinessInvalidated = false;
         lock (gate)
         {
-            if (Volatile.Read(ref disposed) != 0
-                || current is null
-                || !current.TryDeactivate(out Action<LocalEmergencyStopActivation>?
-                    deactivatedCallback)
-                || deactivatedCallback is null)
+            if (Volatile.Read(ref disposed) != 0 || current is null)
             {
                 return false;
             }
 
             registration = current;
-            long ownerGeneration = registration.OwnerGeneration;
-            long sessionGeneration = registration.SessionGeneration;
-            callback = deactivatedCallback;
-            current = null;
-            invokingRegistration = registration;
-            callbackToken = new object();
-            invokingCallbackToken = callbackToken;
-            activation = LocalEmergencyStopActivation.Create(
-                ownerGeneration,
-                sessionGeneration,
-                checked(++sequence),
-                cause);
+            if (registration.IsReadinessReserved)
+            {
+                if (cause != LocalEmergencyStopCause.RegistrationLost)
+                {
+                    return false;
+                }
+
+                if (!registration.TryDeactivateReadinessUnderRegistrarGate(
+                        out ILocalEmergencyStopReadinessInvalidationSink?
+                            invalidationSink))
+                {
+                    return false;
+                }
+
+                current = null;
+                readinessInvalidated = true;
+                try
+                {
+                    invalidationSink!.InvalidateEmergencyStopReadinessNow();
+                }
+                catch (Exception exception) when (
+                    exception is not OutOfMemoryException)
+                {
+                    readinessFailure = exception;
+                }
+                finally
+                {
+                    Monitor.PulseAll(gate);
+                }
+            }
+            else if (registration.TryDeactivateRegisteredUnderRegistrarGate(
+                    out callback)
+                && callback is not null)
+            {
+                long ownerGeneration = registration.OwnerGeneration;
+                long sessionGeneration = registration.SessionGeneration;
+                current = null;
+                invokingRegistration = registration;
+                callbackToken = new object();
+                invokingCallbackToken = callbackToken;
+                activation = LocalEmergencyStopActivation.Create(
+                    ownerGeneration,
+                    sessionGeneration,
+                    checked(++sequence),
+                    cause);
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        if (readinessFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(readinessFailure).Throw();
+        }
+
+        if (readinessInvalidated)
+        {
+            return true;
+        }
+
+        if (callback is null
+            || callbackToken is null
+            || registration is null
+            || activation is null)
+        {
+            throw new InvalidOperationException(
+                "A local Emergency Stop activation lost its registered owner.");
         }
 
         using NativeRemoteWindowDrainActivityScope callbackScope =
@@ -808,19 +992,110 @@ public sealed class InMemoryLocalEmergencyStopRegistrar :
     public void Dispose()
     {
         bool firstDisposal = Interlocked.Exchange(ref disposed, 1) == 0;
+        Action<LocalEmergencyStopActivation>? callback = null;
+        object? callbackToken = null;
+        InMemoryLocalEmergencyStopOwner? callbackRegistration = null;
+        LocalEmergencyStopActivation? activation = null;
+        Exception? failure;
         lock (gate)
         {
             if (firstDisposal)
             {
-                current?.Deactivate();
-                current = null;
+                InMemoryLocalEmergencyStopOwner? owner = current;
+                if (owner?.TryDeactivateReadinessUnderRegistrarGate(
+                        out ILocalEmergencyStopReadinessInvalidationSink?
+                            invalidationSink) == true)
+                {
+                    current = null;
+                    try
+                    {
+                        invalidationSink!.InvalidateEmergencyStopReadinessNow();
+                    }
+                    catch (Exception exception) when (
+                        exception is not OutOfMemoryException)
+                    {
+                        disposalFailure = exception;
+                    }
+                    finally
+                    {
+                        Monitor.PulseAll(gate);
+                    }
+                }
+                else
+                {
+                    if (owner?.TryDeactivateRegisteredUnderRegistrarGate(
+                            out callback) == true
+                        && callback is not null)
+                    {
+                        current = null;
+                        callbackRegistration = owner;
+                        invokingRegistration = owner;
+                        callbackToken = new object();
+                        invokingCallbackToken = callbackToken;
+                        activation = LocalEmergencyStopActivation.Create(
+                            owner.OwnerGeneration,
+                            owner.SessionGeneration,
+                            checked(++sequence),
+                            LocalEmergencyStopCause.RegistrationLost);
+                    }
+                    else
+                    {
+                        owner?.Deactivate();
+                        current = null;
+                    }
+                }
             }
 
-            WaitForCallbackDrain(invokingRegistration, invokingCallbackToken);
+            if (callback is null)
+            {
+                WaitForCallbackDrain(
+                    invokingRegistration,
+                    invokingCallbackToken);
+            }
+
+            failure = disposalFailure;
+        }
+
+        if (callback is not null
+            && callbackToken is not null
+            && callbackRegistration is not null
+            && activation is not null)
+        {
+            using NativeRemoteWindowDrainActivityScope callbackScope =
+                NativeRemoteWindowDrainActivityScope.Enter(this, callbackToken);
+            try
+            {
+                callback(activation);
+            }
+            catch (Exception)
+            {
+            }
+            finally
+            {
+                lock (gate)
+                {
+                    if (ReferenceEquals(
+                            invokingRegistration,
+                            callbackRegistration)
+                        && ReferenceEquals(
+                            invokingCallbackToken,
+                            callbackToken))
+                    {
+                        invokingRegistration = null;
+                        invokingCallbackToken = null;
+                        Monitor.PulseAll(gate);
+                    }
+                }
+            }
+        }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
         }
     }
 
-    internal void Unregister(InMemoryLocalEmergencyStopRegistration registration)
+    internal void Unregister(InMemoryLocalEmergencyStopOwner registration)
     {
         lock (gate)
         {
@@ -838,7 +1113,7 @@ public sealed class InMemoryLocalEmergencyStopRegistrar :
     }
 
     private void WaitForCallbackDrain(
-        InMemoryLocalEmergencyStopRegistration? expectedRegistration,
+        InMemoryLocalEmergencyStopOwner? expectedRegistration,
         object? expectedCallbackToken)
     {
         bool callbackInFlight = expectedRegistration is not null
@@ -881,53 +1156,172 @@ public sealed class InMemoryLocalEmergencyStopRegistrar :
         string reasonCode) =>
         LocalEmergencyStopRegistrationResult.Rejected(reasonCode);
 
-    internal sealed class InMemoryLocalEmergencyStopRegistration :
-        ILocalEmergencyStopRegistration
+    internal sealed class InMemoryLocalEmergencyStopOwner : IDisposable
     {
+        private enum OwnerState
+        {
+            Reserved = 1,
+            Registered = 2,
+            Inactive = 3,
+        }
+
         private readonly InMemoryLocalEmergencyStopRegistrar registrar;
         private Action<LocalEmergencyStopActivation>? callback;
-        private int current = 1;
+        private ILocalEmergencyStopReadinessInvalidationSink? invalidationSink;
+        private int state;
 
-        public InMemoryLocalEmergencyStopRegistration(
+        private readonly InMemoryLocalEmergencyStopReadinessReservation
+            readinessReservation;
+        private readonly InMemoryLocalEmergencyStopRegistration registration;
+
+        private InMemoryLocalEmergencyStopOwner(
             InMemoryLocalEmergencyStopRegistrar registrar,
             long ownerGeneration,
             long sessionGeneration,
-            Action<LocalEmergencyStopActivation> callback)
+            OwnerState state,
+            Action<LocalEmergencyStopActivation>? callback,
+            ILocalEmergencyStopReadinessInvalidationSink? invalidationSink)
         {
             this.registrar = registrar;
             OwnerGeneration = ownerGeneration;
             SessionGeneration = sessionGeneration;
+            this.state = (int)state;
             this.callback = callback;
+            this.invalidationSink = invalidationSink;
+            readinessReservation = new(this);
+            registration = new(this);
         }
+
+        public static InMemoryLocalEmergencyStopOwner CreateRegistered(
+            InMemoryLocalEmergencyStopRegistrar registrar,
+            long ownerGeneration,
+            long sessionGeneration,
+            Action<LocalEmergencyStopActivation> callback) => new(
+                registrar,
+                ownerGeneration,
+                sessionGeneration,
+                OwnerState.Registered,
+                callback,
+                invalidationSink: null);
+
+        public static InMemoryLocalEmergencyStopOwner CreateReserved(
+            InMemoryLocalEmergencyStopRegistrar registrar,
+            long ownerGeneration,
+            long sessionGeneration,
+            ILocalEmergencyStopReadinessInvalidationSink invalidationSink) => new(
+                registrar,
+                ownerGeneration,
+                sessionGeneration,
+                OwnerState.Reserved,
+                callback: null,
+                invalidationSink);
 
         public long OwnerGeneration { get; }
 
         public long SessionGeneration { get; }
 
-        public bool IsCurrent => Volatile.Read(ref current) != 0;
+        public bool IsCurrent => Volatile.Read(ref state)
+            is (int)OwnerState.Reserved or (int)OwnerState.Registered;
+
+        public InMemoryLocalEmergencyStopReadinessReservation
+            ReadinessReservation => readinessReservation;
+
+        public InMemoryLocalEmergencyStopRegistration Registration =>
+            registration;
+
+        internal bool IsReadinessReserved =>
+            Volatile.Read(ref state) == (int)OwnerState.Reserved;
 
         public void Dispose() => registrar.Unregister(this);
 
+        public LocalEmergencyStopRegistrationResult TryPromote(
+            Action<LocalEmergencyStopActivation> callback) =>
+            registrar.TryPromoteReadiness(readinessReservation, callback);
+
         public void Deactivate()
         {
-            _ = Interlocked.Exchange(ref current, 0);
+            Volatile.Write(ref state, (int)OwnerState.Inactive);
             _ = Interlocked.Exchange(ref callback, null);
+            _ = Interlocked.Exchange(ref invalidationSink, null);
         }
 
-        public bool TryDeactivate(
+        public bool TryDeactivateReadinessUnderRegistrarGate(
+            out ILocalEmergencyStopReadinessInvalidationSink? sink)
+        {
+            if (Volatile.Read(ref state) != (int)OwnerState.Reserved)
+            {
+                sink = null;
+                return false;
+            }
+
+            Volatile.Write(ref state, (int)OwnerState.Inactive);
+            sink = Interlocked.Exchange(ref invalidationSink, null);
+            _ = Interlocked.Exchange(ref callback, null);
+            return sink is not null;
+        }
+
+        public bool TryDeactivateRegisteredUnderRegistrarGate(
             out Action<LocalEmergencyStopActivation>? deactivatedCallback)
         {
-            if (Interlocked.Exchange(ref current, 0) == 0)
+            if (Volatile.Read(ref state) != (int)OwnerState.Registered)
             {
                 deactivatedCallback = null;
                 return false;
             }
 
+            Volatile.Write(ref state, (int)OwnerState.Inactive);
             deactivatedCallback = Interlocked.Exchange(ref callback, null);
             return deactivatedCallback is not null;
         }
 
+        public bool TryPromoteUnderRegistrarGate(
+            Action<LocalEmergencyStopActivation> promotedCallback)
+        {
+            if (Volatile.Read(ref state) != (int)OwnerState.Reserved
+                || invalidationSink is null)
+            {
+                return false;
+            }
+
+            callback = promotedCallback;
+            invalidationSink = null;
+            Volatile.Write(ref state, (int)OwnerState.Registered);
+            return true;
+        }
+
         public override string ToString() =>
-            $"Local Emergency Stop registration (owner {OwnerGeneration}, current {IsCurrent})";
+            $"Local Emergency Stop owner (owner {OwnerGeneration}, state {(OwnerState)Volatile.Read(ref state)})";
+    }
+
+    internal sealed class InMemoryLocalEmergencyStopReadinessReservation(
+        InMemoryLocalEmergencyStopOwner owner) :
+        ILocalEmergencyStopReadinessReservation
+    {
+        internal InMemoryLocalEmergencyStopOwner Owner { get; } = owner;
+
+        public bool IsCurrent => Owner.IsReadinessReserved;
+
+        public long OwnerGeneration => Owner.OwnerGeneration;
+
+        public long SessionGeneration => Owner.SessionGeneration;
+
+        public void Dispose() => Owner.Dispose();
+
+        public LocalEmergencyStopRegistrationResult TryPromote(
+            Action<LocalEmergencyStopActivation> callback) =>
+            Owner.TryPromote(callback);
+    }
+
+    internal sealed class InMemoryLocalEmergencyStopRegistration(
+        InMemoryLocalEmergencyStopOwner owner) :
+        ILocalEmergencyStopRegistration
+    {
+        public bool IsCurrent => owner.IsCurrent && !owner.IsReadinessReserved;
+
+        public long OwnerGeneration => owner.OwnerGeneration;
+
+        public long SessionGeneration => owner.SessionGeneration;
+
+        public void Dispose() => owner.Dispose();
     }
 }

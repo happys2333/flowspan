@@ -427,7 +427,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             _ = ValidateCurrentHostFacts(request, generation, out _);
             cancellationToken.ThrowIfCancellationRequested();
-            EnsureEmergencyStopReady();
+            ReserveEmergencyStopReadiness(generation);
             cancellationToken.ThrowIfCancellationRequested();
             _ = ValidateCurrentHostFacts(request, generation, out _);
             cancellationToken.ThrowIfCancellationRequested();
@@ -448,9 +448,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
             catch (Exception exception) when (
                 exception is not OutOfMemoryException
-                && IsPreparationTerminatedBy(
-                    generation,
-                    RemoteWindowHostPreparationFact.Source))
+                && IsPreparationFactTerminal(generation))
             {
                 throw StartFailure(GetPreparationReason(generation));
             }
@@ -472,9 +470,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
             catch (Exception exception) when (
                 exception is not OutOfMemoryException
-                && IsPreparationTerminatedBy(
-                    generation,
-                    RemoteWindowHostPreparationFact.Source))
+                && IsPreparationFactTerminal(generation))
             {
                 throw StartFailure(GetPreparationReason(generation));
             }
@@ -497,6 +493,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             await request.Connection.WaitForMediaAttachmentAsync(cancellationToken)
                 .ConfigureAwait(false);
 
+            cancellationToken.ThrowIfCancellationRequested();
             EnsurePreparationIsCurrent(generation);
             source = ValidateCurrentHostFacts(
                 request,
@@ -505,7 +502,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             RegisterProtectionObserver(generation);
             ProtectionSnapshot initialProtection =
                 ReadCurrentSafeProtection(generation, source);
-            RegisterEmergencyStop(generation);
+            cancellationToken.ThrowIfCancellationRequested();
+            PromoteEmergencyStopReadiness(generation);
+            cancellationToken.ThrowIfCancellationRequested();
             source = ValidateCurrentHostFacts(request, generation, out _);
             initialProtection = ReadCurrentSafeProtection(generation, source);
             NativeRemoteWindowSourcePreparationRegistration sourceReservation =
@@ -985,59 +984,86 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         generation.ProtectionObserverRegistered = true;
     }
 
-    private void RegisterEmergencyStop(RuntimeGeneration generation)
+    private void ReserveEmergencyStopReadiness(RuntimeGeneration generation)
     {
-        LocalEmergencyStopRegistrationResult registration =
-            emergencyStops.TryRegister(
-                generation.Request.OwnerGeneration,
-                FirstSessionGeneration,
-                activation =>
-                {
-                    if (!generation.TryEnterCallback(
-                            out RuntimeGeneration.CallbackLease? callback)
-                        || callback is null)
-                    {
-                        return;
-                    }
-
-                    using (callback)
-                    {
-                        if (activation.OwnerGeneration
-                                != generation.Request.OwnerGeneration
-                            || activation.SessionGeneration
-                                != FirstSessionGeneration)
-                        {
-                            return;
-                        }
-
-                        generation.CloseAdmissionNow();
-                        _ = generation.Controller.EmergencyStop();
-                    }
-                });
-        if (!registration.Registered || registration.Registration is null)
-        {
-            registration.Registration?.Dispose();
-            throw StartFailure(registration.Boundary.ReasonCode);
-        }
-
-        generation.EmergencyStopRegistration = registration.Registration;
-    }
-
-    private void EnsureEmergencyStopReady()
-    {
-        LocalBoundaryResult readiness;
+        LocalEmergencyStopReadinessReservationResult reservation;
         try
         {
-            readiness = emergencyStops.CheckReadiness();
+            reservation = emergencyStops.TryReserveReadiness(
+                generation.Request.OwnerGeneration,
+                FirstSessionGeneration,
+                generation.PreparationReservation);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             throw StartFailure("emergency_stop_readiness_unavailable");
         }
 
-        if (!readiness.Succeeded)
+        ILocalEmergencyStopReadinessReservation? owner =
+            reservation.Reservation;
+        if (owner is not null)
         {
-            throw StartFailure(readiness.ReasonCode);
+            generation.EmergencyStopReadinessReservation = owner;
+        }
+
+        if (!reservation.Reserved
+            || owner is null
+            || owner.OwnerGeneration != generation.Request.OwnerGeneration
+            || owner.SessionGeneration != FirstSessionGeneration)
+        {
+            _ = generation.PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.EmergencyStop);
+            throw StartFailure(reservation.Boundary.Succeeded
+                ? GetPreparationReason(generation)
+                : reservation.Boundary.ReasonCode);
+        }
+    }
+
+    private static void PromoteEmergencyStopReadiness(
+        RuntimeGeneration generation)
+    {
+        ILocalEmergencyStopReadinessReservation readiness =
+            generation.EmergencyStopReadinessReservation
+            ?? throw StartFailure("emergency_stop_readiness_unavailable");
+        LocalEmergencyStopRegistrationResult registration;
+        try
+        {
+            registration = readiness.TryPromote(activation =>
+            {
+                if (activation.OwnerGeneration
+                        != generation.Request.OwnerGeneration
+                    || activation.SessionGeneration
+                        != FirstSessionGeneration)
+                {
+                    return;
+                }
+
+                _ = generation.PreparationReservation.TryInvalidate(
+                    RemoteWindowHostPreparationFact.EmergencyStop);
+                generation.CloseAdmissionNow();
+                _ = generation.Controller.EmergencyStop();
+            });
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("emergency_stop_registration_failed");
+        }
+
+        ILocalEmergencyStopRegistration? formalOwner = registration.Registration;
+        if (formalOwner is not null)
+        {
+            generation.EmergencyStopRegistration = formalOwner;
+            generation.EmergencyStopReadinessReservation = null;
+        }
+
+        if (!registration.Registered
+            || formalOwner is null
+            || formalOwner.OwnerGeneration != generation.Request.OwnerGeneration
+            || formalOwner.SessionGeneration != FirstSessionGeneration)
+        {
+            _ = generation.PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.EmergencyStop);
+            throw StartFailure(GetPreparationReason(generation));
         }
     }
 
@@ -1217,10 +1243,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         generation.PreparationReservation.Snapshot.Termination?.ReasonCode
         ?? "host_preparation_stale";
 
-    private static bool IsPreparationTerminatedBy(
-        RuntimeGeneration generation,
-        RemoteWindowHostPreparationFact fact) =>
-        generation.PreparationReservation.Snapshot.Termination?.Fact == fact;
+    private static bool IsPreparationFactTerminal(
+        RuntimeGeneration generation) =>
+        generation.PreparationReservation.Snapshot.Termination?.Fact is not null;
 
     private static RemoteWindowParticipantState CreateAdmissionState(
         RuntimeGeneration generation,
@@ -1299,9 +1324,6 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             () => generation.SourcePreparationRegistration?.Dispose());
         CaptureFailure(failures, generation.PreparationReservation.Dispose);
         CaptureFailure(failures, () => generation.ConnectionRevocation?.Dispose());
-        CaptureFailure(
-            failures,
-            () => generation.EmergencyStopRegistration?.Dispose());
         if (generation.ProtectionObserverRegistered)
         {
             CaptureFailure(
@@ -1339,6 +1361,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 failures.Add(exception);
             }
         }
+
+        CaptureFailure(
+            failures,
+            () => generation.EmergencyStopReadinessReservation?.Dispose());
+        CaptureFailure(
+            failures,
+            () => generation.EmergencyStopRegistration?.Dispose());
 
         Task<Exception?>? failClose =
             generation.GetStartedConnectionFailCloseTask();
@@ -1537,6 +1566,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         public int CleanupFailureRecorded;
 
         public ILocalEmergencyStopRegistration? EmergencyStopRegistration
+        {
+            get;
+            set;
+        }
+
+        public ILocalEmergencyStopReadinessReservation?
+            EmergencyStopReadinessReservation
         {
             get;
             set;
