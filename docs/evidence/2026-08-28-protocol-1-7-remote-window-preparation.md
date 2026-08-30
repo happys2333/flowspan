@@ -1097,3 +1097,52 @@ every native/physical/signing/notarization/release gate, and the long-term Goal
 remain open. The local row and hosted runs are managed contract evidence, not
 native API, physical two-Device, signed, notarized, or release proof.
 `CreateProduction()` remains unavailable.
+
+## 2026-08-30 explicit Stop-first bounded cleanup
+
+Implementation commit `681842290d44f9524eab33550b307bad76017fbc`
+completes only Task 5.5a.3b, the explicit Stop-first extension of ADR 0028.
+These are two deterministic managed Desktop coordinator rows, not additional
+production-composed two-node tracers. The tracer class therefore remains at 42
+cases.
+
+Both rows start with one stable active generation and an uncontended lifecycle
+gate. Explicit Stop closes Admission and publishes the exact generation as
+retiring, together with the one real cleanup task, bounded confirmation, and
+sole timer, before the first controller Stop attempt or any other potentially
+blocking owner call.
+
+The caller-cancellation row proves that only the initial attempt receives the
+exact caller token. Cancellation after publication preserves its original
+exception and token as the terminal primary while the same real task invokes
+exactly one fallback with `CancellationToken.None` and completes the remaining
+owner cleanup. Public Stop and later Dispose expose the same exception instance,
+and replacement Start remains fail-closed with `host_cleanup_unconfirmed`.
+
+The timeout row blocks the initial controller Stop. At T-1, bounded
+confirmation, real cleanup, retiring ownership, and the timer remain pending.
+Exact equality publishes the stable `host_cleanup_timeout`; releasing the Stop
+later returns `FullyStopped == true`, performs no fallback, and clears the
+retiring owner and timer without changing the timeout. This row does not add a
+second post-drain Start execution.
+
+Local macOS Debug and Release verification reports focused `2/2`, twenty fresh
+focused processes per configuration with `40/40` case executions, coordinator
+`119/119`, Desktop `723/723`, and solution `2587/2587`, with warning-as-error
+builds and all supporting quality gates passing. Exact-SHA CI `33317026854` and CodeQL
+`33317026837` succeed. Downloaded artifacts prove `2587/2587` on every hosted
+OS with every non-success counter zero, Gitleaks 208/0, CodeQL 52/0 with zero
+exact-ref open alerts, and three reproducible version-`0.1.224` unsigned
+packages. Exact jobs, artifacts, digests, commands, and limits are retained in
+[`2026-08-30-stop-first-bounded-cleanup.md`](2026-08-30-stop-first-bounded-cleanup.md).
+
+These direct rows stay within the already-Partial CL Cancel and CL Timeout cells
+and do not promote any matrix status. Concurrent Stop/Dispose/callback
+precedence, ordinary throw, `FullyStopped == false`, lifecycle-gate contention,
+cleanup-completion winner and equality races, timer setup/release/callback
+faults, late cleanup failure/OOM, pre-generation cleanup, and every other active
+or pending owner remain Task 5.5a.3 work. Tasks 5, 5.5a.3, 5.5a, and 5.5, every
+native/physical/signing/notarization/release gate, and the long-term Goal remain
+open. The local rows and hosted runs are managed contract evidence, not native
+API, physical two-Device, signed, notarized, or release proof.
+`CreateProduction()` remains unavailable.

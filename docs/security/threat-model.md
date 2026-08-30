@@ -1819,6 +1819,56 @@ physical two-Device, packaged accessibility, signing, notarization, or release
 proof. Tasks 5, 5.5a.3, 5.5a, and 5.5, every native/physical/release gate, and
 the Goal remain open. `CreateProduction()` remains unavailable.
 
+### 5.40 2026-08-30 Explicit Stop-first bounded cleanup confirmation
+
+For T06, T13, and T14, exact implementation
+`681842290d44f9524eab33550b307bad76017fbc` extends ADR 0028 to explicit
+Stop-first initiation on one stable active generation with an uncontended
+lifecycle gate. Before the first controller Stop attempt or any other
+potentially blocking owner call, the coordinator closes frame and media
+Admission, publishes `active -> retiring`, and owns one real cleanup task, one
+bounded confirmation, and one watchdog.
+
+The caller-cancellation fixture first admits a Driver and holds one input use.
+It proves the initial controller Stop receives the exact caller token, then
+cancellation after publication produces exactly one fallback Stop with
+`CancellationToken.None`. The fallback and all later owner cleanup remain live;
+a post-claim frame is not sent. Releasing the input lets real cleanup finish
+before timeout while retaining the exact original cancellation exception and
+token as the terminal primary. Public Stop and later Dispose expose that same
+instance, and replacement Start is rejected with `host_cleanup_unconfirmed`
+before authority.
+
+The timeout fixture blocks the initial controller Stop inside the capture
+boundary. At T-1, public Stop, real cleanup, retiring ownership, and the sole
+timer remain pending without a terminal failure. Exact equality publishes one
+stable `host_cleanup_timeout`. A replacement Start is rejected before
+authority. Releasing the boundary returns `FullyStopped == true`, performs no
+fallback Stop, and drains the complete asserted owner graph without changing
+the timeout instance.
+
+Local Debug and Release verification passes focused `2/2`, twenty fresh
+focused processes per configuration with `40/40` case executions, coordinator
+`119/119`, Desktop `723/723`, and full solution `2587/2587`; warning-as-error builds and all
+supporting quality gates pass. Exact-SHA CI `33317026854` and CodeQL
+`33317026837` succeed. Downloaded artifacts prove `2587/2587` with every
+non-success counter zero on all three hosted OSes, Gitleaks 208/0, CodeQL 52/0
+with zero exact-ref open alerts, and three reproducible version-`0.1.224`
+unsigned packages. Exact commands, jobs, artifacts, digests, and limits are in
+the
+[Stop-first evidence](../evidence/2026-08-30-stop-first-bounded-cleanup.md).
+
+This closes only Task 5.5a.3b. It adds managed contract evidence within the
+already-Partial CL Cancel and CL Timeout cells, adds no 43rd
+production-composed tracer, and changes no matrix status. Concurrent
+Stop/Dispose/callback precedence, ordinary throw, `FullyStopped == false`,
+lifecycle-gate contention, cleanup-winner/equality races, timer faults, late
+cleanup failure/OOM, pre-generation cleanup, and every other owner remain open.
+This is not native API, physical two-Device, packaged accessibility, signing,
+notarization, or release proof. Tasks 5, 5.5a.3, 5.5a, and 5.5, every native/
+physical/release gate, and the Goal remain open. `CreateProduction()` remains
+unavailable.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

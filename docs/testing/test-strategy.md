@@ -2329,6 +2329,56 @@ boundary matrix remain open. Therefore Tasks 5, 5.5a.3, 5.5a, and 5.5,
 and the Goal remain open. Hosted results are managed contract evidence, not
 native or physical-device proof.
 
+### 2026-08-30 explicit Stop-first bounded cleanup confirmation
+
+Exact implementation `681842290d44f9524eab33550b307bad76017fbc` adds two
+deterministic managed coordinator rows for Task 5.5a.3b. Both start from one
+stable active generation and an uncontended lifecycle gate. Before the first
+controller Stop attempt or any other potentially blocking owner call, the
+coordinator closes Admission and publishes `active -> retiring`, the one real
+cleanup task, bounded confirmation, and sole watchdog.
+
+`StopFirstCallerCancellationRunsOneFallbackAndPreservesTheExactToken` proves
+that the first attempt receives the exact caller token. Cancellation after
+publication retains its original `OperationCanceledException` and token as the
+terminal primary, while the same real task invokes exactly one fallback with
+`CancellationToken.None` and continues pending input and owner cleanup. Public
+Stop and later Dispose expose the same exception instance. True cleanup drains
+before the deadline and releases the timer, but restart remains fail-closed with
+`host_cleanup_unconfirmed`.
+
+`StopFirstCleanupTimeoutIsStableWhileControllerStopBlocksAndAfterLateDrain`
+blocks the first controller Stop through T-1 and exact deadline equality.
+Equality publishes one stable `host_cleanup_timeout` while the real task and
+retiring generation remain live. Releasing the Stop returns
+`FullyStopped == true`, performs no fallback, drains the remaining owners, and
+releases the timer without mutating the published timeout. This row does not run
+a second post-drain Start.
+
+Local macOS Debug and Release verification passes the two focused rows `2/2`,
+twenty fresh focused processes per configuration with `40/40` case executions,
+coordinator class `119/119`, Desktop `723/723`, and complete solution
+`2587/2587`. Both warning-as-error builds, format, diff, explicit Desktop composition, simulator,
+and direct/transitive NuGet vulnerability checks pass. Exact-SHA CI
+`33317026854` run 224 attempt 1 and CodeQL `33317026837` run 224 attempt 1
+succeed. Every hosted OS artifact contains 12 TRX files and `2587/2587` passing
+tests with all non-success counters zero; Gitleaks is 208/0, CodeQL is 52/0
+with zero exact-ref open alerts, and all three reproducible version-`0.1.224`
+unsigned-package jobs pass. Commands, exact jobs, artifact IDs and digests,
+scope, and limitations are in the
+[Stop-first bounded cleanup evidence](../evidence/2026-08-30-stop-first-bounded-cleanup.md).
+
+This closes only Task 5.5a.3b. The two rows add direct evidence within the
+already-Partial CL Cancel and CL Timeout cells but do not promote either or any
+other matrix status. They add no 43rd production-composed tracer. Concurrent
+Stop/Dispose/callback precedence, ordinary throw, `FullyStopped == false`,
+lifecycle-gate contention, cleanup-winner/equality races, timer faults, late
+cleanup failure/OOM, pre-generation cleanup, other owners, and the complete
+boundary matrix remain open. Therefore Tasks 5, 5.5a.3, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open. Hosted results are managed contract evidence, not
+native or physical-device proof.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

@@ -1,13 +1,12 @@
 # ADR 0028: Bounded Remote Window cleanup confirmation
 
-- Status: Accepted implementation contract; two bounded verticals implemented,
+- Status: Accepted implementation contract; three bounded verticals implemented,
   remaining implementation and evidence pending
 - Date: 2026-08-30
 - Decision owners: Flowspan maintainers
 - First vertical: active terminal disconnect with one blocked cleanup owner
 - Second vertical: external Dispose-first with one blocked Connection owner
-- Third vertical under verification: explicit Stop-first on one stable active
-  generation
+- Third vertical: explicit Stop-first on one stable active generation
 - Final v1 scope: runtime-generation and pre-generation host cleanup
 
 ## Context
@@ -338,14 +337,15 @@ cleanup fault/OOM, pre-generation cleanup, every other owner, native/physical
 execution, signing, notarization, and release acceptance remain open. It cannot
 close Task 5.5a or make `CreateProduction()` available.
 
-### Planned Stop-first implementation checkpoint
+### Explicit Stop-first implementation checkpoint
 
-Task 5.5a.3b is a narrow portable coordinator slice for one stable active
-generation and an uncontended lifecycle gate. Stop-first claims the generation,
-closes Admission, and publishes `active -> retiring`, the one real cleanup task,
-one confirmation operation, and one watchdog before invoking controller Stop or
-any other potentially blocking owner. The exact caller token is passed only to
-the first controller Stop attempt.
+Implementation commit `681842290d44f9524eab33550b307bad76017fbc`
+completes Task 5.5a.3b as a narrow portable coordinator slice for one stable
+active generation and an uncontended lifecycle gate. Stop-first claims the
+generation, closes Admission, and publishes `active -> retiring`, the one real
+cleanup task, one confirmation operation, and one watchdog before invoking
+controller Stop or any other potentially blocking owner. The exact caller token
+is passed only to the first controller Stop attempt.
 
 Two deterministic, low-risk scenarios freeze this boundary. In the first, the
 caller token is cancelled after publication and before the confirmation
@@ -362,14 +362,26 @@ retiring; releasing the Stop later returns `FullyStopped == true`, performs no
 fallback Stop, and lets that same real task drain without changing the published
 timeout.
 
-This planned checkpoint does not freeze race precedence among concurrent Stop,
-Dispose, and callback initiators; ordinary-throw and `FullyStopped == false`
-combinations; lifecycle-gate contention; timer creation, arm, release, or
-callback faults; late cleanup fault or OOM; pre-generation cleanup; or a blocked
-owner other than controller Stop. Those remain later Task 5.5a.3 slices. The
-checkpoint cannot close Task 5.5a.3, Task 5.5a, Task 5.5, any native, physical,
-signing, notarization, or release gate, or the Goal, and it cannot make
-`CreateProduction()` available.
+Local Debug and Release verification passes the two focused rows `2/2`, twenty
+fresh focused processes per configuration with `40/40` case executions,
+coordinator `119/119`, Desktop `723/723`, and solution `2587/2587`. Exact-SHA
+CI `33317026854` and CodeQL `33317026837` succeed; all three hosted OSes pass `2587/2587`, Gitleaks
+reports 208/0, CodeQL reports 52/0 with zero exact-ref open alerts, and all three
+reproducible version-`0.1.224` unsigned-package jobs pass. Exact jobs, artifacts,
+digests, commands, and limitations are retained in the
+[Stop-first evidence](../evidence/2026-08-30-stop-first-bounded-cleanup.md).
+
+This checkpoint closes only Task 5.5a.3b. It adds direct evidence within the
+already-Partial CL Cancel and CL Timeout cells, adds no 43rd
+production-composed tracer, and changes no matrix status. It does not freeze
+race precedence among concurrent Stop, Dispose, and callback initiators;
+ordinary throw and `FullyStopped == false` combinations; lifecycle-gate
+contention; cleanup-completion winner and equality races; timer creation, arm,
+release, or callback faults; late cleanup failure or OOM; pre-generation
+cleanup; or a blocked owner other than controller Stop. Those remain later Task
+5.5a.3 slices. Tasks 5, 5.5a.3, 5.5a, and 5.5, every native, physical, signing,
+notarization, and release gate, and the Goal remain open. `CreateProduction()`
+remains unavailable.
 
 ## EARS acceptance criteria
 

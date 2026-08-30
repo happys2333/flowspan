@@ -1228,7 +1228,7 @@
         `CreateProduction()` remains unavailable. Details are in the
         [Dispose-first bounded cleanup evidence](../../../docs/evidence/2026-08-30-dispose-first-bounded-cleanup.md).
         _Requirements: NR8.9-NR8.16, NR10_
-      - [ ] 5.5a.3b Deliver Stop-first bounded confirmation for one stable active
+      - [x] 5.5a.3b Deliver Stop-first bounded confirmation for one stable active
         generation with an uncontended lifecycle gate. Claim the generation,
         close Admission, and publish `active -> retiring`, one real cleanup
         task, one confirmation operation, and one watchdog before any
@@ -1249,6 +1249,32 @@
         blocked owner open. This slice closes none of Tasks 5, 5.5a.3, 5.5a, or
         5.5, any native/physical/signing/notarization/release gate, or the Goal,
         and it does not make `CreateProduction()` available.
+        Exact implementation
+        `681842290d44f9524eab33550b307bad76017fbc` adds two deterministic
+        coordinator rows. Both publish closed Admission, `active -> retiring`,
+        one real cleanup task, one confirmation, and one timer before the first
+        controller Stop attempt. The caller-cancellation row proves the exact
+        token reaches only that attempt, exactly one
+        `CancellationToken.None` fallback continues cleanup, public Stop and
+        later Dispose expose the same cancellation instance, and restart stays
+        fail-closed. The blocked-Stop row proves T-1 pending state, exact-
+        equality `host_cleanup_timeout`, a late `FullyStopped == true` drain
+        without fallback, and immutable timeout identity. Local Debug/Release
+        passes focused `2/2`, twenty fresh processes per configuration with
+        `40/40` case executions, coordinator `119/119`, Desktop `723/723`, and
+        solution `2587/2587`; builds, format, composition, simulator, and dependency
+        audit pass. Exact-SHA CI `33317026854` and CodeQL `33317026837`
+        succeed. Each hosted OS passes `2587/2587` with every non-success
+        counter zero, Gitleaks reports 208/0, CodeQL reports 52/0 with zero
+        exact-ref open alerts, and all three reproducible version-`0.1.224`
+        unsigned packages pass. This adds no 43rd tracer and promotes no matrix
+        cell. Concurrent initiator precedence, ordinary throw,
+        `FullyStopped == false`, lifecycle-gate contention, cleanup-winner/
+        equality races, timer faults, late cleanup failure/OOM, pre-generation
+        cleanup, and other owners remain open. Tasks 5, 5.5a.3, 5.5a, and 5.5
+        and the Goal remain open; `CreateProduction()` remains unavailable.
+        Details are in the
+        [Stop-first bounded cleanup evidence](../../../docs/evidence/2026-08-30-stop-first-bounded-cleanup.md).
         _Requirements: NR8.9-NR8.16, NR10_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
