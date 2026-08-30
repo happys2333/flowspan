@@ -79,6 +79,9 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
 
     public DeviceId PeerDeviceId { get; }
 
+    internal string? AuthenticatedPeerFingerprint =>
+        generation.AuthenticatedPeerFingerprint;
+
     public VerifiedPeerConnectionCandidate? PeerConnectionCandidate { get; }
 
     public ProtocolVersion ProtocolVersion { get; }
@@ -599,7 +602,8 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         object? revocationCallbackOwner = null,
         VerifiedPeerConnectionCandidate? peerConnectionCandidate = null,
         IVerifiedPeerConnectionCandidateValidator? candidateValidator = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        string? authenticatedPeerFingerprint = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(value, 1);
         if ((peerConnectionCandidate is null) != (candidateValidator is null))
@@ -613,6 +617,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         this.peerConnectionCandidate = peerConnectionCandidate;
         this.candidateValidator = candidateValidator;
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        AuthenticatedPeerFingerprint = authenticatedPeerFingerprint;
     }
 
     internal bool IsCurrent
@@ -638,6 +643,8 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     }
 
     internal long Value { get; }
+
+    internal string? AuthenticatedPeerFingerprint { get; }
 
     internal VerifiedPeerConnectionCandidate? PeerConnectionCandidate =>
         peerConnectionCandidate;

@@ -2056,6 +2056,7 @@ public sealed class AuthenticatedActivitySessionHandler :
                     registrationTransferred = true;
                     return RunRegisteredSessionAsync(
                         connection.PeerIdentity.DeviceId,
+                        connection.PeerIdentity.Fingerprint,
                         dispatcher,
                         mediaRegistration,
                         remoteWindowPeerCandidate,
@@ -2074,6 +2075,7 @@ public sealed class AuthenticatedActivitySessionHandler :
 
     private async ValueTask RunRegisteredSessionAsync(
         DeviceId peerDeviceId,
+        string authenticatedPeerFingerprint,
         AuthenticatedControlSessionDispatcher dispatcher,
         AuthenticatedRemoteWindowMediaSessionRegistration? mediaRegistration,
         VerifiedPeerConnectionCandidate? remoteWindowPeerCandidate,
@@ -2109,6 +2111,7 @@ public sealed class AuthenticatedActivitySessionHandler :
                 ProtocolFeatures.SupportsRemoteWindowPreparation(
                     dispatcher.ActivityConnection.ProtocolVersion),
                 GetNextRemoteWindowConnectionGeneration(),
+                authenticatedPeerFingerprint,
                 remoteWindowPeerCandidate,
                 candidateValidator);
         }
@@ -2599,6 +2602,7 @@ public sealed class AuthenticatedActivitySessionHandler :
         AuthenticatedRemoteWindowMediaSessionRegistration? mediaRegistration,
         bool supportsRemoteWindowPreparation,
         long remoteWindowConnectionGeneration,
+        string authenticatedPeerFingerprint,
         VerifiedPeerConnectionCandidate? remoteWindowPeerCandidate,
         IVerifiedPeerConnectionCandidateValidator? candidateValidator)
     {
@@ -2612,7 +2616,8 @@ public sealed class AuthenticatedActivitySessionHandler :
                     owner.revocationCallbackOwner,
                     remoteWindowPeerCandidate,
                     candidateValidator,
-                    owner.timeProvider)
+                    owner.timeProvider,
+                    authenticatedPeerFingerprint)
                 : null;
         private Task? ownedCleanup;
         private int ready;

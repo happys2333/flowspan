@@ -1801,11 +1801,58 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
     }
 
     [Fact]
-    public async Task ReconnectCannotRetargetAnOlderConnectionLease()
+    public async Task ConnectionLeaseRetainsAuthenticatedHandshakePeerFingerprint()
     {
         using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
             InitiatorDeviceId,
             "Initiator");
+        using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
+            ResponderDeviceId,
+            "Responder");
+        await using var routes = new RemoteWindowMediaRouteRegistry();
+        await using var mediaSessions =
+            new AuthenticatedRemoteWindowMediaSessionDirectory(routes);
+        await using var handler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(ResponderDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            remoteWindowMediaSessions: mediaSessions);
+        (AuthenticatedTcpControlConnection initiatorConnection,
+            AuthenticatedTcpControlConnection responderConnection) =
+            await CreateControlPairAsync(
+                initiatorIdentity,
+                responderIdentity,
+                ProtocolFeatures.RemoteWindowPreparationMinimumVersion);
+        await using (initiatorConnection)
+        await using (responderConnection)
+        {
+            Task running = handler.RunAsync(responderConnection).AsTask();
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                await WaitForConnectionLeaseAsync(handler, InitiatorDeviceId);
+
+            Assert.Equal(
+                responderConnection.PeerIdentity.Fingerprint,
+                lease.AuthenticatedPeerFingerprint);
+            Assert.Equal(
+                initiatorIdentity.PublicIdentity.Fingerprint,
+                lease.AuthenticatedPeerFingerprint);
+
+            await initiatorConnection.DisposeAsync();
+            await Assert.ThrowsAnyAsync<IOException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
+    public async Task SameDeviceIdWithNewKeyCannotRetargetOlderConnectionLease()
+    {
+        using DeviceIdentity initiatorIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Initiator");
+        using DeviceIdentity replacementInitiatorIdentity = DeviceIdentity.Generate(
+            InitiatorDeviceId,
+            "Replacement initiator");
         using DeviceIdentity responderIdentity = DeviceIdentity.Generate(
             ResponderDeviceId,
             "Responder");
@@ -1840,7 +1887,7 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
         (AuthenticatedTcpControlConnection secondInitiator,
             AuthenticatedTcpControlConnection secondResponder) =
             await CreateControlPairAsync(
-                initiatorIdentity,
+                replacementInitiatorIdentity,
                 responderIdentity,
                 ProtocolFeatures.RemoteWindowPreparationMinimumVersion);
         await using (firstLease)
@@ -1855,6 +1902,16 @@ public sealed class AuthenticatedRemoteWindowMediaSessionsTests
             Assert.False(firstLease.IsCurrent);
             Assert.True(secondLease.IsCurrent);
             Assert.True(secondLease.Generation > firstLease.Generation);
+            Assert.Equal(
+                initiatorIdentity.PublicIdentity.Fingerprint,
+                firstLease.AuthenticatedPeerFingerprint);
+            Assert.Equal(
+                replacementInitiatorIdentity.PublicIdentity.Fingerprint,
+                secondLease.AuthenticatedPeerFingerprint);
+            Assert.NotEqual(
+                firstLease.AuthenticatedPeerFingerprint,
+                secondLease.AuthenticatedPeerFingerprint);
+            Assert.Equal(firstLease.PeerDeviceId, secondLease.PeerDeviceId);
             Assert.Throws<InvalidOperationException>(() =>
                 firstLease.PrepareResponderRoute(SessionId, ActivityId));
 
