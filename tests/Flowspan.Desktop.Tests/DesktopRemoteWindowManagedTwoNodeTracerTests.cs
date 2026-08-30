@@ -880,12 +880,20 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         RunHcCaptureStartTerminationScenarioAsync(
             HcCaptureStartTerminationTrigger.AuthorityRevoke);
 
+    [Fact]
+    public Task HcCallerCancellationAfterCaptureSideEffectFailsClosedAndDrainsBothNodes() =>
+        RunHcCaptureStartTerminationScenarioAsync(
+            HcCaptureStartTerminationTrigger.CallerCancellation);
+
     private static async Task RunHcCaptureStartTerminationScenarioAsync(
         HcCaptureStartTerminationTrigger trigger)
     {
         bool revokeAuthority =
             trigger is HcCaptureStartTerminationTrigger.AuthorityRevoke;
+        bool cancelCaller =
+            trigger is HcCaptureStartTerminationTrigger.CallerCancellation;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var callerCancellation = new CancellationTokenSource();
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
             HostDeviceId,
             "Host");
@@ -961,11 +969,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         bool attachmentAtHook = false;
         bool bilateralFsm1AtHook = false;
         bool connectionCurrentAtHook = false;
-        bool connectionCurrentAfterTermination = true;
-        bool oldGenerationReacquired = false;
+        bool connectionCurrentAfterHook = true;
+        bool generationAcquiredAfterHook = false;
         TrustMutationResult? authorityMutation = null;
         long authenticatedGeneration = 0;
-        long? reacquiredGeneration = null;
+        long? generationAfterHook = null;
         int captureStartCountAtHook = -1;
         int preAdmissionFrameDisposeCountAtHook = -1;
         int admissionPublishCountAtHook = -1;
@@ -1036,21 +1044,25 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 renderer,
                 rendererFactory);
 
-            InvalidOperationException failure = await Assert.ThrowsAsync<
-                InvalidOperationException>(async () => await coordinator.StartAsync(
-                    new DesktopRemoteWindowHostStartRequest(
-                        sourceLease,
-                        ownerGeneration: 1,
-                        hostConnection,
-                        protection,
-                        MirrorParticipantRole.ViewOnly),
-                    deadline.Token));
+            var startRequest = new DesktopRemoteWindowHostStartRequest(
+                sourceLease,
+                ownerGeneration: 1,
+                hostConnection,
+                protection,
+                MirrorParticipantRole.ViewOnly);
+            Exception failure = cancelCaller
+                ? await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                    await coordinator.StartAsync(
+                        startRequest,
+                        callerCancellation.Token))
+                : await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await coordinator.StartAsync(startRequest, deadline.Token));
 
             if (revokeAuthority)
             {
                 Assert.Equal(TrustMutationResult.Applied, authorityMutation);
             }
-            else
+            else if (!cancelCaller)
             {
                 Assert.NotNull(disconnecting);
                 await disconnecting.WaitAsync(deadline.Token);
@@ -1068,11 +1080,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.True(attachmentAtHook);
             Assert.True(bilateralFsm1AtHook);
             Assert.True(connectionCurrentAtHook);
-            Assert.False(connectionCurrentAfterTermination);
-            Assert.False(
-                oldGenerationReacquired,
-                $"Connection generation {reacquiredGeneration} was reacquired "
-                + $"after terminating {authenticatedGeneration}.");
+            Assert.Equal(cancelCaller, connectionCurrentAfterHook);
+            Assert.Equal(cancelCaller, generationAcquiredAfterHook);
+            if (cancelCaller)
+            {
+                Assert.Equal(authenticatedGeneration, generationAfterHook);
+            }
             Assert.Equal(1, captureStartCountAtHook);
             Assert.Equal(1, preAdmissionFrameDisposeCountAtHook);
             Assert.Equal(0, admissionPublishCountAtHook);
@@ -1117,8 +1130,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Null(coordinator.ActiveMediaBudget);
             Assert.Null(coordinator.TerminalFailure);
             Assert.False(capture.HasCurrentCapture);
-            Assert.True(capture.EmergencyStopCount >= 1);
-            Assert.True(input.EmergencyStopCount >= 1);
+            if (cancelCaller)
+            {
+                Assert.True(capture.StopCount >= 1);
+                Assert.True(input.StopCount >= 1);
+            }
+            else
+            {
+                Assert.True(capture.EmergencyStopCount >= 1);
+                Assert.True(input.EmergencyStopCount >= 1);
+            }
             Assert.True(sessions.DisconnectAllCount >= 1);
             Assert.True(renderer.IsDisposed);
             Assert.True(protection.IsDisposed);
@@ -1147,9 +1168,20 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.False(controlPeer.HasRetainedGeneration);
             Assert.Throws<InvalidOperationException>(() => controlPeer.SessionId);
 
-            Assert.Equal(
-                "Remote Window host start failed (authenticated_connection_stale).",
-                failure.Message);
+            if (cancelCaller)
+            {
+                OperationCanceledException canceled = Assert.IsAssignableFrom<
+                    OperationCanceledException>(failure);
+                Assert.Equal(
+                    callerCancellation.Token,
+                    canceled.CancellationToken);
+            }
+            else
+            {
+                Assert.Equal(
+                    "Remote Window host start failed (authenticated_connection_stale).",
+                    failure.Message);
+            }
         }
         finally
         {
@@ -1213,21 +1245,29 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     CapabilityGrant.None,
                     deadline.Token);
             }
+            else if (cancelCaller)
+            {
+                callerCancellation.Cancel();
+            }
             else
             {
                 disconnecting = participantConnection!.DisposeAsync().AsTask();
             }
 
-            await hostConnection.ConnectionRevoked.Task.WaitAsync(deadline.Token);
-            connectionCurrentAfterTermination = hostConnection.IsCurrent;
-            oldGenerationReacquired =
+            if (!cancelCaller)
+            {
+                await hostConnection.ConnectionRevoked.Task.WaitAsync(deadline.Token);
+            }
+
+            connectionCurrentAfterHook = hostConnection.IsCurrent;
+            generationAcquiredAfterHook =
                 hostHandler.TryAcquireRemoteWindowConnection(
                     ParticipantDeviceId,
-                    out AuthenticatedRemoteWindowConnectionLease? reacquired);
-            if (reacquired is not null)
+                    out AuthenticatedRemoteWindowConnectionLease? generationProbe);
+            if (generationProbe is not null)
             {
-                reacquiredGeneration = reacquired.Generation;
-                await reacquired.DisposeAsync();
+                generationAfterHook = generationProbe.Generation;
+                await generationProbe.DisposeAsync();
             }
         }
     }
@@ -1236,6 +1276,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     {
         AuthenticatedDisconnect,
         AuthorityRevoke,
+        CallerCancellation,
     }
 
     [Fact]
