@@ -1978,6 +1978,43 @@ signed, notarized, or release proof. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
 
+### 2026-08-30 host capture-start authenticated disconnect
+
+Exact commit `fe0be79e0accbbb0cd4eef27b62e12620a18eccf` adds the 36th
+production-composed managed tracer and one-line causal-failure fix. After Ready
+and bilateral verified `FSM1`, capture Start emits and disposes its initial frame
+exactly once but has not returned. Admission publish, media send, render, and
+input remain zero.
+
+The capture hook starts real participant connection disposal and waits only for
+the returned host revocation callback barrier. Trust, fingerprint, and
+`mirror.view` remain unchanged, while the old generation becomes non-current
+and unreacquirable. Outside the hook, full disconnect and session completion are
+joined before both owner graphs drain.
+
+The exact RED expected `authenticated_connection_stale` but observed
+`emergency_stop_won_start_race`: after disconnect made the authenticated
+Connection non-current and invoked its retained live callback, the coordinator
+projected the later local Start result first. The minimal fix calls
+`ValidateCurrentHostFacts` immediately after controller Start returns and before
+projecting that result. GREEN preserves the causal stale result with no inner/
+fingerprint. The existing same-generation media-mutation row correspondingly
+expects causal stale instead of `session_not_idle` after `RequestControlStop`.
+
+Focused Debug/Release pass `1/1`; ten fresh processes per configuration pass
+`10/10`; tracer, Desktop, and solution pass `36/36`, `713/713`, and `2577/2577`;
+builds have zero warnings/errors; format/diff checks pass; and self plus two
+independent reviews report 0 P0/P1/P2 findings. Exact commands and limitations
+are in the
+[host capture-start disconnect evidence](../evidence/2026-08-30-host-capture-start-authenticated-disconnect.md).
+
+Hosted exact `fe0be79` evidence remains pending. CI `33302708813` and CodeQL
+`33302708801` target `17a3401` and cannot prove this row. By fault origin only HC
+Disconnect changes from M to P; AD Disconnect and CL Disconnect remain P. This
+is managed same-host evidence, not native/physical Windows/macOS/Linux, signed,
+notarized, or release proof. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
+native/physical/release gate, and the Goal remain open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

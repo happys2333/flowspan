@@ -1457,6 +1457,44 @@ package, or release proof. Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
 `CreateProduction()`, every native/physical/signing/notarization/release gate,
 and the Goal remain open.
 
+### 5.31 2026-08-30 Host capture-start authenticated disconnect
+
+For T03, T06, and T14, exact commit
+`fe0be79e0accbbb0cd4eef27b62e12620a18eccf` adds authenticated
+transport loss while capture Start still owns HC. Ready and bilateral verified
+`FSM1` exist, but Admission is unpublished. Capture emits one pre-Admission
+frame, its owner disposes exactly once, and the boundary hook runs before Start
+returns.
+
+Real participant connection disposal triggers the host callback barrier without
+changing Trust, fingerprint, or `mirror.view`. The old generation becomes non-
+current and unreacquirable; Admission/send/render/input remain zero. Full
+disconnect and session completion are joined outside the hook, capture/input
+Emergency Stop locally, and both nodes drain.
+
+The exact RED expected `authenticated_connection_stale` but observed
+`emergency_stop_won_start_race`. Disconnect had made the authenticated
+Connection non-current and invoked its retained live callback, yet the later
+controller Start result was projected first. The one-line fix revalidates
+host facts after Start returns and before that projection. GREEN reports causal
+stale with no inner/fingerprint. The same-generation media-mutation row now also
+expects causal stale rather than `session_not_idle` after `RequestControlStop`.
+
+Focused Debug/Release pass `1/1`; fresh rows pass `10/10` per configuration;
+tracer, Desktop, and solution pass `36/36`, `713/713`, and `2577/2577`; builds
+have zero warnings/errors; format/diff checks pass; and self plus two independent
+reviews report 0 P0/P1/P2 findings. Exact commands and limitations are in the
+[host capture-start disconnect evidence](../evidence/2026-08-30-host-capture-start-authenticated-disconnect.md).
+
+Hosted exact `fe0be79` evidence is pending. CI `33302708813` and CodeQL
+`33302708801` target `17a3401` and do not prove this row. By fault origin only HC
+Disconnect advances from M to P; AD Disconnect and CL Disconnect remain P.
+Other HC disconnect phases and disconnect-plus-cleanup faults remain open. This
+is managed same-host evidence, not native API, physical two-Device, packaged
+accessibility, signed/notarized package, or release proof. Tasks 5, 5.5a, and
+5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
+signing/notarization/release gate, and the Goal remain open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

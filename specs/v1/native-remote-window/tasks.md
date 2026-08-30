@@ -961,6 +961,32 @@
     Disconnect remains P, and every other cell is unchanged. Tasks 5, 5.5a, and
     5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
     signing/notarization/release gate, and the Goal remain open.
+    Exact implementation/fix commit
+    `fe0be79e0accbbb0cd4eef27b62e12620a18eccf` adds the 36th managed
+    tracer at HC capture Start. Ready and bilateral `FSM1` exist, capture's first
+    frame owner disposes exactly once, and Start has not returned when real
+    participant disconnect fires. The post-host-revocation callback barrier
+    proves the old generation non-current/unreacquirable while Trust, fingerprint,
+    and `mirror.view` remain unchanged. Admission publish/send/render/input stay
+    zero; failure is causal `authenticated_connection_stale` with no inner/
+    fingerprint; capture/input Emergency Stop; and full disconnect/session joins
+    drain both nodes.
+    The exact RED expected stale but observed `emergency_stop_won_start_race`.
+    One post-Start `ValidateCurrentHostFacts` before Start-result projection is
+    the minimal production fix; GREEN passes. The same-generation media-mutation
+    row now expects causal stale rather than `session_not_idle` after
+    `RequestControlStop`. Focused Debug/Release passes `1/1`; fresh rows pass
+    `10/10` per configuration; tracer, Desktop, and solution pass `36/36`,
+    `713/713`, and `2577/2577`; builds have zero warnings/errors; format/diff
+    checks pass; and self plus two independent reviews report 0 P0/P1/P2.
+    Hosted exact `fe0be79` evidence remains pending; CI `33302708813` and CodeQL
+    `33302708801` target `17a3401` and are not evidence. Commands, scope, and
+    limitations are in
+    `docs/evidence/2026-08-30-host-capture-start-authenticated-disconnect.md`.
+    By fault origin only HC Disconnect changes M→P. AD Disconnect and CL
+    Disconnect remain P; every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
+    aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
+    signing/notarization/release gate, and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
