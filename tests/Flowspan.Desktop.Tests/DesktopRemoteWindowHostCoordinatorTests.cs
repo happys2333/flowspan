@@ -1145,7 +1145,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         using var cancellation = new CancellationTokenSource();
         host.Protection.Reading = () =>
         {
-            if (host.Protection.SnapshotReadCount == 2)
+            if (host.Protection.SnapshotReadCount == 3)
             {
                 cancellation.Cancel();
             }

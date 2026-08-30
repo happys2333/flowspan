@@ -519,6 +519,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 throw StartFailure(GetPreparationReason(generation));
             }
 
+            EnsurePrePrepareAuthorityIsCurrent(
+                request,
+                generation,
+                cancellationToken);
+
             RemoteWindowPreparationDeliveryResult delivery;
             try
             {
@@ -1770,6 +1775,43 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         generation.CloseAdmissionNow();
         throw StartFailure("preparation_expired");
+    }
+
+    private void EnsurePrePrepareAuthorityIsCurrent(
+        DesktopRemoteWindowHostStartRequest request,
+        RuntimeGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfPreparationTerminated(generation);
+        EnsurePreparationIsCurrent(generation);
+        try
+        {
+            NativeRemoteWindowSourceSnapshot source = ValidateCurrentHostFacts(
+                request,
+                generation,
+                out _);
+            _ = ReadCurrentSafeProtection(generation, source);
+        }
+        catch (Exception exception) when (
+            exception is not OutOfMemoryException
+            && generation.PreparationReservation.Snapshot.Termination is not null)
+        {
+            throw StartFailure(GetPreparationReason(generation));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfPreparationTerminated(generation);
+        EnsurePreparationIsCurrent(generation);
+    }
+
+    private static void ThrowIfPreparationTerminated(
+        RuntimeGeneration generation)
+    {
+        if (generation.PreparationReservation.Snapshot.Termination is not null)
+        {
+            throw StartFailure(GetPreparationReason(generation));
+        }
     }
 
     private static void EnsureFinalAdmissionIsCurrent(
