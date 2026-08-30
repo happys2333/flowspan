@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **39 xUnit case executions**, not 39
+The current production-composed tracer has **40 xUnit case executions**, not 40
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -47,6 +47,9 @@ complete boundary families:
   current authenticated authority retained until owned cleanup;
 - one bounded capture Start rejection after exact first-frame disposal, with
   authenticated authority unchanged until owned cleanup;
+- one authenticated disconnect after a real fingerprint-bound host
+  Authorization reservation is acquired but before that reservation is returned
+  to the coordinator;
 - one reverse-only Mirror-grant rejection;
 - one exact-source `R < M < S` reservation invalidation;
 - one managed process-local Emergency Stop readiness `R < M < S`
@@ -130,6 +133,12 @@ The [host capture-start rejection evidence](../evidence/2026-08-30-host-capture-
 records the 39th case at exact commit `858acb2`. It advances only HC Reject from
 Missing to Partial. HC Reject, Cancel, Revoke, and Disconnect are now all
 Partial; every other cell is unchanged. Exact hosted evidence remains pending.
+The [host initial Authorization authenticated-disconnect evidence](../evidence/2026-08-30-host-initial-authorization-disconnect.md)
+records the 40th case at exact commit `077c996`. It advances only H0 Disconnect
+from Missing to Partial; H1 Disconnect remains Missing and CL Disconnect remains
+Partial. Exact-SHA CI `33305848081` and CodeQL `33305848085` succeeded; each
+hosted OS passed `2581/2581`, with Gitleaks 208/0, CodeQL 52/0, and verified
+reproducible unsigned packages.
 These local results are same-host **managed loopback runs on macOS**. Hosted
 Windows, macOS, and Linux results remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -197,7 +206,7 @@ similar coverage.
 | Boundary | Reject | Throw | Cancel | Timeout | Revoke | Disconnect | Cleanup-fault |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **W** | **C** [E-W] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] |
-| **H0** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **N/A** [N2] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
+| **H0** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **N/A** [N2] | **P** [E-H] | **P** [E-H, E-TRACE] | **P** [E-H, E-CL] |
 | **H1** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
 | **TX** | **C** [E-TX] | **P** [E-TX] | **C** [E-TX] | **C** [E-TX] | **P** [E-TX, E-TRACE] | **P** [E-TX] | **P** [E-TX, E-CL] |
 | **P0** | **P** [E-P0] | **P** [E-P0] | **P** [E-P0] | **P** [E-P0, E-TX] | **P** [E-P0, E-TRACE] | **P** [E-P0, E-TRACE] | **P** [E-P0, E-CL] |
@@ -357,6 +366,26 @@ similar coverage.
   records exact local results, successful hosted test/Secret Scan/CodeQL jobs,
   verified reproducible unsigned packages, and limitations. These two narrow
   production rows do not upgrade an aggregate cell.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.H0AuthenticatedDisconnectDuringAuthorizationReservationFailsClosedAndDrainsBothNodes`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  at exact commit `077c996` adds a pre-safety Connection order. Real
+  protocol-1.7 loopback has acquired a fingerprint-bound Trust Authorization
+  reservation inside a deterministic wrapper but has not yet returned it to the
+  coordinator. At that barrier the exact Connection Preparation registration
+  and live callback are current; H1 Protection, Emergency Stop, route, Prepare,
+  capture, Admission, media attachment/send, render, and input authority are
+  unopened. A real
+  authenticated disconnect reaches the live callback, makes Connection and its
+  Preparation registration non-current, and prevents old-generation
+  reacquisition while the Authorization registration and unchanged Trust grant
+  remain current. Releasing the barrier transfers the Authorization
+  registration to the coordinator, whose owned stale-Connection cleanup
+  disposes it. No route exists, so fail-close stays zero, connection disposal is
+  exactly once, and both nodes drain. The
+  [host initial Authorization authenticated-disconnect evidence](../evidence/2026-08-30-host-initial-authorization-disconnect.md)
+  records exact local and hosted results: every hosted OS passed `2581/2581`,
+  Gitleaks reported 208/0, CodeQL reported 52/0 with 0 exact-ref open alerts,
+  and all three reproducible unsigned packages verified.
+  By fault origin this advances only H0 Disconnect from Missing to Partial.
 - [`NativeRemoteWindowContractsTests`](../../tests/Flowspan.Platform.Tests/NativeRemoteWindowContractsTests.cs),
   [`RemoteWindowSessionControllerTests`](../../tests/Flowspan.Platform.Tests/RemoteWindowSessionControllerTests.cs),
   the focused Protection rows in
@@ -646,7 +675,7 @@ been defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 39-case class.
+  is now the executable 40-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
   and limitations. The source-linearization, Emergency Stop readiness,
@@ -666,7 +695,9 @@ been defined or directly tested.
   records the 37th case and keeps its narrow HC Revoke scope explicit. The host
   capture-start caller-cancellation evidence records the 38th case and keeps its
   narrow HC Cancel scope explicit. The capture-start rejection evidence records
-  the 39th case and keeps its narrow HC Reject scope explicit.
+  the 39th case and keeps its narrow HC Reject scope explicit. The host initial
+  Authorization authenticated-disconnect evidence records the 40th case and
+  keeps its narrow H0 Disconnect scope explicit.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -691,8 +722,9 @@ authenticated route, Transport send admission, and owner cleanup at `d607ed1`.
 Authenticated Connection now has an exact generation-and-media composite
 reservation, exact route/send owners, all three focused host order shapes, one
 post-route authenticated disconnect, and one post-promotion media-mutation live
-handoff at `259c3bb`. The disconnect row does not enter the actual send hook;
-the Transport two-lease regression supplies that separate gate evidence.
+handoff at `259c3bb`, plus one pre-safety disconnect during the Authorization
+ownership handoff at `077c996`. Neither disconnect row enters the actual send
+hook; the Transport two-lease regression supplies that separate gate evidence.
 Protection now has an exact full-observation/freshness registration, formal
 capture-start gate, live FIFO, and exact frame/input use scopes, plus one
 production-composed `R < M < S` vertical implemented at `c987ca8` and recorded
@@ -707,7 +739,9 @@ The next tests must use the family IDs in their names or evidence notes and add
 one direct row for each applicable gap. The presently known gaps are:
 
 1. **H0:** finish injected throws from the remaining initial fact sources and
-   authenticated-disconnect coverage before route selection. The deterministic
+   the remaining authenticated-disconnect phases before route selection. One
+   real disconnect is now frozen after a fingerprint-bound Authorization
+   reservation is acquired but before its ownership handoff. The deterministic
    source, permission, grant, and connection revocation barriers do not prove an
    atomic reservation across arbitrary concurrent threads. Source and
    Authorization now each have one real `R < M < S` vertical, and Permission

@@ -1062,6 +1062,39 @@
     Disconnect are now P; every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
     aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
     signing/notarization/release gate, and the Goal remain open.
+    Exact test-only commit `077c996e82dd4077d24a58957c37b86383479f6e`
+    adds the 40th managed tracer at H0. Real authenticated protocol-1.7 loopback
+    blocks after a fingerprint-bound Trust Authorization reservation is acquired
+    inside a wrapper but before it is returned to the coordinator. At the frozen
+    barrier the exact Connection Preparation registration and live callback are
+    current; H1 Protection, Emergency Stop, route, Prepare, capture, Admission,
+    media attachment/send, render, and input authority are unopened. Independent
+    participant
+    Connection disposal reaches the real host callback: Connection and its
+    Preparation registration become non-current and cannot be reacquired, while
+    the wrapper-owned Authorization registration and unchanged
+    Trust/fingerprint/sole `mirror.view` grant remain current. Releasing the
+    barrier transfers Authorization ownership to the coordinator, which
+    disposes it and returns bounded `authenticated_connection_stale`. No route
+    exists, so fail-close is 0, Connection disposal is exactly 1, every
+    downstream Prepare/capture/Admission/media-send/render/input count stays
+    zero, and both nodes fully drain while Trust and the exact source lease
+    remain current.
+    No production change is required. Focused Debug/Release passes `1/1`; fresh
+    rows pass `10/10` per configuration; tracer, Desktop, and combined solution
+    pass `40/40`, `717/717`, and `2581/2581`; builds have zero warnings/errors;
+    and format/diff checks pass. Exact-SHA CI `33305848081` and CodeQL
+    `33305848085` succeed; downloaded artifacts prove `2581/2581` with every
+    non-success counter zero on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with
+    0 exact-ref open alerts, and three verified reproducible unsigned packages.
+    This remains managed/contract evidence, not native API, physical two-Device,
+    signed/notarized package, or release proof.
+    Commands, scope, ownership semantics, and limitations are in
+    `docs/evidence/2026-08-30-host-initial-authorization-disconnect.md`.
+    By fault origin only H0 Disconnect changes M→P. H1 Disconnect remains M,
+    CL Disconnect remains P, and every other cell is unchanged. Tasks 5, 5.5a,
+    and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/
+    physical/signing/notarization/release gate, and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

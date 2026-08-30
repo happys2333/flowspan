@@ -2135,6 +2135,49 @@ Disconnect are now all P; every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
 
+### 2026-08-30 host initial Authorization authenticated disconnect
+
+Exact test-only commit `077c996e82dd4077d24a58957c37b86383479f6e`
+adds the 40th production-composed managed tracer. Real authenticated
+protocol-1.7 loopback reaches a deterministic H0 barrier after a
+fingerprint-bound Trust Authorization reservation is acquired inside a wrapper
+but before that reservation is returned to the host coordinator. The exact
+Connection Preparation registration and live callback are current. At this
+frozen boundary, H1 Protection, Emergency Stop, route, Prepare, capture,
+Admission, media attachment/send, render, and input authority remain unopened.
+
+The participant independently disposes the authenticated transport, and the
+test waits for the real host revocation callback. Connection and its Preparation
+registration become non-current and the old generation cannot be reacquired,
+while the wrapper-owned Authorization registration, Trust record, fingerprint,
+and sole `mirror.view` grant remain current. Releasing the barrier transfers the
+Authorization registration to the coordinator, whose stale-Connection path
+disposes it and returns bounded `authenticated_connection_stale` without inner,
+fingerprint, or dependency data.
+
+No route exists, so fail-close remains exactly zero and the host Connection is
+disposed exactly once. Prepare, capture, Admission, media attachment/send,
+render, and input remain zero, and both nodes' owner graphs drain. No production
+change is required.
+
+Focused Debug/Release pass `1/1`; fresh rows pass `10/10` per configuration;
+tracer, Desktop, and combined solution pass `40/40`, `717/717`, and `2581/2581`;
+builds have zero warnings/errors, and format/diff checks pass. Exact commands
+and limitations are in the
+[host initial Authorization authenticated-disconnect evidence](../evidence/2026-08-30-host-initial-authorization-disconnect.md).
+
+Exact-SHA CI `33305848081` and CodeQL `33305848085` succeeded. Downloaded
+artifacts prove `2581/2581` with every non-success counter zero on each hosted
+OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref open alerts, and all three
+reproducible unsigned packages verified. By fault origin only H0
+Disconnect changes from M to P; H1 Disconnect remains M, CL Disconnect remains
+P, and every other cell is unchanged. The local tracer is same-host managed
+macOS evidence and the hosted matrix remains managed/contract evidence; neither
+is native/physical, signed, notarized, or release proof.
+Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

@@ -1603,6 +1603,55 @@ Other rejection phases and rejection-plus-cleanup faults remain open. Tasks 5,
 5.5a, and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/
 physical/signing/notarization/release gate, and the Goal remain open.
 
+### 5.36 2026-08-30 Host initial Authorization authenticated disconnect
+
+For T03, T06, and T14, exact test-only commit
+`077c996e82dd4077d24a58957c37b86383479f6e` injects an independent
+authenticated transport loss while H0 still owns initial host facts. Real
+protocol-1.7 loopback reaches a deterministic barrier after
+`TrustMirrorAuthorizationSource` has acquired a fingerprint-bound Authorization
+reservation but before its wrapper returns that owner to the coordinator.
+
+At the frozen boundary, the Connection Preparation registration and live
+revocation callback are current. The Permission reservation exists, while H1
+Protection, Emergency Stop, route, Prepare, capture, Admission, media
+attachment/send, render, and input authority remain unopened. Participant
+Connection disposal reaches
+the real host callback: Connection and its Preparation registration become
+non-current and the old generation cannot be reacquired. The still-wrapper-owned
+Authorization registration, Trust identity, fingerprint, and sole
+`mirror.view` grant remain current, proving transport loss rather than Trust or
+Capability revocation.
+
+Releasing the barrier performs the normal sole ownership handoff. The
+coordinator receives and disposes the Authorization registration, observes
+Connection stale, and exposes bounded `authenticated_connection_stale` without
+inner, fingerprint, or dependency data. No route was selected, so fail-close is
+zero and Connection disposal is exactly once. No route or session authority
+opens, and both nodes' complete owner graphs drain while the exact source lease
+and unchanged Trust grant remain current. The wrapper preserves pre-handoff
+ownership by disposing any acquired registration on an exceptional exit; only
+normal return transfers it to the coordinator.
+
+Focused Debug/Release pass `1/1`; fresh rows pass `10/10` per configuration;
+tracer, Desktop, and solution pass `40/40`, `717/717`, and `2581/2581`; builds
+have zero warnings/errors, and format/diff checks pass. Exact commands and
+limitations are in the
+[host initial Authorization authenticated-disconnect evidence](../evidence/2026-08-30-host-initial-authorization-disconnect.md).
+
+Exact-SHA CI `33305848081` and CodeQL `33305848085` succeeded. Downloaded
+artifacts prove `2581/2581` with every non-success counter zero on each hosted
+OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref open alerts, and all three
+reproducible unsigned packages verified. By fault origin only H0
+Disconnect advances from M to P; H1 Disconnect remains M and CL Disconnect
+remains P. Other pre-route disconnect phases and disconnect-plus-cleanup faults
+remain open. The local tracer is same-host managed macOS evidence and the hosted
+matrix remains managed/contract evidence; neither is native API, physical
+two-Device, packaged accessibility, signed/notarized package, or release proof.
+Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

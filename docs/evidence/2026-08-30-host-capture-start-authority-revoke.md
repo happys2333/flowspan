@@ -10,7 +10,8 @@ Implementation commit:
 First hosted documentation tree:
 `9ca4b2c5665cc7ffd462a1a59b8314388f16bc58`
 
-Final hosted evidence tree: pending a post-`7239448` exact workflow execution.
+Final hosted evidence tree:
+`c4c02a360506e12147998cdc6f9a0a5ffa4e4ac0`
 
 Local environment: macOS 26.6.2 arm64, .NET SDK 10.0.301
 
@@ -102,9 +103,48 @@ into successful evidence.
 
 Production fix `72394484e9fd0fd556497641f1ac5d79afe80bce` restores
 deterministic lifetime-cancellation precedence for that unrelated pairing race.
-Final hosted evidence for the authority row remains pending a later exact tree
-containing both fixes and these records. Exact `a0c9648` CI `33303210427` and
-CodeQL `33303210391` still prove only the preceding 36-case tree.
+Final exact-tree evidence containing both fixes and these records follows.
+
+### Final successful exact tree
+
+[CI run `33305006486`](https://github.com/happys2333/flowspan/actions/runs/33305006486)
+and [CodeQL run `33305006421`](https://github.com/happys2333/flowspan/actions/runs/33305006421)
+completed with `success`, run number 215 attempt 1, for exact tree
+`c4c02a360506e12147998cdc6f9a0a5ffa4e4ac0`.
+
+Each downloaded test artifact contains exactly 12 TRX files and reports
+`2580/2580` total, executed, and passed; every non-success counter is zero:
+
+| Platform | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| Linux | `99239868630` | `9730209009` | `8ac31011acebfcd9584896c2f112ad3da4928f70771e0900d32702bb940f5b11` |
+| macOS | `99239868647` | `9730192596` | `2ea7053d970975160446bc7e0581e2a9bfe96f5951e2fef3c684b9cc9e7e6a0d` |
+| Windows | `99239868561` | `9730209505` | `519db834f49e509c0c3ceae82ec316569ef688051cd7ddfe1a02423cb3270652` |
+
+Secret Scan job `99239868650`, artifact `9730165279`, has outer SHA-256
+`1f982b74073855a127aafe9ee79f07578f02554a7e549ccee607d16b9ace83e8`.
+Its 45,825-byte SARIF payload has SHA-256
+`f1cc1fc5bf34d5e9643655ac6480ff4681e27aa9c2c639f03067fc7ea8595e3d`
+and reports Gitleaks 208 rules with 0 results.
+
+CodeQL job `99239868295` produced analysis ID `1693781026` and SARIF ID
+`ef0849c4-a458-11f1-9e0f-7042e9d1722e`. Its 230,952-byte payload has SHA-256
+`1be9b39c8d54589351f58c10947d07819f025162d2d5361433467804d57669ba`,
+reports CodeQL 2.26.4 / C# queries 1.9.2, 52 rules, 0 results, empty warning/
+error text, and 0 exact-ref open alerts.
+
+All packages report version `0.1.215`, exact SHA, and
+`unsigned-test-artifact`; every `SHA256SUMS` entry passes `5/5`, and repository
+verification succeeds:
+
+| Runtime | Job ID | Artifact ID | Artifact SHA-256 | Archive SHA-256 | Tree SHA-256 |
+| --- | ---: | ---: | --- | --- | --- |
+| `win-x64` | `99240277448` | `9730233902` | `8e17d82473ceef22be28f85c86c658d3f2f13d5e92a5e09bae489e17f4293876` | `c2fc0c5e1a7133020e52a4ca0dbbf694717c3e41724092be7a0cd1102d75595f` | `431dddc211d44da6cb3b80665d753cf8c275894e421ab787e70ec036371b3f0e` |
+| `osx-arm64` | `99240277437` | `9730225499` | `ae28e42945e84ac3aa9f7da31025fb4b62f24e36ca664067ca7218d541208b1d` | `cfe82ef137ac24e2a414a1b51cdb506b6aacff458873c51c035976970a96a9d3` | `c16b4630add2caa793b62669f3dfab333749a400f1709c780e74eeb5cafecfaf` |
+| `linux-x64` | `99240277462` | `9730231245` | `c1786023eb3106871f0d52a4b7d0ca73b7257e06ae4eae977624c6660a384587` | `a7c2fe43d3504a080562975a04f80383317f306ca65cf62ec016837e0ca4f210` | `ccdf4dc4bb8936d16b0b3669815882b8195e16104427872d7de7f8ce6a3fb24e` |
+
+These are managed and reproducible unsigned-package results, not native,
+physical-device, signing, notarization, or release-acceptance evidence.
 
 ## Explicit limitations
 
