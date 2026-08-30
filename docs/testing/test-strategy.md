@@ -1814,6 +1814,129 @@ signing, notarization, or release proof. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
 
+### 2026-08-30 participant current-lease acquisition ownership
+
+Implementation commit `681c0f72b4f584aba8fa6bf7e915a27317636ff9`
+repairs one P0 owner-transfer hole. The participant current-connection
+collaborator may assign a real generation-bound `out` lease and then throw. The
+production peer now attaches every non-null result to its generation from a
+`finally`, before a normal return or exception can leave the acquisition call.
+
+Two connected-peer tests freeze both exception classes. A non-fatal
+`IOException` becomes bounded `Rejected/media_unavailable`, invokes no renderer,
+releases the acquired lease, preserves the host lease, permits a fresh
+replacement, and proves late old disposal cannot remove that replacement. An
+exact fatal `OutOfMemoryException` escapes unchanged while the side-effect lease
+remains owned/current until terminal peer cleanup releases it.
+
+At final local tree `213327c4373379f5f92457ab651741dd5bdd85c4`, the focused
+rows pass `2/2` in Debug and Release. Twenty fresh processes per configuration
+each execute both tests, for `80/80` passing test invocations total. Desktop
+passes `709/709`, the full solution passes `2573/2573`, and the unchanged
+production tracer passes `32/32`, all in both configurations. Both warning-as-
+error builds have zero warnings/errors, and format plus diff verification pass.
+Exact hosted workflow, job, artifact, digest, static-analysis, package, and
+limitation details are retained in the
+[participant current-lease ownership evidence](../evidence/2026-08-30-participant-lease-acquisition-ownership.md).
+Final exact-SHA CI `33300966551` and CodeQL `33300966509` pass for `15aba95`;
+downloaded artifacts prove `2575/2575` on every hosted OS, Gitleaks 208/0,
+CodeQL 52/0 with 0 exact-ref open alerts, and all three reproducible
+version-0.1.209 unsigned packages.
+
+This evidence strengthens P0 Throw ownership only. That matrix cell was already
+Partial and stays Partial; no 33rd production-composed tracer case was added.
+Current Trust/lease revocation, the other authenticated-disconnect phases, and
+remaining cleanup-fault intersections stay open. This is managed same-host and
+portable contract evidence, not native/physical Windows/macOS/Linux, signed,
+notarized, or release proof. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
+native/physical/release gate, and the Goal remain open.
+
+### 2026-08-30 pending renderer participant Trust revoke
+
+Exact test-only commit `8413d065ba7f9d2d2b05e8b52d9c97eace768cf9`
+adds the 33rd production-composed managed tracer execution without changing
+production source. It replaces the participant
+direct-connect shortcut for this row with the production
+`AuthenticatedTcpPeerSessionAttempt`, `SystemAuthenticatedTcpConnector`, exact
+signed/verified host candidate, and real participant Trust store. The scenario
+waits until Prepare send admission, bilateral verified `FSM1`, a current
+participant lease, and non-cooperatively blocked renderer Preparation.
+
+Calling `participantTrust.RevokePeerAsync` then removes Trust, invalidates and
+prevents reacquisition of the current generation lease, enters authenticated
+peer-disconnect cleanup, and cancels the renderer lifetime. Before explicit
+renderer release, Trust revoke, session attempt, disconnect cleanup, and
+Preparation all remain incomplete, the renderer is not disposed, and Ready,
+Admission, capture, media send, render, and input remain zero. This proves owned
+cancellation without asserting that arbitrary non-cooperative code can be
+forcibly completed.
+
+After release, exactly one bounded `Rejected/preparation_cancelled` appears, the
+late renderer is disposed, Trust revoke returns `true`, and the session attempt
+ends as `PermanentRejection/PeerNotTrusted`. The host exposes only bounded
+`authenticated_connection_stale`, and the full asserted owner graph drains on
+both managed nodes.
+
+Local focused Debug/Release pass `1/1`; ten fresh processes per configuration
+pass `10/10`; the tracer passes `33/33`; and Desktop passes `710/710`, all in
+both configurations. The solution passes `2574/2574` in Debug and Release; both
+warning-as-error builds have zero warnings/errors; and format plus diff checks
+pass. Immediate parent `d89758b` hardens only the previously starved Windows test
+fixture; its related four rows pass `4/4` and that fixture passes twenty fresh
+processes per configuration. Final exact-SHA CI `33300966551` and CodeQL
+`33300966509` pass for `15aba95`; retained artifacts prove `2575/2575` on every
+hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref open alerts, and all
+three reproducible version-0.1.209 unsigned packages. Exact commands, jobs,
+digests, scope, and limitations are in the
+[pending-renderer Trust-revoke evidence](../evidence/2026-08-30-pending-renderer-trust-revoke.md).
+
+By fault origin this changes P0 Revoke and P2 Revoke from M to P. TX Revoke and
+CL Revoke gain owner-path evidence but remain P; every other cell is unchanged.
+The complete phase/cross-product matrix is still open. This is managed same-host
+macOS evidence, not native/physical Windows/macOS/Linux, signed, notarized, or
+release proof. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every native/
+physical/release gate, and the Goal remain open.
+
+### 2026-08-30 final-Admission authority revoke
+
+Exact test-only commit `15aba95409c62d858669b740957da54a5bce6b95`
+adds the 34th production-composed managed tracer execution. The participant has
+already committed and published its exact Admission as `Applied` or
+`AlreadyApplied`; the observation hook runs after that inner publication but
+before host post-publication fact/protection revalidation and before
+`Admission.TryOpen()` can open the frame gate.
+
+At the boundary, capture has started once and its initial pre-Admission frame is
+already disposed. The hook emits one additional frame and proves its owner is
+disposed exactly once with zero media send/render; input remains empty and the
+authenticated generation is current. Real `hostTrust.UpdateCapabilitiesAsync`
+replaces the exact peer's `mirror.view` grant with no Capabilities. When the
+Applied mutation returns, the old inbound connection is no longer current and
+cannot be reacquired. The host
+fails closed with bounded `authenticated_connection_stale`, capture/input receive
+local Emergency Stop, the frame gate never opens, and both managed nodes' owner
+graphs drain.
+
+The focused final-Admission pair passes `2/2` in Debug and Release; ten fresh
+final authority-revoke processes per configuration pass `10/10`; the tracer
+passes `34/34`; Desktop passes `711/711`; and the solution passes `2575/2575`,
+all in both configurations. Both warning-as-error builds have zero warnings/
+errors, format and diff checks pass, and independent strict review reports
+APPROVE with 0 P0/P1/P2 findings. Final exact-SHA CI `33300966551` and CodeQL
+`33300966509` pass; downloaded artifacts prove `2575/2575` with every non-
+success counter zero on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0
+exact-ref open alerts, and three reproducible version-0.1.209 unsigned packages.
+Exact commands, jobs, digests, and limitations are in the
+[final-Admission authority-revoke evidence](../evidence/2026-08-30-final-admission-authority-revoke.md).
+
+By fault origin only AD Revoke changes from M to P. The row crosses HC and CL,
+but is not an HC-origin injection and does not complete cleanup combinations;
+HC Revoke stays M and CL Revoke stays P. Every other cell is unchanged. This is
+managed same-host macOS evidence, not native/physical Windows/macOS/Linux,
+signed, notarized, or release proof. Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

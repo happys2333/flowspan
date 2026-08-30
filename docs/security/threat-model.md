@@ -1285,6 +1285,136 @@ runtime, signing, notarization, or release acceptance. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
 
+### 5.27 2026-08-30 Participant current-lease acquisition ownership
+
+For T06 and T13, implementation commit
+`681c0f72b4f584aba8fa6bf7e915a27317636ff9` closes one owner-transfer
+window at participant P0. The authenticated current-connection collaborator may
+write a real generation-bound `out` lease and then throw. The peer now attaches
+every non-null lease to its generation in a `finally` around that call, so
+exception classification cannot strand already-acquired authority outside the
+terminal owner graph.
+
+The non-fatal connected-peer test assigns the real lease and throws
+`IOException`. The public outcome is bounded to
+`Rejected/media_unavailable`; renderer Preparation remains zero; the
+side-effect lease is no longer current; and the host's lease remains current.
+A subsequent acquisition succeeds, while late/idempotent disposal of the old
+lease cannot invalidate that replacement. The fatal companion assigns the same
+kind of lease and throws one exact `OutOfMemoryException`; the identical fatal
+object escapes, while the lease remains current until owned peer cleanup then
+releases it. Thus neither bounded projection nor raw fatal propagation abandons
+the completed authority side effect.
+
+Final local tree `213327c4373379f5f92457ab651741dd5bdd85c4` passes the
+focused rows `2/2`, twenty fresh processes per configuration and `80/80` total
+test invocations, Desktop `709/709`, solution `2573/2573`, and the unchanged
+managed tracer `32/32`, all in Debug and Release. Builds have zero warnings/
+errors and format/diff checks pass. Exact hosted artifacts and limitations are
+recorded in the
+[participant current-lease ownership evidence](../evidence/2026-08-30-participant-lease-acquisition-ownership.md).
+Final exact-SHA CI `33300966551` and CodeQL `33300966509` pass for `15aba95`;
+artifacts prove `2575/2575` on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with
+0 exact-ref open alerts, and all three reproducible version-0.1.209 unsigned
+packages.
+
+P0 Throw was already Partial and remains Partial; this adds no tracer case and
+changes no other matrix cell. Current Trust/lease revocation, other participant
+disconnect phases, and remaining cleanup-fault intersections remain open. This
+is managed same-host and portable contract evidence, not a native API, physical
+two-Device, signed/notarized package, packaged accessibility, or release result.
+Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every
+native/physical/signing/notarization/release gate, and the Goal remain open.
+
+### 5.28 2026-08-30 Pending renderer participant Trust revoke
+
+For T05, T06, and T13, exact test-only commit
+`8413d065ba7f9d2d2b05e8b52d9c97eace768cf9` adds one
+production-composed participant Trust-revoke row with no production source
+change. It runs a real
+signed/verified candidate through `AuthenticatedTcpPeerSessionAttempt` and
+`SystemAuthenticatedTcpConnector`, so the current authenticated session and its
+generation-bound Remote Window lease are owned by the production Trust/reconnect
+path.
+
+After exact Prepare send admission and bilateral verified `FSM1`, renderer
+Preparation is deliberately blocked with no Ready authority. Calling the real
+`participantTrust.RevokePeerAsync` removes Trust, invalidates the lease, denies
+reacquisition, enters authenticated disconnect cleanup, and cancels the renderer
+lifetime. Before release, the Trust call and session attempt remain incomplete,
+the renderer retains its call and is not disposed, peer cleanup has entered but
+not completed, and Ready, Admission, capture, media send, render, and input all
+remain closed. Thus authoritative revoke removes access immediately without
+claiming premature owner drain.
+
+Renderer release yields one bounded `Rejected/preparation_cancelled`, disposes
+the late renderer, and allows Trust revoke to return `true`. The production
+session attempt terminates as `PermanentRejection/PeerNotTrusted`; the host
+reports bounded `authenticated_connection_stale`; and the asserted owner graph
+drains on both nodes. Local focused Debug/Release pass `1/1`, ten fresh processes
+per configuration pass `10/10`, the tracer passes `33/33`, and Desktop passes
+`710/710`, all in both configurations. The solution passes `2574/2574` in both
+configurations; warning-as-error builds have zero warnings/errors; and format/
+diff checks pass. Immediate parent `d89758b` is a test-fixture-only starvation
+repair, not production notification behavior. Final exact-SHA CI `33300966551`
+and CodeQL `33300966509` pass for `15aba95`; retained artifacts prove
+`2575/2575` on all hosted OSes, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref
+open alerts, and three reproducible version-0.1.209 unsigned packages. Commands,
+jobs, digests, and limitations are in the
+[pending-renderer Trust-revoke evidence](../evidence/2026-08-30-pending-renderer-trust-revoke.md).
+
+By fault origin only P0 Revoke and P2 Revoke change from M to P. TX Revoke and
+CL Revoke gain direct owner-path evidence but remain P; every other cell is
+unchanged. Other revoke phases, revoke-plus-cleanup failures, direct generation-
+only revoke, remaining disconnect phases, and native non-cooperative teardown
+remain open. This is managed same-host macOS evidence, not native API, physical
+two-Device, packaged accessibility, signed/notarized package, or release proof.
+Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every
+native/physical/signing/notarization/release gate, and the Goal remain open.
+
+### 5.29 2026-08-30 Final-Admission authority revoke
+
+For T05, T06, and T14, exact test-only commit
+`15aba95409c62d858669b740957da54a5bce6b95` adds one
+production-composed authority revoke at the final-Admission side-effect window.
+The participant has committed and published the exact `Applied` or
+`AlreadyApplied` Admission state, but the host has not yet performed its post-
+publication revalidation or opened `Admission.TryOpen()`.
+
+At this point capture has started once and its initial pre-Admission frame is
+disposed. A second frame emitted inside the boundary hook is also disposed
+exactly once with zero media send/render; input remains empty and the
+authenticated generation is current. Real `hostTrust.UpdateCapabilitiesAsync`
+applies the exact fingerprint-bound grant change from `mirror.view` to empty.
+The mutation removes current
+Mirror authority and drains the matching inbound connection; when it returns,
+the old generation is non-current and cannot be reacquired.
+
+The host exposes only bounded `authenticated_connection_stale`, with no peer
+fingerprint or dependency payload. Capture and input receive local Emergency
+Stop, the final frame gate never opens despite participant Admission commit, and
+the asserted owner graph drains on both nodes. The exact source remains current,
+so this is not misclassified as a source-revoke result. The focused pair passes
+`2/2`; ten fresh final-row processes pass `10/10` per configuration; tracer,
+Desktop, and solution pass `34/34`, `711/711`, and `2575/2575`; builds have zero
+warnings/errors; format/diff checks pass; and independent strict review reports
+APPROVE with 0 P0/P1/P2 findings. These results hold in Debug and Release where
+applicable. Final exact-SHA CI `33300966551` and CodeQL `33300966509` pass;
+artifacts prove `2575/2575` on every hosted OS, Gitleaks 208/0, CodeQL 52/0 with
+0 exact-ref open alerts, and all three reproducible version-0.1.209 unsigned
+packages. Commands, jobs, digests, and limitations are in the
+[final-Admission authority-revoke evidence](../evidence/2026-08-30-final-admission-authority-revoke.md).
+
+By fault origin only AD Revoke advances from M to P. The path crosses HC and CL,
+but does not directly inject an HC revoke or complete CL revoke combinations;
+HC Revoke remains M and CL Revoke remains P. Other Admission revoke phases,
+authenticated disconnect, participant-endpoint failure, revoke-plus-cleanup
+faults, and native non-cooperative teardown remain open. This is managed same-
+host evidence, not native API, physical two-Device, packaged accessibility,
+signed/notarized package, or release proof. Tasks 5, 5.5a, and 5.5, aggregate
+H0/H1 acceptance, `CreateProduction()`, every native/physical/signing/
+notarization/release gate, and the Goal remain open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

@@ -852,6 +852,87 @@
     `docs/evidence/2026-08-30-pending-renderer-deadline.md`.
     Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every native/physical/signing/
     notarization/release gate, and the Goal remain open.
+    Participant current-lease ownership implementation
+    `681c0f72b4f584aba8fa6bf7e915a27317636ff9` next closes one P0
+    acquisition side-effect hole. If the current-connection collaborator assigns
+    a real generation-bound `out` lease and then throws, the participant peer now
+    attaches that lease to its generation in a `finally` before the exception is
+    classified or propagated. A non-fatal `IOException` produces bounded
+    `Rejected/media_unavailable`, invokes no renderer, releases the lease, and
+    permits an ABA-safe replacement; an exact fatal `OutOfMemoryException`
+    escapes unchanged while the lease remains owned until terminal cleanup.
+    Final local tree `213327c4373379f5f92457ab651741dd5bdd85c4` passes the
+    focused rows `2/2`, twenty fresh processes per configuration and `80/80`
+    total invocations, Desktop `709/709`, solution `2573/2573`, and the unchanged
+    managed tracer `32/32`, all in Debug and Release. Builds have zero warnings/
+    errors and format/diff checks pass. Exact hosted workflow, artifact, digest,
+    static-analysis, package, and limitation evidence is in
+    `docs/evidence/2026-08-30-participant-lease-acquisition-ownership.md`.
+    Final exact-SHA CI `33300966551` and CodeQL `33300966509` pass for
+    `15aba95`; downloaded artifacts prove `2575/2575` on each hosted OS,
+    Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref alerts, and three reproducible
+    version-0.1.209 unsigned packages whose `5/5` checksums and repository
+    verification pass.
+    P0 Throw was already P and remains P, no 33rd tracer case is added, and every
+    other matrix cell is unchanged. Current Trust/lease revocation, the other
+    authenticated-disconnect phases, and remaining cleanup-fault intersections
+    stay open. Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
+    `CreateProduction()`, every native/physical/signing/notarization/release gate,
+    and the Goal remain open.
+    Exact test-only commit `8413d065ba7f9d2d2b05e8b52d9c97eace768cf9`
+    adds the 33rd production-composed managed tracer case for participant Trust
+    revoke while renderer Preparation is blocked. It uses a real signed/verified
+    candidate,
+    `AuthenticatedTcpPeerSessionAttempt`, `SystemAuthenticatedTcpConnector`, and
+    the production Trust store/session ownership path. After exact Prepare send
+    admission, bilateral `FSM1`, and acquisition of the current participant
+    lease, `participantTrust.RevokePeerAsync` removes Trust, invalidates and
+    prevents reacquisition of that lease, enters peer-disconnect cleanup, and
+    cancels renderer lifetime. Before explicit renderer release, revocation,
+    session attempt, disconnect cleanup, and Preparation remain incomplete while
+    Ready, Admission, capture, media, render, and input stay zero. Release yields
+    bounded `Rejected/preparation_cancelled`, disposes the late renderer, returns
+    revoke `true`, ends the attempt as `PermanentRejection/PeerNotTrusted`, and
+    drains both nodes. Focused Debug/Release passes `1/1`, ten fresh processes
+    per configuration pass `10/10`, tracer Debug/Release passes `33/33`, Desktop
+    Debug/Release passes `710/710`, solution Debug/Release passes `2574/2574`,
+    both warning-as-error builds have zero warnings/errors, and format/diff gates
+    pass. Immediate parent `d89758b` hardens only the previously starved Windows
+    test fixture. Final exact-SHA CI `33300966551` and CodeQL `33300966509` pass
+    for `15aba95`; retained artifacts prove `2575/2575` on each hosted OS,
+    Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref alerts, and three reproducible
+    version-0.1.209 unsigned packages. Commands, jobs, digests, scope, and
+    limitations are in
+    `docs/evidence/2026-08-30-pending-renderer-trust-revoke.md`.
+    By fault origin P0 Revoke and P2 Revoke change M→P. TX Revoke and CL Revoke
+    are strengthened but remain P; every other cell is unchanged. Tasks 5,
+    5.5a, and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every
+    native/physical/signing/notarization/release gate, and the Goal remain open.
+    Exact test-only commit `15aba95409c62d858669b740957da54a5bce6b95`
+    adds the 34th production-composed managed tracer row at final Admission.
+    After the participant has committed and published exact `Applied` or
+    `AlreadyApplied`, but before host post-publication revalidation and
+    `Admission.TryOpen()`, real fingerprint-bound
+    `hostTrust.UpdateCapabilitiesAsync` replaces `mirror.view` with no
+    Capabilities. The old inbound connection becomes non-current and cannot be
+    reacquired. Although capture has started once, its initial pre-Admission
+    frame and a second frame deliberately emitted in the boundary hook are each
+    disposed; host failure is bounded to `authenticated_connection_stale`;
+    capture/input Emergency Stop locally; media send/render/input remain zero;
+    and both nodes drain. The focused pair passes `2/2`; ten fresh final-row
+    processes pass `10/10` per configuration; tracer, Desktop, and solution pass
+    `34/34`, `711/711`, and `2575/2575` in Debug and Release; both builds have
+    zero warnings/errors; format/diff checks pass; and independent strict review
+    is APPROVE with 0 P0/P1/P2 findings. Final exact-SHA CI `33300966551` and
+    CodeQL `33300966509` pass; artifacts prove `2575/2575` with every non-
+    success counter zero on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0
+    exact-ref alerts, and three reproducible version-0.1.209 unsigned packages.
+    Commands, jobs, digests, scope, and limitations are in
+    `docs/evidence/2026-08-30-final-admission-authority-revoke.md`.
+    By fault origin only AD Revoke changes M→P. HC Revoke remains M, CL Revoke
+    remains P, and every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
+    aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
+    signing/notarization/release gate, and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

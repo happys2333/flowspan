@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **32 xUnit case executions**, not 32
+The current production-composed tracer has **34 xUnit case executions**, not 34
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -26,6 +26,8 @@ complete boundary families:
 - one exact participant deadline equality after Prepare send admission and
   bilateral `FSM1` attachment while renderer Preparation is non-cooperatively
   blocked;
+- one participant Trust revoke after Prepare send admission and bilateral
+  `FSM1` attachment while renderer Preparation is non-cooperatively blocked;
 - one renderer-failure-to-replacement exact-binding/ABA trace;
 - one exact caller cancellation after verified attachment;
 - one exact deadline-equality expiry after verified attachment;
@@ -33,6 +35,8 @@ complete boundary families:
 - seven authenticated-disconnect cleanup-fault cases;
 - one final-Admission side-effect-then-throw case after participant known
   binding publication;
+- one final-Admission authority revoke after participant exact Admission commit
+  but before host frame-admission open;
 - one reverse-only Mirror-grant rejection;
 - one exact-source `R < M < S` reservation invalidation;
 - one managed process-local Emergency Stop readiness `R < M < S`
@@ -64,6 +68,26 @@ retained there.
 The [pending-renderer deadline evidence](../evidence/2026-08-30-pending-renderer-deadline.md)
 records the 32nd case, implemented at `40d4f78` and stabilized at final evidence
 tree `de4009a`.
+The [participant current-lease ownership evidence](../evidence/2026-08-30-participant-lease-acquisition-ownership.md)
+records the later connected-peer acquisition side-effect tests at `681c0f7` and
+their first hosted candidate tree `213327c`. CodeQL succeeds at that exact tree,
+but its Windows CI job times out in an unrelated protection-drain test, so it is
+not successful matrix evidence. Those connected-peer tests strengthen P0 Throw
+ownership without themselves adding a tracer case or changing a matrix status.
+The [pending-renderer Trust-revoke evidence](../evidence/2026-08-30-pending-renderer-trust-revoke.md)
+records the 33rd case at exact implementation commit `8413d06`. It advances only
+P0 Revoke and P2 Revoke from Missing to Partial; TX Revoke and CL Revoke receive
+additional owner-path evidence but stay Partial.
+The [final-Admission authority-revoke evidence](../evidence/2026-08-30-final-admission-authority-revoke.md)
+records the 34th case at exact implementation commit `15aba95`. It advances only
+AD Revoke from Missing to Partial. Its path observations do not promote HC
+Revoke from Missing or CL Revoke from Partial.
+Final exact-SHA CI `33300966551` and CodeQL `33300966509` pass for `15aba95`.
+Retained artifacts prove `2575/2575` with every non-success counter zero on all
+three hosted OSes, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref open alerts, and
+three reproducible version-0.1.209 unsigned packages whose `5/5` checksums and
+repository verification pass. Exact jobs, artifacts, digests, and limitations
+are retained in all three checkpoint records above.
 These local results are same-host **managed loopback runs on macOS**. Hosted
 Windows, macOS, and Linux results remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -133,14 +157,14 @@ similar coverage.
 | **W** | **C** [E-W] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] |
 | **H0** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **N/A** [N2] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
 | **H1** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
-| **TX** | **C** [E-TX] | **P** [E-TX] | **C** [E-TX] | **C** [E-TX] | **P** [E-TX] | **P** [E-TX] | **P** [E-TX, E-CL] |
-| **P0** | **P** [E-P0] | **P** [E-P0] | **P** [E-P0] | **P** [E-P0, E-TX] | **M** | **P** [E-P0, E-TRACE] | **P** [E-P0, E-CL] |
+| **TX** | **C** [E-TX] | **P** [E-TX] | **C** [E-TX] | **C** [E-TX] | **P** [E-TX, E-TRACE] | **P** [E-TX] | **P** [E-TX, E-CL] |
+| **P0** | **P** [E-P0] | **P** [E-P0] | **P** [E-P0] | **P** [E-P0, E-TX] | **P** [E-P0, E-TRACE] | **P** [E-P0, E-TRACE] | **P** [E-P0, E-CL] |
 | **P1** | **P** [E-P1] | **P** [E-P1] | **P** [E-P1] | **P** [E-P1, E-TX] | **P** [E-P1] | **P** [E-P1, E-TRACE] | **P** [E-P1, E-CL] |
-| **P2** | **C** [E-P2] | **C** [E-P2] | **P** [E-P2] | **P** [E-P2, E-TRACE] | **M** | **P** [E-P2] | **P** [E-P2, E-CL] |
+| **P2** | **C** [E-P2] | **C** [E-P2] | **P** [E-P2] | **P** [E-P2, E-TRACE] | **P** [E-P2, E-TRACE] | **P** [E-P2] | **P** [E-P2, E-CL] |
 | **RS** | **C** [E-RS] | **P** [E-RS] | **C** [E-RS] | **C** [E-RS] | **P** [E-RS] | **P** [E-RS] | **P** [E-RS, E-CL] |
-| **AD** | **C** [E-AD] | **P** [E-AD, E-TRACE] | **C** [E-AD] | **C** [E-AD] | **M** | **M** | **P** [E-AD, E-CL] |
+| **AD** | **C** [E-AD] | **P** [E-AD, E-TRACE] | **C** [E-AD] | **C** [E-AD] | **P** [E-AD, E-TRACE] | **M** | **P** [E-AD, E-CL] |
 | **HC** | **M** | **P** [E-HC, E-TRACE] | **M** | **P** [E-HC] | **M** | **M** | **P** [E-HC, E-CL] |
-| **CL** | **P** [E-CL] | **P** [E-CL] | **P** [E-CL] | **M** | **P** [E-CL] | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] |
+| **CL** | **P** [E-CL] | **P** [E-CL] | **P** [E-CL] | **M** | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] |
 
 ### N/A rationale
 
@@ -353,14 +377,28 @@ cells therefore remain P.
 - [`DesktopRemoteWindowPreparationPeerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowPreparationPeerTests.cs)
   directly covers bounded local receive-policy rejection, unknown policy reason
   reduction, policy-throw redaction, stopping/busy state, failed current-lease
-  acquisition, linked cancellation, prepared-owner release, peer disconnect,
-  and primary-plus-cleanup preservation. The policy reject/throw rows prove zero
+  acquisition, acquisition side-effect-then-throw for non-fatal and fatal
+  failures, linked cancellation, prepared-owner release, peer disconnect, and
+  primary-plus-cleanup preservation. The policy reject/throw rows prove zero
   connection acquisition and renderer authority, then recover with a fresh
-  request through real loopback `FSM1` Ready.
+  request through real loopback `FSM1` Ready. The acquisition side-effect rows
+  attach a real current lease to the generation before the collaborator failure
+  propagates: non-fatal projection releases it and permits an ABA-safe
+  replacement, while fatal exhaustion retains it until terminal cleanup.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.P0ParticipantTrustRevokeWhileRendererPreparationIsBlockedFailsClosedAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  uses the production authenticated session-attempt, system connector, signed
+  candidate, Trust store, and generation-bound lease. After admitted Prepare and
+  bilateral attachment, participant Trust revoke invalidates the current lease,
+  enters disconnect cleanup, and cancels blocked renderer Preparation. Cleanup
+  cannot falsely complete until renderer release; afterward one bounded
+  `Rejected/preparation_cancelled` and `PermanentRejection/PeerNotTrusted`
+  appear, with no later authority and complete both-node drain.
 
-Current-lease collaborator throws, pending Trust/connection revocation, the
-other authenticated-disconnect phases, and cleanup-fault combinations remain
-incomplete; P0 therefore remains partial.
+The one pending-renderer Trust-revoke phase moves P0 Revoke from Missing to
+Partial. Remaining Trust/connection revocation phases, the other authenticated-
+disconnect phases, and cleanup-fault combinations remain incomplete. P0
+therefore remains partial overall. The current-lease ownership repair separately
+strengthens the already-P P0 Throw cell but does not promote it to Covered.
 
 ### E-P1 — verified connector and FSM1 attachment
 
@@ -399,12 +437,18 @@ fault family.
   cancels the renderer before disconnect while host time remains earlier; release
   yields `Rejected/preparation_expired`, disposes the late renderer, and opens no
   later authority.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.P0ParticipantTrustRevokeWhileRendererPreparationIsBlockedFailsClosedAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  supplies one production-composed P2 Revoke. Real participant Trust mutation
+  cancels the pending renderer lifetime through the current authenticated
+  session; cleanup remains incomplete before explicit renderer release, then
+  produces bounded cancellation, disposes the late result, and drains.
 
 Missing/null and ordinary throw classification are covered. One exact deadline-
 equality timeout and one disconnect while renderer preparation is blocked now
-cross the production path. Other timeout phases, authoritative lease/Trust
-revocation, disconnect phases, and cleanup cross-products remain open, so the
-new Timeout cell and the existing non-C cells remain partial.
+cross the production path. One authoritative Trust revoke now crosses that same
+pending-renderer phase. Other timeout and revoke phases, disconnect phases, and
+cleanup cross-products remain open, so Timeout and Revoke plus the existing
+non-C cells remain partial.
 
 ### E-RS — Ready send and response completion
 
@@ -437,13 +481,20 @@ owner combinations keep the non-C cells partial.
   then injects a host-side publication throw. Frame admission remains closed,
   media/render stay zero, the asserted owners across both nodes drain, and the
   old generation cannot be reacquired.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.AdFinalAdmissionAuthorityRevokeFailsClosedAndDrainsBothNodes`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  waits for that same exact participant Admission commit, then uses real host
+  Trust mutation to remove `mirror.view` before host post-publication
+  revalidation and frame-gate open. The current connection becomes stale and
+  cannot be reacquired; capture Emergency Stops; media/render/input stay zero;
+  and both nodes drain with a bounded host result.
 - [`AuthenticatedRemoteWindowConnectionLeaseTests`](../../tests/Flowspan.Transport.Tests/AuthenticatedRemoteWindowConnectionLeaseTests.cs)
   proves linked Admission cancellation is normalized back to the exact caller
   token without relabelling a foreign cancellation.
 
-A participant endpoint throw, authority revocation, authenticated disconnect,
-and remaining wire/cleanup phase variants are still missing; the Throw cell is
-therefore partial rather than complete.
+A participant endpoint throw, the remaining authority-revoke phases,
+authenticated disconnect, and remaining wire/cleanup phase variants are still
+missing. Revoke therefore advances only to Partial, and Throw also remains
+Partial rather than complete.
 
 ### E-HC — host commit after Ready
 
@@ -453,8 +504,10 @@ therefore partial rather than complete.
   proves one post-attachment deadline failure and its cleanup.
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
   proves the admitted success, one cancellation/expiry before Admission, and a
-  final state publication side-effect-then-throw after participant known binding,
-  but does not inject every individual HC commit call.
+  final state publication side-effect-then-throw plus one post-publication
+  authority revoke after participant known binding, but does not inject every
+  individual HC commit call. By fault origin the authority-revoke row is AD
+  evidence, not a direct HC Revoke injection.
 
 Direct negative/throw/cancel/revoke/disconnect cases are still required for each
 post-Ready host revalidation, the remaining protection promotion/capture-start/
@@ -489,6 +542,14 @@ particular, a failure before HC is not HC evidence.
 - The pending-renderer deadline tracer also drains the late renderer and full
   owner graph, but its injected fault originates at P2 deadline equality.
   Cleanup itself does not time out, so this is not CL Timeout evidence.
+- The pending-renderer Trust-revoke tracer invalidates the participant lease,
+  keeps owned disconnect cleanup incomplete until the non-cooperative renderer
+  is released, and then drains the full graph. This strengthens CL Revoke, but
+  does not cover the remaining cleanup owners or revoke-plus-cleanup failures.
+- The final-Admission authority-revoke tracer invokes local capture/input
+  Emergency Stop after participant Admission commit, prevents frame-gate open,
+  and drains both nodes. This strengthens the already-Partial CL Revoke path but
+  does not inject a CL-origin failure.
 
 The remaining renderer, active/pending frame, queue, attachment, route,
 directory, controller, protection FIFO/admission-use, permission-observer,
@@ -499,7 +560,7 @@ been defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 32-case class.
+  is now the executable 34-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
   and limitations. The source-linearization, Emergency Stop readiness,
@@ -508,7 +569,10 @@ been defined or directly tested.
   records the 27th and 28th cases. The Protection Preparation evidence records
   the 29th and 30th cases. The pending-renderer authenticated-disconnect
   evidence records the 31st case. The pending-renderer deadline evidence records
-  the 32nd case and keeps its narrow P2 Timeout scope explicit.
+  the 32nd case and keeps its narrow P2 Timeout scope explicit. The pending-
+  renderer Trust-revoke evidence records the 33rd case and keeps its narrow
+  P0/P2 Revoke scope explicit. The final-Admission authority-revoke evidence
+  records the 34th case and keeps its narrow AD Revoke scope explicit.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -572,19 +636,23 @@ one direct row for each applicable gap. The presently known gaps are:
 3. **TX/RS:** cover throw, revoke, disconnect, and cleanup failure at every
    distinct send-admission, buffered-response, terminal-commit, completion-hook,
    and tombstone phase rather than treating Stop as every terminal cause.
-4. **P0:** current-lease collaborator throw; current Trust/connection revoke;
-   authenticated disconnect at the other participant-preparation phases; exact
-   cleanup and retry denial.
+4. **P0:** the remaining current Trust/connection revoke phases; authenticated
+   disconnect at the other participant-preparation phases; exact cleanup-fault
+   combinations and retry/terminal denial where the production contract
+   requires them. Current-lease acquisition side-effect-then-throw ownership and
+   one pending-renderer Trust revoke now have direct evidence, but do not fill
+   these remaining rows.
 5. **P1:** malformed/tampered `FSM1`, blocked-handshake cancellation and exact
    timeout, endpoint/listener disconnect variants, generation revocation at
    each attach phase, and remaining handler/route/directory cleanup failures.
-6. **P2:** the remaining deadline phases while renderer preparation is blocked;
-   timeout plus cleanup-fault intersections; authoritative lease/Trust revocation
-   at that boundary; the remaining disconnect phases and all renderer cleanup
-   combinations.
-7. **AD:** participant-endpoint throw, authority revoke, authenticated
-   disconnect, and remaining cleanup failures at the exact buffered/send/commit
-   phases.
+6. **P2:** the remaining deadline and authoritative lease/Trust-revoke phases;
+   timeout/revoke plus cleanup-fault intersections; the remaining disconnect
+   phases; and all renderer cleanup combinations. The current row covers one
+   real participant Trust revoke while renderer Preparation is blocked.
+7. **AD:** participant-endpoint throw, the remaining authority-revoke phases,
+   authenticated disconnect, and remaining cleanup failures at the exact
+   buffered/send/commit phases. The current revoke row covers only the
+   post-participant-commit, pre-host-frame-open window.
 8. **HC:** independent rejection and throw injection for every revalidation,
    protection/Emergency owner registration, controller `Start`,
    `AddParticipant`, remaining Admission state-send variants, and final open;
