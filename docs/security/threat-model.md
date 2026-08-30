@@ -1044,6 +1044,87 @@ complete matrix remain open. H0/H1 remain P or M; Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
 
+### 5.23 2026-08-30 Host authenticated Connection Preparation reservation
+
+Exact commit `259c3bbda4648bc6c45b71d78fbc7a34feb4de71` mitigates one
+pre-Prepare T06/T10/T13 Connection race. A synchronous composite registration
+binds the exact `RemoteWindowConnectionGeneration` and its exact
+`AuthenticatedRemoteWindowMediaSession` under both authoritative gates. A
+generation point read can no longer stand in for media currentness: the
+registration remains current only while it is active and is the same exact
+object in both slots.
+
+For T06, generation revoke/owner release, explicit or committed deferred
+fail-close, media Dispose, first control-stop commit, and responder-route
+invalidation all deactivate the temporary registration under their mutation
+gate. Generation invalidation precedes ordinary revocation callbacks; media
+invalidation precedes public control-stop signalling. Route selection and
+actual Prepare send admission require the same exact registration while it is
+active, so a public, foreign, stale, omitted, or other-lease owner cannot cross
+those gates. The Desktop coordinator rechecks the exact registration before
+host-reservation promotion and releases it only after promotion.
+
+The ordinary live-session revocation owner is now a composite registration over
+generation and media control-stop with one exact-once invocation. It is
+installed while the temporary registration is still current. A media mutation
+during the promotion/release overlap therefore invokes Emergency Stop before
+capture even when the generation has not yet been revoked. Partial live-
+registration setup rolls back both handles, concurrent generation/media causes
+cannot double-invoke, and late old disposal cannot remove a replacement owner.
+
+For T10, reservation conflict, stale generation/media, unexpected non-fatal
+reservation failure, and initial or promotion currentness failure expose only
+`authenticated_connection_stale`. Injected exception and cleanup text does not
+cross the host start surface. Exact caller cancellation retains its token;
+foreign cancellation is treated as an unexpected failure; and fatal
+`OutOfMemoryException` escapes by exact instance rather than being relabelled.
+
+For T13, the sink synchronously claims cleanup ownership before the reservation
+returns. A failed claim rolls back both slots and deactivates the registration.
+Monotonic registration IDs plus exact-object release prevent ABA. Non-fatal
+invalidation, fail-close, timer, and registration-cleanup failures retain order
+while all later cleanup is attempted; repeat fail-close/disposal shares or
+replays the same terminal result as specified. Fatal exhaustion remains raw
+after applicable owner cleanup.
+
+Focused coordinator tests cover `M < R`, `R < M < S`, and `S < M`, along with
+conflict, claim-then-throw/cancel, currentness failures, redaction, raw fatal
+failure, release, and cleanup. Transport tests cover exact two-slot ownership,
+both route and actual send gates, generation/media invalidation, live exact-
+once callback setup/teardown, failure ordering, and ABA.
+
+The managed production-composed disconnect tracer selects a real authenticated
+protocol-1.7 responder route, then loses authenticated control. Fact Connection
+becomes terminal with reason `authenticated_connection_stale`, no later
+authority opens, and both nodes drain. That disconnect prevents execution from
+entering the actual Prepare send-admission hook, so its zero admission count is
+not claimed as send-gate rejection; the real `RemoteWindowControlSession`
+two-lease Transport regression supplies that evidence. A second managed tracer
+reaches Ready and verified bilateral `FSM1` attachment, commits media control
+stop in the promotion/release overlap, and proves the live callback and
+Emergency Stop precede capture with complete drain.
+
+Local Transport, focused media-session, Desktop, and solution Debug/Release
+pass `755/755`, `41/41`, `654/654`, and `2469/2469`; warning-as-error builds have
+zero warnings/errors and all local gates pass. Two independent final reviews
+report no P0/P1 finding. Exact-SHA CI run `33289550263` has successful Windows,
+macOS, Linux, and Secret Scan jobs: retained artifacts prove `2469/2469` on each
+hosted OS and Gitleaks 208/0. CodeQL run `33289550265` passes 52/0 with 0
+exact-ref open alerts. All three reproducible version-0.1.197 unsigned packages
+pass their checksum, repository verifier, exact metadata, archive, manifest,
+and canonical-tree checks. Exact jobs, artifacts, digests, commands, and
+limitations are in the
+[Connection Preparation evidence](../evidence/2026-08-30-host-connection-preparation-reservation.md).
+
+This is managed same-host loopback, hosted contract, and static-analysis
+evidence. It proves no native API, physical two-device operation, packaged
+Windows/macOS/Linux behavior, signing, notarization, or release acceptance. The
+remaining production-composed Connection orders and fault intersections,
+Protection reservation, other fact orders, and the complete matrix remain
+open. H0/H1 remain P or M; Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
@@ -1061,6 +1142,11 @@ open.
 - Host Remote Window Preparation permission binds one exact prompt-free owner,
   revision, capture/input fact set, and frozen role. A later accepted permission
   revision makes that reservation terminal; regrant cannot revive it.
+- Host Remote Window Preparation Connection authority binds one exact
+  authenticated generation and its exact media session in a composite
+  reservation. Route selection and Prepare send admission must carry that exact
+  owner; generation or media mutation makes it terminal, while the overlapping
+  exact-once live callback owns post-promotion shutdown.
 - Reconnection creates a new secure session and key epoch.
 - Unknown identity, version, protection state, transaction outcome, or lease
   epoch cannot authorize capture or input.

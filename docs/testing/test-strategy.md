@@ -1555,6 +1555,84 @@ Source/Authorization/Emergency Stop orders, and the complete matrix remain
 open. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
 native/physical/release gate, and the Goal remain open.
 
+### 2026-08-30 Host authenticated Connection Preparation reservation
+
+Exact commit `259c3bbda4648bc6c45b71d78fbc7a34feb4de71` composes the
+Connection fact across both authorities that determine an authenticated Remote
+Window connection's currentness: the exact
+`RemoteWindowConnectionGeneration` and its exact
+`AuthenticatedRemoteWindowMediaSession`. One synchronous registration occupies
+both slots, transfers cleanup ownership before returning, and is current only
+while it remains the exact active object in both slots. Failed ownership
+transfer rolls both slots back; monotonic registration IDs and exact-object
+release prevent late-old-dispose ABA.
+
+Transport tests directly cover generation revoke, explicit/deferred fail-close,
+media Dispose, first control stop, and responder-route invalidation; each makes
+the Preparation registration terminal under its authoritative gate before
+ordinary generation or media control-stop callbacks. They also cover conflict,
+owner-claim rollback, registration replacement, shared fail-close, ordered
+non-fatal sink/cleanup failures, cleanup-before-raw-OOM, and the composite live
+callback's partial-setup rollback, concurrent exact-once invocation, self-
+dispose/fail-close re-entry, reverse-order release, stable failure replay, and
+fatal cleanup.
+
+Responder-route selection and actual Prepare send admission carry the exact
+registration through fixed generation-to-media lock order. Public, foreign,
+stale, missing, or other-lease owners cannot bypass an active reservation.
+`ActiveConnectionPreparationBlocksPublicPrepareSendAtWireAdmission` is the
+direct actual-wire-gate evidence: two leases share one real
+`RemoteWindowControlSession`; one owns the registration, the other reaches the
+public Prepare wire boundary, and zero Prepare frames are written.
+
+The coordinator reserves Connection after source and Permission but before
+ordinary safety observers and route, rechecks it before host-reservation
+promotion, and releases it after promotion or terminal cleanup. Focused tests
+freeze `M < R`, `R < M < S`, and `S < M`; reserve conflict, unexpected and
+currentness throws, foreign cancellation, exact caller cancellation,
+owner-claim-then-throw, raw OOM, release, and cleanup have independent rows.
+Unexpected/foreign non-fatal failures expose only
+`authenticated_connection_stale`; exact caller cancellation retains its token.
+
+Two production-composed managed tests bring the tracer class to 28 executions.
+`AuthenticatedControlDisconnectAfterReservedRoutePreventsPrepareWireAndDrains`
+disconnects real authenticated protocol-1.7 control after a real responder
+route is owned. It proves terminal Connection classification, no later
+authority, and complete two-node drain. The disconnect cancels execution before
+the actual send-admission callback, so `PrepareSendAdmissionCount == 0` in this
+tracer is not send-gate rejection evidence; the Transport two-lease test above
+is that evidence.
+
+`MediaMutationAfterPreparationPromotionTriggersLiveCallbackBeforeCapture`
+reaches Ready and verified bilateral `FSM1` attachment, then commits media
+control stop during the exact promotion-to-temporary-registration-release
+window. The live registration, which observes both generation and media paths
+through one exact-once callback, crosses Emergency Stop before the mutation
+returns and before capture starts. Admission, frames, input, and rendering stay
+closed and every managed owner drains.
+
+Transport and Desktop Debug/Release pass `755/755` and `654/654`; the focused
+media-session class passes `41/41`; both full solution configurations pass
+`2469/2469`; both warning-as-error builds have zero warnings/errors; and format,
+diff, vulnerability, explicit TEST MODE composition, simulator, and two final
+reviews with zero P0/P1 finding pass. Exact-SHA CI run `33289550263` has
+successful Windows, macOS, Linux, and Secret Scan jobs: each platform's 12 TRX
+files aggregate to `2469/2469` with all non-success counters zero, and Gitleaks
+reports 208 rules with 0 results. CodeQL run `33289550265` passes 52 rules with
+0 results and 0 exact-ref open alerts. All three reproducible version-0.1.197
+unsigned packages pass their `SHA256SUMS`, repository verifier, exact
+commit/runtime/unsigned metadata, archive, manifest, and canonical-tree checks.
+Exact commands, artifacts, digests, and limitations are in the
+[Connection Preparation evidence](../evidence/2026-08-30-host-connection-preparation-reservation.md).
+
+This remains managed same-host loopback and contract evidence on macOS, not
+native or physical Windows/macOS/Linux proof. It does not complete every
+Connection reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault
+intersection. Protection still lacks an exact Preparation reservation, every
+aggregate H0/H1 status remains conservative, and Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

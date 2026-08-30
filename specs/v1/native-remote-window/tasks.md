@@ -704,6 +704,57 @@
     matrix remain open. Tasks 5, 5.5a, and 5.5; aggregate H0/H1 acceptance;
     `CreateProduction()`; every native/physical/signing/notarization/release
     gate; and the Goal remain open.
+    Exact authenticated Connection implementation
+    `259c3bbda4648bc6c45b71d78fbc7a34feb4de71` next replaces point-in-time
+    connection reads with one synchronous composite Preparation registration
+    committed into both the exact `RemoteWindowConnectionGeneration` and its
+    exact `AuthenticatedRemoteWindowMediaSession`. Synchronous owner claim and
+    two-slot rollback prevent commit-then-throw leaks; monotonic registration
+    identity prevents replacement/late-dispose ABA. Generation revoke, explicit
+    or deferred fail-close, media Dispose, control stop, and responder-route
+    invalidation all make the old registration terminal under their
+    authoritative gate. Authenticated responder-route selection and actual
+    Prepare send admission require that exact registration while it is active;
+    public, foreign, stale, or omitted owners fail closed.
+    The Desktop coordinator reserves before ordinary observers and route,
+    rechecks before promotion, and releases after promotion or terminal cleanup.
+    Its separate live revocation registration observes generation and media
+    mutation through one exact-once callback and overlaps the temporary
+    reservation at promotion. Focused host tests cover `M < R`, `R < M < S`,
+    and `S < M`, plus conflict, throw/cancellation redaction, exact caller
+    cancellation, owner-claim-then-throw, currentness failure, fatal exhaustion,
+    release, and cleanup. Transport tests cover both exact slots, route/send
+    owner admission, fail-close/cleanup ordering, composite live-callback setup
+    and teardown, ABA, and raw fatal cleanup.
+    Two additional managed tracer cases bring the class to 28 executions. A
+    real authenticated control disconnect after route selection prevents all
+    later authority and drains both nodes; it exits before the actual send hook,
+    so its zero send-admission count is not claimed as send-gate rejection. A
+    separate Transport two-lease `RemoteWindowControlSession` regression proves
+    that gate. The second tracer reaches Ready and verified `FSM1` attachment,
+    mutates media during the promotion/release handoff, and observes the live
+    callback and Emergency Stop before capture, with complete drain.
+    Local Transport, focused media-session, Desktop, and solution Debug/Release
+    runs pass `755/755`, `41/41`, `654/654`, and `2469/2469` respectively;
+    warning-as-error builds have zero warnings/errors, format, diff,
+    vulnerability, TEST MODE composition, and simulator gates pass, and two
+    independent final reviews report no P0/P1 finding. Exact-SHA CI run
+    `33289550263` has completed its Windows, macOS, Linux, and Secret Scan jobs:
+    retained 12-TRX artifacts prove `2469/2469` with every non-success counter
+    zero on each hosted OS, and Gitleaks reports 208 rules with 0 results.
+    Exact-SHA CodeQL run `33289550265` also passes 52 rules with 0 results and
+    0 exact-ref open alerts. All three reproducible version-0.1.197 unsigned
+    package jobs pass their `SHA256SUMS`, repository verifier, exact commit/
+    runtime/unsigned metadata, archive, manifest, and canonical-tree checks.
+    Commands, exact jobs/artifacts/digests, and limitations are in
+    `docs/evidence/2026-08-30-host-connection-preparation-reservation.md`.
+    This is managed same-host loopback and contract evidence, not native or
+    physical Windows/macOS/Linux proof. Protection still has no exact
+    Preparation reservation, and the remaining production-composed Connection
+    orders/fault intersections plus the complete per-boundary reject/throw/
+    cancel/timeout/revoke/disconnect/cleanup-fault matrix remain open. Tasks 5,
+    5.5a, and 5.5; aggregate H0/H1 acceptance; `CreateProduction()`; every
+    native/physical/signing/notarization/release gate; and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
