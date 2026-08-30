@@ -1966,13 +1966,17 @@ and self-review plus independent strict review report 0 P0/P1/P2 findings.
 Exact commands and limitations are in the
 [final-Admission disconnect evidence](../evidence/2026-08-30-final-admission-authenticated-disconnect.md).
 
-Hosted evidence for exact `7be177b` remains pending. CI `33301715578` and
-CodeQL `33301715584` target `c13acc5` and cannot be counted for this row. By
-fault origin only AD Disconnect changes from M to P. HC Disconnect stays M and
-CL Disconnect stays P; every other cell is unchanged. This remains managed
-same-host macOS evidence, not native/physical Windows/macOS/Linux, signed,
-notarized, or release proof. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
-native/physical/release gate, and the Goal remain open.
+Final exact-SHA CI `33302056214` and CodeQL `33302056182` pass for evidence tree
+`629d1e5`; retained artifacts prove `2576/2576` with every non-success counter
+zero on every hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref alerts,
+and three reproducible version-0.1.211 unsigned packages. Earlier CI
+`33301715578` and CodeQL `33301715584` target `c13acc5` and cannot be counted for
+this row. By fault origin only AD Disconnect changes from M to P. HC Disconnect
+stays M and CL Disconnect stays P; every other cell is unchanged. This remains
+managed same-host/portable evidence, not native/physical Windows/macOS/Linux,
+signed, notarized, or release proof. Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/

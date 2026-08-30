@@ -93,7 +93,10 @@ are retained in all three checkpoint records above.
 The [final-Admission authenticated-disconnect evidence](../evidence/2026-08-30-final-admission-authenticated-disconnect.md)
 records the 35th case at exact implementation commit `7be177b`. It advances only
 AD Disconnect from Missing to Partial; HC Disconnect stays Missing and CL
-Disconnect stays Partial. Exact `7be177b` hosted evidence remains pending. CI
+Disconnect stays Partial. Final exact-SHA CI `33302056214` and CodeQL
+`33302056182` pass for evidence tree `629d1e5`; retained artifacts prove
+`2576/2576` on every hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref
+alerts, and three reproducible version-0.1.211 unsigned packages. Earlier CI
 `33301715578` and CodeQL `33301715584` target `c13acc5`, not this new case.
 These local results are same-host **managed loopback runs on macOS**. Hosted
 Windows, macOS, and Linux results remain managed and contract evidence. None of

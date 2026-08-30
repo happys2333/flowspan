@@ -949,9 +949,13 @@
     pass `10/10` per configuration; tracer, Desktop, and solution pass `35/35`,
     `712/712`, and `2576/2576`; both builds have zero warnings/errors; format/
     diff checks pass; and self plus independent review report 0 P0/P1/P2.
-    Hosted exact `7be177b` results remain pending; CI `33301715578` and CodeQL
-    `33301715584` target `c13acc5` and are not evidence for this row. Commands,
-    scope, and limitations are in
+    Final exact-SHA CI `33302056214` and CodeQL `33302056182` pass for evidence
+    tree `629d1e5`; artifacts prove `2576/2576` with every non-success counter
+    zero on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref alerts,
+    and three reproducible version-0.1.211 unsigned packages whose `5/5`
+    checksums and repository verification pass. Earlier CI `33301715578` and
+    CodeQL `33301715584` target `c13acc5` and are not evidence for this row.
+    Commands, jobs, digests, scope, and limitations are in
     `docs/evidence/2026-08-30-final-admission-authenticated-disconnect.md`.
     By fault origin only AD Disconnect changes M→P. HC Disconnect remains M, CL
     Disconnect remains P, and every other cell is unchanged. Tasks 5, 5.5a, and

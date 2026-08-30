@@ -1444,15 +1444,18 @@ pass; and self plus independent review report 0 P0/P1/P2 findings. Exact command
 and limitations are in the
 [final-Admission disconnect evidence](../evidence/2026-08-30-final-admission-authenticated-disconnect.md).
 
-Hosted evidence for exact `7be177b` is pending. CI `33301715578` and CodeQL
-`33301715584` target `c13acc5` and do not prove this row. By fault origin only AD
-Disconnect advances from M to P; HC Disconnect remains M and CL Disconnect
-remains P. Other Admission disconnect phases, disconnect-plus-cleanup faults,
-and native non-cooperative teardown remain open. This is managed same-host
-evidence, not native API, physical two-Device, packaged accessibility, signed/
-notarized package, or release proof. Tasks 5, 5.5a, and 5.5, aggregate H0/H1
-acceptance, `CreateProduction()`, every native/physical/signing/notarization/
-release gate, and the Goal remain open.
+Final exact-SHA CI `33302056214` and CodeQL `33302056182` pass for evidence tree
+`629d1e5`; artifacts prove `2576/2576` on every hosted OS, Gitleaks 208/0,
+CodeQL 52/0 with 0 exact-ref alerts, and all three reproducible version-0.1.211
+unsigned packages. Earlier CI `33301715578` and CodeQL `33301715584` target
+`c13acc5` and do not prove this row. By fault origin only AD Disconnect advances
+from M to P; HC Disconnect remains M and CL Disconnect remains P. Other
+Admission disconnect phases, disconnect-plus-cleanup faults, and native non-
+cooperative teardown remain open. This is managed same-host/portable evidence,
+not native API, physical two-Device, packaged accessibility, signed/notarized
+package, or release proof. Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open.
 
 ## 6. Security state machine rules
 
