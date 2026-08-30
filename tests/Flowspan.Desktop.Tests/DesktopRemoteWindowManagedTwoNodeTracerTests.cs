@@ -871,8 +871,20 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     }
 
     [Fact]
-    public async Task HcAuthenticatedControlDisconnectDuringCaptureStartFailsClosedAndDrainsBothNodes()
+    public Task HcAuthenticatedControlDisconnectDuringCaptureStartFailsClosedAndDrainsBothNodes() =>
+        RunHcCaptureStartTerminationScenarioAsync(
+            HcCaptureStartTerminationTrigger.AuthenticatedDisconnect);
+
+    [Fact]
+    public Task HcAuthorityRevokeDuringCaptureStartFailsClosedAndDrainsBothNodes() =>
+        RunHcCaptureStartTerminationScenarioAsync(
+            HcCaptureStartTerminationTrigger.AuthorityRevoke);
+
+    private static async Task RunHcCaptureStartTerminationScenarioAsync(
+        HcCaptureStartTerminationTrigger trigger)
     {
+        bool revokeAuthority =
+            trigger is HcCaptureStartTerminationTrigger.AuthorityRevoke;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
             HostDeviceId,
@@ -949,8 +961,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         bool attachmentAtHook = false;
         bool bilateralFsm1AtHook = false;
         bool connectionCurrentAtHook = false;
-        bool connectionCurrentAfterDisconnect = true;
+        bool connectionCurrentAfterTermination = true;
         bool oldGenerationReacquired = false;
+        TrustMutationResult? authorityMutation = null;
         long authenticatedGeneration = 0;
         long? reacquiredGeneration = null;
         int captureStartCountAtHook = -1;
@@ -1033,8 +1046,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                         MirrorParticipantRole.ViewOnly),
                     deadline.Token));
 
-            Assert.NotNull(disconnecting);
-            await disconnecting.WaitAsync(deadline.Token);
+            if (revokeAuthority)
+            {
+                Assert.Equal(TrustMutationResult.Applied, authorityMutation);
+            }
+            else
+            {
+                Assert.NotNull(disconnecting);
+                await disconnecting.WaitAsync(deadline.Token);
+            }
+
             await ObserveSessionStopAsync(participantRun);
             await WaitForCleanupOnChangeAsync(
                 hostHandler,
@@ -1047,11 +1068,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.True(attachmentAtHook);
             Assert.True(bilateralFsm1AtHook);
             Assert.True(connectionCurrentAtHook);
-            Assert.False(connectionCurrentAfterDisconnect);
+            Assert.False(connectionCurrentAfterTermination);
             Assert.False(
                 oldGenerationReacquired,
                 $"Connection generation {reacquiredGeneration} was reacquired "
-                + $"after disconnecting {authenticatedGeneration}.");
+                + $"after terminating {authenticatedGeneration}.");
             Assert.Equal(1, captureStartCountAtHook);
             Assert.Equal(1, preAdmissionFrameDisposeCountAtHook);
             Assert.Equal(0, admissionPublishCountAtHook);
@@ -1064,9 +1085,18 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(
                 participantIdentity.PublicIdentity.Fingerprint,
                 retainedTrust.PeerIdentity.Fingerprint);
-            Assert.True(retainedTrust.GrantedCapabilities.Allows(
-                Capability.MirrorView));
-            Assert.Single(retainedTrust.GrantedCapabilities.Capabilities);
+            if (revokeAuthority)
+            {
+                Assert.False(retainedTrust.GrantedCapabilities.Allows(
+                    Capability.MirrorView));
+                Assert.Empty(retainedTrust.GrantedCapabilities.Capabilities);
+            }
+            else
+            {
+                Assert.True(retainedTrust.GrantedCapabilities.Allows(
+                    Capability.MirrorView));
+                Assert.Single(retainedTrust.GrantedCapabilities.Capabilities);
+            }
             Assert.Null(failure.InnerException);
             Assert.DoesNotContain(
                 participantIdentity.PublicIdentity.Fingerprint,
@@ -1175,9 +1205,21 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             admissionPublishCountAtHook = hostConnection.AdmissionPublishCount;
             mediaSendCountAtHook = hostConnection.MediaSendCount;
             renderCountAtHook = renderer.RenderCount;
-            disconnecting = participantConnection!.DisposeAsync().AsTask();
+            if (revokeAuthority)
+            {
+                authorityMutation = await hostTrust.UpdateCapabilitiesAsync(
+                    ParticipantDeviceId,
+                    participantIdentity.PublicIdentity.Fingerprint,
+                    CapabilityGrant.None,
+                    deadline.Token);
+            }
+            else
+            {
+                disconnecting = participantConnection!.DisposeAsync().AsTask();
+            }
+
             await hostConnection.ConnectionRevoked.Task.WaitAsync(deadline.Token);
-            connectionCurrentAfterDisconnect = hostConnection.IsCurrent;
+            connectionCurrentAfterTermination = hostConnection.IsCurrent;
             oldGenerationReacquired =
                 hostHandler.TryAcquireRemoteWindowConnection(
                     ParticipantDeviceId,
@@ -1188,6 +1230,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 await reacquired.DisposeAsync();
             }
         }
+    }
+
+    private enum HcCaptureStartTerminationTrigger
+    {
+        AuthenticatedDisconnect,
+        AuthorityRevoke,
     }
 
     [Fact]
