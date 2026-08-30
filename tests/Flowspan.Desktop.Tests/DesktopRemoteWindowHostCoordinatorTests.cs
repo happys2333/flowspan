@@ -111,6 +111,9 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(
             1,
             permissions.CurrentPreparationRegistration?.DisposeCount);
+        Assert.Equal(1, connection.ConnectionPreparationReservationCount);
+        Assert.False(connection.CurrentConnectionPreparation?.IsCurrent);
+        Assert.Equal(1, connection.CurrentConnectionPreparation?.DisposeCount);
         Assert.Empty(connection.MediaFrames);
         capture.EmitFrame(sequence: 3);
         await connection.WaitForMediaFrameCountAsync(1);
@@ -645,6 +648,286 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task ConnectionMutationDuringReservationRejectsBeforeObserverOrRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.ConnectionPreparationReserved = () => Assert.True(
+            host.Connection.InvalidateConnectionPreparation());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.Equal(1, host.Connection.ConnectionPreparationReservationCount);
+        Assert.False(host.Connection.CurrentConnectionPreparation?.IsCurrent);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionPreparationConflictRejectsBeforeObserverOrRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.ConnectionPreparationStatus =
+            AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                .ReservationConflict;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.Equal(1, host.Connection.ConnectionPreparationReservationCount);
+        Assert.Null(host.Connection.CurrentConnectionPreparation);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionPreparationThrowIsRedactedBeforeObserverOrRoute()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("FLOWSPAN_CONNECTION_RESERVE_CANARY");
+        host.Connection.ConnectionPreparationFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Null(host.Connection.CurrentConnectionPreparation);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionPreparationOutOfMemoryEscapesUnchanged()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_CONNECTION_RESERVE_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Connection.ConnectionPreparationFailure = injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.Null(host.Connection.CurrentConnectionPreparation);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionPreparationCommitThenThrowRetainsCleanupOwner()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException(
+            "FLOWSPAN_CONNECTION_COMMITTED_RESERVE_CANARY");
+        host.Connection.ConnectionPreparationReserved = () => throw injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Equal(1, host.Connection.CurrentConnectionPreparation?.DisposeCount);
+        Assert.False(host.Connection.CurrentConnectionPreparation?.IsCurrent);
+        Assert.Equal(0, host.Permissions.ObserverCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionPreparationCommitThenCallerCancellationRetainsOwner()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        var injected = new OperationCanceledException(cancellation.Token);
+        host.Connection.ConnectionPreparationReserved = () =>
+        {
+            cancellation.Cancel();
+            throw injected;
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Same(injected, failure);
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(1, host.Connection.CurrentConnectionPreparation?.DisposeCount);
+        Assert.False(host.Connection.CurrentConnectionPreparation?.IsCurrent);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task InitialConnectionRegistrationForeignCancellationIsRedacted()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var callerCancellation = new CancellationTokenSource();
+        using var foreignCancellation = new CancellationTokenSource();
+        const string canary = "FLOWSPAN_CONNECTION_CURRENT_FOREIGN_CANARY";
+        host.Connection.ConnectionPreparationCurrentReading = _ =>
+        {
+            callerCancellation.Cancel();
+            throw new OperationCanceledException(
+                canary,
+                innerException: null,
+                foreignCancellation.Token);
+        };
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                callerCancellation.Token));
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.DoesNotContain(canary, failure.ToString());
+        Assert.Equal(1, host.Connection.CurrentConnectionPreparation?.DisposeCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task InitialConnectionRegistrationOutOfMemoryEscapesUnchanged()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_CONNECTION_CURRENT_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Connection.ConnectionPreparationCurrentReading = _ => throw injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.Equal(1, host.Connection.CurrentConnectionPreparation?.DisposeCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PromotionConnectionRegistrationReadThrowIsRedactedAndDrained()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException(
+            "FLOWSPAN_CONNECTION_PROMOTION_CURRENT_CANARY");
+        host.Connection.ConnectionPreparationCurrentReading = read => read == 1
+            ? true
+            : throw injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(1, host.Connection.CurrentConnectionPreparation?.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PromotionConnectionRegistrationPreservesExactCallerCancellation()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        var injected = new OperationCanceledException(cancellation.Token);
+        host.Connection.ConnectionPreparationCurrentReading = read =>
+        {
+            if (read == 1)
+            {
+                return true;
+            }
+
+            cancellation.Cancel();
+            throw injected;
+        };
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Same(injected, failure);
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(1, host.Connection.CurrentConnectionPreparation?.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task PromotionConnectionRegistrationOutOfMemoryEscapesUnchanged()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "FLOWSPAN_CONNECTION_PROMOTION_CURRENT_FATAL_CANARY");
+#pragma warning restore CA2201
+        host.Connection.ConnectionPreparationCurrentReading = read => read == 1
+            ? true
+            : throw injected;
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await host.StartAsync());
+
+        Assert.Same(injected, failure);
+        Assert.Contains("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(1, host.Connection.CurrentConnectionPreparation?.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
     public async Task ConnectionRevocationDuringEmergencyReadinessRejectsBeforeRouteOrPrepare()
     {
         using var host = new ReadyHostHarness();
@@ -819,6 +1102,28 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task ConnectionMutationAfterRouteSelectionPreventsPrepareWireAndCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.BeforePrepareSendAdmission = () => Assert.True(
+            host.Connection.InvalidateConnectionPreparation());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
     public async Task PermissionMutationAfterRouteSelectionPreventsPrepareWireAndCapture()
     {
         using var host = new ReadyHostHarness();
@@ -955,6 +1260,29 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             InvalidOperationException>(async () => await host.StartAsync());
 
         Assert.Contains("native_permission_denied", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.Contains("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task ConnectionMutationAfterPrepareSendPreventsReadyAuthority()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.PrepareSendAdmitted = () => Assert.True(
+            host.Connection.InvalidateConnectionPreparation());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
         Assert.Contains("connection.route", host.Timeline);
         Assert.Contains("connection.prepare", host.Timeline);
         Assert.DoesNotContain("connection.wait_media", host.Timeline);
@@ -3961,6 +4289,18 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public Action? BeforePrepareSendAdmission { get; set; }
 
+        public Action? ConnectionPreparationReserved { get; set; }
+
+        public Func<int, bool>? ConnectionPreparationCurrentReading { get; set; }
+
+        public Exception? ConnectionPreparationFailure { get; set; }
+
+        public Action? ConnectionPreparationReserving { get; set; }
+
+        public AuthenticatedRemoteWindowConnectionPreparationReservationStatus?
+            ConnectionPreparationStatus
+        { get; set; }
+
         public Action? PrepareSendAdmitted { get; set; }
 
         public ProtocolVersion ProtocolVersion { get; set; } =
@@ -3971,6 +4311,12 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         public DeviceId PeerDeviceId { get; } = peerDeviceId;
 
         public int CurrentReadCount { get; private set; }
+
+        public int ConnectionPreparationReservationCount { get; private set; }
+
+        public RecordingConnectionPreparationRegistration?
+            CurrentConnectionPreparation
+        { get; private set; }
 
         public Exception? CurrentReadFailure { get; set; }
 
@@ -4010,6 +4356,37 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             Volatile.Write(ref revoked, callback);
             return new CallbackRegistration(
                 () => Interlocked.Exchange(ref revoked, null));
+        }
+
+        public AuthenticatedRemoteWindowConnectionPreparationReservationResult
+            TryReservePreparation(
+                IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+                    invalidationSink)
+        {
+            ArgumentNullException.ThrowIfNull(invalidationSink);
+            ConnectionPreparationReserving?.Invoke();
+            if (ConnectionPreparationFailure is { } failure)
+            {
+                throw failure;
+            }
+
+            ConnectionPreparationReservationCount++;
+            if (ConnectionPreparationStatus is { } status)
+            {
+                return new(status, Registration: null);
+            }
+
+            CurrentConnectionPreparation = new(
+                invalidationSink,
+                ConnectionPreparationCurrentReading);
+            invalidationSink
+                .OwnAuthenticatedRemoteWindowConnectionPreparationRegistration(
+                    CurrentConnectionPreparation);
+            ConnectionPreparationReserved?.Invoke();
+            return new(
+                AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                    .Reserved,
+                CurrentConnectionPreparation);
         }
 
         public void PrepareResponderRoute(
@@ -4199,6 +4576,62 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             }
         }
 
+        public sealed class RecordingConnectionPreparationRegistration(
+            IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink sink,
+            Func<int, bool>? readingCurrent) :
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration
+        {
+            private int active = 1;
+            private int currentReadCount;
+            private int disposeCount;
+            private IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink?
+                sink = sink;
+
+            public int DisposeCount => Volatile.Read(ref disposeCount);
+
+            public int CurrentReadCount => Volatile.Read(ref currentReadCount);
+
+            public bool IsCurrent
+            {
+                get
+                {
+                    int read = Interlocked.Increment(ref currentReadCount);
+                    return readingCurrent?.Invoke(read)
+                        ?? Volatile.Read(ref active) != 0;
+                }
+            }
+
+            public long RegistrationId => 1;
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref active, 0) != 0)
+                {
+                    Interlocked.Increment(ref disposeCount);
+                    _ = Interlocked.Exchange(ref sink, null);
+                }
+            }
+
+            public bool Invalidate()
+            {
+                if (Interlocked.Exchange(ref active, 0) == 0)
+                {
+                    return false;
+                }
+
+                IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink?
+                    target = Interlocked.Exchange(ref sink, null);
+                target?.InvalidateAuthenticatedRemoteWindowConnectionPreparationNow();
+                return true;
+            }
+        }
+
+        public bool InvalidateConnectionPreparation()
+        {
+            isCurrent = false;
+            return CurrentConnectionPreparation?.Invalidate() == true;
+        }
+
         public void ReleaseDisposal() => disposeRelease.TrySetResult();
 
         public void ReleaseFailClose() => failCloseRelease.TrySetResult();
@@ -4206,6 +4639,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         public void Revoke()
         {
             isCurrent = false;
+            _ = CurrentConnectionPreparation?.Invalidate();
             Volatile.Read(ref revoked)?.Invoke();
         }
     }

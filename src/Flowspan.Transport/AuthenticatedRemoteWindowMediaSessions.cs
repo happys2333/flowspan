@@ -297,6 +297,9 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
     private int responderRouteInvalidated;
     private Task? responderRouteObservation;
     private RemoteWindowMediaRouteRegistration? routeRegistration;
+    private AuthenticatedRemoteWindowConnectionPreparationRegistration?
+        preparationRegistration;
+    private Exception? preparationInvalidationFailure;
 
     internal AuthenticatedRemoteWindowMediaSession(
         DeviceId localDeviceId,
@@ -347,13 +350,15 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
             {
                 return Volatile.Read(ref disposeStarted) == 0
                     && Volatile.Read(ref responderRouteInvalidated) == 0
+                    && Volatile.Read(ref controlStopRequested) == 0
                     && attachment is not null;
             }
         }
     }
 
     public bool IsCurrent => Volatile.Read(ref disposeStarted) == 0
-        && Volatile.Read(ref responderRouteInvalidated) == 0;
+        && Volatile.Read(ref responderRouteInvalidated) == 0
+        && Volatile.Read(ref controlStopRequested) == 0;
 
     public DeviceId LocalDeviceId { get; }
 
@@ -364,6 +369,103 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
     internal Task Completion => disposalCompletion.Task;
 
     internal CancellationToken ControlStopToken => controlStopToken;
+
+    internal AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+        TryCommitPreparationRegistration(
+            AuthenticatedRemoteWindowConnectionPreparationRegistration registration,
+            Action commitGenerationSlot,
+            Action rollBackGenerationSlot)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        ArgumentNullException.ThrowIfNull(commitGenerationSlot);
+        ArgumentNullException.ThrowIfNull(rollBackGenerationSlot);
+        lock (gate)
+        {
+            if (Volatile.Read(ref disposeStarted) != 0
+                || Volatile.Read(ref responderRouteInvalidated) != 0
+                || Volatile.Read(ref controlStopRequested) != 0)
+            {
+                _ = registration.Deactivate();
+                return AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                    .ConnectionStale;
+            }
+
+            if (preparationRegistration?.IsActive == true)
+            {
+                _ = registration.Deactivate();
+                return AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                    .ReservationConflict;
+            }
+
+            preparationRegistration = registration;
+            commitGenerationSlot();
+            try
+            {
+                registration.TransferOwnership();
+            }
+            catch
+            {
+                preparationRegistration = null;
+                rollBackGenerationSlot();
+                _ = registration.Deactivate();
+                throw;
+            }
+
+            return AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                .Reserved;
+        }
+    }
+
+    internal bool IsPreparationRegistrationCurrent(
+        AuthenticatedRemoteWindowConnectionPreparationRegistration registration)
+    {
+        lock (gate)
+        {
+            return Volatile.Read(ref disposeStarted) == 0
+                && Volatile.Read(ref responderRouteInvalidated) == 0
+                && Volatile.Read(ref controlStopRequested) == 0
+                && registration.IsActive
+                && ReferenceEquals(preparationRegistration, registration);
+        }
+    }
+
+    internal void UnregisterPreparationRegistration(
+        AuthenticatedRemoteWindowConnectionPreparationRegistration registration)
+    {
+        lock (gate)
+        {
+            if (ReferenceEquals(preparationRegistration, registration))
+            {
+                preparationRegistration = null;
+            }
+        }
+    }
+
+    internal bool TryAdmitPreparationOperation(
+        AuthenticatedRemoteWindowConnectionPreparationRegistration? registration,
+        Func<bool> admit)
+    {
+        ArgumentNullException.ThrowIfNull(admit);
+        lock (gate)
+        {
+            if (Volatile.Read(ref disposeStarted) != 0
+                || Volatile.Read(ref responderRouteInvalidated) != 0
+                || Volatile.Read(ref controlStopRequested) != 0)
+            {
+                return false;
+            }
+
+            bool hasActivePreparation = preparationRegistration?.IsActive == true;
+            if (hasActivePreparation
+                    && !ReferenceEquals(preparationRegistration, registration)
+                || !hasActivePreparation && registration is not null)
+            {
+                return false;
+            }
+
+            return admit();
+        }
+    }
 
     public RemoteWindowMediaRouteBinding PrepareResponderRoute(
         RemoteWindowSessionId sessionId,
@@ -578,9 +680,9 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
     public async ValueTask<RemoteWindowMediaFrame> ReceiveAsync(
         CancellationToken cancellationToken = default)
     {
-        RemoteWindowMediaAttachment current = RequireAttachment();
         try
         {
+            RemoteWindowMediaAttachment current = RequireAttachment();
             return await current.ReceiveAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
@@ -595,9 +697,9 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        RemoteWindowMediaAttachment current = RequireAttachment();
         try
         {
+            RemoteWindowMediaAttachment current = RequireAttachment();
             await current.SendAsync(frame, cancellationToken).ConfigureAwait(false);
         }
         catch
@@ -614,6 +716,7 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         {
             if (Volatile.Read(ref disposeStarted) != 0
                 || Volatile.Read(ref responderRouteInvalidated) != 0
+                || Volatile.Read(ref controlStopRequested) != 0
                 || attachment is not null
                 || routeRegistration is null
                 || !routeRegistration.IsAttached
@@ -631,7 +734,60 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
 
     internal void RequestControlStop()
     {
-        if (Interlocked.CompareExchange(ref controlStopRequested, 1, 0) != 0)
+        bool signalControlStop;
+        lock (gate)
+        {
+            signalControlStop = TryCommitControlStopUnderGate();
+        }
+
+        SignalCommittedControlStop(signalControlStop);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        bool signalControlStop = false;
+        bool startDisposal = false;
+        lock (gate)
+        {
+            if (Volatile.Read(ref disposeStarted) == 0)
+            {
+                Volatile.Write(ref disposeStarted, 1);
+                startDisposal = true;
+                signalControlStop = TryCommitControlStopUnderGate();
+            }
+        }
+
+        if (startDisposal)
+        {
+            SignalCommittedControlStop(signalControlStop);
+            _ = CompleteDisposalAsync();
+        }
+
+        return new ValueTask(disposalCompletion.Task);
+    }
+
+    private bool TryCommitControlStopUnderGate()
+    {
+        if (Volatile.Read(ref controlStopRequested) != 0)
+        {
+            return false;
+        }
+
+        Volatile.Write(ref controlStopRequested, 1);
+        Exception? invalidationFailure = InvalidatePreparationUnderGate();
+        if (invalidationFailure is not null)
+        {
+            preparationInvalidationFailure = CombineFailures(
+                preparationInvalidationFailure,
+                invalidationFailure);
+        }
+
+        return true;
+    }
+
+    private void SignalCommittedControlStop(bool signalControlStop)
+    {
+        if (!signalControlStop)
         {
             return;
         }
@@ -640,24 +796,29 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         {
             requestControlStop.Cancel();
         }
-        catch (AggregateException)
+        catch (AggregateException cancellationFailure)
         {
-            // The control owner still observes cancellation and owns cleanup.
+            OutOfMemoryException? fatal = cancellationFailure
+                .Flatten()
+                .InnerExceptions
+                .OfType<OutOfMemoryException>()
+                .FirstOrDefault();
+            if (fatal is not null)
+            {
+                lock (gate)
+                {
+                    preparationInvalidationFailure = CombineFailures(
+                        preparationInvalidationFailure,
+                        fatal);
+                }
+            }
+
+            // Every control owner was still invoked and owns its cleanup.
         }
         finally
         {
             controlStopCompletion.TrySetResult();
         }
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref disposeStarted, 1) == 0)
-        {
-            _ = CompleteDisposalAsync();
-        }
-
-        return new ValueTask(disposalCompletion.Task);
     }
 
     private RemoteWindowMediaRouteBinding CreateBinding(
@@ -677,6 +838,16 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
     private async Task CompleteDisposalAsync()
     {
         Exception? failure = null;
+        OutOfMemoryException? fatal = null;
+        await controlStopCompletion.Task.ConfigureAwait(false);
+        Exception? controlStopFailure;
+        lock (gate)
+        {
+            controlStopFailure = preparationInvalidationFailure;
+            preparationInvalidationFailure = null;
+        }
+
+        AccumulateCleanupFailure(ref failure, ref fatal, controlStopFailure);
         RemoteWindowMediaRouteRegistration? registration;
         RemoteWindowMediaAttachment? ownedAttachment;
         InitiatorConnectOperation? pendingConnect;
@@ -703,8 +874,9 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
             await pendingConnect.Settled.ConfigureAwait(false);
             if (pendingConnect.CleanupFailure is not null)
             {
-                failure = CombineFailures(
-                    failure,
+                AccumulateCleanupFailure(
+                    ref failure,
+                    ref fatal,
                     pendingConnect.CleanupFailure);
             }
         }
@@ -718,7 +890,7 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         }
         catch (Exception cleanupFailure)
         {
-            failure = cleanupFailure;
+            AccumulateCleanupFailure(ref failure, ref fatal, cleanupFailure);
         }
 
         if (routeObservation is not null)
@@ -734,7 +906,7 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
             }
             catch (Exception cleanupFailure)
             {
-                failure = CombineFailures(failure, cleanupFailure);
+                AccumulateCleanupFailure(ref failure, ref fatal, cleanupFailure);
             }
         }
 
@@ -746,28 +918,56 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
             }
             catch (Exception cleanupFailure)
             {
-                failure = CombineFailures(failure, cleanupFailure);
+                AccumulateCleanupFailure(ref failure, ref fatal, cleanupFailure);
             }
         }
 
-        RequestControlStop();
-        await controlStopCompletion.Task.ConfigureAwait(false);
         try
         {
             requestControlStop.Dispose();
         }
         catch (Exception cleanupFailure)
         {
-            failure = CombineFailures(failure, cleanupFailure);
+            AccumulateCleanupFailure(ref failure, ref fatal, cleanupFailure);
         }
 
-        if (failure is null)
+        if (fatal is not null)
+        {
+            disposalCompletion.TrySetException(fatal);
+        }
+        else if (failure is null)
         {
             disposalCompletion.TrySetResult();
         }
         else
         {
             disposalCompletion.TrySetException(failure);
+        }
+    }
+
+    private static void AccumulateCleanupFailure(
+        ref Exception? failure,
+        ref OutOfMemoryException? fatal,
+        Exception? candidate)
+    {
+        if (candidate is null)
+        {
+            return;
+        }
+
+        fatal ??= candidate switch
+        {
+            OutOfMemoryException outOfMemory => outOfMemory,
+            AggregateException aggregate => aggregate
+                .Flatten()
+                .InnerExceptions
+                .OfType<OutOfMemoryException>()
+                .FirstOrDefault(),
+            _ => null,
+        };
+        if (candidate is not OutOfMemoryException)
+        {
+            failure = CombineFailures(failure, candidate);
         }
     }
 
@@ -795,6 +995,7 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         }
 
         bool invalidated;
+        bool signalControlStop = false;
         lock (gate)
         {
             invalidated = ReferenceEquals(routeRegistration, registration)
@@ -802,6 +1003,7 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
             if (invalidated)
             {
                 Volatile.Write(ref responderRouteInvalidated, 1);
+                signalControlStop = TryCommitControlStopUnderGate();
             }
         }
 
@@ -810,10 +1012,33 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
             return;
         }
 
+        SignalCommittedControlStop(signalControlStop);
         attachmentReady.TrySetException(new IOException(
             "The authenticated Remote Window media route ended before attachment.",
             cleanupFailure));
-        RequestControlStop();
+    }
+
+    private Exception? InvalidatePreparationUnderGate()
+    {
+        AuthenticatedRemoteWindowConnectionPreparationRegistration? registration =
+            preparationRegistration;
+        preparationRegistration = null;
+        IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink? sink =
+            registration?.Deactivate();
+        if (sink is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            sink.InvalidateAuthenticatedRemoteWindowConnectionPreparationNow();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
     }
 
     private RemoteWindowMediaAttachment RequireAttachment()
@@ -821,6 +1046,13 @@ public sealed class AuthenticatedRemoteWindowMediaSession :
         lock (gate)
         {
             ThrowIfDisposed();
+            if (Volatile.Read(ref responderRouteInvalidated) != 0
+                || Volatile.Read(ref controlStopRequested) != 0)
+            {
+                throw new InvalidOperationException(
+                    "The authenticated Remote Window media session is no longer current.");
+            }
+
             return attachment
                 ?? throw new InvalidOperationException(
                     "The authenticated Remote Window media attachment is not ready.");

@@ -88,12 +88,31 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
 
     public bool IsRevoked => generation.IsRevoked;
 
-    public CancellationTokenRegistration RegisterRevocationCallback(
+    public IDisposable RegisterRevocationCallback(
         Action callback)
     {
         ArgumentNullException.ThrowIfNull(callback);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
-        return generation.RegisterRevocationCallback(callback);
+        return AuthenticatedRemoteWindowConnectionRevocationRegistration.Register(
+            callback,
+            registered => generation.RegisterRevocationCallback(registered),
+            registered =>
+            {
+                Action callbackWithGenerationAncestry = () =>
+                    generation.InvokeRevocationCallback(registered);
+                return mediaSession.ControlStopToken.UnsafeRegister(
+                    static state => ((Action)state!).Invoke(),
+                    callbackWithGenerationAncestry);
+            });
+    }
+
+    internal AuthenticatedRemoteWindowConnectionPreparationReservationResult
+        TryReservePreparation(
+            IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+        return generation.TryReservePreparation(mediaSession, sink);
     }
 
     public ValueTask FailCloseAsync()
@@ -119,6 +138,7 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
             sessionId,
             activityId,
             lifetime,
+            connectionPreparation: null,
             admission: null);
 
     internal RemoteWindowMediaRouteBinding PrepareResponderRoute(
@@ -132,6 +152,25 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
             sessionId,
             activityId,
             lifetime,
+            connectionPreparation: null,
+            admission);
+    }
+
+    internal RemoteWindowMediaRouteBinding PrepareResponderRoute(
+        RemoteWindowSessionId sessionId,
+        ActivityId activityId,
+        IAuthenticatedRemoteWindowConnectionPreparationRegistration
+            connectionPreparation,
+        IRemoteWindowHostPreparationAdmission admission,
+        TimeSpan? lifetime = null)
+    {
+        ArgumentNullException.ThrowIfNull(connectionPreparation);
+        ArgumentNullException.ThrowIfNull(admission);
+        return PrepareResponderRouteCore(
+            sessionId,
+            activityId,
+            lifetime,
+            connectionPreparation,
             admission);
     }
 
@@ -139,10 +178,14 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         RemoteWindowSessionId sessionId,
         ActivityId activityId,
         TimeSpan? lifetime,
+        IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+            connectionPreparation,
         IRemoteWindowHostPreparationAdmission? admission)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         if (!generation.TryBeginResponderRouteOperation(
+                mediaSession,
+                connectionPreparation,
                 admission,
                 out RemoteWindowResponderRouteOperation? operation)
             || operation is null)
@@ -198,15 +241,61 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
 
         using CancellationTokenSource linked = CreateLinkedCancellation(
             cancellationToken);
-        return await preparationChannel.PrepareAsync(request, linked.Token)
-            .ConfigureAwait(false);
+        if (preparationChannel is IReservedRemoteWindowPreparationChannel reserved)
+        {
+            var connectionAdmission =
+                new ConnectionBoundHostPreparationAdmission(
+                    generation,
+                    mediaSession,
+                    connectionPreparation: null,
+                    inner: null);
+            return await reserved.PrepareReservedAsync(
+                    request,
+                    connectionAdmission,
+                    linked.Token)
+                .ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return RemoteWindowPreparationDeliveryResult.NotDelivered;
     }
 
     internal async ValueTask<RemoteWindowPreparationDeliveryResult>
         PrepareReservedAsync(
         RemoteWindowPreparationRequest request,
         IRemoteWindowHostPreparationAdmission admission,
+        CancellationToken cancellationToken = default) =>
+        await PrepareReservedCoreAsync(
+                request,
+                connectionPreparation: null,
+                admission,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal async ValueTask<RemoteWindowPreparationDeliveryResult>
+        PrepareReservedAsync(
+        RemoteWindowPreparationRequest request,
+        IAuthenticatedRemoteWindowConnectionPreparationRegistration
+            connectionPreparation,
+        IRemoteWindowHostPreparationAdmission admission,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(connectionPreparation);
+        return await PrepareReservedCoreAsync(
+                request,
+                connectionPreparation,
+                admission,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask<RemoteWindowPreparationDeliveryResult>
+        PrepareReservedCoreAsync(
+        RemoteWindowPreparationRequest request,
+        IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+            connectionPreparation,
+        IRemoteWindowHostPreparationAdmission admission,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(admission);
@@ -226,11 +315,16 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
 
         using CancellationTokenSource linked = CreateLinkedCancellation(
             cancellationToken);
+        var connectionAdmission = new ConnectionBoundHostPreparationAdmission(
+            generation,
+            mediaSession,
+            connectionPreparation,
+            admission);
         try
         {
             return await reserved.PrepareReservedAsync(
                     request,
-                    admission,
+                    connectionAdmission,
                     linked.Token)
                 .ConfigureAwait(false);
         }
@@ -568,6 +662,184 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         };
 }
 
+internal sealed class ConnectionBoundHostPreparationAdmission(
+    RemoteWindowConnectionGeneration generation,
+    AuthenticatedRemoteWindowMediaSession mediaSession,
+    IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+        connectionPreparation,
+    IRemoteWindowHostPreparationAdmission? inner) :
+    IRemoteWindowHostPreparationAdmission
+{
+    private readonly RemoteWindowConnectionGeneration generation = generation
+        ?? throw new ArgumentNullException(nameof(generation));
+    private readonly AuthenticatedRemoteWindowMediaSession mediaSession =
+        mediaSession ?? throw new ArgumentNullException(nameof(mediaSession));
+    private readonly IRemoteWindowHostPreparationAdmission? inner = inner;
+
+    public bool CompleteRouteSelection() =>
+        inner?.CompleteRouteSelection() ?? true;
+
+    public bool TryAdmitPrepareSend(
+        RemoteWindowPreparationRequest request,
+        DateTimeOffset now) => generation.TryAdmitPreparationOperation(
+            mediaSession,
+            connectionPreparation,
+            () => inner?.TryAdmitPrepareSend(request, now) ?? true);
+
+    public bool TryAdmitRouteSelection(DateTimeOffset now) =>
+        inner?.TryAdmitRouteSelection(now) ?? true;
+
+    public bool TryFailRouteSelection() =>
+        inner?.TryFailRouteSelection() ?? true;
+}
+
+internal sealed class AuthenticatedRemoteWindowConnectionRevocationRegistration :
+    IDisposable
+{
+    private readonly Lazy<Exception?> cleanup;
+
+    private AuthenticatedRemoteWindowConnectionRevocationRegistration(
+        IDisposable generationRegistration,
+        IDisposable mediaRegistration)
+    {
+        cleanup = new Lazy<Exception?>(
+            () => CleanupRegistrations(
+                generationRegistration,
+                mediaRegistration),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    internal static IDisposable Register(
+        Action callback,
+        Func<Action, IDisposable> registerGeneration,
+        Func<Action, IDisposable> registerMedia) => Register(
+        callback,
+        registerGeneration,
+        registerMedia,
+        static (generationRegistration, mediaRegistration) =>
+            new AuthenticatedRemoteWindowConnectionRevocationRegistration(
+                generationRegistration,
+                mediaRegistration));
+
+    internal static IDisposable Register(
+        Action callback,
+        Func<Action, IDisposable> registerGeneration,
+        Func<Action, IDisposable> registerMedia,
+        Func<IDisposable, IDisposable, IDisposable> createRegistration)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        ArgumentNullException.ThrowIfNull(registerGeneration);
+        ArgumentNullException.ThrowIfNull(registerMedia);
+        ArgumentNullException.ThrowIfNull(createRegistration);
+        var invocation = new ExactOnceInvocation(callback);
+        Action invoke = invocation.Invoke;
+        IDisposable? generationRegistration = null;
+        IDisposable? mediaRegistration = null;
+        try
+        {
+            generationRegistration = registerGeneration(invoke)
+                ?? throw new InvalidOperationException(
+                    "The generation revocation registration factory returned null.");
+            mediaRegistration = registerMedia(invoke)
+                ?? throw new InvalidOperationException(
+                    "The media revocation registration factory returned null.");
+            return createRegistration(
+                    generationRegistration,
+                    mediaRegistration)
+                ?? throw new InvalidOperationException(
+                    "The composite revocation registration factory returned null.");
+        }
+        catch (Exception setupFailure)
+        {
+            Exception? rollbackFailure = CleanupRegistrations(
+                generationRegistration,
+                mediaRegistration);
+            Exception failure = rollbackFailure is null
+                ? setupFailure
+                : new AggregateException(
+                    "Authenticated Remote Window revocation registration setup and rollback failed.",
+                    setupFailure,
+                    rollbackFailure);
+            ExceptionDispatchInfo.Capture(
+                    FindOutOfMemoryException(failure) ?? failure)
+                .Throw();
+            throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        Exception? failure = cleanup.Value;
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    private sealed class ExactOnceInvocation(Action callback)
+    {
+        private int invoked;
+
+        public void Invoke()
+        {
+            if (Interlocked.Exchange(ref invoked, 1) == 0)
+            {
+                callback();
+            }
+        }
+    }
+
+    private static Exception? CaptureFailure(Action action)
+    {
+        try
+        {
+            action();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
+    private static Exception? CleanupRegistrations(
+        IDisposable? generationRegistration,
+        IDisposable? mediaRegistration)
+    {
+        Exception? mediaFailure = mediaRegistration is null
+            ? null
+            : CaptureFailure(mediaRegistration.Dispose);
+        Exception? generationFailure = generationRegistration is null
+            ? null
+            : CaptureFailure(generationRegistration.Dispose);
+        Exception? failure = (mediaFailure, generationFailure) switch
+        {
+            (null, null) => null,
+            (not null, null) => mediaFailure,
+            (null, not null) => generationFailure,
+            _ => new AggregateException(
+                "Authenticated Remote Window revocation registration cleanup failed.",
+                mediaFailure!,
+                generationFailure!),
+        };
+        return failure is null
+            ? null
+            : FindOutOfMemoryException(failure) ?? failure;
+    }
+
+    private static OutOfMemoryException? FindOutOfMemoryException(
+        Exception failure) => failure switch
+        {
+            OutOfMemoryException fatal => fatal,
+            AggregateException aggregate => aggregate
+                .Flatten()
+                .InnerExceptions
+                .OfType<OutOfMemoryException>()
+                .FirstOrDefault(),
+            _ => null,
+        };
+}
+
 internal sealed class RemoteWindowConnectionGeneration : IDisposable
 {
     private static readonly AsyncLocal<RevocationCallbackAncestry?>
@@ -584,6 +856,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     private bool cancellationCompleted;
     private RemoteWindowPreparationRequest? deferredFailCloseRequest;
     private Func<ValueTask>? deferredFailCloseOperation;
+    private Exception? deferredFailClosePreparationFailure;
     private ITimer? deferredFailCloseTimer;
     private Task? failCloseTask;
     private bool ownerReleased;
@@ -594,6 +867,9 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     private TaskCompletionSource peerConnectionsDrained =
         CreateCompletedSignal();
     private bool responderRouteClaimed;
+    private long nextPreparationRegistrationId;
+    private AuthenticatedRemoteWindowConnectionPreparationRegistration?
+        preparationRegistration;
     private TaskCompletionSource responderRoutesDrained =
         CreateCompletedSignal();
 
@@ -767,6 +1043,127 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         }
     }
 
+    internal AuthenticatedRemoteWindowConnectionPreparationReservationResult
+        TryReservePreparation(
+            AuthenticatedRemoteWindowMediaSession mediaSession,
+            IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(mediaSession);
+        ArgumentNullException.ThrowIfNull(sink);
+        lock (gate)
+        {
+            if (revoked || failClosePending || ownerReleased)
+            {
+                return new(
+                    AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                        .ConnectionStale,
+                    Registration: null);
+            }
+
+            if (responderRouteClaimed
+                || activeResponderRoutes != 0
+                || preparationRegistration?.IsActive == true)
+            {
+                return new(
+                    AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                        .ReservationConflict,
+                    Registration: null);
+            }
+
+            long registrationId = checked(++nextPreparationRegistrationId);
+            var registration =
+                new AuthenticatedRemoteWindowConnectionPreparationRegistration(
+                    this,
+                    mediaSession,
+                    registrationId,
+                    sink);
+            AuthenticatedRemoteWindowConnectionPreparationReservationStatus status =
+                mediaSession.TryCommitPreparationRegistration(
+                    registration,
+                    () => preparationRegistration = registration,
+                    () =>
+                    {
+                        if (ReferenceEquals(preparationRegistration, registration))
+                        {
+                            preparationRegistration = null;
+                        }
+                    });
+            return new(
+                status,
+                status ==
+                    AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                        .Reserved
+                    ? registration
+                    : null);
+        }
+    }
+
+    internal bool IsPreparationRegistrationCurrent(
+        AuthenticatedRemoteWindowConnectionPreparationRegistration registration,
+        AuthenticatedRemoteWindowMediaSession mediaSession)
+    {
+        lock (gate)
+        {
+            return !revoked
+                && !failClosePending
+                && !ownerReleased
+                && registration.IsActive
+                && ReferenceEquals(preparationRegistration, registration)
+                && mediaSession.IsPreparationRegistrationCurrent(registration);
+        }
+    }
+
+    internal bool TryAdmitPreparationOperation(
+        AuthenticatedRemoteWindowMediaSession mediaSession,
+        IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+            connectionPreparation,
+        Func<bool> admit)
+    {
+        ArgumentNullException.ThrowIfNull(mediaSession);
+        ArgumentNullException.ThrowIfNull(admit);
+        lock (gate)
+        {
+            if (revoked || failClosePending || ownerReleased)
+            {
+                return false;
+            }
+
+            AuthenticatedRemoteWindowConnectionPreparationRegistration?
+                exactRegistration = connectionPreparation as
+                    AuthenticatedRemoteWindowConnectionPreparationRegistration;
+            bool generationHasActivePreparation =
+                preparationRegistration?.IsActive == true;
+            if (connectionPreparation is not null && exactRegistration is null
+                || generationHasActivePreparation
+                && !ReferenceEquals(preparationRegistration, exactRegistration)
+                || !generationHasActivePreparation
+                && connectionPreparation is not null)
+            {
+                return false;
+            }
+
+            return mediaSession.TryAdmitPreparationOperation(
+                exactRegistration,
+                admit);
+        }
+    }
+
+    internal void UnregisterPreparation(
+        AuthenticatedRemoteWindowConnectionPreparationRegistration registration,
+        AuthenticatedRemoteWindowMediaSession mediaSession)
+    {
+        lock (gate)
+        {
+            if (ReferenceEquals(preparationRegistration, registration))
+            {
+                preparationRegistration = null;
+            }
+
+            mediaSession.UnregisterPreparationRegistration(registration);
+            _ = registration.Deactivate();
+        }
+    }
+
     internal bool IsPeerConnectionCandidateCurrent(
         ProtocolVersion protocolVersion)
     {
@@ -867,9 +1264,13 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     }
 
     internal bool TryBeginResponderRouteOperation(
+        AuthenticatedRemoteWindowMediaSession mediaSession,
+        IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+            connectionPreparation,
         IRemoteWindowHostPreparationAdmission? admission,
         out RemoteWindowResponderRouteOperation? operation)
     {
+        ArgumentNullException.ThrowIfNull(mediaSession);
         var candidate = new RemoteWindowResponderRouteOperation(this);
         var drain = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -885,9 +1286,26 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
                 return false;
             }
 
+            AuthenticatedRemoteWindowConnectionPreparationRegistration?
+                exactRegistration = connectionPreparation as
+                    AuthenticatedRemoteWindowConnectionPreparationRegistration;
+            bool generationHasActivePreparation =
+                preparationRegistration?.IsActive == true;
+            if (connectionPreparation is not null && exactRegistration is null
+                || generationHasActivePreparation
+                && !ReferenceEquals(preparationRegistration, exactRegistration)
+                || !generationHasActivePreparation
+                && connectionPreparation is not null)
+            {
+                operation = null;
+                return false;
+            }
+
             DateTimeOffset admissionTime = timeProvider.GetUtcNow();
-            if (admission is not null
-                && !admission.TryAdmitRouteSelection(admissionTime))
+            if (!mediaSession.TryAdmitPreparationOperation(
+                    exactRegistration,
+                    () => admission is null
+                        || admission.TryAdmitRouteSelection(admissionTime)))
             {
                 operation = null;
                 return false;
@@ -995,6 +1413,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     {
         bool cancel;
         ITimer? deferredTimer;
+        Exception? preparationFailure;
         lock (gate)
         {
             if (ownerReleased)
@@ -1007,11 +1426,19 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             ownerReleased = true;
             deferredTimer = deferredFailCloseTimer;
             deferredFailCloseTimer = null;
+            preparationFailure = CombineGenerationFailures(
+                deferredFailClosePreparationFailure,
+                InvalidatePreparationUnderGate());
+            deferredFailClosePreparationFailure = null;
         }
 
         Exception? failure = deferredTimer is null
-            ? null
+            ? preparationFailure
             : CaptureFailure(deferredTimer.Dispose);
+        if (deferredTimer is not null)
+        {
+            failure = CombineGenerationFailures(preparationFailure, failure);
+        }
         if (cancel)
         {
             try
@@ -1048,7 +1475,35 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             }
         }
 
+        if (FindOutOfMemoryException(failure) is { } fatal)
+        {
+            ExceptionDispatchInfo.Capture(fatal).Throw();
+        }
+
         return failure;
+    }
+
+    private Exception? InvalidatePreparationUnderGate()
+    {
+        AuthenticatedRemoteWindowConnectionPreparationRegistration? registration =
+            preparationRegistration;
+        preparationRegistration = null;
+        IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink? sink =
+            registration?.Deactivate();
+        if (sink is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            sink.InvalidateAuthenticatedRemoteWindowConnectionPreparationNow();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
     }
 
     internal bool TryDeferFailCloseUntilPreparationDeadline(
@@ -1104,6 +1559,8 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
                 }
 
                 deferredFailCloseTimer = timer;
+                deferredFailClosePreparationFailure =
+                    InvalidatePreparationUnderGate();
                 return true;
             }
             catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -1122,16 +1579,21 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         Task task;
         TaskCompletionSource? completion = null;
         ITimer? deferredTimer = null;
+        Exception? preparationFailure = null;
         lock (gate)
         {
             if (failCloseTask is null)
             {
-                failClosePending = true;
                 completion = new TaskCompletionSource(
                     TaskCreationOptions.RunContinuationsAsynchronously);
                 failCloseTask = completion.Task;
+                failClosePending = true;
                 deferredTimer = deferredFailCloseTimer;
                 deferredFailCloseTimer = null;
+                preparationFailure = CombineGenerationFailures(
+                    deferredFailClosePreparationFailure,
+                    InvalidatePreparationUnderGate());
+                deferredFailClosePreparationFailure = null;
             }
 
             task = failCloseTask;
@@ -1140,12 +1602,15 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         Exception? timerFailure = deferredTimer is null
             ? null
             : CaptureFailure(deferredTimer.Dispose);
+        Exception? initialFailure = CombineGenerationFailures(
+            preparationFailure,
+            timerFailure);
         if (completion is not null)
         {
             _ = CompleteFailCloseAsync(
                 completion,
                 failClose,
-                timerFailure);
+                initialFailure);
         }
 
         return new ValueTask(task);
@@ -1176,19 +1641,28 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
     private static async Task CompleteFailCloseAsync(
         TaskCompletionSource completion,
         Func<ValueTask> failClose,
-        Exception? timerFailure)
+        Exception? initialFailure)
     {
-        Exception? failure = timerFailure;
+        OutOfMemoryException? fatal = FindOutOfMemoryException(initialFailure);
+        Exception? failure = fatal is null ? initialFailure : null;
         try
         {
             await failClose().ConfigureAwait(false);
         }
         catch (Exception exception)
         {
-            failure = CombineGenerationFailures(failure, exception);
+            fatal ??= FindOutOfMemoryException(exception);
+            if (fatal is null)
+            {
+                failure = CombineGenerationFailures(failure, exception);
+            }
         }
 
-        if (failure is null)
+        if (fatal is not null)
+        {
+            completion.TrySetException(fatal);
+        }
+        else if (failure is null)
         {
             completion.TrySetResult();
         }
@@ -1197,6 +1671,18 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             completion.TrySetException(failure);
         }
     }
+
+    private static OutOfMemoryException? FindOutOfMemoryException(
+        Exception? failure) => failure switch
+        {
+            OutOfMemoryException fatal => fatal,
+            AggregateException aggregate => aggregate
+                .Flatten()
+                .InnerExceptions
+                .OfType<OutOfMemoryException>()
+                .FirstOrDefault(),
+            _ => null,
+        };
 
     private static Exception? CombineGenerationFailures(
         Exception? first,
@@ -1261,7 +1747,7 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
         }
     }
 
-    private void InvokeRevocationCallback(Action callback)
+    internal void InvokeRevocationCallback(Action callback)
     {
         object? owner = revocationCallbackOwner;
         if (owner is null)

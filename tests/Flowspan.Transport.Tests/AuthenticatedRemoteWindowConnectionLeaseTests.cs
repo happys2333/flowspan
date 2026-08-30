@@ -25,6 +25,748 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
         Guid.Parse("44444444-4444-4444-4444-444444444444"));
 
     [Fact]
+    public async Task ConnectionPreparationReservationBindsExactGenerationAndMediaUntilDisposed()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var sink = new RecordingConnectionPreparationSink();
+
+            AuthenticatedRemoteWindowConnectionPreparationReservationResult result =
+                lease.TryReservePreparation(sink);
+
+            Assert.Equal(
+                AuthenticatedRemoteWindowConnectionPreparationReservationStatus.Reserved,
+                result.Status);
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration registration =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    result.Registration);
+            Assert.Same(registration, sink.OwnedRegistration);
+            Assert.True(registration.IsCurrent);
+            Assert.True(result.Reserved);
+
+            registration.Dispose();
+
+            Assert.False(registration.IsCurrent);
+            Assert.Equal(0, sink.InvalidationCount);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task OwnerClaimThrowAllowsAbaReplacementAndLateOldDisposeCannotClearIt()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var injected = new IOException("connection owner claim canary");
+            var failingSink = new RecordingConnectionPreparationSink(
+                owning: () => throw injected);
+
+            IOException failure = Assert.Throws<IOException>(() =>
+                lease.TryReservePreparation(failingSink));
+
+            Assert.Same(injected, failure);
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration stale =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    failingSink.OwnedRegistration);
+            Assert.False(stale.IsCurrent);
+            var replacementSink = new RecordingConnectionPreparationSink();
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration replacement =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    lease.TryReservePreparation(replacementSink).Registration);
+            Assert.True(replacement.IsCurrent);
+            Assert.True(replacement.RegistrationId > stale.RegistrationId);
+
+            stale.Dispose();
+
+            Assert.True(replacement.IsCurrent);
+            replacement.Dispose();
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task ConnectionRevocationInvalidatesPreparationBeforeOrdinaryCallbacks()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var timeline = new List<string>();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var sink = new RecordingConnectionPreparationSink(
+                () => timeline.Add("preparation.invalidate"));
+            AuthenticatedRemoteWindowConnectionPreparationReservationResult result =
+                lease.TryReservePreparation(sink);
+            using IDisposable callback = lease.RegisterRevocationCallback(
+                () => timeline.Add("connection.revoked"));
+
+            Exception? failure = generation.RevokeAndReleaseOwner();
+
+            Assert.Null(failure);
+            Assert.Equal(
+                ["preparation.invalidate", "connection.revoked"],
+                timeline);
+            Assert.Equal(1, sink.InvalidationCount);
+            Assert.False(Assert.IsAssignableFrom<
+                IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                result.Registration).IsCurrent);
+        }
+    }
+
+    [Fact]
+    public async Task MediaControlStopInvokesConnectionRevocationCallbackExactlyOnce()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            int callbackCount = 0;
+            bool? currentObservedByCallback = null;
+            using IDisposable callback = lease.RegisterRevocationCallback(() =>
+            {
+                Interlocked.Increment(ref callbackCount);
+                currentObservedByCallback = lease.IsCurrent;
+            });
+
+            mediaSession.RequestControlStop();
+
+            Assert.Equal(1, callbackCount);
+            Assert.False(currentObservedByCallback);
+            Assert.False(lease.IsCurrent);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+            Assert.Equal(1, callbackCount);
+        }
+    }
+
+    [Fact]
+    public void ConnectionRevocationRegistrationSetupFailureRollsBackAndPreservesBothFailures()
+    {
+        var timeline = new List<string>();
+        var setupFailure = new IOException("media registration setup canary");
+        var rollbackFailure = new InvalidOperationException(
+            "generation registration rollback canary");
+
+        AggregateException failure = Assert.Throws<AggregateException>(() =>
+            AuthenticatedRemoteWindowConnectionRevocationRegistration.Register(
+                static () => { },
+                _ =>
+                {
+                    timeline.Add("generation.register");
+                    return new RecordingDisposable(() =>
+                    {
+                        timeline.Add("generation.dispose");
+                        throw rollbackFailure;
+                    });
+                },
+                _ =>
+                {
+                    timeline.Add("media.register");
+                    throw setupFailure;
+                }));
+
+        Assert.Equal(
+            ["generation.register", "media.register", "generation.dispose"],
+            timeline);
+        Assert.Collection(
+            failure.Flatten().InnerExceptions,
+            item => Assert.Same(setupFailure, item),
+            item => Assert.Same(rollbackFailure, item));
+    }
+
+    [Fact]
+    public void ConnectionRevocationRegistrationConstructionFailureRollsBackInReverseOrder()
+    {
+        var timeline = new List<string>();
+        var setupFailure = new IOException(
+            "composite registration construction canary");
+
+        IOException failure = Assert.Throws<IOException>(() =>
+            AuthenticatedRemoteWindowConnectionRevocationRegistration.Register(
+                static () => { },
+                _ =>
+                {
+                    timeline.Add("generation.register");
+                    return new RecordingDisposable(
+                        () => timeline.Add("generation.dispose"));
+                },
+                _ =>
+                {
+                    timeline.Add("media.register");
+                    return new RecordingDisposable(
+                        () => timeline.Add("media.dispose"));
+                },
+                (_, _) =>
+                {
+                    timeline.Add("composite.create");
+                    throw setupFailure;
+                }));
+
+        Assert.Same(setupFailure, failure);
+        Assert.Equal(
+            [
+                "generation.register",
+                "media.register",
+                "composite.create",
+                "media.dispose",
+                "generation.dispose",
+            ],
+            timeline);
+    }
+
+    [Fact]
+    public void ConnectionRevocationRegistrationConstructionOutOfMemoryRollsBackBothHandlesBeforeEscaping()
+    {
+        var timeline = new List<string>();
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var fatal = new OutOfMemoryException(
+            "composite registration construction fatal canary");
+#pragma warning restore CA2201
+
+        OutOfMemoryException failure = Assert.Throws<OutOfMemoryException>(() =>
+            AuthenticatedRemoteWindowConnectionRevocationRegistration.Register(
+                static () => { },
+                _ => new RecordingDisposable(
+                    () => timeline.Add("generation.dispose")),
+                _ => new RecordingDisposable(
+                    () => timeline.Add("media.dispose")),
+                (_, _) => throw fatal));
+
+        Assert.Same(fatal, failure);
+        Assert.Equal(
+            ["media.dispose", "generation.dispose"],
+            timeline);
+    }
+
+    [Fact]
+    public void ConnectionRevocationRegistrationDisposesInReverseOrderAndReplaysCleanupFailure()
+    {
+        var timeline = new List<string>();
+        var mediaFailure = new IOException("media registration cleanup canary");
+        var generationFailure = new InvalidOperationException(
+            "generation registration cleanup canary");
+        IDisposable registration =
+            AuthenticatedRemoteWindowConnectionRevocationRegistration.Register(
+                static () => { },
+                _ =>
+                {
+                    timeline.Add("generation.register");
+                    return new RecordingDisposable(() =>
+                    {
+                        timeline.Add("generation.dispose");
+                        throw generationFailure;
+                    });
+                },
+                _ =>
+                {
+                    timeline.Add("media.register");
+                    return new RecordingDisposable(() =>
+                    {
+                        timeline.Add("media.dispose");
+                        throw mediaFailure;
+                    });
+                });
+
+        AggregateException first = Assert.Throws<AggregateException>(
+            registration.Dispose);
+        AggregateException second = Assert.Throws<AggregateException>(
+            registration.Dispose);
+
+        Assert.Same(first, second);
+        Assert.Equal(
+            [
+                "generation.register",
+                "media.register",
+                "media.dispose",
+                "generation.dispose",
+            ],
+            timeline);
+        Assert.Collection(
+            first.Flatten().InnerExceptions,
+            item => Assert.Same(mediaFailure, item),
+            item => Assert.Same(generationFailure, item));
+    }
+
+    [Fact]
+    public void ConnectionRevocationRegistrationCleanupEscapesExactOutOfMemoryAfterBothDisposals()
+    {
+        var timeline = new List<string>();
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var fatal = new OutOfMemoryException(
+            "media registration cleanup fatal canary");
+#pragma warning restore CA2201
+        var generationFailure = new IOException(
+            "generation registration cleanup canary");
+        IDisposable registration =
+            AuthenticatedRemoteWindowConnectionRevocationRegistration.Register(
+                static () => { },
+                _ => new RecordingDisposable(() =>
+                {
+                    timeline.Add("generation.dispose");
+                    throw generationFailure;
+                }),
+                _ => new RecordingDisposable(() =>
+                {
+                    timeline.Add("media.dispose");
+                    throw fatal;
+                }));
+
+        OutOfMemoryException first = Assert.Throws<OutOfMemoryException>(
+            registration.Dispose);
+        OutOfMemoryException second = Assert.Throws<OutOfMemoryException>(
+            registration.Dispose);
+
+        Assert.Same(fatal, first);
+        Assert.Same(first, second);
+        Assert.Equal(
+            ["media.dispose", "generation.dispose"],
+            timeline);
+    }
+
+    [Fact]
+    public async Task MediaRevocationCallbackCanDisposeItsCompositeRegistration()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            int callbackCount = 0;
+            IDisposable? registration = null;
+            registration = lease.RegisterRevocationCallback(() =>
+            {
+                Interlocked.Increment(ref callbackCount);
+                registration!.Dispose();
+            });
+
+            mediaSession.RequestControlStop();
+
+            Assert.Equal(1, callbackCount);
+            registration.Dispose();
+            Assert.Null(generation.RevokeAndReleaseOwner());
+            Assert.Equal(1, callbackCount);
+        }
+    }
+
+    [Fact]
+    public async Task MediaRevocationCallbackCanFailCloseWithoutRecursiveCleanup()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var releaseCleanup = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            int cleanupCount = 0;
+            var generation = new RemoteWindowConnectionGeneration(
+                value: 1,
+                revocationCallbackOwner: new object());
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                () =>
+                {
+                    Interlocked.Increment(ref cleanupCount);
+                    return new ValueTask(releaseCleanup.Task);
+                },
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            Task? callbackCleanup = null;
+            using IDisposable registration = lease.RegisterRevocationCallback(
+                () => callbackCleanup = lease.FailCloseAsync().AsTask());
+
+            try
+            {
+                mediaSession.RequestControlStop();
+
+                Assert.NotNull(callbackCleanup);
+                Assert.True(callbackCleanup.IsCompletedSuccessfully);
+                Assert.Equal(0, cleanupCount);
+            }
+            finally
+            {
+                releaseCleanup.TrySetResult();
+            }
+
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentGenerationAndMediaRevocationInvokeCallbackExactlyOnce()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(
+                value: 1,
+                revocationCallbackOwner: new object());
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var callbackEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseCallback = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            int callbackCount = 0;
+            using IDisposable registration = lease.RegisterRevocationCallback(() =>
+            {
+                Interlocked.Increment(ref callbackCount);
+                callbackEntered.TrySetResult();
+                releaseCallback.Task.GetAwaiter().GetResult();
+            });
+            Task mediaStopping = Task.Run(mediaSession.RequestControlStop);
+
+            try
+            {
+                await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Task<Exception?> generationRevoking = Task.Run(
+                    generation.RevokeAndReleaseOwner);
+
+                Assert.Null(await generationRevoking.WaitAsync(
+                    TimeSpan.FromSeconds(5)));
+                Assert.Equal(1, callbackCount);
+            }
+            finally
+            {
+                releaseCallback.TrySetResult();
+            }
+
+            await mediaStopping.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(1, callbackCount);
+        }
+    }
+
+    [Fact]
+    public async Task RegistrationAfterMediaRevocationInvokesSynchronouslyOnce()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(
+                value: 1,
+                revocationCallbackOwner: new object());
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            mediaSession.RequestControlStop();
+            int callbackCount = 0;
+
+            using IDisposable registration = lease.RegisterRevocationCallback(
+                () => Interlocked.Increment(ref callbackCount));
+
+            Assert.Equal(1, callbackCount);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+            Assert.Equal(1, callbackCount);
+        }
+    }
+
+    [Fact]
+    public async Task RegistrationAfterGenerationRevocationInvokesSynchronouslyOnce()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(
+                value: 1,
+                revocationCallbackOwner: new object());
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+            int callbackCount = 0;
+
+            using IDisposable registration = lease.RegisterRevocationCallback(
+                () => Interlocked.Increment(ref callbackCount));
+
+            Assert.Equal(1, callbackCount);
+            mediaSession.RequestControlStop();
+            Assert.Equal(1, callbackCount);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitFailCloseInvalidatesPreparationBeforeCleanupStarts()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var timeline = new List<string>();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                () =>
+                {
+                    timeline.Add("connection.cleanup");
+                    return ValueTask.CompletedTask;
+                },
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var sink = new RecordingConnectionPreparationSink(
+                () => timeline.Add("preparation.invalidate"));
+            AuthenticatedRemoteWindowConnectionPreparationReservationResult result =
+                lease.TryReservePreparation(sink);
+
+            await lease.FailCloseAsync();
+
+            Assert.Equal(
+                ["preparation.invalidate", "connection.cleanup"],
+                timeline);
+            Assert.False(Assert.IsAssignableFrom<
+                IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                result.Registration).IsCurrent);
+            Assert.False(lease.IsCurrent);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task NonFatalPreparationSinkAndFailCloseFailuresShareOrderedCleanup()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var timeline = new List<string>();
+            var sinkFailure = new IOException("connection preparation sink canary");
+            var cleanupFailure = new InvalidOperationException(
+                "connection fail-close cleanup canary");
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                () =>
+                {
+                    timeline.Add("connection.cleanup");
+                    return ValueTask.FromException(cleanupFailure);
+                },
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var sink = new RecordingConnectionPreparationSink(() =>
+            {
+                timeline.Add("preparation.invalidate");
+                throw sinkFailure;
+            });
+            _ = lease.TryReservePreparation(sink);
+
+            Task first = lease.FailCloseAsync().AsTask();
+            Task second = lease.FailCloseAsync().AsTask();
+            AggregateException failure = await Assert.ThrowsAsync<
+                AggregateException>(() => first);
+
+            Assert.Same(first, second);
+            Assert.Equal(
+                ["preparation.invalidate", "connection.cleanup"],
+                timeline);
+            Assert.Collection(
+                failure.Flatten().InnerExceptions,
+                item => Assert.Same(sinkFailure, item),
+                item => Assert.Same(cleanupFailure, item));
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task CompositeRevocationCleanupEscapesExactOutOfMemoryAfterAllCleanup()
+    {
+        DateTimeOffset now = DateTimeOffset.UnixEpoch;
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var fatal = new OutOfMemoryException(
+            "connection revocation timer cleanup canary");
+#pragma warning restore CA2201
+        var time = new ManualTimeProvider(
+            now,
+            timerDisposeFailure: fatal);
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var timeline = new List<string>();
+            var sinkFailure = new IOException(
+                "connection preparation sink cleanup canary");
+            var generation = new RemoteWindowConnectionGeneration(
+                value: 1,
+                timeProvider: time);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var sink = new RecordingConnectionPreparationSink(() =>
+            {
+                timeline.Add("preparation.invalidate");
+                throw sinkFailure;
+            });
+            _ = lease.TryReservePreparation(sink);
+            using IDisposable callback = lease.RegisterRevocationCallback(
+                () => timeline.Add("connection.revoked"));
+            Assert.True(lease.TryDeferFailCloseUntilPreparationDeadline(
+                CreateRequest(now.AddSeconds(1))));
+
+            OutOfMemoryException failure = Assert.Throws<OutOfMemoryException>(
+                generation.RevokeAndReleaseOwner);
+
+            Assert.Same(fatal, failure);
+            Assert.Equal(
+                ["preparation.invalidate", "connection.revoked"],
+                timeline);
+            Assert.Equal(1, sink.InvalidationCount);
+            Assert.True(lease.IsRevoked);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
     public async Task ConnectionRevocationBeforeRouteAdmissionDoesNotCrossRegistry()
     {
         (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
@@ -47,13 +789,303 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             await using AuthenticatedRemoteWindowConnectionLease lease =
                 Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
             var admission = new RecordingHostPreparationAdmission();
+            var sink = new RecordingConnectionPreparationSink();
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration registration =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    lease.TryReservePreparation(sink).Registration);
             Assert.Null(generation.RevokeAndReleaseOwner());
 
             Assert.Throws<InvalidOperationException>(() =>
-                lease.PrepareResponderRoute(SessionId, ActivityId, admission));
+                lease.PrepareResponderRoute(
+                    SessionId,
+                    ActivityId,
+                    registration,
+                    admission));
 
+            Assert.Equal(1, sink.InvalidationCount);
             Assert.Equal(0, admission.RouteAdmissionCount);
             Assert.Equal(0, routes.Count);
+        }
+    }
+
+    [Fact]
+    public async Task ActiveConnectionPreparationRequiresItsExactRouteOwner()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var sink = new RecordingConnectionPreparationSink();
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration registration =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    lease.TryReservePreparation(sink).Registration);
+            var admission = new RecordingHostPreparationAdmission();
+
+            Assert.Throws<InvalidOperationException>(() =>
+                lease.PrepareResponderRoute(SessionId, ActivityId));
+            Assert.Equal(0, routes.Count);
+
+            _ = lease.PrepareResponderRoute(
+                SessionId,
+                ActivityId,
+                registration,
+                admission);
+
+            Assert.Equal(1, admission.RouteAdmissionCount);
+            Assert.Equal(1, routes.Count);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task ActiveConnectionPreparationRequiresItsExactPrepareSendOwner()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var channel = new AdmissionRecordingReservedPreparationChannel();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                channel,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var sink = new RecordingConnectionPreparationSink();
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration registration =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    lease.TryReservePreparation(sink).Registration);
+            var admission = new RecordingHostPreparationAdmission();
+            RemoteWindowPreparationRequest request = CreateHostPreparation();
+
+            RemoteWindowPreparationDeliveryResult unreserved =
+                await lease.PrepareReservedAsync(
+                    request,
+                    admission,
+                    CancellationToken.None);
+            Assert.Equal(
+                RemoteWindowControlDeliveryStatus.NotDelivered,
+                unreserved.Status);
+            Assert.Equal(0, channel.WireAdmissionCount);
+
+            RemoteWindowPreparationDeliveryResult reserved =
+                await lease.PrepareReservedAsync(
+                    request,
+                    registration,
+                    admission,
+                    CancellationToken.None);
+
+            Assert.Equal(
+                RemoteWindowControlDeliveryStatus.Acknowledged,
+                reserved.Status);
+            Assert.Equal(1, channel.WireAdmissionCount);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task ActiveConnectionPreparationBlocksPublicPrepareAfterChannelEntry()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var channel = new GatedReservedPreparationChannel();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                channel,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+
+            Task<RemoteWindowPreparationDeliveryResult> preparing =
+                lease.PrepareAsync(
+                        CreateHostPreparation(),
+                        CancellationToken.None)
+                    .AsTask();
+            await channel.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var sink = new RecordingConnectionPreparationSink();
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration registration =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    lease.TryReservePreparation(sink).Registration);
+
+            channel.ReleaseWireAdmission.TrySetResult();
+            RemoteWindowPreparationDeliveryResult result =
+                await preparing.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(
+                RemoteWindowControlDeliveryStatus.NotDelivered,
+                result.Status);
+            Assert.Equal(0, channel.PublicPrepareCount);
+            Assert.Equal(1, channel.ReservedPrepareCount);
+            Assert.Equal(1, channel.WireAdmissionCount);
+            Assert.Equal(0, channel.WireSendCount);
+            Assert.True(registration.IsCurrent);
+            registration.Dispose();
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
+    public async Task ActiveConnectionPreparationBlocksPublicPrepareSendAtWireAdmission()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            using var callerCancellation = new CancellationTokenSource();
+            var wire = new LeasePreparationWireConnection(
+                LocalDeviceId,
+                PeerDeviceId)
+            {
+                BlockReadUntilCancelled = true,
+                CallerCancellation = callerCancellation,
+            };
+            var session = new RemoteWindowControlSession(
+                wire,
+                timeProvider: TimeProvider.System);
+            session.StartDispatch();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                session,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? firstAcquired));
+            Assert.True(generation.TryAcquire(
+                session,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? secondAcquired));
+            await using AuthenticatedRemoteWindowConnectionLease reservationOwner =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(
+                    firstAcquired);
+            await using AuthenticatedRemoteWindowConnectionLease publicCaller =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(
+                    secondAcquired);
+            var sink = new RecordingConnectionPreparationSink();
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration registration =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    reservationOwner.TryReservePreparation(sink).Registration);
+
+            try
+            {
+                RemoteWindowPreparationDeliveryResult result =
+                    await publicCaller.PrepareAsync(
+                        CreateHostPreparation(),
+                        callerCancellation.Token);
+
+                Assert.Equal(
+                    RemoteWindowControlDeliveryStatus.NotDelivered,
+                    result.Status);
+                Assert.Equal(0, wire.SendCount);
+                Assert.True(registration.IsCurrent);
+            }
+            finally
+            {
+                registration.Dispose();
+                callerCancellation.Cancel();
+                session.Cancel();
+                await session.StopDispatchAsync().AsTask().WaitAsync(
+                    TimeSpan.FromSeconds(5));
+                await session.DisposeAsync();
+                Assert.Null(generation.RevokeAndReleaseOwner());
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublicPrepareFailsClosedWithoutReservedWireAdmission(
+        bool activeConnectionPreparation)
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var channel = new RecordingNonReservedPreparationChannel();
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                channel,
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+                registration = activeConnectionPreparation
+                    ? Assert.IsAssignableFrom<
+                        IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                        lease.TryReservePreparation(
+                            new RecordingConnectionPreparationSink()).Registration)
+                    : null;
+
+            RemoteWindowPreparationDeliveryResult result =
+                await lease.PrepareAsync(
+                    CreateHostPreparation(),
+                    CancellationToken.None);
+
+            Assert.Equal(
+                RemoteWindowControlDeliveryStatus.NotDelivered,
+                result.Status);
+            Assert.Equal(0, channel.PrepareCount);
+            Assert.Equal(
+                activeConnectionPreparation,
+                registration?.IsCurrent == true);
+            registration?.Dispose();
+            Assert.Null(generation.RevokeAndReleaseOwner());
         }
     }
 
@@ -83,8 +1115,17 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             {
                 BlockRouteCompletion = true,
             };
+            var sink = new RecordingConnectionPreparationSink();
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration registration =
+                Assert.IsAssignableFrom<
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                    lease.TryReservePreparation(sink).Registration);
             Task<RemoteWindowMediaRouteBinding> selecting = Task.Run(() =>
-                lease.PrepareResponderRoute(SessionId, ActivityId, admission));
+                lease.PrepareResponderRoute(
+                    SessionId,
+                    ActivityId,
+                    registration,
+                    admission));
             await admission.RouteCompletionEntered.Task.WaitAsync(
                 TimeSpan.FromSeconds(5));
 
@@ -94,6 +1135,8 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             {
                 Assert.False(draining.IsCompleted);
                 Assert.Equal(1, routes.Count);
+                Assert.Equal(1, sink.InvalidationCount);
+                Assert.False(registration.IsCurrent);
             }
             finally
             {
@@ -180,6 +1223,44 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             Assert.Null(generation.RevokeAndReleaseOwner());
             await generation.WaitForRemoteWindowOperationsAsync().WaitAsync(
                 TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task ConnectionPreparationCannotReserveAfterRouteClaimed()
+    {
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(value: 1);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            _ = lease.PrepareResponderRoute(SessionId, ActivityId);
+            var sink = new RecordingConnectionPreparationSink();
+
+            AuthenticatedRemoteWindowConnectionPreparationReservationResult result =
+                lease.TryReservePreparation(sink);
+
+            Assert.Equal(
+                AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                    .ReservationConflict,
+                result.Status);
+            Assert.Null(result.Registration);
+            Assert.Null(sink.OwnedRegistration);
+            Assert.Null(generation.RevokeAndReleaseOwner());
         }
     }
 
@@ -488,6 +1569,48 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
     }
 
     [Fact]
+    public async Task DeferredFailCloseCommitInvalidatesPreparationBeforeDeadline()
+    {
+        DateTimeOffset now = DateTimeOffset.UnixEpoch;
+        var time = new ManualTimeProvider(now);
+        (SecureFrameSession ownedFrames, SecureFrameSession counterpartFrames) =
+            CreateSecureSessions();
+        using (counterpartFrames)
+        await using (var routes = new RemoteWindowMediaRouteRegistry())
+        await using (var mediaSession = new AuthenticatedRemoteWindowMediaSession(
+            LocalDeviceId,
+            PeerDeviceId,
+            ProtocolFeatures.RemoteWindowPreparationMinimumVersion,
+            routes,
+            ownedFrames))
+        {
+            var generation = new RemoteWindowConnectionGeneration(
+                value: 1,
+                timeProvider: time);
+            Assert.True(generation.TryAcquire(
+                new UnusedPreparationChannel(),
+                mediaSession,
+                static () => ValueTask.CompletedTask,
+                out AuthenticatedRemoteWindowConnectionLease? acquired));
+            await using AuthenticatedRemoteWindowConnectionLease lease =
+                Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
+            var sink = new RecordingConnectionPreparationSink();
+            AuthenticatedRemoteWindowConnectionPreparationReservationResult result =
+                lease.TryReservePreparation(sink);
+
+            Assert.True(lease.TryDeferFailCloseUntilPreparationDeadline(
+                CreateRequest(now.AddSeconds(1))));
+
+            Assert.Equal(1, sink.InvalidationCount);
+            Assert.False(Assert.IsAssignableFrom<
+                IAuthenticatedRemoteWindowConnectionPreparationRegistration>(
+                result.Registration).IsCurrent);
+            Assert.False(lease.IsCurrent);
+            Assert.Null(generation.RevokeAndReleaseOwner());
+        }
+    }
+
+    [Fact]
     public async Task DeferredFailCloseClosesAtPreparationDeadlineAfterLeaseDisposal()
     {
         DateTimeOffset now = DateTimeOffset.UnixEpoch;
@@ -519,7 +1642,7 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             await using AuthenticatedRemoteWindowConnectionLease lease =
                 Assert.IsType<AuthenticatedRemoteWindowConnectionLease>(acquired);
             int revocationCallbackCount = 0;
-            using CancellationTokenRegistration registration =
+            using IDisposable registration =
                 lease.RegisterRevocationCallback(
                     () => Interlocked.Increment(ref revocationCallbackCount));
             RemoteWindowPreparationRequest request = CreateRequest(
@@ -991,7 +2114,7 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             AuthenticatedRemoteWindowConnectionLease lease = Assert.IsType<
                 AuthenticatedRemoteWindowConnectionLease>(acquired);
             bool callbackObservedRevocation = false;
-            using CancellationTokenRegistration registration =
+            using IDisposable registration =
                 lease.RegisterRevocationCallback(() =>
                 {
                     lease.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -1196,10 +2319,12 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
 
     private sealed class ManualTimeProvider(
         DateTimeOffset utcNow,
-        bool throwOnTimerDispose = false) : TimeProvider
+        bool throwOnTimerDispose = false,
+        Exception? timerDisposeFailure = null) : TimeProvider
     {
         private readonly Lock gate = new();
         private readonly bool throwOnTimerDispose = throwOnTimerDispose;
+        private readonly Exception? timerDisposeFailure = timerDisposeFailure;
         private readonly List<ManualTimer> timers = [];
         private DateTimeOffset utcNow = utcNow;
 
@@ -1283,6 +2408,13 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
                     throw new InvalidOperationException(
                         "test timer disposal failed");
                 }
+
+                if (owner.timerDisposeFailure is { } failure)
+                {
+                    global::System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                        .Capture(failure)
+                        .Throw();
+                }
             }
 
             public ValueTask DisposeAsync()
@@ -1318,6 +2450,38 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
         }
     }
 
+    private sealed class RecordingConnectionPreparationSink(
+        Action? invalidated = null,
+        Action? owning = null) :
+        IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+    {
+        private int invalidationCount;
+
+        public int InvalidationCount => Volatile.Read(ref invalidationCount);
+
+        public IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+            OwnedRegistration
+        { get; private set; }
+
+        public void InvalidateAuthenticatedRemoteWindowConnectionPreparationNow()
+        {
+            Interlocked.Increment(ref invalidationCount);
+            invalidated?.Invoke();
+        }
+
+        public void OwnAuthenticatedRemoteWindowConnectionPreparationRegistration(
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration registration)
+        {
+            OwnedRegistration = registration;
+            owning?.Invoke();
+        }
+    }
+
+    private sealed class RecordingDisposable(Action dispose) : IDisposable
+    {
+        public void Dispose() => dispose();
+    }
+
     private sealed class UnusedPreparationChannel :
         IRemoteWindowPreparationChannel
     {
@@ -1327,6 +2491,35 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             RemoteWindowPreparationRequest request,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public ValueTask PublishAdmissionStateAsync(
+            RemoteWindowParticipantState state,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class RecordingNonReservedPreparationChannel :
+        IRemoteWindowPreparationChannel
+    {
+        private int prepareCount;
+
+        public DeviceId ParticipantDeviceId => PeerDeviceId;
+
+        public int PrepareCount => Volatile.Read(ref prepareCount);
+
+        public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref prepareCount);
+            return ValueTask.FromResult(
+                RemoteWindowPreparationDeliveryResult.Acknowledged(
+                    RemoteWindowPreparationResponse.Create(
+                        request,
+                        RemoteWindowPreparationOutcome.Ready,
+                        "participant_ready")));
+        }
 
         public ValueTask PublishAdmissionStateAsync(
             RemoteWindowParticipantState state,
@@ -1420,6 +2613,118 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
             throw new NotSupportedException();
     }
 
+    private sealed class AdmissionRecordingReservedPreparationChannel :
+        IRemoteWindowPreparationChannel,
+        IReservedRemoteWindowPreparationChannel
+    {
+        private int wireAdmissionCount;
+
+        public DeviceId ParticipantDeviceId => PeerDeviceId;
+
+        public int WireAdmissionCount => Volatile.Read(ref wireAdmissionCount);
+
+        public ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<RemoteWindowPreparationDeliveryResult>
+            PrepareReservedAsync(
+                RemoteWindowPreparationRequest request,
+                IRemoteWindowHostPreparationAdmission admission,
+                CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!admission.TryAdmitPrepareSend(request, DateTimeOffset.UtcNow))
+            {
+                return ValueTask.FromResult(
+                    RemoteWindowPreparationDeliveryResult.NotDelivered);
+            }
+
+            Interlocked.Increment(ref wireAdmissionCount);
+            return ValueTask.FromResult(
+                RemoteWindowPreparationDeliveryResult.Acknowledged(
+                    RemoteWindowPreparationResponse.Create(
+                        request,
+                        RemoteWindowPreparationOutcome.Ready,
+                        "participant_ready")));
+        }
+
+        public ValueTask PublishAdmissionStateAsync(
+            RemoteWindowParticipantState state,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class GatedReservedPreparationChannel :
+        IRemoteWindowPreparationChannel,
+        IReservedRemoteWindowPreparationChannel
+    {
+        private int publicPrepareCount;
+        private int reservedPrepareCount;
+        private int wireAdmissionCount;
+        private int wireSendCount;
+
+        public DeviceId ParticipantDeviceId => PeerDeviceId;
+
+        public TaskCompletionSource Entered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int PublicPrepareCount => Volatile.Read(ref publicPrepareCount);
+
+        public TaskCompletionSource ReleaseWireAdmission { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ReservedPrepareCount => Volatile.Read(ref reservedPrepareCount);
+
+        public int WireAdmissionCount => Volatile.Read(ref wireAdmissionCount);
+
+        public int WireSendCount => Volatile.Read(ref wireSendCount);
+
+        public async ValueTask<RemoteWindowPreparationDeliveryResult> PrepareAsync(
+            RemoteWindowPreparationRequest request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref publicPrepareCount);
+            Entered.TrySetResult();
+            await ReleaseWireAdmission.Task.WaitAsync(cancellationToken);
+            Interlocked.Increment(ref wireSendCount);
+            return CreateAcknowledgedResult(request);
+        }
+
+        public async ValueTask<RemoteWindowPreparationDeliveryResult>
+            PrepareReservedAsync(
+                RemoteWindowPreparationRequest request,
+                IRemoteWindowHostPreparationAdmission admission,
+                CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref reservedPrepareCount);
+            Entered.TrySetResult();
+            await ReleaseWireAdmission.Task.WaitAsync(cancellationToken);
+            Interlocked.Increment(ref wireAdmissionCount);
+            if (!admission.TryAdmitPrepareSend(request, DateTimeOffset.UtcNow))
+            {
+                return RemoteWindowPreparationDeliveryResult.NotDelivered;
+            }
+
+            Interlocked.Increment(ref wireSendCount);
+            return CreateAcknowledgedResult(request);
+        }
+
+        public ValueTask PublishAdmissionStateAsync(
+            RemoteWindowParticipantState state,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        private static RemoteWindowPreparationDeliveryResult
+            CreateAcknowledgedResult(RemoteWindowPreparationRequest request) =>
+            RemoteWindowPreparationDeliveryResult.Acknowledged(
+                RemoteWindowPreparationResponse.Create(
+                    request,
+                    RemoteWindowPreparationOutcome.Ready,
+                    "participant_ready"));
+    }
+
     private sealed class ThrowingReservedPreparationChannel(
         CancellationTokenSource callerCancellation,
         OperationCanceledException failure) :
@@ -1456,6 +2761,8 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
     {
         private int sendCount;
 
+        public bool BlockReadUntilCancelled { get; init; }
+
         public bool BlockUntilCancelled { get; init; }
 
         public CancellationTokenSource? CallerCancellation { get; init; }
@@ -1474,9 +2781,16 @@ public sealed class AuthenticatedRemoteWindowConnectionLeaseTests
 
         public int SendCount => Volatile.Read(ref sendCount);
 
-        public ValueTask<ControlMessage> ReadAsync(
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromException<ControlMessage>(new NotSupportedException());
+        public async ValueTask<ControlMessage> ReadAsync(
+            CancellationToken cancellationToken = default)
+        {
+            if (BlockReadUntilCancelled)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            throw new NotSupportedException();
+        }
 
         public async ValueTask SendAsync(
             ControlMessage message,

@@ -839,8 +839,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         private int ready;
         private Exception? preparationFailure;
         private Exception? receiveFailure;
-        private CancellationTokenRegistration revocationRegistration;
-        private int revocationRegistrationAttached;
+        private IDisposable? revocationRegistration;
 
         public ParticipantGeneration(
             RemoteWindowPreparationRequest request,
@@ -890,10 +889,17 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
             Renderer = value ?? throw new ArgumentNullException(nameof(value));
 
         public void AttachRevocationRegistration(
-            CancellationTokenRegistration registration)
+            IDisposable registration)
         {
-            revocationRegistration = registration;
-            Volatile.Write(ref revocationRegistrationAttached, 1);
+            ArgumentNullException.ThrowIfNull(registration);
+            if (Interlocked.CompareExchange(
+                    ref revocationRegistration,
+                    registration,
+                    null) is not null)
+            {
+                throw new InvalidOperationException(
+                    "A Remote Window participant generation already owns a connection revocation registration.");
+            }
         }
 
         public void Cancel() => cancellation.Cancel();
@@ -928,12 +934,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         }
 
         public void DisposeRevocationRegistration()
-        {
-            if (Interlocked.Exchange(ref revocationRegistrationAttached, 0) != 0)
-            {
-                revocationRegistration.Dispose();
-            }
-        }
+            => Interlocked.Exchange(ref revocationRegistration, null)?.Dispose();
 
         public void MarkAdmitted()
         {

@@ -21,6 +21,10 @@ internal interface IDesktopRemoteWindowHostConnection :
 
     public string AuthenticatedPeerFingerprint { get; }
 
+    public AuthenticatedRemoteWindowConnectionPreparationReservationResult
+        TryReservePreparation(
+            IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink sink);
+
     public IDisposable RegisterRevocationCallback(Action callback);
 
     public void PrepareResponderRoute(
@@ -50,6 +54,8 @@ internal sealed class AuthenticatedDesktopRemoteWindowHostConnection(
 {
     private readonly AuthenticatedRemoteWindowConnectionLease lease = lease
         ?? throw new ArgumentNullException(nameof(lease));
+    private IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+        preparation;
 
     public DeviceId LocalDeviceId => lease.LocalDeviceId;
 
@@ -64,6 +70,31 @@ internal sealed class AuthenticatedDesktopRemoteWindowHostConnection(
         ?? throw new InvalidOperationException(
             "The authenticated Remote Window connection has no peer fingerprint.");
 
+    public AuthenticatedRemoteWindowConnectionPreparationReservationResult
+        TryReservePreparation(
+            IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink sink)
+    {
+        AuthenticatedRemoteWindowConnectionPreparationReservationResult result =
+            lease.TryReservePreparation(sink);
+        if (result.Registration is not { } registration)
+        {
+            return result;
+        }
+
+        IAuthenticatedRemoteWindowConnectionPreparationRegistration? existing =
+            Interlocked.CompareExchange(ref preparation, registration, null);
+        if (existing is null || ReferenceEquals(existing, registration))
+        {
+            return result;
+        }
+
+        registration.Dispose();
+        return new(
+            AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                .ReservationConflict,
+            registration);
+    }
+
     public IDisposable RegisterRevocationCallback(Action callback) =>
         lease.RegisterRevocationCallback(callback);
 
@@ -75,6 +106,7 @@ internal sealed class AuthenticatedDesktopRemoteWindowHostConnection(
         _ = lease.PrepareResponderRoute(
             sessionId,
             activityId,
+            RequirePreparation(),
             admission,
             lifetime);
 
@@ -82,7 +114,11 @@ internal sealed class AuthenticatedDesktopRemoteWindowHostConnection(
         RemoteWindowPreparationRequest request,
         IRemoteWindowHostPreparationAdmission admission,
         CancellationToken cancellationToken) =>
-        lease.PrepareReservedAsync(request, admission, cancellationToken);
+        lease.PrepareReservedAsync(
+            request,
+            RequirePreparation(),
+            admission,
+            cancellationToken);
 
     public ValueTask WaitForMediaAttachmentAsync(
         CancellationToken cancellationToken) =>
@@ -101,6 +137,11 @@ internal sealed class AuthenticatedDesktopRemoteWindowHostConnection(
     public ValueTask FailCloseAsync() => lease.FailCloseAsync();
 
     public ValueTask DisposeAsync() => lease.DisposeAsync();
+
+    private IAuthenticatedRemoteWindowConnectionPreparationRegistration
+        RequirePreparation() => Volatile.Read(ref preparation)
+        ?? throw new InvalidOperationException(
+            "The authenticated Remote Window connection has no host Preparation reservation.");
 }
 
 internal sealed class BorrowedDesktopRemoteWindowMediaSink(
@@ -433,6 +474,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 generation,
                 initialPermission,
                 cancellationToken);
+            ReserveConnectionPreparation(generation, cancellationToken);
             RegisterEarlySafetyObservers(generation);
             await ReserveAuthorizationPreparationAsync(
                     generation,
@@ -544,6 +586,18 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     RemoteWindowHostPreparationFact.Permission);
             }
 
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration
+                connectionReservation =
+                    generation.ConnectionPreparationRegistration
+                    ?? throw StartFailure("authenticated_connection_stale");
+            if (!IsConnectionPreparationCurrent(
+                    connectionReservation,
+                    cancellationToken))
+            {
+                _ = generation.PreparationReservation.TryInvalidate(
+                    RemoteWindowHostPreparationFact.Connection);
+            }
+
             IDesktopRemoteWindowHostAuthorizationRegistration
                 authorizationReservation =
                     generation.AuthorizationPreparationRegistration
@@ -565,6 +619,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             permissionReservation.Dispose();
             generation.ClearPermissionPreparationRegistration(
                 permissionReservation);
+            connectionReservation.Dispose();
+            generation.ClearConnectionPreparationRegistration(
+                connectionReservation);
             await authorizationReservation.DisposeAsync().ConfigureAwait(false);
             generation.AuthorizationPreparationRegistration = null;
 
@@ -1175,6 +1232,68 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
     }
 
+    private static void ReserveConnectionPreparation(
+        RuntimeGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        AuthenticatedRemoteWindowConnectionPreparationReservationResult result;
+        try
+        {
+            result = generation.Request.Connection.TryReservePreparation(
+                generation);
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == cancellationToken)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("authenticated_connection_stale");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (result.Status ==
+                AuthenticatedRemoteWindowConnectionPreparationReservationStatus
+                    .Reserved
+            && result.Registration is not null
+            && ReferenceEquals(
+                generation.ConnectionPreparationRegistration,
+                result.Registration)
+            && IsConnectionPreparationCurrent(
+                result.Registration,
+                cancellationToken))
+        {
+            return;
+        }
+
+        _ = generation.PreparationReservation.TryInvalidate(
+            RemoteWindowHostPreparationFact.Connection);
+        throw StartFailure(GetPreparationReason(generation));
+    }
+
+    private static bool IsConnectionPreparationCurrent(
+        IAuthenticatedRemoteWindowConnectionPreparationRegistration registration,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return registration.IsCurrent;
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == cancellationToken)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("authenticated_connection_stale");
+        }
+    }
+
     private void ReserveEmergencyStopReadiness(RuntimeGeneration generation)
     {
         LocalEmergencyStopReadinessReservationResult reservation;
@@ -1516,6 +1635,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         CaptureFailure(
             failures,
             () => generation.PermissionPreparationRegistration?.Dispose());
+        CaptureFailure(
+            failures,
+            () => generation.ConnectionPreparationRegistration?.Dispose());
         CaptureFailure(failures, generation.PreparationReservation.Dispose);
         if (generation.AuthorizationPreparationRegistration is { } authorization)
         {
@@ -1743,7 +1865,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         long preparationGeneration,
         RemoteWindowPreparationRequest preparation,
         object callbackOwner) :
-        INativeRemoteWindowPermissionPreparationInvalidationSink
+        INativeRemoteWindowPermissionPreparationInvalidationSink,
+        IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
     {
         private static readonly AsyncLocal<CallbackScope?> CallbackAncestry = new();
         private NativeRemoteWindowPermissionSnapshot acceptedPermission =
@@ -1753,6 +1876,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         private readonly object callbackOwner = callbackOwner;
         private readonly object protectionGate = new();
         private readonly object permissionGate = new();
+        private IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+            connectionPreparationRegistration;
         private INativeRemoteWindowPermissionPreparationRegistration?
             permissionPreparationRegistration;
         private readonly object connectionFailCloseGate = new();
@@ -1770,6 +1895,10 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             get;
             set;
         }
+
+        public IAuthenticatedRemoteWindowConnectionPreparationRegistration?
+            ConnectionPreparationRegistration =>
+                Volatile.Read(ref connectionPreparationRegistration);
 
         public int TerminalShutdownStarted;
 
@@ -1861,6 +1990,40 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 null,
                 registration);
         }
+
+        public void ClearConnectionPreparationRegistration(
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration
+                registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            _ = Interlocked.CompareExchange(
+                ref connectionPreparationRegistration,
+                null,
+                registration);
+        }
+
+        void IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+            .OwnAuthenticatedRemoteWindowConnectionPreparationRegistration(
+                IAuthenticatedRemoteWindowConnectionPreparationRegistration
+                    registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration? existing =
+                Interlocked.CompareExchange(
+                    ref connectionPreparationRegistration,
+                    registration,
+                    null);
+            if (existing is not null && !ReferenceEquals(existing, registration))
+            {
+                throw new InvalidOperationException(
+                    "A Remote Window host generation already owns an authenticated Connection Preparation registration.");
+            }
+        }
+
+        void IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+            .InvalidateAuthenticatedRemoteWindowConnectionPreparationNow() =>
+            _ = PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Connection);
 
         void INativeRemoteWindowPermissionPreparationInvalidationSink
             .OwnNativeRemoteWindowPermissionPreparationRegistration(

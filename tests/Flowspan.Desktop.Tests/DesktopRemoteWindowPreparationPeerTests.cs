@@ -601,7 +601,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
     public async Task PendingAttachmentAndCleanupFailuresRemainObservableWhenTerminalCleanupWins(
         bool disposeParticipant)
     {
-        CancellationTokenRegistration cleanupFailureRegistration = default;
+        IDisposable? cleanupFailureRegistration = null;
         try
         {
             await RunConnectedScenarioAsync(
@@ -661,7 +661,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
         }
         finally
         {
-            cleanupFailureRegistration.Dispose();
+            cleanupFailureRegistration?.Dispose();
         }
     }
 
@@ -671,7 +671,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
     public async Task PendingRendererAndCleanupFailuresRemainObservableWhenTerminalCleanupWins(
         bool disposeParticipant)
     {
-        CancellationTokenRegistration cleanupFailureRegistration = default;
+        IDisposable? cleanupFailureRegistration = null;
         try
         {
             await RunConnectedScenarioAsync(
@@ -728,7 +728,7 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
         }
         finally
         {
-            cleanupFailureRegistration.Dispose();
+            cleanupFailureRegistration?.Dispose();
         }
     }
 

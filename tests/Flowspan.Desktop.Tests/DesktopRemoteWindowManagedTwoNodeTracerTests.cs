@@ -847,6 +847,267 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     }
 
     [Fact]
+    public async Task AuthenticatedControlDisconnectAfterReservedRoutePreventsPrepareWireAndDrains()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
+            HostDeviceId,
+            "Host");
+        using DeviceIdentity participantIdentity = DeviceIdentity.Generate(
+            ParticipantDeviceId,
+            "Participant");
+        CapabilityGrant hostToParticipant = CapabilityGrant.Of(
+            Capability.MirrorView);
+        CapabilityGrant participantToHost = CapabilityGrant.Of(
+            Capability.ActivityOffer);
+        await using TrustSessionCoordinator hostTrust = CreateTrust(
+            participantIdentity,
+            hostToParticipant);
+        await using TrustSessionCoordinator participantTrust = CreateTrust(
+            hostIdentity,
+            participantToHost);
+        await using var hostMedia =
+            new AuthenticatedRemoteWindowMediaSessionDirectory();
+        await using var participantMedia =
+            new AuthenticatedRemoteWindowMediaSessionDirectory();
+        var controlPeer = new DesktopRemoteWindowHostControlPeer(HostDeviceId);
+        await using var hostHandler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(HostDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            timeProvider: FixedTimeProvider.Instance,
+            remoteWindowPeer: controlPeer,
+            remoteWindowMediaSessions: hostMedia);
+        var renderer = new RecordingRenderer();
+        var rendererFactory = new RecordingRendererFactory(renderer);
+        var receivePolicy = new CountingAllowReceivePolicy();
+        AuthenticatedActivitySessionHandler? participantHandler = null;
+        var preparationPeer = new DesktopRemoteWindowPreparationPeer(
+            ParticipantDeviceId,
+            TryAcquireParticipantConnection,
+            receivePolicy,
+            rendererFactory,
+            FixedTimeProvider.Instance);
+        await using var preparationPeerOwner = preparationPeer;
+        participantHandler = new AuthenticatedActivitySessionHandler(
+            new RejectingActivityPeer(ParticipantDeviceId),
+            replacePeer: null,
+            replaceInventoryPeer: null,
+            swapPeer: null,
+            timeProvider: FixedTimeProvider.Instance,
+            remoteWindowMediaSessions: participantMedia,
+            remoteWindowPreparationPeer: preparationPeer);
+        await using var participantHandlerOwner = participantHandler;
+        using var socket = new TcpListener(IPAddress.Loopback, 0);
+        socket.Start(backlog: 8);
+        var endpoint = Assert.IsType<IPEndPoint>(socket.LocalEndpoint);
+        var resolver = new DesktopRemoteWindowPeerEndpointResolver(
+            participantTrust,
+            () => ImmutableArray.Create(CreateCandidate(hostIdentity, endpoint)),
+            FixedTimeProvider.Instance);
+        var participantSessionHandler = new DesktopRemoteWindowPeerSessionHandler(
+            participantHandler,
+            resolver);
+        var listener = CreateListener(
+            socket,
+            hostIdentity,
+            hostTrust,
+            hostHandler,
+            hostMedia,
+            timeProvider: FixedTimeProvider.Instance);
+        using var listenerStop = new CancellationTokenSource();
+        Task listenerRun = listener.RunAsync(listenerStop.Token).AsTask();
+        AuthenticatedTcpControlConnection? participantConnection = null;
+        Task? participantRun = null;
+        var capture = new RecordingCaptureBoundary();
+        var input = new RecordingInputBoundary();
+        var permissions = new RecordingPermissionBoundary(
+            NativeRemoteWindowPermissionSnapshot.Create(
+                NativeRemoteWindowPermissionState.Granted,
+                NativeRemoteWindowPermissionState.Granted,
+                ownerGeneration: 1,
+                revision: 1));
+        var sessions = new RecordingSharingSessionBoundary();
+        using var emergencyStops = new RecordingEmergencyStopRegistrar();
+        using var sources = new NativeRemoteWindowSourceRegistry(HostDeviceId);
+        using NativeRemoteWindowSourceRegistration sourceRegistration =
+            sources.RegisterGeneric(CreateMetadata());
+        NativeRemoteWindowSourceSnapshot sourceSnapshot =
+            sourceRegistration.Snapshot;
+        using NativeRemoteWindowSourceLease sourceLease = AcquireLease(
+            sources,
+            sourceSnapshot);
+        var protection = new RecordingProtectionSource(
+            NativeRemoteWindowProtectionObservation.Create(
+                SafeNow(),
+                ownerGeneration: 1,
+                sessionGeneration: 1,
+                sourceSnapshot.Source.SourceGeneration,
+                revision: 1));
+        await using var coordinator = new DesktopRemoteWindowHostCoordinator(
+            new FixedClock(Now),
+            permissions,
+            new TrustMirrorAuthorizationSource(hostTrust),
+            capture,
+            input,
+            sessions,
+            emergencyStops,
+            controlPeer,
+            ownerLeaseDuration: TimeSpan.FromSeconds(30),
+            preparationLifetime: TimeSpan.FromSeconds(10));
+        SourceInvalidationObservingHostConnection? hostConnection = null;
+
+        try
+        {
+            participantConnection =
+                await AuthenticatedTcpControlConnection.ConnectAsync(
+                    endpoint,
+                    participantIdentity,
+                    new TrustRecord(
+                        hostIdentity.PublicIdentity,
+                        Now,
+                        participantToHost),
+                    [Version],
+                    cancellationToken: deadline.Token);
+            participantRun = participantSessionHandler
+                .RunAsync(participantConnection, deadline.Token)
+                .AsTask();
+            AuthenticatedRemoteWindowConnectionLease hostLease =
+                await WaitForConnectionLeaseOnChangeAsync(
+                    hostHandler,
+                    ParticipantDeviceId,
+                    deadline.Token);
+            hostConnection = new SourceInvalidationObservingHostConnection(
+                new AuthenticatedDesktopRemoteWindowHostConnection(hostLease));
+            Task<RemoteWindowCommandResult> starting = coordinator.StartAsync(
+                    new DesktopRemoteWindowHostStartRequest(
+                        sourceLease,
+                        ownerGeneration: 1,
+                        hostConnection,
+                        protection,
+                        MirrorParticipantRole.ViewOnly),
+                    deadline.Token)
+                .AsTask();
+            RemoteWindowHostPreparationReservation reservation =
+                await hostConnection.BeforePrepareForward.Task.WaitAsync(
+                    deadline.Token);
+
+            Assert.Equal(
+                RemoteWindowHostPreparationPhase.RouteSelected,
+                reservation.Snapshot.Phase);
+            Assert.True(reservation.Snapshot.RouteMayBeOwned);
+            Assert.False(reservation.Snapshot.PrepareSendAdmitted);
+            Assert.Equal(1, hostConnection.PrepareResponderRouteCount);
+            Assert.Equal(1, hostConnection.PrepareCount);
+            Assert.Equal(1, hostMedia.Routes.Count);
+            Assert.Equal(0, participantMedia.Routes.Count);
+            Assert.Equal(0, receivePolicy.EvaluationCount);
+            Assert.Equal(0, capture.StartCount);
+            Assert.Equal(0, rendererFactory.PrepareCount);
+            Assert.Equal(0, renderer.RenderCount);
+
+            try
+            {
+                await participantConnection.DisposeAsync();
+                RemoteWindowHostPreparationTermination termination =
+                    await reservation.Terminal.WaitAsync(deadline.Token);
+                Assert.Equal(
+                    "authenticated_connection_stale",
+                    termination.ReasonCode);
+                Assert.Equal(
+                    RemoteWindowHostPreparationFact.Connection,
+                    termination.Fact);
+                Assert.Equal(
+                    RemoteWindowHostPreparationCleanupScope.ConsumeConnection,
+                    termination.CleanupScope);
+                Assert.False(reservation.Snapshot.PrepareSendAdmitted);
+                Assert.True(sourceLease.IsCurrent);
+            }
+            finally
+            {
+                hostConnection.ReleasePrepareForward.TrySetResult();
+            }
+
+            InvalidOperationException failure = await Assert.ThrowsAsync<
+                InvalidOperationException>(async () => await starting);
+
+            Assert.Equal(
+                "Remote Window host start failed (authenticated_connection_stale).",
+                failure.Message);
+            Assert.Equal(1, hostConnection.PrepareCount);
+            Assert.Equal(0, hostConnection.PrepareSendAdmissionCount);
+            Assert.Null(hostConnection.PreparationStatus);
+            Assert.False(reservation.Snapshot.PrepareSendAdmitted);
+            Assert.Equal(0, receivePolicy.EvaluationCount);
+            Assert.Equal(0, capture.StartCount);
+            Assert.Equal(0, hostConnection.MediaSendCount);
+            Assert.Equal(0, rendererFactory.PrepareCount);
+            Assert.Equal(0, renderer.RenderCount);
+            Assert.Equal(0, hostConnection.WaitForMediaAttachmentCount);
+            Assert.Equal(0, hostConnection.AdmissionPublishCount);
+
+            await ObserveSessionStopAsync(participantRun);
+            await WaitForCleanupOnChangeAsync(
+                hostHandler,
+                participantHandler,
+                hostMedia,
+                participantMedia,
+                deadline.Token);
+
+            Assert.Equal(1, hostConnection.FailCloseCount);
+            Assert.Equal(1, hostConnection.DisposeCount);
+            Assert.False(hostConnection.IsCurrent);
+            Assert.Null(coordinator.Snapshot);
+            Assert.Null(coordinator.ActiveMediaBudget);
+            Assert.Null(coordinator.TerminalFailure);
+            Assert.False(controlPeer.HasRetainedGeneration);
+            Assert.False(capture.HasCurrentCapture);
+            Assert.Equal(1, capture.StopCount);
+            Assert.Equal(1, input.StopCount);
+            Assert.True(sessions.DisconnectAllCount >= 1);
+            Assert.True(protection.IsDisposed);
+            Assert.Equal(0, permissions.ObserverCount);
+            Assert.False(emergencyStops.HasCurrentRegistration);
+            Assert.True(sourceLease.IsCurrent);
+            Assert.False(hostMedia.TryGet(ParticipantDeviceId, out _));
+            Assert.False(participantMedia.TryGet(HostDeviceId, out _));
+            Assert.Equal(0, hostMedia.Routes.Count);
+            Assert.Equal(0, participantMedia.Routes.Count);
+            Assert.Empty(hostHandler.GetConnectedPeers());
+            Assert.Empty(participantHandler.GetConnectedPeers());
+            Assert.False(hostHandler.TryAcquireRemoteWindowConnection(
+                ParticipantDeviceId,
+                out _));
+            Assert.False(participantHandler.TryAcquireRemoteWindowPeerConnection(
+                HostDeviceId,
+                out _));
+            Assert.False(participantHandler.TryGetRemoteWindowPreparationChannel(
+                HostDeviceId,
+                out _));
+            Assert.Throws<InvalidOperationException>(() => controlPeer.SessionId);
+        }
+        finally
+        {
+            hostConnection?.ReleasePrepareForward.TrySetResult();
+            if (participantConnection is not null)
+            {
+                await participantConnection.DisposeAsync();
+            }
+
+            listenerStop.Cancel();
+            await ObserveListenerStopAsync(listenerRun, listenerStop.Token);
+        }
+
+        bool TryAcquireParticipantConnection(
+            DeviceId peerDeviceId,
+            out AuthenticatedRemoteWindowConnectionLease? lease) =>
+            participantHandler!.TryAcquireRemoteWindowPeerConnection(
+                peerDeviceId,
+                out lease);
+    }
+
+    [Fact]
     public async Task PermissionRevisionAfterReservedRoutePreventsPrepareWireAndDrains()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -3105,6 +3366,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         RunVerifiedFsm1AttachmentThenPreAdmissionFailureAsync(
             PreAdmissionFailureTrigger.HostDeadline);
 
+    [Fact]
+    public Task MediaMutationAfterPreparationPromotionTriggersLiveCallbackBeforeCapture() =>
+        RunVerifiedFsm1AttachmentThenPreAdmissionFailureAsync(
+            PreAdmissionFailureTrigger.MediaMutationAtPromotion);
+
     private static async Task RunVerifiedFsm1AttachmentThenPreAdmissionFailureAsync(
         PreAdmissionFailureTrigger trigger)
     {
@@ -3223,6 +3489,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         DateTimeOffset clockObservedBeforeTrigger = default;
         var clockWasBeforeDeadline = false;
         var participantLeaseObserved = false;
+        var connectionGenerationRevokedAtMediaMutationReturn = true;
+        var emergencyStopCountAtMediaMutationReturn = -1;
 
         try
         {
@@ -3276,11 +3544,29 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     {
                         clock.UtcNow = request.Deadline;
                     }
-                    else
+                    else if (trigger ==
+                        PreAdmissionFailureTrigger.CallerCancellation)
                     {
                         callerCancellation.Cancel();
                     }
-                });
+                },
+                beforeConnectionPreparationRelease: trigger ==
+                    PreAdmissionFailureTrigger.MediaMutationAtPromotion
+                        ? () =>
+                        {
+                            Assert.True(hostMedia.TryGet(
+                                ParticipantDeviceId,
+                                out AuthenticatedRemoteWindowMediaSession?
+                                    hostSession));
+                            Assert.IsType<AuthenticatedRemoteWindowMediaSession>(
+                                    hostSession)
+                                .RequestControlStop();
+                            connectionGenerationRevokedAtMediaMutationReturn =
+                                hostLease.IsRevoked;
+                            emergencyStopCountAtMediaMutationReturn =
+                                capture.EmergencyStopCount;
+                        }
+            : null);
             var request = new DesktopRemoteWindowHostStartRequest(
                 sourceLease,
                 ownerGeneration: 1,
@@ -3304,7 +3590,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     failure.Message);
                 Assert.Null(failure.InnerException);
             }
-            else
+            else if (trigger == PreAdmissionFailureTrigger.CallerCancellation)
             {
                 OperationCanceledException failure = await Assert.ThrowsAnyAsync<
                     OperationCanceledException>(async () =>
@@ -3315,8 +3601,26 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     callerCancellation.Token,
                     failure.CancellationToken);
             }
+            else
+            {
+                InvalidOperationException failure = await Assert.ThrowsAsync<
+                    InvalidOperationException>(async () =>
+                        await coordinator.StartAsync(
+                            request,
+                            startCancellationToken));
+                Assert.Equal(
+                    "Remote Window host start failed (session_not_idle).",
+                    failure.Message);
+                Assert.Null(failure.InnerException);
+            }
 
             Assert.False(harnessDeadline.IsCancellationRequested);
+            if (trigger == PreAdmissionFailureTrigger.MediaMutationAtPromotion)
+            {
+                Assert.False(connectionGenerationRevokedAtMediaMutationReturn);
+                Assert.Equal(1, emergencyStopCountAtMediaMutationReturn);
+            }
+
             Assert.Equal(new ProtocolVersion(1, 7), hostConnection.ProtocolVersion);
             Assert.True(participantLeaseObserved);
             VerifiedPeerConnectionCandidate candidate = Assert.IsType<
@@ -3352,7 +3656,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             else
             {
                 Assert.Equal(clockObservedBeforeTrigger, clock.UtcNow);
-                Assert.True(callerCancellation.IsCancellationRequested);
+                Assert.Equal(
+                    trigger == PreAdmissionFailureTrigger.CallerCancellation,
+                    callerCancellation.IsCancellationRequested);
             }
 
             Assert.Equal(HostDeviceId, observed.Request.HostDeviceId);
@@ -3388,8 +3694,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Equal(0, permissions.ObserverCount);
             Assert.False(emergencyStops.HasCurrentRegistration);
             Assert.False(capture.HasCurrentCapture);
-            Assert.Equal(0, capture.EmergencyStopCount);
-            Assert.Equal(0, input.EmergencyStopCount);
+            Assert.Equal(
+                trigger == PreAdmissionFailureTrigger.MediaMutationAtPromotion
+                    ? 1
+                    : 0,
+                capture.EmergencyStopCount);
+            Assert.Equal(
+                trigger == PreAdmissionFailureTrigger.MediaMutationAtPromotion
+                    ? 1
+                    : 0,
+                input.EmergencyStopCount);
             Assert.False(hostConnection.IsCurrent);
             Assert.Equal(1, hostConnection.FailCloseCount);
             Assert.Equal(1, hostConnection.DisposeCount);
@@ -3446,6 +3760,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
     {
         HostDeadline,
         CallerCancellation,
+        MediaMutationAtPromotion,
     }
 
     private static async Task AcceptAndResetFsm1ConnectionAsync(
@@ -4728,7 +5043,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         Exception? injectedFailCloseFailure = null,
         Exception? injectedDisposeFailure = null,
         Func<ValueTask>? afterAdmissionPublication = null,
-        Exception? injectedAdmissionPublicationFailure = null) :
+        Exception? injectedAdmissionPublicationFailure = null,
+        Action? beforeConnectionPreparationRelease = null) :
         IDesktopRemoteWindowHostConnection
     {
         private int admissionPublishCount;
@@ -4756,6 +5072,26 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             inner.AuthenticatedPeerFingerprint;
 
         public bool IsCurrent => inner.IsCurrent;
+
+        public AuthenticatedRemoteWindowConnectionPreparationReservationResult
+            TryReservePreparation(
+                IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+                    sink)
+        {
+            if (beforeConnectionPreparationRelease is null)
+            {
+                return inner.TryReservePreparation(sink);
+            }
+
+            var observingSink = new ReleaseObservingConnectionPreparationSink(
+                sink,
+                beforeConnectionPreparationRelease);
+            AuthenticatedRemoteWindowConnectionPreparationReservationResult result =
+                inner.TryReservePreparation(observingSink);
+            return result.Registration is null
+                ? result
+                : new(result.Status, observingSink.RequireRegistration());
+        }
 
         public int DisposeCount => Volatile.Read(ref disposeCount);
 
@@ -4898,6 +5234,71 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Interlocked.Increment(ref mediaSendCount);
             return inner.SendAsync(frame, cancellationToken);
         }
+
+        private sealed class ReleaseObservingConnectionPreparationSink(
+            IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink inner,
+            Action beforeRelease) :
+            IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+        {
+            private ReleaseObservingConnectionPreparationRegistration?
+                registration;
+
+            public void
+                OwnAuthenticatedRemoteWindowConnectionPreparationRegistration(
+                    IAuthenticatedRemoteWindowConnectionPreparationRegistration
+                        owned)
+            {
+                var observing =
+                    new ReleaseObservingConnectionPreparationRegistration(
+                        owned,
+                        beforeRelease);
+                inner.OwnAuthenticatedRemoteWindowConnectionPreparationRegistration(
+                    observing);
+                registration = observing;
+            }
+
+            public void
+                InvalidateAuthenticatedRemoteWindowConnectionPreparationNow() =>
+                inner.InvalidateAuthenticatedRemoteWindowConnectionPreparationNow();
+
+            public ReleaseObservingConnectionPreparationRegistration
+                RequireRegistration() => registration
+                ?? throw new InvalidOperationException(
+                    "The exact Connection Preparation registration was not synchronously owned.");
+        }
+
+        private sealed class ReleaseObservingConnectionPreparationRegistration(
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration inner,
+            Action beforeRelease) :
+            IAuthenticatedRemoteWindowConnectionPreparationRegistration
+        {
+            private int disposed;
+
+            public bool IsCurrent => inner.IsCurrent;
+
+            public long RegistrationId => inner.RegistrationId;
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref disposed, 1) != 0)
+                {
+                    return;
+                }
+
+                bool wasCurrent = inner.IsCurrent;
+                try
+                {
+                    if (wasCurrent)
+                    {
+                        beforeRelease();
+                    }
+                }
+                finally
+                {
+                    inner.Dispose();
+                }
+            }
+        }
     }
 
     private sealed class SourceInvalidationObservingHostConnection(
@@ -4928,6 +5329,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             inner.AuthenticatedPeerFingerprint;
 
         public bool IsCurrent => inner.IsCurrent;
+
+        public AuthenticatedRemoteWindowConnectionPreparationReservationResult
+            TryReservePreparation(
+                IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+                    sink) => inner.TryReservePreparation(sink);
 
         public DeviceId LocalDeviceId => inner.LocalDeviceId;
 
@@ -5074,6 +5480,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             inner.AuthenticatedPeerFingerprint;
 
         public bool IsCurrent => inner.IsCurrent;
+
+        public AuthenticatedRemoteWindowConnectionPreparationReservationResult
+            TryReservePreparation(
+                IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+                    sink) => inner.TryReservePreparation(sink);
 
         public DeviceId LocalDeviceId => inner.LocalDeviceId;
 
@@ -5535,6 +5946,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             inner.AuthenticatedPeerFingerprint;
 
         public bool IsCurrent => inner.IsCurrent;
+
+        public AuthenticatedRemoteWindowConnectionPreparationReservationResult
+            TryReservePreparation(
+                IAuthenticatedRemoteWindowConnectionPreparationInvalidationSink
+                    sink) => inner.TryReservePreparation(sink);
 
         public DeviceId LocalDeviceId => inner.LocalDeviceId;
 
