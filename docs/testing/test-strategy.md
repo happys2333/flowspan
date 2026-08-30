@@ -724,7 +724,7 @@ generation cannot be reacquired.
 
 The release criterion still requires each tracer boundary to have reject, throw,
 cancel, timeout, revoke, disconnect, and cleanup-fault cases. In particular, the
-current twenty-one scenarios are not the required matrix; its per-boundary
+current twenty-six scenarios are not the required matrix; its per-boundary
 reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault coverage remains
 open. Teardown requirements remain to close new admission first, attempt every
 renderer, active/pending frame, queue, attachment, route, media-directory,
@@ -1497,6 +1497,63 @@ Protection, remaining Source and Emergency Stop orders, and the complete
 production-boundary matrix. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, all native/physical/signing/notarization/release gates,
 and the Goal remain open.
+
+### 2026-08-30 Host Permission Preparation reservation
+
+Exact commit `d607ed1c3217c9c4102c4b893d20da9a6845f02d` composes the
+Permission fact from an exact prompt-free snapshot through its authoritative
+accepted-observation gate, the Desktop host reservation, authenticated
+responder route, actual Transport Prepare send-admission hook, promotion, and
+cleanup. The reservation binds owner generation, revision, capture and input
+facts, and the frozen role. ViewOnly requires Granted capture; DriverEligible
+also requires Granted input.
+
+The macOS permission-boundary tests prove exact snapshot/role admission,
+owner-claim rollback, invalidation before ordinary observers, same-fact
+stability, Revoked/Granted ABA resistance, both reservation/commit gate orders,
+ordered sink failures, fatal failure identity, stable disposal failure, and the
+existing preflight/request sequencing and observer-isolation behavior. These
+tests use controlled interop for state transitions. The matching-host production
+test reaches the prompt-free CoreGraphics preflight call only; it does not
+perform or observe a real TCC revoke, and macOS input remains `Unsupported`.
+
+The coordinator reserves the exact fact before early observers and route,
+rechecks the same registration before host-reservation promotion, releases it
+after promotion, and owns it through terminal cleanup. Focused tests freeze
+`M < R`, `R < M < S`, and `S < M`, plus snapshot/role rejection, missing
+reservation support, unexpected/fatal/currentness failure, exact and foreign
+cancellation, owner-claim-then-throw, and release ownership. Existing live
+permission observers remain defense in depth after promotion.
+
+The 26th production-composed tracer,
+`PermissionRevisionAfterReservedRoutePreventsPrepareWireAndDrains`, proves only
+Permission `R < M < S`. After real authenticated protocol-1.7 route selection,
+a managed Granted-to-Revoked commit invalidates the exact reservation. The
+actual Transport send gate admits no Prepare wire; regrant cannot revive the
+terminal generation; participant policy, attachment wait, capture, media,
+renderer, Admission, and input remain closed; and both managed owner graphs
+drain. The tracer does not instantiate the macOS boundary and therefore is not
+native permission evidence.
+
+Local Platform, macOS Platform, Desktop, and complete solution Debug/Release
+runs pass `240/240`, `64/64`, `639/639`, and `2418/2418` respectively. Both
+warning-as-error builds report zero warnings/errors; format, diff,
+direct/transitive vulnerability, explicit TEST MODE composition, and simulator
+gates pass. Final independent review reports no P0/P1 finding for this scope.
+Exact-SHA CI `33286525528` and CodeQL `33286525529` pass; retained artifacts
+prove `2418/2418` on every hosted OS, Gitleaks 208/0, CodeQL 52/0 with no open
+alerts, and three verified version-0.1.196 reproducible unsigned packages.
+Exact commands, jobs, artifact/SARIF/package digests, and limits are in the
+[Permission Preparation evidence](../evidence/2026-08-30-host-permission-preparation-reservation.md).
+
+This checkpoint proves no real macOS TCC grant/deny/revoke/recovery,
+Accessibility or input, Windows or Linux native permission boundary, physical
+two-Device path, signed package, notarization, or release acceptance.
+Production-composed Permission `M < R` and `S < M`, its remaining fault
+intersections, authenticated Connection mutation, Protection, the remaining
+Source/Authorization/Emergency Stop orders, and the complete matrix remain
+open. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
+native/physical/release gate, and the Goal remain open.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/

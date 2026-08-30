@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **24 xUnit case executions**, not 24
+The current production-composed tracer has **26 xUnit case executions**, not 26
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -28,15 +28,19 @@ complete boundary families:
 - one final-Admission side-effect-then-throw case after participant known
   binding publication; and
 - one reverse-only Mirror-grant rejection;
-- one exact-source `R < M < S` reservation invalidation; and
+- one exact-source `R < M < S` reservation invalidation;
 - one managed process-local Emergency Stop readiness `R < M < S`
-  invalidation.
+  invalidation;
+- one exact Trust/Capability Authorization `R < M < S` invalidation; and
+- one exact Permission `R < M < S` invalidation.
 
 The first 22 cases' decomposition and exact commands are recorded in the
 [managed production tracer evidence](../evidence/2026-08-28-managed-remote-window-production-tracer.md).
-The [source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md)
-and [Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md)
-record the 23rd and 24th cases respectively.
+The [source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md),
+[Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md),
+[Trust/Capability evidence](../evidence/2026-08-30-host-trust-capability-preparation-reservation.md),
+and [Permission evidence](../evidence/2026-08-30-host-permission-preparation-reservation.md)
+record the 23rd through 26th cases respectively.
 Its local result is a same-host **managed loopback run on macOS**. Hosted
 Windows, macOS, and Linux runs remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -219,13 +223,35 @@ similar coverage.
   [Trust/Capability Preparation evidence](../evidence/2026-08-30-host-trust-capability-preparation-reservation.md)
   records exact local and hosted results. This one production-composed order
   does not upgrade an aggregate cell.
+- [`MacOSNativeRemoteWindowPermissionBoundaryTests`](../../tests/Flowspan.Platform.MacOS.Tests/MacOSNativeRemoteWindowPermissionBoundaryTests.cs),
+  the focused Permission rows in
+  [`DesktopRemoteWindowHostCoordinatorTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowHostCoordinatorTests.cs),
+  and
+  [`DesktopRemoteWindowManagedTwoNodeTracerTests.PermissionRevisionAfterReservedRoutePreventsPrepareWireAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  at exact commit `d607ed1` bind the exact permission owner generation,
+  revision, capture/input facts, and frozen role through the permission
+  observation-commit gate and Desktop reservation. The lower-level and focused
+  rows cover exact snapshot/role admission, both commit-gate orders, same-fact
+  stability, Revoked/Granted ABA, all three host order shapes, ownership
+  transfer, cancellation, failure classification, fatal exhaustion, and
+  selected release/disposal faults. The real authenticated managed loopback row
+  proves only Permission `R < M < S`: a managed Granted-to-Revoked commit after
+  route selection invalidates the exact reservation, actual Transport send
+  admission emits no Prepare wire, regrant cannot revive the terminal
+  generation, and both nodes drain. The
+  [Permission Preparation evidence](../evidence/2026-08-30-host-permission-preparation-reservation.md)
+  records exact local and hosted results. The macOS tests prove a controlled
+  observation-commit gate, not a real TCC revoke, and the managed tracer does
+  not instantiate the macOS boundary. This one production-composed order does
+  not upgrade an aggregate cell.
 
 These tests do not yet inject every source, permission, Trust/grant, connection,
 observer-registration, protection, readiness, and route failure independently.
 Production-composed Source `M < R` and `S < M`, Authorization `M < R` and
-`S < M`, the other Emergency Stop `M/R/S` orders, their complete fault
-matrices, and native Emergency Stop behavior are also still open. That is why
-the H0/H1 aggregate cells remain P or M.
+`S < M`, Permission `M < R` and `S < M`, the other Emergency Stop `M/R/S`
+orders, their complete fault matrices, native permission behavior, and native
+Emergency Stop behavior are also still open. That is why the H0/H1 aggregate
+cells remain P or M.
 
 ### E-TX — transaction, tombstone, and deadline state machine
 
@@ -372,11 +398,12 @@ defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 24-case class.
+  is now the executable 26-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
-  and limitations. The source-linearization and Emergency Stop readiness
-  evidence above record the 23rd and 24th cases and their exact-SHA execution.
+  and limitations. The source-linearization, Emergency Stop readiness,
+  Trust/Capability, and Permission evidence above record the 23rd through 26th
+  cases and their exact-SHA execution.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -395,12 +422,14 @@ authenticated route, Transport send-admission, and owner-cleanup boundaries at
 process-local registrar, the real authenticated route, Transport send admission,
 and owner cleanup at `8e349cc`. Authorization `R < M < S` crosses the
 handshake-derived fingerprint, Security mutation gate, real authenticated route,
-Transport send admission, and owner cleanup at `635dc23`. Permission,
-authenticated Connection mutation, and Protection reservations; the remaining
-production-composed Source, Authorization, and Emergency Stop orders; native
-Emergency Stop; and the complete per-boundary owner/fault evidence remain
-required. Neither the ADR, its isolated core, nor these three single orders
-promote an aggregate matrix cell by itself.
+Transport send admission, and owner cleanup at `635dc23`. Permission
+`R < M < S` crosses the exact accepted-observation commit gate, real
+authenticated route, Transport send admission, and owner cleanup at `d607ed1`.
+Authenticated Connection mutation and Protection reservations; the remaining
+production-composed Source, Permission, Authorization, and Emergency Stop
+orders; native permission and Emergency Stop behavior; and the complete per-
+boundary owner/fault evidence remain required. Neither the ADR, its isolated
+core, nor these four single orders promote an aggregate matrix cell by itself.
 
 The next tests must use the family IDs in their names or evidence notes and add
 one direct row for each applicable gap. The presently known gaps are:
@@ -409,10 +438,11 @@ one direct row for each applicable gap. The presently known gaps are:
    authenticated-disconnect coverage before route selection. The deterministic
    source, permission, grant, and connection revocation barriers do not prove an
    atomic reservation across arbitrary concurrent threads. Source and
-   Authorization now each have one real `R < M < S` vertical; add their
-   production-composed `M < R` and `S < M` orders and remaining fault
-   intersections, then connect Permission and authenticated Connection mutation
-   to their exact fact gates.
+   Authorization now each have one real `R < M < S` vertical, and Permission
+   has one managed production-composed `R < M < S` vertical over its exact fact
+   gate. Add their production-composed `M < R` and `S < M` orders and remaining
+   fault intersections, add real native permission observation evidence, then
+   connect authenticated Connection mutation to its exact fact gate.
 2. **H1:** finish the safety/route reject and throw variants; inject connection
    loss at the exact route boundary; preserve any route side effect while
    cleanup also fails; finish the other production-composed Emergency Stop

@@ -54,7 +54,7 @@ rather than grant it.
 | T03 | Peer impersonation after pairing | Bind signed candidates to the current trusted key; treat an inbound hello's claimed Device ID only as unauthenticated trust-record routing input; authenticate every secure-session transcript against the selected trusted key; for protocol 1.2 verify bidirectional encrypted Finished role/transcript/session bindings before control upgrade; reload trust and compare the authenticated key again before session registration; block identity-key changes; require Device ID plus current fingerprint for desktop trust mutation so stale UI cannot affect a replacement identity; permanent rejection outranks network-change retry | claimed-ID/key-substitution, Finished binding/tamper/omission, candidate-binding, stale-admin-snapshot, multi-peer loopback, and reconnect/registration-race integration tests |
 | T04 | Replay/duplicate command or mismatched receipt | Session epoch, message/operation IDs, one atomic pending correlation reservation across Activity message types, bounded TTL, request/payload/descriptor digests, durable idempotency journal, and payload-free receipts/results bound to authenticated participants, purpose, Operation, Activity, and descriptor; protocol-1.7 Remote Window Preparation additionally repeats every exact binding under a domain-separated canonical SHA-256 digest and retains one terminal tombstone through its deadline or connection close | property/fault tests, digest tamper, cross-type correlation collision, unsolicited/wrong-correlation/wrong-Activity result tests, and Prepare/Ready replay/cross-request/late-terminal tests |
 | T05 | Capability escalation | Deny by default; typed independent capabilities with documented peer-relative direction; read immutable trust projections; apply the complete edited grant only through the coordinator; explicit all-of/any-of session admission checked before connect and again after authentication; exact operation direction checked immediately before metadata/payload disclosure or use; purpose-scoped target inventories never substitute `activity.receive` for Mirror grants; for Remote Window Preparation only the source host checks its grant to the participant, while the receiving participant checks authenticated Trust and local policy without requiring or reinterpreting an opposite-direction reciprocal Mirror grant; revoke/downgrade persists first and drains or rejects every active handler whose requirement is no longer satisfied; retain failed peer-disconnect cleanup for retry without restoring revoked authority | permission matrix, any-of admission/final-alternative removal, immutable-snapshot, conditional-mutation, peer-disconnect retry, stop-failure, connection-registration race, purpose-scoped Remote Window target, complementary one-way Prepare grants, and outbound/inbound Activity authorization and inventory-revocation tests |
-| T06 | Remote input or capture after authority/permission loss | Monotonic driver lease epochs, short expiry, local enforcement, emergency-stop epoch bump; permission revocation and start admission share one synchronized fact so revocation either rejects the crossing or stops the admitted start; Remote Window Prepare, Ready, and media attachment grant no capture, participant, Driver, input, or render authority, frame admission remains closed through host revalidation/Start/AddParticipant, and only exact final Admission state establishes the participant binding; failed, throwing, or cancelled capture admission attempts synchronously invoke local capture cleanup even when an adapter ignores cancellation and returns success, and never claim `Stopped` without confirmation; generation and inactive-boundary provenance stop an orphaned late successful Start without stopping a replacement session | lease model/property tests plus deterministic permission/start admission, Ready-before-capture and final-state-before-frame tests, cancellation-ignoring success, inactive-before-success, replacement-session isolation, and failed-start cleanup races |
+| T06 | Remote input or capture after authority/permission loss | Monotonic driver lease epochs, short expiry, local enforcement, emergency-stop epoch bump; permission revocation and start admission share one synchronized fact so revocation either rejects the crossing or stops the admitted start; pre-Prepare additionally reserves the exact prompt-free permission owner/revision and frozen-role facts under the adapter's accepted-observation gate, so a later accepted change makes the old reservation terminal and regrant cannot revive it; Remote Window Prepare, Ready, and media attachment grant no capture, participant, Driver, input, or render authority, frame admission remains closed through host revalidation/Start/AddParticipant, and only exact final Admission state establishes the participant binding; failed, throwing, or cancelled capture admission attempts synchronously invoke local capture cleanup even when an adapter ignores cancellation and returns success, and never claim `Stopped` without confirmation; generation and inactive-boundary provenance stop an orphaned late successful Start without stopping a replacement session | lease model/property tests plus deterministic permission/start admission, prompt-free reservation/commit ordering, Ready-before-capture and final-state-before-frame tests, cancellation-ignoring success, inactive-before-success, replacement-session isolation, and failed-start cleanup races |
 | T07 | Sensitive content capture | Continuous protection-state probe, fail closed on unknown/stale, visible pause/blank state | platform contract + native manual tests |
 | T08 | Malformed/oversized or cross-protocol input | classify only bounded `FSP1` pairing, `FSH1` authenticated-control, and distinct bounded `FSM1` media-attachment initial frames on the shared production listener; transfer every pre-read frame to exactly one decoder; treat the `FSM1` clear route locator only as lookup input, then require exact request/acknowledgement lengths, zero flags, clear/protected agreement, and AEAD-authenticated directed Device/route/Session/Activity/nonce bindings; enforce frame, depth, field, count, decompression, timeout, and allocation limits; decode protocol-1.2 Finished and protocol-1.3 `FSR1` KeyUpdate only after AEAD authentication; structurally validate one complete TopLeft still JPEG, with no concatenated/trailing image and bounded dimensions/pixels/decoded bytes, before pixel allocation | hostile shared-listener selector/capacity corpus; Finished and KeyUpdate wrong-kind/flag/length/trailing/tamper rejection; protocol-1.6 attachment fixtures and wrong-binding/tamper/truncation/trailing tests; JPEG format/animation/orientation/concatenation/dimension/pixel-bomb preallocation tests; protocol/state property tests |
 | T09 | Descriptor opens dangerous target | schema validation, URL scheme allowlist, safe filename handling, no source paths, confirmation where needed | adapter security tests |
@@ -981,6 +981,69 @@ remain open. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/signing/notarization/release gate,
 and the Goal remain open.
 
+### 5.22 2026-08-30 Host Permission Preparation reservation
+
+Exact commit `d607ed1c3217c9c4102c4b893d20da9a6845f02d` mitigates one
+pre-Prepare T06/T07/T13 Permission race. A synchronous prompt-free reservation
+binds the exact permission owner generation, revision, capture/input facts, and
+frozen role under the permission boundary's accepted-observation gate.
+ViewOnly requires Granted capture; DriverEligible additionally requires Granted
+input. A stale snapshot or required-role denial makes the host reservation
+terminal before route or the next send admission, while an unavailable,
+unsupported, disposed, or absent reservation boundary fails closed.
+
+For T06/T07, the macOS boundary assigns an operation sequence before each
+CoreGraphics preflight or request and commits only non-stale observations. A
+changed permission fact advances the revision, deactivates all current
+Preparation registrations, and invokes their bounded invalidation sinks before
+ordinary `Changed` observers. Repeating the same fact preserves the revision
+and reservation. Exact revision and registration identities prevent
+Revoked/Granted or late-old-dispose ABA from reviving or removing a replacement.
+This orders accepted Flowspan observations; it cannot lock or claim an external
+TCC transition before a later prompt-free preflight observes it.
+
+For T10, snapshot drift and required-role denial expose only
+`native_permission_denied`; unsupported, unavailable, missing-contract, and
+unexpected non-fatal failures expose only `native_permission_unavailable`.
+Injected exception and interop text does not cross the host failure surface.
+Exact caller cancellation retains its exception and token; foreign cancellation
+is not relabelled; and `OutOfMemoryException` escapes unchanged.
+
+For T13, the invalidation sink synchronously receives registration ownership
+before the reservation operation can later throw. All registrations become
+inactive before sink delivery, so a non-fatal sink failure cannot preserve the
+old fact, block later invalidations or ordinary observers, or undo the commit.
+Multiple failures retain registration order; fatal exhaustion remains raw;
+repeat disposal rethrows the same retained failure without repeating
+invalidation. The coordinator rechecks the exact registration before promotion,
+releases it after promotion, and owns it through terminal cleanup.
+
+The production-composed managed tracer proves only Permission `R < M < S`.
+After a real authenticated protocol-1.7 responder route is selected, a managed
+Granted-to-Revoked revision invalidates the exact reservation; actual Transport
+send admission emits no Prepare wire or later authority; regrant does not revive
+the terminal generation; and both managed owner graphs drain. The production-
+composed row uses a managed permission boundary, not the macOS CoreGraphics
+boundary.
+
+Local Platform, macOS Platform, Desktop, and solution Debug/Release pass
+`240/240`, `64/64`, `639/639`, and `2418/2418`; warning-as-error builds have
+zero warnings/errors, all local gates pass, and final review reports no P0/P1
+finding. Exact-SHA CI `33286525528` and CodeQL `33286525529` pass; artifacts
+prove `2418/2418` on every hosted OS, Gitleaks 208/0, CodeQL 52/0 with no open
+alerts, and three verified version-0.1.196 reproducible unsigned packages.
+Exact jobs, artifacts, SARIF/package digests, commands, and limitations are in
+the [Permission Preparation evidence](../evidence/2026-08-30-host-permission-preparation-reservation.md).
+
+This does not prove real macOS TCC revocation or recovery, Accessibility/input,
+Windows or Linux native permission handling, physical two-Device behavior,
+signed packaging, notarization, or release acceptance. Production-composed
+Permission `M < R`, `S < M`, and the remaining fault intersections;
+authenticated Connection mutation; Protection; other fact orders; and the
+complete matrix remain open. H0/H1 remain P or M; Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
@@ -995,6 +1058,9 @@ and the Goal remain open.
   connection's exact peer fingerprint and all role-required Mirror Capabilities
   to one revocable reservation. Any Applied Trust mutation makes that
   reservation terminal even when the resulting grant is value-equal.
+- Host Remote Window Preparation permission binds one exact prompt-free owner,
+  revision, capture/input fact set, and frozen role. A later accepted permission
+  revision makes that reservation terminal; regrant cannot revive it.
 - Reconnection creates a new secure session and key epoch.
 - Unknown identity, version, protection state, transaction outcome, or lease
   epoch cannot authorize capture or input.

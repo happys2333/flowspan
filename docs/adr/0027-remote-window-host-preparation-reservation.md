@@ -6,6 +6,7 @@
 - Source-composed checkpoint: `ec63942`
 - Emergency Stop readiness-composed checkpoint: `8e349cc`
 - Trust/Capability-composed checkpoint: `635dc23`
+- Permission-composed checkpoint: `d607ed1`
 - Remaining fact composition and order/fault coverage pending
 
 ## Context
@@ -203,6 +204,53 @@ Permission, authenticated Connection mutation, Protection, remaining Source
 and Emergency Stop orders, and native/physical behavior remain open. Aggregate
 H0/H1 cells therefore stay P or M, Task 5.5a stays unchecked, and
 `CreateProduction()` stays unavailable.
+
+### Permission-composed vertical checkpoint
+
+Exact commit `d607ed1c3217c9c4102c4b893d20da9a6845f02d` implements the first
+Permission fact vertical. Platform defines a narrow synchronous, prompt-free
+Preparation reservation that binds the exact permission owner generation,
+revision, capture and input facts, and frozen participant role. ViewOnly
+requires Granted capture; DriverEligible requires Granted capture and input.
+Snapshot drift or required-role denial invalidates Permission, while an
+unsupported, unavailable, disposed, or absent reservation boundary fails closed
+as `native_permission_unavailable`.
+
+The macOS permission boundary participates under the same gate used to commit
+accepted CoreGraphics observations. A changed fact advances the revision,
+deactivates every current Preparation registration, and invokes their bounded
+invalidation sinks before ordinary `Changed` observers. A repeated equal fact
+does not invalidate. Operation sequencing prevents an older native completion
+from overwriting a newer commit, and registration identity prevents
+Revoked/Granted or late-dispose ABA from reviving or removing a replacement.
+All registrations become inactive before sink delivery; non-fatal failures do
+not block later sinks or observers, and fatal exhaustion remains unwrapped.
+
+The coordinator acquires the exact permission registration after the source
+reservation and before route admission, receives ownership synchronously before
+the reservation operation can later throw, checks the same registration again
+before host-reservation promotion, releases it after promotion, and owns it
+through terminal cleanup. The existing permission observer and current reads
+remain live-session defense in depth, not substitutes for this pre-Prepare
+guard.
+
+The production-composed managed tracer proves Permission `R < M < S`: after a
+real authenticated responder route is selected, a managed Granted-to-Revoked
+revision invalidates the exact reservation, and actual Transport send admission
+emits no Prepare wire or later authority before both nodes drain. Regrant does
+not revive the terminal generation. Exact local and hosted evidence is recorded
+in the
+[Permission Preparation checkpoint](../evidence/2026-08-30-host-permission-preparation-reservation.md).
+
+This checkpoint does not prove a real macOS TCC revoke. The macOS adapter's
+commit gate is tested with controlled interop; its matching-host test only
+reaches the prompt-free preflight call, input remains `Unsupported`, and the
+managed tracer does not instantiate that native boundary. Windows and Linux
+native permission boundaries remain unimplemented. Production-composed
+Permission `M < R`, `S < M`, and the complete Permission fault matrix also
+remain open. Authenticated Connection mutation, Protection, the remaining
+Source, Authorization, and Emergency Stop orders, and the complete matrix still
+block H0/H1 and Task 5.5a. `CreateProduction()` remains unavailable.
 
 ### Exact epoch bundle
 
@@ -434,6 +482,12 @@ real-machine evidence must measure and fail closed over observation latency,
 native call revalidation, and registration loss. Hosted managed CI cannot prove
 those facts.
 
+The Permission-composed checkpoint implements that observation-commit contract
+for the current macOS screen-capture adapter and makes it deterministically
+testable. It does not add continuous TCC observation, Accessibility/input,
+ScreenCaptureKit capture, or a packaged grant/revoke result, and therefore is
+not native permission acceptance evidence.
+
 Implementing the managed contract does not make production Remote Window
 available and does not satisfy native, physical two-device, signing,
 notarization, accessibility, or release gates.
@@ -486,12 +540,11 @@ implementation text.
 
 ## Consequences
 
-- Task 5.5a remains blocked until Permission, authenticated Connection, and
-  Protection are connected to their real owners; the remaining Source,
-  Emergency Stop, and Trust/Capability orders/faults are covered; and the
-  complete managed production-boundary matrix is reproducible. The Source,
-  process-local Emergency Stop, and one Trust/Capability slice are
-  insufficient.
+- Task 5.5a remains blocked until authenticated Connection and Protection are
+  connected to their real owners; the remaining Permission, Source, Emergency
+  Stop, and Trust/Capability orders/faults are covered; and the complete managed
+  production-boundary matrix is reproducible. One production-composed order for
+  each currently connected fact is insufficient.
 - The coordinator gains one deep host Preparation reservation module instead of
   more caller-visible read ordering.
 - Security gains an exact, revocable operation-Capability reservation rather
@@ -499,6 +552,10 @@ implementation text.
 - Platform has a managed process-local Emergency Stop readiness reservation
   that can be promoted without early formal registration; native adapters and
   physical behavior still require separate evidence.
+- Platform has an exact prompt-free Permission Preparation reservation, and the
+  macOS boundary has a deterministic observation-commit gate. Real TCC revoke,
+  Accessibility/input, Windows/Linux native permission behavior, and packaged
+  recovery still require separate evidence.
 - Transport gains a generation-bound route-selection operation and one bounded
   host reservation hook at the existing Prepare send-admission point.
 - Existing protocol-1.5, 1.6, and 1.7 wire fixtures remain unchanged.

@@ -669,6 +669,41 @@
     complete per-boundary matrix remain open. Therefore Task 5, Task 5.5a,
     Task 5.5, every native/physical/signing/notarization/release gate, the Goal,
     and `CreateProduction()` all remain open.
+    Exact Permission implementation
+    `d607ed1c3217c9c4102c4b893d20da9a6845f02d` next adds a synchronous,
+    prompt-free reservation for the exact permission owner generation,
+    revision, capture/input facts, and frozen role. The macOS boundary
+    invalidates current registrations under its accepted-observation commit
+    gate before ordinary observers, rejects stale snapshots, preserves
+    same-fact revisions, prevents Revoked/Granted ABA, and deactivates every
+    registration before surfacing sink or disposal failures. The Desktop host
+    owns the registration before route admission, rechecks it before promotion,
+    and releases it after promotion or through terminal cleanup. Focused tests
+    cover all three host order shapes, exact snapshot/role denial, unavailable
+    boundary, ownership-transfer-then-throw, caller and foreign cancellation,
+    fatal exhaustion, currentness faults, and release ownership. A 26th managed
+    tracer case crosses real authenticated loopback route and actual Transport
+    send admission for Permission `R < M < S`: a managed Granted-to-Revoked
+    revision prevents Prepare wire and all later authority, regrant cannot
+    revive the terminal generation, and both nodes drain.
+    Local Platform, macOS Platform, Desktop, and solution Debug/Release pass
+    `240/240`, `64/64`, `639/639`, and `2418/2418` respectively; warning-as-
+    error builds have zero warnings/errors, format, diff, vulnerability, TEST
+    MODE composition, and simulator gates pass, and final review reports no
+    P0/P1 finding. Exact-SHA CI `33286525528` and CodeQL `33286525529` pass;
+    downloaded artifacts prove `2418/2418` on every hosted OS, Gitleaks 208/0,
+    CodeQL 52/0 with 0 open alerts, and all version-0.1.196 reproducible unsigned
+    packages. Exact jobs, artifacts, SARIF/package digests, commands, and limits
+    are in
+    `docs/evidence/2026-08-30-host-permission-preparation-reservation.md`.
+    This proves a testable macOS observation-commit gate, not a real TCC revoke;
+    macOS input remains Unsupported, Windows/Linux native permission boundaries
+    are not implemented, and the managed tracer does not instantiate the macOS
+    boundary. Production-composed Permission `M < R` and `S < M`, Connection,
+    Protection, all remaining fact orders/fault intersections, and the complete
+    matrix remain open. Tasks 5, 5.5a, and 5.5; aggregate H0/H1 acceptance;
+    `CreateProduction()`; every native/physical/signing/notarization/release
+    gate; and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
