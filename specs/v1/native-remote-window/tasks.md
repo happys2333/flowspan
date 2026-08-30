@@ -632,12 +632,43 @@
     Exact commands, jobs, artifacts, digests, and limits are in
     `docs/evidence/2026-08-30-host-emergency-stop-readiness-reservation.md`.
     This proves only a managed process-local registrar and one real-loopback
-    order, not an OS hotkey or native action. The other Emergency Stop `M/R/S`
-    orders and fault matrix, production-composed Source `M < R` and `S < M`,
-    Permission, Trust, Connection mutation, Protection, and the complete
-    per-boundary matrix remain open. Therefore Task 5, Task 5.5a, Task 5.5,
-    every native/physical/signing/notarization/release gate, the Goal, and
-    `CreateProduction()` all remain open.
+    order, not an OS hotkey or native action. At that checkpoint the other
+    Emergency Stop `M/R/S` orders and fault matrix, production-composed Source
+    `M < R` and `S < M`, Permission, Trust, Connection mutation, Protection,
+    and the complete per-boundary matrix remained open.
+    Exact Trust/Capability implementation
+    `635dc23ec0c8f2812d527e16135b3d9c40885788` subsequently binds the
+    handshake-proved peer fingerprint from the generation-bound authenticated
+    connection lease to one exact Security reservation for Device ID and every
+    role-required Capability. ViewOnly requires `mirror.view`; DriverEligible
+    requires `mirror.view` plus `mirror.drive`. Applied revoke or Capability
+    update—including an Applied same-grant update—deactivates all matching
+    Preparation registrations under the Trust mutation gate before ordinary
+    observers or active-session Stop. Rejected, thrown, and caller-cancelled
+    mutations do not invalidate an uncommitted fact; revoke/regrant, key
+    replacement for the same Device ID, and late old disposal cannot revive or
+    remove a replacement reservation. Non-fatal sink and Stop failures retain
+    stable ordering after commit, while fatal exhaustion escapes unwrapped.
+    The Desktop coordinator reserves before route, checks the same owner before
+    promotion, releases it after promotion, and owns it through cleanup.
+    Focused host plus tracer Debug/Release passes `87/87`, Desktop passes
+    `616/616`, and both solutions pass `2377/2377` with zero build warnings or
+    errors and every local gate green. A 25th managed tracer case crosses real
+    authenticated loopback route and actual Transport send admission for
+    Authorization `R < M < S`: an Applied same-grant update invalidates the
+    exact reservation, prevents Prepare wire and all later authority, and
+    drains both nodes. Exact-SHA CI `33284857461` and CodeQL `33284857449`
+    pass `2377/2377` on every hosted OS, Gitleaks 208/0, CodeQL 52/0, and all
+    version-0.1.195 reproducible unsigned package jobs. Final strict reviews
+    report APPROVE with 0 P0/P1/P2. Exact commands, jobs, artifact/package
+    digests, and limitations are in
+    `docs/evidence/2026-08-30-host-trust-capability-preparation-reservation.md`.
+    This closes neither the other production-composed Authorization orders nor
+    its complete fault intersections. Permission, authenticated Connection
+    mutation, Protection, remaining Source and Emergency Stop orders, and the
+    complete per-boundary matrix remain open. Therefore Task 5, Task 5.5a,
+    Task 5.5, every native/physical/signing/notarization/release gate, the Goal,
+    and `CreateProduction()` all remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

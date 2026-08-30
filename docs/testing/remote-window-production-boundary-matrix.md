@@ -200,12 +200,32 @@ similar coverage.
   [Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md)
   records exact local and hosted results. This is not native hotkey/action
   evidence and does not upgrade an aggregate cell.
+- [`AuthenticatedRemoteWindowMediaSessionsTests.ConnectionLeaseRetainsAuthenticatedHandshakePeerFingerprint`](../../tests/Flowspan.Transport.Tests/AuthenticatedRemoteWindowMediaSessionsTests.cs),
+  `SameDeviceIdWithNewKeyCannotRetargetOlderConnectionLease`,
+  [`TrustSessionCoordinatorTests`](../../tests/Flowspan.Security.Tests/TrustSessionCoordinatorTests.cs),
+  the focused Authorization rows in
+  [`DesktopRemoteWindowHostCoordinatorTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowHostCoordinatorTests.cs),
+  and
+  [`DesktopRemoteWindowManagedTwoNodeTracerTests.AppliedSameMirrorGrantAfterReservedRoutePreventsPrepareWireAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  at exact commit `635dc23` bind the handshake fingerprint and exact all-of
+  role grant through the Security mutation gate and Desktop reservation. The
+  lower-level and focused rows cover exact admission, ABA, both gate orders,
+  mutation outcomes, all three host order shapes, failure classification, and
+  selected release/cleanup outcomes. The real authenticated loopback row proves
+  only Authorization
+  `R < M < S`: an Applied same-grant update after route selection invalidates
+  the exact reservation, the real Transport send hook admits no Prepare wire,
+  and both nodes drain. The
+  [Trust/Capability Preparation evidence](../evidence/2026-08-30-host-trust-capability-preparation-reservation.md)
+  records exact local and hosted results. This one production-composed order
+  does not upgrade an aggregate cell.
 
 These tests do not yet inject every source, permission, Trust/grant, connection,
 observer-registration, protection, readiness, and route failure independently.
-Production-composed Source `M < R` and `S < M`, the other Emergency Stop
-`M/R/S` orders, its complete fault matrix, and native Emergency Stop behavior
-are also still open. That is why the H0/H1 aggregate cells remain P or M.
+Production-composed Source `M < R` and `S < M`, Authorization `M < R` and
+`S < M`, the other Emergency Stop `M/R/S` orders, their complete fault
+matrices, and native Emergency Stop behavior are also still open. That is why
+the H0/H1 aggregate cells remain P or M.
 
 ### E-TX — transaction, tombstone, and deadline state machine
 
@@ -373,11 +393,14 @@ The Source `R < M < S` vertical now crosses the real source mutation,
 authenticated route, Transport send-admission, and owner-cleanup boundaries at
 `ec63942`. The Emergency Stop `R < M < S` vertical similarly crosses a managed
 process-local registrar, the real authenticated route, Transport send admission,
-and owner cleanup at `8e349cc`. The other fact reservations, the remaining
-production-composed Source and Emergency Stop orders, native Emergency Stop,
-and the complete per-boundary owner/fault evidence remain required. Neither the
-ADR, its isolated core, nor these two single orders promote an aggregate matrix
-cell by itself.
+and owner cleanup at `8e349cc`. Authorization `R < M < S` crosses the
+handshake-derived fingerprint, Security mutation gate, real authenticated route,
+Transport send admission, and owner cleanup at `635dc23`. Permission,
+authenticated Connection mutation, and Protection reservations; the remaining
+production-composed Source, Authorization, and Emergency Stop orders; native
+Emergency Stop; and the complete per-boundary owner/fault evidence remain
+required. Neither the ADR, its isolated core, nor these three single orders
+promote an aggregate matrix cell by itself.
 
 The next tests must use the family IDs in their names or evidence notes and add
 one direct row for each applicable gap. The presently known gaps are:
@@ -385,9 +408,10 @@ one direct row for each applicable gap. The presently known gaps are:
 1. **H0:** finish injected throws from the remaining initial fact sources and
    authenticated-disconnect coverage before route selection. The deterministic
    source, permission, grant, and connection revocation barriers do not prove an
-   atomic reservation across arbitrary concurrent threads. Source now has one
-   real `R < M < S` vertical; add production-composed `M < R` and `S < M`, then
-   connect Permission, Trust/Capability, and authenticated Connection mutation
+   atomic reservation across arbitrary concurrent threads. Source and
+   Authorization now each have one real `R < M < S` vertical; add their
+   production-composed `M < R` and `S < M` orders and remaining fault
+   intersections, then connect Permission and authenticated Connection mutation
    to their exact fact gates.
 2. **H1:** finish the safety/route reject and throw variants; inject connection
    loss at the exact route boundary; preserve any route side effect while

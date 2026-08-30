@@ -316,7 +316,7 @@ native emergency action, physical peer, or usable packaged screen reader.
 | Threat | Required Task 5.5a evidence | Remaining evidence |
 | --- | --- | --- |
 | T04 | `remote-window.prepare` and `remote-window.ready` repeat one exact correlation, Session, Activity, directed Device pair, frozen role, UTC deadline, and domain-separated canonical SHA-256 `prepareDigest`. Both peers recompute and constant-time compare the digest. Each control registration owns at most one pending transaction and retains a terminal tombstone through the deadline or connection close; unknown, duplicate, conflicting, cross-request, expired, or delayed Ready faults closed without reviving work. A locally produced Rejected response is committed before its delivery-dependent fail-close, so the host observes the bounded reason before closing the owning connection. The failed connection generation becomes unavailable for reacquisition, retry, route, or media operations immediately. A request-bound watchdog accepts only the exact same request with a positive remaining deadline of at most 10 seconds, survives lease disposal, and fail-closes at that original deadline if the host does not. Conflicting, expired, overlong, or provider-setup-failed deferral does not poison or extend the generation; explicit close and deadline expiry share one cleanup, while owner revocation cancels the watchdog. A test-only coordinator clock proves the production currentness check treats equality with the request deadline as expired after successful `FSM1` and Ready, without reviving the generation. | Independent protocol review, cross-implementation fixtures, and physical loss/replay observation. |
-| T05 | Only the source host checks its current peer-relative `mirror.view` and optional `mirror.drive` grant to the participant before Prepare, before capture, and through AddParticipant. The participant verifies current authenticated Trust/connection, local recipient and receive policy, and readiness without requiring a reciprocal Mirror grant, which would authorize the opposite source direction. v1 defines no `remote-window.receive` Capability. A managed production-path tracer now covers complementary one-way success, reversed-grant denial, and same-session Mirror grant downgrade with active-session drain. | The complete direction/fault matrix and packaged physical one-way-grant and revocation evidence. |
+| T05 | Only the source host checks its current peer-relative `mirror.view` and optional `mirror.drive` grant to the participant before Prepare, before capture, and through AddParticipant. The participant verifies current authenticated Trust/connection, local recipient and receive policy, and readiness without requiring a reciprocal Mirror grant, which would authorize the opposite source direction. v1 defines no `remote-window.receive` Capability. The host now reserves the exact authenticated-handshake fingerprint plus all role-required Mirror Capabilities under the Trust mutation gate before route admission; every Applied revoke or Capability update invalidates that exact Preparation before ordinary observers or active-session Stop. A managed production-path tracer covers complementary one-way success, reversed-grant denial, same-session active Mirror downgrade, and one pre-Prepare Applied same-grant `R < M < S` invalidation with zero Prepare wire and complete drain. | The other production-composed Authorization orders, complete direction/fault matrix, and packaged physical one-way-grant and revocation evidence. |
 | T06 | Prepare, Ready, permission, route possession, attachment, and renderer readiness grant no membership, capture, Driver, input, or rendering authority. Ready success only permits host revalidation; protection/Emergency ownership, controller Start, and exact AddParticipant occur with frame admission closed. Only correlated state with action Admission, outcome Applied or AlreadyApplied, exact role, and current media binding establishes the participant's known binding and opens frames. The managed tracer observes zero capture before Prepare/Ready and attachment complete, zero media/render before final Admission, then exercises Driver input and Emergency Stop. Three renderer-failure rows own an explicit wait for both real media-session attachment completions before injecting failure; both sessions then carry the exact protocol, Device, Session, and Activity binding, while Admission, capture, media send, and render remain zero. A fourth row blocks the real listener before host directory publication, proves participant attached and host unattached at failure, commits Rejected before fail-close, then publishes host attachment and drains every owner. A fifth row lets fail-close and the coordinator/control/directory/route graph drain while one listener handler remains blocked, then proves the delayed attachment fails and the handler settles without resurrection. These test barriers are not production ordering guarantees. The post-`FSM1` expiry case additionally completes Ready and one renderer Prepare before exact deadline equality, yet publishes no Admission or active generation and performs no capture, media send, or render. The caller-cancellation case cancels only the `StartAsync` caller token while the harness remains live and the clock is before deadline; production returns that exact token without Admission, capture, send, or render. A managed active permission-loss observation closes frame admission, invokes the local Emergency Stop boundaries, and drains the admitted session and its owner graph. | Native capture/input enforcement, the remaining complete per-boundary fault matrix, and Emergency Stop under physical peer/network/UI failure. |
 | T07 | The host requires fresh Safe protection before Prepare and rechecks it after Ready immediately before Start. Protection loss at either boundary rejects or stops the transaction before frame publication; a Ready result cannot cache Safe state. The active permission-loss tracer drives the managed permission abstraction; it is not evidence of a real Windows, macOS, or Linux permission revocation. | Continuous platform protection probes and frame-by-frame physical blank/pause evidence. |
 | T08 | Protocol 1.7 alone accepts the two strict canonical schemas. Prepare and Ready reject unknown, duplicate, null, wrong-type, or trailing fields, malformed digest, wrong authenticated direction/identity, any binding or role mismatch, and inconsistent envelope/body deadlines. Native token/handle/generation, route ID, Descriptor, Kind, raw title, key, input, frame, and exception text are absent. Malformed or wrongly bound input is not reflected in Ready. A managed tracer carries `FSM1`, encrypted media, and JPEG decode through the production listener. The attachment-failure tracer instead uses an authenticated, signed candidate, proves that its verified TCP endpoint accepts the connection, and then immediately resets before the `FSM1` handshake completes; it is attachment-failure evidence, not a malformed-`FSM1` byte test. | Cross-implementation hostile readers, cross-platform native/packaged execution, and packaged physical traffic observation. |
@@ -824,11 +824,10 @@ reproducible unsigned packages.
 
 At that isolated-core commit this was not yet a T06/T07 production mitigation:
 the coordinator and fact owners did not use the core. The subsequent source-
-only production composition is recorded below. Permission, Trust/Capability,
-authenticated Connection mutation, Emergency Stop reserve/promote, and
-Protection still do not implement the complete reservation contract, so no
-aggregate matrix cell closes and H0/H1, Task 5.5a, and `CreateProduction()`
-remain open.
+only production composition is recorded below. At that later checkpoint,
+Permission, Trust/Capability, authenticated Connection mutation, Emergency Stop
+reserve/promote, and Protection did not implement the complete reservation
+contract, so no aggregate matrix cell closed.
 
 ### 5.19 2026-08-30 Host Preparation source linearization
 
@@ -867,14 +866,12 @@ artifacts, digests, commands, and limitations are recorded in the
 [source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md).
 
 This evidence proves neither production-composed Source `M < R` nor `S < M`.
-Permission revision, exact Trust/Capability mutation, authenticated Connection
-fact invalidation at its mutation gate, Emergency Stop readiness
-reserve/promote, exact Protection epochs, and the complete per-boundary reject/
-throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix remain open. Tasks
-5, 5.5a, and 5.5, `CreateProduction()`, all native/physical/signing/
-notarization/release gates, and the Goal remain open. Hosted managed execution
-does not prove native source lifetime or protection behavior on any operating
-system.
+At that checkpoint, Permission revision, exact Trust/Capability mutation,
+authenticated Connection fact invalidation at its mutation gate, Emergency
+Stop readiness reserve/promote, exact Protection epochs, and the complete per-
+boundary reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix
+remained open. Hosted managed execution does not prove native source lifetime
+or protection behavior on any operating system.
 
 ### 5.20 2026-08-30 Host Emergency Stop readiness reservation
 
@@ -914,14 +911,75 @@ with 0 P0/P1/P2 after two initial P1 findings and one later P1 finding were
 repaired. Exact jobs, artifacts, digests, commands, and limitations are in the
 [Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md).
 
-This is not a native hotkey or operating-system Emergency Stop result. The
-other Emergency Stop `M/R/S` orders, its complete fault matrix, real Windows/
-macOS/Linux registration and loss, physical latency, blocked UI/network,
-secure-input behavior, Source `M < R` and `S < M`, Permission, Trust/
+This is not a native hotkey or operating-system Emergency Stop result. At that
+checkpoint the other Emergency Stop `M/R/S` orders, its complete fault matrix,
+real Windows/macOS/Linux registration and loss, physical latency, blocked UI/
+network, secure-input behavior, Source `M < R` and `S < M`, Permission, Trust/
 Capability, authenticated Connection mutation, Protection, and the complete
-production-boundary matrix remain open. H0/H1 stay P or M; Tasks 5, 5.5a, and
-5.5, `CreateProduction()`, all native/physical/signing/notarization/release
-gates, and the Goal remain open.
+production-boundary matrix remained open.
+
+### 5.21 2026-08-30 Host Trust and Capability Preparation reservation
+
+Exact commit `635dc23ec0c8f2812d527e16135b3d9c40885788` mitigates one
+pre-Prepare T05/T06/T13 Authorization race. The authenticated connection lease
+retains the peer public-key fingerprint proved by its real handshake. The
+Security coordinator reserves the exact Device ID, that fingerprint, and all
+Capabilities required by the frozen role under the same gate used to commit
+Trust revocation or Capability update. ViewOnly requires `mirror.view`;
+DriverEligible requires both `mirror.view` and `mirror.drive`.
+
+For T05, every Applied revoke or Capability update invalidates matching
+Preparation registrations after the store commit and before `Changed` observers
+or active-session Stop. An Applied update with the same visible grant still
+invalidates: value equality cannot revive an operation reservation across an
+authoritative mutation. A rejected, thrown, or caller-cancelled store operation
+does not invalidate because it did not commit. Exact fingerprint matching,
+monotonic registration identity, and late-old-dispose tests prevent same-Device
+key replacement and revoke/regrant ABA from retargeting an old reservation.
+
+For T10, missing or changed authenticated identity maps only to
+`authenticated_connection_stale`; absent Trust or required Capability maps only
+to `mirror_capability_denied`; and an unexpected non-fatal reservation failure
+maps only to `mirror_authorization_unavailable`. Injected text and inner
+exceptions do not cross the host failure surface. Exact caller cancellation
+retains its token. Fatal `OutOfMemoryException` from reservation, invalidation,
+or active-session Stop escapes unwrapped and by identity rather than being
+misreported as denial or unavailability.
+
+For T06/T13, matching registrations are all deactivated under the mutation gate
+before their bounded invalidation sinks run. Non-fatal sink failures do not undo
+the committed mutation or skip active-session Stop; failure identity and order
+remain observable. The Desktop coordinator reserves before route, checks the
+same registration before promotion, releases it after promotion, and owns it
+through terminal cleanup. Focused tests cover `M < R`, `R < M < S`, and
+`S < M`, plus rejection, throw, cancellation, fatal failure, and selected
+normal/cancellation release outcomes. Authorization-registration release-fault
+intersections remain open.
+
+The production-composed managed tracer proves only Authorization
+`R < M < S`. After a real authenticated protocol-1.7 route is selected, an
+Applied same-grant update invalidates the exact reservation while source and
+connection remain current. The actual Transport send-admission hook admits no
+Prepare wire; no participant policy, attachment wait, capture, media, renderer,
+Admission, or input follows; and both managed owner graphs drain. Unit order
+shapes are not evidence for the missing production-composed orders.
+
+Local Debug/Release solutions pass `2377/2377` with zero build warnings/errors;
+format, dependency vulnerability, explicit TEST MODE composition, simulator,
+diff, and final strict reviews pass. Exact-SHA CI `33284857461` and CodeQL
+`33284857449` pass; retained artifacts prove `2377/2377` on Windows, Linux, and
+macOS, Gitleaks 208/0, CodeQL 52/0, and three reproducible version-0.1.195
+unsigned packages. Exact jobs, artifacts, digests, commands, and limits are in
+the [Trust/Capability Preparation evidence](../evidence/2026-08-30-host-trust-capability-preparation-reservation.md).
+
+This is hosted managed, test-mode, and unsigned-package evidence. It proves no
+native API, physical two-Device path, signed package, notarization, packaged
+accessibility, or release acceptance. The other Authorization orders and fault
+intersections, Permission, authenticated Connection mutation, Protection,
+remaining Source and Emergency Stop orders, and the complete boundary matrix
+remain open. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open.
 
 ## 6. Security state machine rules
 
@@ -933,6 +991,10 @@ gates, and the Goal remain open.
 - Trust revocation removes authorization and active-session eligibility before
   waiting for shutdown; every affected registered session receives a stop
   request before the revocation call returns, with failures surfaced.
+- Host Remote Window Preparation authorization binds the authenticated
+  connection's exact peer fingerprint and all role-required Mirror Capabilities
+  to one revocable reservation. Any Applied Trust mutation makes that
+  reservation terminal even when the resulting grant is value-equal.
 - Reconnection creates a new secure session and key epoch.
 - Unknown identity, version, protection state, transaction outcome, or lease
   epoch cannot authorize capture or input.

@@ -1394,13 +1394,11 @@ unsigned packages. Exact commands, job/artifact IDs, digests, and limitations
 are in the
 [source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md).
 
-This proves only Source `R < M < S` plus the success path. Production-composed
-Source `M < R` and `S < M`, Permission, Trust/Capability, authenticated
-Connection mutation, Emergency Stop reserve/promote, Protection, and every
-boundary's complete reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault
-matrix remain open. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5,
-`CreateProduction()`, every native/physical/signing/notarization/release gate,
-and the Goal remain open.
+This proves only Source `R < M < S` plus the success path. At that checkpoint,
+production-composed Source `M < R` and `S < M`, Permission, Trust/Capability,
+authenticated Connection mutation, Emergency Stop reserve/promote, Protection,
+and every boundary's complete reject/throw/cancel/timeout/revoke/disconnect/
+cleanup-fault matrix remained open.
 
 ### 2026-08-30 Host Emergency Stop readiness reservation
 
@@ -1443,12 +1441,62 @@ jobs, artifacts, digests, and limitations are in the
 [Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md).
 
 This proves only the managed process-local registrar and one production-
-composed order. The other Emergency Stop `M/R/S` orders, its complete fault
-matrix, native hotkey/action and physical behavior, Source `M < R` and `S < M`,
-Permission, Trust/Capability, authenticated Connection mutation, Protection,
-and the complete production-boundary matrix remain open. H0/H1 stay P or M;
-Tasks 5, 5.5a, and 5.5, `CreateProduction()`, all native/physical/signing/
-notarization/release gates, and the Goal remain open.
+composed order. At that checkpoint the other Emergency Stop `M/R/S` orders,
+its complete fault matrix, native hotkey/action and physical behavior, Source
+`M < R` and `S < M`, Permission, Trust/Capability, authenticated Connection
+mutation, Protection, and the complete production-boundary matrix remained
+open.
+
+### 2026-08-30 Host Trust and Capability Preparation reservation
+
+Exact commit `635dc23ec0c8f2812d527e16135b3d9c40885788` composes the
+Authorization fact from the real authenticated handshake fingerprint through
+the Security mutation gate, a narrow Desktop adapter, the host Preparation
+reservation, authenticated responder route, actual Transport Prepare
+send-admission hook, promotion, and cleanup. ViewOnly reserves all of
+`mirror.view`; DriverEligible reserves all of `mirror.view` and
+`mirror.drive`.
+
+Transport tests prove that the generation-bound Remote Window connection lease
+retains the authenticated peer fingerprint and that a replacement key for the
+same Device ID cannot retarget an old lease. Security tests directly cover
+exact fingerprint and all-of Capability admission; exact rejection statuses;
+Applied same-grant invalidation; revoke/regrant, replacement, and late-dispose
+ABA; mutation/reservation ordering on both sides of the gate; invalidation
+before `Changed` and active-session Stop; rejected/throw/cancel behavior;
+caller-token preservation; non-fatal sink/Stop failure identity and order;
+fatal exhaustion without wrapping; and stable disposal invalidation.
+
+Focused Desktop tests inject Authorization invalidation before route, after
+route but before Prepare send, and after Prepare send. They also cover reserve
+reject, blank authenticated fingerprint, non-fatal redaction, raw fatal
+exhaustion, exact caller cancellation, and success/cancellation registration
+release counts. The production-composed tracer
+`AppliedSameMirrorGrantAfterReservedRoutePreventsPrepareWireAndDrains` proves
+only Authorization `R < M < S` over real loopback TCP, authenticated protocol
+1.7, a real responder route, and actual Transport send admission. The same-
+grant Applied mutation invalidates the exact reservation while source and
+connection remain current; the later send gate emits no Prepare wire or later
+authority, and both managed owner graphs drain.
+
+Local Transport and Security Debug/Release pass `719/719` and `144/144`;
+focused host plus tracer Debug/Release pass `87/87`; Desktop Debug/Release pass
+`616/616`; and both solution configurations pass `2377/2377` with zero build
+warnings/errors. Format, diff, vulnerability, explicit TEST MODE composition,
+simulator, and final strict reviews pass. Exact-SHA CI `33284857461` and CodeQL
+`33284857449` pass; downloaded artifacts prove `2377/2377` on Windows, Linux,
+and macOS, Gitleaks 208/0, CodeQL 52/0, and all three reproducible version-
+0.1.195 unsigned packages. Exact commands, jobs, artifact/package digests, and
+limitations are in the
+[Trust/Capability Preparation evidence](../evidence/2026-08-30-host-trust-capability-preparation-reservation.md).
+
+This is managed contract, test-mode composition, and unsigned-package evidence.
+The other production-composed Authorization orders and full fault
+intersections remain open, as do Permission, authenticated Connection mutation,
+Protection, remaining Source and Emergency Stop orders, and the complete
+production-boundary matrix. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, all native/physical/signing/notarization/release gates,
+and the Goal remain open.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/

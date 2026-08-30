@@ -5,6 +5,7 @@
 - Decision owners: Flowspan maintainers
 - Source-composed checkpoint: `ec63942`
 - Emergency Stop readiness-composed checkpoint: `8e349cc`
+- Trust/Capability-composed checkpoint: `635dc23`
 - Remaining fact composition and order/fault coverage pending
 
 ## Context
@@ -154,11 +155,52 @@ send-admission hook admits no Prepare wire or later authority. Exact local and
 hosted evidence is recorded in the
 [Emergency Stop readiness checkpoint](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md).
 
-This is not a native hotkey or operating-system action. The other production-
-composed Emergency Stop `M/R/S` orders, its complete fault matrix, and real
-Windows/macOS/Linux registration behavior remain open. Source `M < R` and
+This is not a native hotkey or operating-system action. At that checkpoint the
+other production-composed Emergency Stop `M/R/S` orders, its complete fault
+matrix, real Windows/macOS/Linux registration behavior, Source `M < R` and
 `S < M`, Permission, Trust/Capability, authenticated Connection mutation,
-Protection, and the complete owner/fault matrix also remain open. Aggregate
+Protection, and the complete owner/fault matrix remained open.
+
+### Trust/Capability-composed vertical checkpoint
+
+Exact commit `635dc23ec0c8f2812d527e16135b3d9c40885788` implements the first
+Trust/Capability fact vertical. Its prerequisite commit `1c1999c` binds the
+authenticated peer public-key fingerprint proved by the real handshake to the
+generation-bound Remote Window connection lease. Security commit `7a1349b`
+adds an exact process-local reservation for peer Device ID, that fingerprint,
+and an all-of Capability set under the existing Trust mutation gate; repair
+`4138b03` preserves fatal `OutOfMemoryException` identity through invalidation
+and active-session Stop.
+
+Every Applied revoke or Capability update invalidates all matching Preparation
+registrations under the mutation gate after store commit and before ordinary
+`Changed` observers or active-session Stop. This deliberately includes an
+Applied update whose resulting grant equals its predecessor. All matching
+registrations are deactivated before non-fatal invalidation sinks run, so a
+sink failure cannot retain an old reservation or undo the mutation. Monotonic
+registration identities prevent revoke/regrant, replacement identity, and late
+old disposal from affecting an ABA replacement.
+
+The Desktop adapter maps ViewOnly to `mirror.view` and DriverEligible to the
+all-of set `mirror.view` plus `mirror.drive`. The coordinator acquires the
+reservation before route admission, uses the existing host reservation as its
+bounded invalidation sink, checks the exact registration again before
+promotion, releases it after promotion, and owns it through terminal cleanup.
+Missing authenticated fingerprint, identity replacement, denial, unexpected
+non-fatal failure, exact caller cancellation, and fatal exhaustion preserve the
+fixed fail-closed classifications defined by the implementation.
+
+The production-composed managed tracer proves Authorization `R < M < S`: a
+real authenticated responder route is selected, an Applied same-grant update
+invalidates the exact reservation, and actual Transport send admission emits no
+Prepare wire or later authority before both nodes drain. Exact local and hosted
+evidence is recorded in the
+[Trust/Capability Preparation checkpoint](../evidence/2026-08-30-host-trust-capability-preparation-reservation.md).
+
+This single managed order does not complete Authorization `M < R`, `S < M`, or
+its reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault intersections.
+Permission, authenticated Connection mutation, Protection, remaining Source
+and Emergency Stop orders, and native/physical behavior remain open. Aggregate
 H0/H1 cells therefore stay P or M, Task 5.5a stays unchecked, and
 `CreateProduction()` stays unavailable.
 
@@ -444,11 +486,12 @@ implementation text.
 
 ## Consequences
 
-- Task 5.5a remains blocked until the remaining Permission, Trust/Capability,
-  authenticated Connection, and Protection facts are connected to their real
-  owners; the remaining Source and Emergency Stop orders/faults are covered;
-  and the complete managed production-boundary matrix is reproducible. The
-  Source and process-local Emergency Stop slices alone are insufficient.
+- Task 5.5a remains blocked until Permission, authenticated Connection, and
+  Protection are connected to their real owners; the remaining Source,
+  Emergency Stop, and Trust/Capability orders/faults are covered; and the
+  complete managed production-boundary matrix is reproducible. The Source,
+  process-local Emergency Stop, and one Trust/Capability slice are
+  insufficient.
 - The coordinator gains one deep host Preparation reservation module instead of
   more caller-visible read ordering.
 - Security gains an exact, revocable operation-Capability reservation rather
