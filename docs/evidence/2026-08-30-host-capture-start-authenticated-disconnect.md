@@ -7,7 +7,8 @@ Branch: `codex/v1-foundation`
 Implementation and production-fix commit:
 `fe0be79e0accbbb0cd4eef27b62e12620a18eccf`
 
-Final hosted evidence tree: pending an exact `fe0be79` workflow execution.
+Final hosted evidence tree:
+`a0c964802eb75e58a5f9b1b276c172090331e123`
 
 Local environment: macOS 26.6.2 arm64, .NET SDK 10.0.301
 
@@ -39,12 +40,13 @@ causal loss of current authenticated Connection authority rather than allowing
 a later local controller outcome to overwrite it. The exact public result is
 `authenticated_connection_stale`, with no inner exception, peer fingerprint, or
 dependency payload. No Admission is published, the frame gate never opens, and
-capture/input receive local Emergency Stop. Outside the hook, full participant
-disconnect and session completion are joined before the controller, capture/
-input/session, renderer, protection, permission observer, Emergency Stop, media
-sessions, route, directory, handler, channel, connection, control, and host-
-generation owners drain across both managed nodes. The exact source lease
-remains current.
+capture/input receive local Emergency Stop. Host Start awaits its owned cleanup
+before returning the bounded failure. The test then joins participant disconnect
+and session completion outside the hook and verifies that the controller,
+capture/input/session, renderer, protection, permission observer, Emergency
+Stop, media sessions, route, directory, handler, channel, connection, control,
+and host-generation owners are drained across both managed nodes. The exact
+source lease remains current.
 
 ## TDD and production fix
 
@@ -103,11 +105,57 @@ Final local results at exact commit `fe0be79`:
 
 ## Hosted exact-SHA evidence
 
-Pending successful Windows, macOS, Linux, Secret Scan, CodeQL, and reproducible
-unsigned-package jobs for exact commit
-`fe0be79e0accbbb0cd4eef27b62e12620a18eccf`. CI `33302708813` and CodeQL
-`33302708801` target documentation-only tree `17a3401`, not `fe0be79`, and are
-explicitly not evidence for this checkpoint.
+[CI run `33303210427`](https://github.com/happys2333/flowspan/actions/runs/33303210427)
+completed with `success`, run number 213 attempt 1, for exact evidence tree
+`a0c964802eb75e58a5f9b1b276c172090331e123`. Each downloaded test artifact
+contains exactly 12 TRX files. Structured aggregation reports `2577/2577`
+total, executed, and passed on Linux, macOS, and Windows; every failed, error,
+timeout, aborted, inconclusive, passed-but-run-aborted, not-runnable, not-
+executed, disconnected, warning, completed, in-progress, and pending counter is
+zero. Downloaded bytes independently reproduce each service outer SHA-256:
+
+| Platform | Job ID | Artifact ID | Artifact SHA-256 |
+| --- | ---: | ---: | --- |
+| Linux | `99235034230` | `9729646799` | `1a1a8573f54e2def86994b1bfe241224763b6db3f5e3b2cd086703d9b9357de2` |
+| macOS | `99235034090` | `9729647216` | `0027be3cd3d315877dfbe6496637cb363efd9fd59f1e749105ce54df46fe7f64` |
+| Windows | `99235034224` | `9729659650` | `d7aa809f19726836b32dd4541b56fc7bd4688e1a9cc109f74193e6fbd1c9f4d1` |
+
+Secret Scan job `99235034306` completed successfully. Artifact `9729604531`
+has independently reproduced outer SHA-256
+`c711280c1b135f65c0459fe5432cce76887c64b2007eb72b9c582e9036160447`.
+Its 45,825-byte `results.sarif` payload has SHA-256
+`f1cc1fc5bf34d5e9643655ac6480ff4681e27aa9c2c639f03067fc7ea8595e3d`,
+records SARIF 2.1.0 and Gitleaks semantic version v8.0.0, and contains 208
+rules with 0 results.
+
+[CodeQL run `33303210391`](https://github.com/happys2333/flowspan/actions/runs/33303210391),
+run number 213 attempt 1, completed with `success`. Job `99235034007` produced
+analysis ID `1693707908` and SARIF ID
+`c459fdae-a452-11f1-8433-e6e74c3efa79`; service warning/error text is empty
+and the exact branch ref has 0 open alerts. The 230,952-byte SARIF payload has
+SHA-256 `cc4798b5d05e291920f1519cd6b859f3812651f23ba1c7cb31ecfb430548092e`,
+records CodeQL 2.26.4 and `codeql/csharp-queries` 1.9.2, and contains 52 rules
+with 0 results.
+
+All three reproducible packages report version `0.1.213`, exact evidence SHA
+`a0c964802eb75e58a5f9b1b276c172090331e123`, and
+`unsigned-test-artifact`. Every downloaded `SHA256SUMS` entry passes `5/5`, and
+the repository `Flowspan.Release verify` command passes each artifact directory.
+Downloaded bytes independently reproduce the service outer digests, inner
+archive digests, and manifest-bound signed-tree digests:
+
+| Runtime | Job ID | Artifact ID | Artifact SHA-256 | Inner archive SHA-256 | Tree SHA-256 |
+| --- | ---: | ---: | --- | --- | --- |
+| `win-x64` | `99235540873` | `9729692315` | `84c6576b787949a212e319675fac741a448c659e21b2772298a2eec5a139d123` | `681401feecc1811c9105e697a447c9770bf569184edeff43109a1bdeeb57f1f1` | `383efc55e3f7feafa7bd0a83e5b81a70f20f5ffc8c2446825962a2d9e87d9901` |
+| `osx-arm64` | `99235540856` | `9729682041` | `7e1de9431d431c4c2d29f167280f2136c1b7f3e248e51e7a47f4cb8e1a04113b` | `0e8f9e54594f51edb28a591165c755aabe431a1edfcbaee40fae357b3b04b083` | `117c22264c9363ed67f4f55d976e3ce04da843f5178363589cf10992f7df2a11` |
+| `linux-x64` | `99235540891` | `9729678963` | `bd8f843669737b88eaf4dd353038333c27608ff3d2e917d9471d2a94a42e5199` | `86ba1a91a24c7f5d0cfeb0fad914f2c0f2256971068516a7bdd9a1c21568f494` | `5f5aa42abefaffbd1f918b66ecd7791a689336b23f8d5e8359046b69c71c73bb` |
+
+These hosted results prove managed build/test, static-analysis, content-lock,
+and reproducible unsigned-package properties for exact evidence tree
+`a0c9648`. They do not prove native APIs, physical two-device operation,
+package signing, notarization, or release acceptance. Earlier CI `33302708813`
+and CodeQL `33302708801` target `17a3401`; they remain documentation-only
+history rather than evidence for the `fe0be79` implementation.
 
 ## Explicit limitations
 

@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **36 xUnit case executions**, not 36
+The current production-composed tracer has **37 xUnit case executions**, not 37
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -41,6 +41,8 @@ complete boundary families:
   before host frame-admission open, with Trust and Mirror grant unchanged;
 - one authenticated disconnect while host capture Start still owns the HC
   boundary, after Ready and bilateral attachment but before Admission publish;
+- one fingerprint-bound authority revoke while host capture Start still owns HC,
+  with the exact Trust identity retained and Mirror authority removed;
 - one reverse-only Mirror-grant rejection;
 - one exact-source `R < M < S` reservation invalidation;
 - one managed process-local Emergency Stop readiness `R < M < S`
@@ -103,8 +105,16 @@ alerts, and three reproducible version-0.1.211 unsigned packages. Earlier CI
 The [host capture-start authenticated-disconnect evidence](../evidence/2026-08-30-host-capture-start-authenticated-disconnect.md)
 records the 36th case and causal-failure fix at exact commit `fe0be79`. It
 advances only HC Disconnect from Missing to Partial; AD Disconnect and CL
-Disconnect stay Partial. Exact `fe0be79` hosted evidence remains pending. CI
+Disconnect stay Partial. Final exact-SHA CI `33303210427` and CodeQL
+`33303210391` pass for evidence tree `a0c9648`; retained artifacts prove
+`2577/2577` on every hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref
+alerts, and three reproducible version-0.1.213 unsigned packages. Earlier CI
 `33302708813` and CodeQL `33302708801` target `17a3401`, not this new case.
+The [host capture-start authority-revoke evidence](../evidence/2026-08-30-host-capture-start-authority-revoke.md)
+records the 37th case at exact commit `62e9372`. It advances only HC Revoke from
+Missing to Partial; HC, AD, and CL Disconnect remain Partial. Exact `62e9372`
+hosted evidence remains pending; `a0c9648` hosted results prove only the previous
+36-case tree.
 These local results are same-host **managed loopback runs on macOS**. Hosted
 Windows, macOS, and Linux results remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -180,7 +190,7 @@ similar coverage.
 | **P2** | **C** [E-P2] | **C** [E-P2] | **P** [E-P2] | **P** [E-P2, E-TRACE] | **P** [E-P2, E-TRACE] | **P** [E-P2] | **P** [E-P2, E-CL] |
 | **RS** | **C** [E-RS] | **P** [E-RS] | **C** [E-RS] | **C** [E-RS] | **P** [E-RS] | **P** [E-RS] | **P** [E-RS, E-CL] |
 | **AD** | **C** [E-AD] | **P** [E-AD, E-TRACE] | **C** [E-AD] | **C** [E-AD] | **P** [E-AD, E-TRACE] | **P** [E-AD, E-TRACE] | **P** [E-AD, E-CL] |
-| **HC** | **M** | **P** [E-HC, E-TRACE] | **M** | **P** [E-HC] | **M** | **P** [E-HC, E-TRACE] | **P** [E-HC, E-CL] |
+| **HC** | **M** | **P** [E-HC, E-TRACE] | **M** | **P** [E-HC] | **P** [E-HC, E-TRACE] | **P** [E-HC, E-TRACE] | **P** [E-HC, E-CL] |
 | **CL** | **P** [E-CL] | **P** [E-CL] | **P** [E-CL] | **M** | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] | **P** [E-TRACE, E-CL] |
 
 ### N/A rationale
@@ -537,14 +547,20 @@ Partial rather than complete.
   while capture Start still owns HC. The first frame disposes once, Admission/
   send/render/input remain zero, post-callback currentness fails, and both nodes
   drain with causal `authenticated_connection_stale`.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.HcAuthorityRevokeDuringCaptureStartFailsClosedAndDrainsBothNodes`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  applies exact fingerprint-bound `CapabilityGrant.None` at the same capture-
+  start boundary. Trust identity remains while Mirror authority is empty; the
+  current generation is invalidated, Admission/send/render/input remain zero,
+  and both nodes drain with the same causal bounded result.
 
 Direct negative/throw/cancel/revoke/disconnect cases are still required for each
 post-Ready host revalidation, the remaining protection promotion/capture-start/
 live intersections, Emergency Stop registration, controller `Start`, exact
 `AddParticipant`, and final open. State publication Throw now has direct
 evidence, and capture-start has one direct Disconnect row, but the remaining
-revoke/disconnect and cleanup variants stay incomplete. In particular, a failure
-before HC is not HC evidence.
+Revoke/Disconnect and cleanup variants stay incomplete. Capture-start now has
+one direct row for each of Revoke and Disconnect. In particular, a failure before
+HC is not HC evidence.
 
 ### E-CL — terminal cleanup and failure identity
 
@@ -587,6 +603,9 @@ before HC is not HC evidence.
 - The host capture-start disconnect tracer joins the same complete two-node
   cleanup after preserving the Connection cause through controller Start. This
   strengthens CL Disconnect but does not complete its owner/fault combinations.
+- The host capture-start authority-revoke sibling drains the same graph after an
+  Applied Trust mutation. This strengthens CL Revoke but does not inject a CL-
+  origin fault or complete revoke-plus-cleanup combinations.
 
 The remaining renderer, active/pending frame, queue, attachment, route,
 directory, controller, protection FIFO/admission-use, permission-observer,
@@ -597,7 +616,7 @@ been defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 36-case class.
+  is now the executable 37-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
   and limitations. The source-linearization, Emergency Stop readiness,
@@ -613,7 +632,8 @@ been defined or directly tested.
   final-Admission authenticated-disconnect evidence records the 35th case and
   keeps its narrow AD Disconnect scope explicit. The host capture-start
   authenticated-disconnect evidence records the 36th case and keeps its narrow
-  HC Disconnect scope explicit.
+  HC Disconnect scope explicit. The host capture-start authority-revoke evidence
+  records the 37th case and keeps its narrow HC Revoke scope explicit.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -697,8 +717,8 @@ one direct row for each applicable gap. The presently known gaps are:
 8. **HC:** independent rejection and throw injection for every revalidation,
    protection/Emergency owner registration, controller `Start`,
    `AddParticipant`, remaining Admission state-send variants, and final open;
-   cancellation, deadline, revoke, and the remaining disconnect races between
-   each step. One capture-start disconnect now has direct evidence.
+   cancellation, deadline, and the remaining revoke/disconnect races between
+   each step. Capture-start now has one direct Revoke and one Disconnect row.
 9. **CL:** remaining single-owner cleanup faults; meaningful ordered combined
    failures; active versus pending owner variants; stable shared completion;
    zero retained owner/budget counts; and an explicit cleanup-timeout decision.

@@ -979,14 +979,38 @@
     `10/10` per configuration; tracer, Desktop, and solution pass `36/36`,
     `713/713`, and `2577/2577`; builds have zero warnings/errors; format/diff
     checks pass; and self plus two independent reviews report 0 P0/P1/P2.
-    Hosted exact `fe0be79` evidence remains pending; CI `33302708813` and CodeQL
-    `33302708801` target `17a3401` and are not evidence. Commands, scope, and
-    limitations are in
+    Final exact-SHA CI `33303210427` and CodeQL `33303210391` pass for evidence
+    tree `a0c9648`; artifacts prove `2577/2577` with every non-success counter
+    zero on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref alerts,
+    and three reproducible version-0.1.213 unsigned packages whose `5/5`
+    checksums and repository verification pass. Earlier CI `33302708813` and
+    CodeQL `33302708801` target `17a3401` and are not evidence. Commands, jobs,
+    digests, scope, and limitations are in
     `docs/evidence/2026-08-30-host-capture-start-authenticated-disconnect.md`.
     By fault origin only HC Disconnect changes M→P. AD Disconnect and CL
     Disconnect remain P; every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
     aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
     signing/notarization/release gate, and the Goal remain open.
+    Exact test-only commit `62e9372aef378e8c085ccf79502104f63ae8aa76`
+    adds the 37th managed tracer using the same HC capture-start runner. The hook
+    applies real fingerprint-bound `hostTrust.UpdateCapabilitiesAsync` with
+    `CapabilityGrant.None`; the mutation is Applied and reaches the callback
+    barrier. Trust identity/fingerprint remain, Mirror authority is empty, the
+    old generation is non-current/unreacquirable, and Ready/bilateral `FSM1`
+    coexist with exact first-frame disposal and zero Admission/send/render/input.
+    The existing `fe0be79` revalidation produces causal stale with no inner/
+    fingerprint; Emergency Stop/full drain pass without another production
+    change. Focused Debug/Release passes `1/1`; fresh rows pass `10/10` per
+    configuration; tracer, Desktop, and solution pass `37/37`, `714/714`, and
+    `2578/2578`; builds have zero warnings/errors; format/diff checks pass; and
+    self plus independent review report 0 P0/P1/P2. Hosted exact `62e9372`
+    evidence remains pending; `a0c9648` CI `33303210427` and CodeQL `33303210391`
+    prove only the 36-case tree. Commands, scope, and limitations are in
+    `docs/evidence/2026-08-30-host-capture-start-authority-revoke.md`.
+    By fault origin only HC Revoke changes M→P. HC/AD/CL Disconnect remain P;
+    every other cell is unchanged. Tasks 5, 5.5a, and 5.5, aggregate H0/H1
+    acceptance, `CreateProduction()`, every native/physical/signing/notarization/
+    release gate, and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

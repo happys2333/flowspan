@@ -1434,8 +1434,9 @@ fingerprint, and sole `mirror.view` grant remain unchanged.
 
 Host Start exposes only `authenticated_connection_stale`, with no inner
 exception, fingerprint, or dependency payload. Capture/input receive local
-Emergency Stop and the frame gate remains closed. Full disconnect and session
-completion are joined outside the hook before both nodes' owner graphs drain.
+Emergency Stop and the frame gate remains closed. Host Start awaits its owned
+cleanup before returning; the test then joins disconnect and session completion
+outside the hook and verifies both nodes' owner graphs are drained.
 
 Focused final-Admission Debug/Release pass `3/3`; ten fresh disconnect processes
 per configuration pass `10/10`; tracer, Desktop, and solution pass `35/35`,
@@ -1463,14 +1464,15 @@ For T03, T06, and T14, exact commit
 `fe0be79e0accbbb0cd4eef27b62e12620a18eccf` adds authenticated
 transport loss while capture Start still owns HC. Ready and bilateral verified
 `FSM1` exist, but Admission is unpublished. Capture emits one pre-Admission
-frame, its owner disposes exactly once, and the boundary hook runs before Start
-returns.
+frame and observes that owner disposed exactly once; the boundary hook runs
+before Start returns.
 
 Real participant connection disposal triggers the host callback barrier without
 changing Trust, fingerprint, or `mirror.view`. The old generation becomes non-
-current and unreacquirable; Admission/send/render/input remain zero. Full
-disconnect and session completion are joined outside the hook, capture/input
-Emergency Stop locally, and both nodes drain.
+current and unreacquirable; Admission/send/render/input remain zero. Host Start
+awaits its owned cleanup before returning; the test then joins disconnect and
+session completion outside the hook and verifies both nodes drained. Capture and
+input Emergency Stop locally.
 
 The exact RED expected `authenticated_connection_stale` but observed
 `emergency_stop_won_start_race`. Disconnect had made the authenticated
@@ -1486,11 +1488,44 @@ have zero warnings/errors; format/diff checks pass; and self plus two independen
 reviews report 0 P0/P1/P2 findings. Exact commands and limitations are in the
 [host capture-start disconnect evidence](../evidence/2026-08-30-host-capture-start-authenticated-disconnect.md).
 
-Hosted exact `fe0be79` evidence is pending. CI `33302708813` and CodeQL
-`33302708801` target `17a3401` and do not prove this row. By fault origin only HC
-Disconnect advances from M to P; AD Disconnect and CL Disconnect remain P.
-Other HC disconnect phases and disconnect-plus-cleanup faults remain open. This
-is managed same-host evidence, not native API, physical two-Device, packaged
+Final exact-SHA CI `33303210427` and CodeQL `33303210391` pass for evidence tree
+`a0c9648`; artifacts prove `2577/2577` on every hosted OS, Gitleaks 208/0,
+CodeQL 52/0 with 0 exact-ref alerts, and all three reproducible version-0.1.213
+unsigned packages. Earlier CI `33302708813` and CodeQL `33302708801` target
+`17a3401` and do not prove this row. By fault origin only HC Disconnect advances
+from M to P; AD Disconnect and CL Disconnect remain P. Other HC disconnect
+phases and disconnect-plus-cleanup faults remain open. This is managed same-host/
+portable evidence, not native API, physical two-Device, packaged accessibility,
+signed/notarized package, or release proof. Tasks 5, 5.5a, and 5.5, aggregate
+H0/H1 acceptance, `CreateProduction()`, every native/physical/signing/
+notarization/release gate, and the Goal remain open.
+
+### 5.32 2026-08-30 Host capture-start authority revoke
+
+For T05, T06, and T14, exact test-only commit
+`62e9372aef378e8c085ccf79502104f63ae8aa76` applies real host Trust
+revocation while capture Start still owns HC. Ready and bilateral `FSM1` exist,
+capture's initial frame owner disposes exactly once, and Admission/send/render/
+input remain zero.
+
+Fingerprint-bound `UpdateCapabilitiesAsync(..., CapabilityGrant.None)` returns
+`Applied` and reaches the host callback barrier. Trust identity and fingerprint
+remain, while `mirror.view` and the Capability set are empty. The old generation
+is non-current and unreacquirable. The existing `fe0be79` revalidation preserves
+causal `authenticated_connection_stale` with no inner/fingerprint; capture/input
+Emergency Stop and both nodes drain. No further production change is required.
+
+Focused Debug/Release pass `1/1`; fresh rows pass `10/10` per configuration;
+tracer, Desktop, and solution pass `37/37`, `714/714`, and `2578/2578`; builds
+have zero warnings/errors; format/diff checks pass; and self plus independent
+review report 0 P0/P1/P2 findings. Exact commands and limitations are in the
+[host capture-start authority-revoke evidence](../evidence/2026-08-30-host-capture-start-authority-revoke.md).
+
+Hosted exact `62e9372` evidence remains pending. Exact `a0c9648` CI
+`33303210427` and CodeQL `33303210391` prove only the preceding 36-case tree. By
+fault origin only HC Revoke advances from M to P; HC/AD/CL Disconnect remain P.
+Other HC revoke phases and revoke-plus-cleanup faults remain open. This is
+managed same-host evidence, not native API, physical two-Device, packaged
 accessibility, signed/notarized package, or release proof. Tasks 5, 5.5a, and
 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
 signing/notarization/release gate, and the Goal remain open.

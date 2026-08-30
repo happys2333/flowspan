@@ -1982,15 +1982,16 @@ open.
 
 Exact commit `fe0be79e0accbbb0cd4eef27b62e12620a18eccf` adds the 36th
 production-composed managed tracer and one-line causal-failure fix. After Ready
-and bilateral verified `FSM1`, capture Start emits and disposes its initial frame
-exactly once but has not returned. Admission publish, media send, render, and
-input remain zero.
+and bilateral verified `FSM1`, capture Start emits its initial frame and observes
+that owner disposed exactly once but has not returned. Admission publish, media
+send, render, and input remain zero.
 
 The capture hook starts real participant connection disposal and waits only for
 the returned host revocation callback barrier. Trust, fingerprint, and
 `mirror.view` remain unchanged, while the old generation becomes non-current
-and unreacquirable. Outside the hook, full disconnect and session completion are
-joined before both owner graphs drain.
+and unreacquirable. Host Start awaits its owned cleanup before returning the
+bounded failure; the test then joins participant disconnect and session
+completion outside the hook and verifies both owner graphs are drained.
 
 The exact RED expected `authenticated_connection_stale` but observed
 `emergency_stop_won_start_race`: after disconnect made the authenticated
@@ -2008,12 +2009,47 @@ independent reviews report 0 P0/P1/P2 findings. Exact commands and limitations
 are in the
 [host capture-start disconnect evidence](../evidence/2026-08-30-host-capture-start-authenticated-disconnect.md).
 
-Hosted exact `fe0be79` evidence remains pending. CI `33302708813` and CodeQL
-`33302708801` target `17a3401` and cannot prove this row. By fault origin only HC
-Disconnect changes from M to P; AD Disconnect and CL Disconnect remain P. This
-is managed same-host evidence, not native/physical Windows/macOS/Linux, signed,
-notarized, or release proof. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
-native/physical/release gate, and the Goal remain open.
+Final exact-SHA CI `33303210427` and CodeQL `33303210391` pass for evidence tree
+`a0c9648`; retained artifacts prove `2577/2577` with every non-success counter
+zero on every hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref alerts,
+and three reproducible version-0.1.213 unsigned packages. Earlier CI
+`33302708813` and CodeQL `33302708801` target `17a3401` and cannot prove this
+row. By fault origin only HC Disconnect changes from M to P; AD Disconnect and
+CL Disconnect remain P. This is managed same-host/portable evidence, not native/
+physical Windows/macOS/Linux, signed, notarized, or release proof. Tasks 5,
+5.5a, and 5.5, `CreateProduction()`, every native/physical/release gate, and the
+Goal remain open.
+
+### 2026-08-30 host capture-start authority revoke
+
+Exact test-only commit `62e9372aef378e8c085ccf79502104f63ae8aa76`
+adds the 37th production-composed managed tracer without another production
+change. It reuses the capture-start runner after Ready and bilateral `FSM1`:
+capture's first frame disposes exactly once, Start has not returned, and
+Admission/send/render/input remain zero.
+
+The hook applies real fingerprint-bound `hostTrust.UpdateCapabilitiesAsync` with
+`CapabilityGrant.None`. The mutation is `Applied` and the host callback barrier
+is reached. Trust identity and fingerprint remain, the Capability set is empty,
+and the old generation is non-current and unreacquirable. The `fe0be79` post-
+Start revalidation is sufficient to preserve causal
+`authenticated_connection_stale` with no inner/fingerprint. Capture/input
+Emergency Stop and both nodes drain.
+
+Focused Debug/Release pass `1/1`; ten fresh processes per configuration pass
+`10/10`; tracer, Desktop, and solution pass `37/37`, `714/714`, and `2578/2578`;
+builds have zero warnings/errors; format/diff checks pass; and self plus
+independent review report 0 P0/P1/P2 findings. Exact commands and limitations
+are in the
+[host capture-start authority-revoke evidence](../evidence/2026-08-30-host-capture-start-authority-revoke.md).
+
+Hosted exact `62e9372` evidence remains pending; `a0c9648` CI `33303210427` and
+CodeQL `33303210391` prove only the preceding 36-case tree. By fault origin only
+HC Revoke changes from M to P. HC/AD/CL Disconnect remain P; every other cell is
+unchanged. This is managed same-host evidence, not native/physical Windows/
+macOS/Linux, signed, notarized, or release proof. Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
