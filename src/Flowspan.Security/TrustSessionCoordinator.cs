@@ -621,7 +621,8 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
             {
                 stops.Add(session.Session.StopAsync(reason).AsTask());
             }
-            catch (Exception exception)
+            catch (Exception exception) when (
+                exception is not OutOfMemoryException)
             {
                 failures.Add(exception);
             }
@@ -633,7 +634,8 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
             {
                 await stop.ConfigureAwait(false);
             }
-            catch (Exception exception)
+            catch (Exception exception) when (
+                exception is not OutOfMemoryException)
             {
                 failures.Add(exception);
             }
@@ -654,7 +656,8 @@ public sealed class TrustSessionCoordinator : IAsyncDisposable, IPairingTrustAut
             await StopAllAsync(sessions, reason).ConfigureAwait(false);
             return null;
         }
-        catch (Exception exception)
+        catch (Exception exception) when (
+            exception is not OutOfMemoryException)
         {
             return exception;
         }

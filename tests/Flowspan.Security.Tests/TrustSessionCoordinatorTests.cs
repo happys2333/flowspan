@@ -493,6 +493,50 @@ public sealed class TrustSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task OutOfMemoryFromSessionStopEscapesCommittedMutationUnwrapped()
+    {
+        using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(new TrustRecord(
+            identity.PublicIdentity,
+            DateTimeOffset.UnixEpoch,
+            CapabilityGrant.Of(Capability.MirrorView)));
+        await using var coordinator = new TrustSessionCoordinator(trustStore);
+        var sink = new RecordingPreparationInvalidationSink();
+        TrustPreparationRegistration preparation = Assert.IsType<
+            TrustPreparationRegistration>((await coordinator
+                .TryReservePreparationAsync(
+                    PeerId,
+                    identity.PublicIdentity.Fingerprint,
+                    CapabilityGrant.Of(Capability.MirrorView),
+                    sink)).Registration);
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var injected = new OutOfMemoryException(
+            "Injected Trust session stop exhaustion.");
+#pragma warning restore CA2201
+        var session = new FailingRevocableSession(injected);
+        await using TrustSessionRegistration sessionRegistration =
+            await coordinator.TryRegisterAsync(
+                PeerId,
+                CapabilityGrant.Of(Capability.MirrorView),
+                session)
+            ?? throw new InvalidOperationException("Expected an active session.");
+
+        OutOfMemoryException failure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await coordinator
+                .UpdateCapabilitiesAsync(
+                    PeerId,
+                    identity.PublicIdentity.Fingerprint,
+                    CapabilityGrant.None));
+
+        Assert.Same(injected, failure);
+        Assert.False(preparation.IsCurrent);
+        Assert.Equal(1, sink.InvalidationCount);
+        Assert.Equal(1, session.StopCount);
+        Assert.False(trustStore.Allows(PeerId, Capability.MirrorView));
+    }
+
+    [Fact]
     public async Task DisposeInvalidatesAllInStableOrderAndRetainsFailure()
     {
         using DeviceIdentity identity = DeviceIdentity.Generate(PeerId, "Desk");
