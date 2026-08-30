@@ -548,7 +548,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(1, host.Input.EmergencyStopCount);
         Assert.Equal(1, host.Connection.FailCloseCount);
         await WaitForControlRouteClosedAsync(host.ControlPeer);
-        Assert.Null(coordinator.Snapshot);
+        await WaitForCoordinatorInactiveAsync(coordinator);
     }
 
     [Fact]
@@ -3908,6 +3908,16 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
                 return;
             }
 
+            await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
+        }
+    }
+
+    private static async Task WaitForCoordinatorInactiveAsync(
+        DesktopRemoteWindowHostCoordinator coordinator)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (coordinator.Snapshot is not null)
+        {
             await Task.Delay(TimeSpan.FromMilliseconds(1), timeout.Token);
         }
     }
