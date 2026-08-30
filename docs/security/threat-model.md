@@ -876,6 +876,53 @@ notarization/release gates, and the Goal remain open. Hosted managed execution
 does not prove native source lifetime or protection behavior on any operating
 system.
 
+### 5.20 2026-08-30 Host Emergency Stop readiness reservation
+
+Exact commit `8e349cc7d9f722caa7e6df404ec6a59117d7d588` composes the
+Emergency Stop fact through a managed process-local registrar reservation. For
+T06/T13, one slot binds the exact host owner and Session generations before
+route admission but installs no activation callback. Registrar readiness loss
+and one-time promotion linearize under the same gate, so a concurrent loss
+reaches exactly one of the pre-Ready Preparation invalidation sink or the
+post-promotion formal registration-loss callback. Release makes stale promotion
+fail and cannot invalidate an ABA replacement. Sink failure releases the slot;
+registrar disposal retains one exact failure without repeating invalidation.
+
+The coordinator promotes the same owner only after Ready, media attachment,
+host-fact revalidation, and a fresh formal protection observation. Promotion
+rejection, unexpected throw, side-effect-then-throw, activation/disposal during
+promotion, and exact caller cancellation remain pre-capture and terminal. A
+formal owner produced before failure is retained until the controller's native
+capture, input, and sharing stops have been attempted, preventing a cleanup gap
+that could release the local Emergency Stop before authority is removed.
+
+For T10, readiness loss exposes only
+`emergency_stop_readiness_unavailable`; unexpected promotion throws expose only
+`emergency_stop_registration_failed`. Injected registrar text and inner
+exceptions do not cross the product failure surface. The production-composed
+managed tracer proves Emergency Stop `R < M < S` over real authenticated
+loopback route and actual Transport send admission: readiness loss consumes the
+owned connection, the later send hook admits no Prepare wire, no capture/media/
+render/Admission follows, and both nodes' directly asserted owners drain.
+
+Platform and Desktop Debug/Release pass `239/239` and `608/608`; both solutions
+pass `2355/2355` with zero build warnings/errors, and every local gate passes.
+Exact-SHA CI `33283264188` and CodeQL `33283264254` pass; retained artifacts
+prove `2355/2355` on Windows, Linux, and macOS, Gitleaks 208/0, CodeQL 52/0,
+and all reproducible unsigned packages. Final strict review returned APPROVE
+with 0 P0/P1/P2 after two initial P1 findings and one later P1 finding were
+repaired. Exact jobs, artifacts, digests, commands, and limitations are in the
+[Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md).
+
+This is not a native hotkey or operating-system Emergency Stop result. The
+other Emergency Stop `M/R/S` orders, its complete fault matrix, real Windows/
+macOS/Linux registration and loss, physical latency, blocked UI/network,
+secure-input behavior, Source `M < R` and `S < M`, Permission, Trust/
+Capability, authenticated Connection mutation, Protection, and the complete
+production-boundary matrix remain open. H0/H1 stay P or M; Tasks 5, 5.5a, and
+5.5, `CreateProduction()`, all native/physical/signing/notarization/release
+gates, and the Goal remain open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

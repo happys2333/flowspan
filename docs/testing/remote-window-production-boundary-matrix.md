@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **22 xUnit case executions**, not 22
+The current production-composed tracer has **24 xUnit case executions**, not 24
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -27,10 +27,16 @@ complete boundary families:
 - seven authenticated-disconnect cleanup-fault cases;
 - one final-Admission side-effect-then-throw case after participant known
   binding publication; and
-- one reverse-only Mirror-grant rejection.
+- one reverse-only Mirror-grant rejection;
+- one exact-source `R < M < S` reservation invalidation; and
+- one managed process-local Emergency Stop readiness `R < M < S`
+  invalidation.
 
-The decomposition and exact commands are recorded in the
+The first 22 cases' decomposition and exact commands are recorded in the
 [managed production tracer evidence](../evidence/2026-08-28-managed-remote-window-production-tracer.md).
+The [source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md)
+and [Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md)
+record the 23rd and 24th cases respectively.
 Its local result is a same-host **managed loopback run on macOS**. Hosted
 Windows, macOS, and Linux runs remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -180,11 +186,26 @@ similar coverage.
   [source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md)
   records local and hosted exact-SHA results. This source-only evidence does not
   upgrade an aggregate cell.
+- [`NativeRemoteWindowContractsTests`](../../tests/Flowspan.Platform.Tests/NativeRemoteWindowContractsTests.cs),
+  the focused Emergency Stop rows in
+  [`DesktopRemoteWindowHostCoordinatorTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowHostCoordinatorTests.cs),
+  and
+  [`DesktopRemoteWindowManagedTwoNodeTracerTests.EmergencyStopReadinessLossAfterReservedRoutePreventsPrepareWireAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  at exact commit `8e349cc` compose one managed process-local registrar slot
+  through the same host reservation. The Platform and coordinator rows cover
+  reservation/promotion ownership, all three order shapes, cancellation,
+  promotion and cleanup faults, and ABA. The real authenticated loopback row
+  proves only Emergency Stop `R < M < S`: loss after route selection prevents
+  actual Prepare wire admission and drains both nodes. The
+  [Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md)
+  records exact local and hosted results. This is not native hotkey/action
+  evidence and does not upgrade an aggregate cell.
 
 These tests do not yet inject every source, permission, Trust/grant, connection,
-observer-registration, protection, readiness, and route failure independently;
-production-composed Source `M < R` and `S < M` are also still open. That is why
-the H0/H1 aggregate cells remain P or M.
+observer-registration, protection, readiness, and route failure independently.
+Production-composed Source `M < R` and `S < M`, the other Emergency Stop
+`M/R/S` orders, its complete fault matrix, and native Emergency Stop behavior
+are also still open. That is why the H0/H1 aggregate cells remain P or M.
 
 ### E-TX — transaction, tombstone, and deadline state machine
 
@@ -331,11 +352,11 @@ defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 23-case class.
+  is now the executable 24-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
-  and limitations. The source-linearization evidence above records the 23rd
-  case and its exact-SHA execution.
+  and limitations. The source-linearization and Emergency Stop readiness
+  evidence above record the 23rd and 24th cases and their exact-SHA execution.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -350,10 +371,13 @@ The cross-thread H0/H1 ordering contract is frozen in
 Desktop-only core and deterministic state-machine evidence exist at `294042f`.
 The Source `R < M < S` vertical now crosses the real source mutation,
 authenticated route, Transport send-admission, and owner-cleanup boundaries at
-`ec63942`. The other fact reservations, the two remaining production-composed
-Source orders, and the complete per-boundary owner/fault evidence remain
-required. Neither the ADR, its isolated core, nor one source order promotes an
-aggregate matrix cell by itself.
+`ec63942`. The Emergency Stop `R < M < S` vertical similarly crosses a managed
+process-local registrar, the real authenticated route, Transport send admission,
+and owner cleanup at `8e349cc`. The other fact reservations, the remaining
+production-composed Source and Emergency Stop orders, native Emergency Stop,
+and the complete per-boundary owner/fault evidence remain required. Neither the
+ADR, its isolated core, nor these two single orders promote an aggregate matrix
+cell by itself.
 
 The next tests must use the family IDs in their names or evidence notes and add
 one direct row for each applicable gap. The presently known gaps are:
@@ -367,8 +391,10 @@ one direct row for each applicable gap. The presently known gaps are:
    to their exact fact gates.
 2. **H1:** finish the safety/route reject and throw variants; inject connection
    loss at the exact route boundary; preserve any route side effect while
-   cleanup also fails; and implement Emergency Stop reserve/promote plus exact
-   Protection epochs or retain those cross-thread TOCTOU gaps as blockers.
+   cleanup also fails; finish the other production-composed Emergency Stop
+   orders and fault variants; prove native registration/action behavior; and
+   implement exact Protection epochs or retain those cross-thread TOCTOU gaps
+   as blockers.
 3. **TX/RS:** cover throw, revoke, disconnect, and cleanup failure at every
    distinct send-admission, buffered-response, terminal-commit, completion-hook,
    and tombstone phase rather than treating Stop as every terminal cause.

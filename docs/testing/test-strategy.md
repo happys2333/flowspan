@@ -1402,6 +1402,54 @@ matrix remain open. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/signing/notarization/release gate,
 and the Goal remain open.
 
+### 2026-08-30 Host Emergency Stop readiness reservation
+
+Exact commit `8e349cc7d9f722caa7e6df404ec6a59117d7d588` composes the
+Emergency Stop fact through one managed process-local registrar slot and the
+Desktop host reservation. Readiness reservation binds exact owner and Session
+generations before route admission but installs no formal callback. Registrar
+loss and promotion linearize under the registrar gate; promotion transfers the
+same owner to the formal callback only after Ready, media attachment, host-fact
+revalidation, and a fresh formal protection observation.
+
+Platform tests cover no-callback reservation, conflict and release, stale ABA,
+loss before and after promotion, promotion-versus-loss, registrar disposal,
+invalidation-sink failure, retained repeat-disposal failure, and slot reuse.
+Focused coordinator tests inject readiness loss before route, after route, and
+after Prepare send; cancellation before/after promotion; promotion rejection,
+throw, and side-effect-then-throw; immediate registration loss/disposal; and
+formal-owner cleanup ordering. These rows freeze all three order shapes but do
+not substitute for production-composed evidence.
+
+The production-composed tracer
+`EmergencyStopReadinessLossAfterReservedRoutePreventsPrepareWireAndDrains`
+proves Emergency Stop `R < M < S` over real loopback TCP, authenticated
+protocol 1.7, the production connection lease, responder route, managed
+registrar, Desktop reservation, and actual Transport send-admission hook.
+Readiness loss makes the reservation terminal with
+`emergency_stop_readiness_unavailable` and `ConsumeConnection`; the send hook
+runs once but admits no Prepare wire. Policy, attachment wait, capture, media,
+renderer, render, and final Admission remain zero, and both nodes' owned graph
+drains without resurrection.
+
+Platform and Desktop Debug/Release pass `239/239` and `608/608`; both solution
+configurations pass `2355/2355` with zero build warnings/errors, and format,
+diff, vulnerability, explicit composition, and simulator gates pass. Exact-SHA
+CI `33283264188` and CodeQL `33283264254` pass; downloaded artifacts prove
+`2355/2355` on every hosted OS, Gitleaks 208/0, CodeQL 52/0, and reproducible
+unsigned packages. Final strict review returned APPROVE with 0 P0/P1/P2 after
+two initial P1 findings and one later P1 finding were repaired. Exact commands,
+jobs, artifacts, digests, and limitations are in the
+[Emergency Stop readiness evidence](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md).
+
+This proves only the managed process-local registrar and one production-
+composed order. The other Emergency Stop `M/R/S` orders, its complete fault
+matrix, native hotkey/action and physical behavior, Source `M < R` and `S < M`,
+Permission, Trust/Capability, authenticated Connection mutation, Protection,
+and the complete production-boundary matrix remain open. H0/H1 stay P or M;
+Tasks 5, 5.5a, and 5.5, `CreateProduction()`, all native/physical/signing/
+notarization/release gates, and the Goal remain open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

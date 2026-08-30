@@ -3,7 +3,9 @@
 - Status: Proposed implementation contract
 - Date: 2026-08-30
 - Decision owners: Flowspan maintainers
-- Source-composed checkpoint: `ec63942`; remaining fact composition pending
+- Source-composed checkpoint: `ec63942`
+- Emergency Stop readiness-composed checkpoint: `8e349cc`
+- Remaining fact composition and order/fault coverage pending
 
 ## Context
 
@@ -126,6 +128,39 @@ Permission, Trust/Capability, authenticated Connection mutation, Emergency Stop
 reserve/promote, Protection, and the complete per-boundary fault matrix. The
 aggregate H0/H1 cells therefore remain P or M, Task 5.5a remains unchecked, and
 `CreateProduction()` remains unavailable.
+
+### Emergency Stop readiness-composed vertical checkpoint
+
+Commit `8e349cc7d9f722caa7e6df404ec6a59117d7d588` implements the first
+Emergency Stop fact vertical. The managed process-local registrar now owns one
+exact readiness slot bound to host owner and Session generations. Reservation
+installs no activation callback. Readiness loss and one-time promotion to the
+formal registration linearize under the registrar gate, so exactly one of the
+pre-Ready invalidation sink or the post-promotion registration-loss callback
+owns a concurrent loss.
+
+The Desktop coordinator reserves that slot before route admission and promotes
+the same owner only after exact Ready, media attachment, host-fact revalidation,
+and a fresh formal protection observation. Promotion failure, registration loss,
+registrar disposal, cancellation, or side-effect-then-throw remains pre-capture
+and retains any formal owner for ordered cleanup. The formal registration is
+released only after the controller's capture, input, and sharing boundaries
+have stopped.
+
+The production-composed managed tracer proves Emergency Stop `R < M < S`:
+after a real authenticated route is selected, process-local registrar loss
+invalidates the exact host reservation, and the later actual Transport
+send-admission hook admits no Prepare wire or later authority. Exact local and
+hosted evidence is recorded in the
+[Emergency Stop readiness checkpoint](../evidence/2026-08-30-host-emergency-stop-readiness-reservation.md).
+
+This is not a native hotkey or operating-system action. The other production-
+composed Emergency Stop `M/R/S` orders, its complete fault matrix, and real
+Windows/macOS/Linux registration behavior remain open. Source `M < R` and
+`S < M`, Permission, Trust/Capability, authenticated Connection mutation,
+Protection, and the complete owner/fault matrix also remain open. Aggregate
+H0/H1 cells therefore stay P or M, Task 5.5a stays unchecked, and
+`CreateProduction()` stays unavailable.
 
 ### Exact epoch bundle
 
@@ -410,15 +445,17 @@ implementation text.
 ## Consequences
 
 - Task 5.5a remains blocked until the remaining Permission, Trust/Capability,
-  authenticated Connection, Emergency Stop, and Protection facts are connected
-  to their real owners and the complete managed production-boundary matrix is
-  reproducible. The Source path alone is insufficient.
+  authenticated Connection, and Protection facts are connected to their real
+  owners; the remaining Source and Emergency Stop orders/faults are covered;
+  and the complete managed production-boundary matrix is reproducible. The
+  Source and process-local Emergency Stop slices alone are insufficient.
 - The coordinator gains one deep host Preparation reservation module instead of
   more caller-visible read ordering.
 - Security gains an exact, revocable operation-Capability reservation rather
   than treating any-of connection admission as Mirror authority.
-- Platform gains an Emergency Stop readiness reservation that can be promoted
-  without early formal registration.
+- Platform has a managed process-local Emergency Stop readiness reservation
+  that can be promoted without early formal registration; native adapters and
+  physical behavior still require separate evidence.
 - Transport gains a generation-bound route-selection operation and one bounded
   host reservation hook at the existing Prepare send-admission point.
 - Existing protocol-1.5, 1.6, and 1.7 wire fixtures remain unchanged.

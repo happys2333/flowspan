@@ -611,11 +611,33 @@
     CodeQL 52/0, and all unsigned packages. Exact commands, artifacts, digests,
     and limits are in
     `docs/evidence/2026-08-30-host-preparation-source-linearization.md`.
-    Production-composed Source `M < R` and `S < M`, Permission, Trust,
-    Connection mutation, Emergency Stop reserve/promote, Protection, and the
-    complete per-boundary matrix remain open. Therefore Task 5, Task 5.5a,
-    Task 5.5, every native/physical/signing/notarization/release gate, the Goal,
-    and `CreateProduction()` all remain open.
+    Emergency Stop readiness implementation
+    `8e349cc7d9f722caa7e6df404ec6a59117d7d588` next adds a single
+    process-local registrar slot that reserves exact owner/Session generations
+    before route admission and promotes that same owner to the formal callback
+    only after Ready, media attachment, host-fact revalidation, and a fresh
+    protection observation. Deterministic Platform and coordinator tests cover
+    conflict, release/ABA, loss-versus-promotion, disposal and invalidation
+    faults, caller cancellation, promotion side-effect-then-throw, pre-capture
+    registration loss, and formal-owner cleanup order. A 24th managed tracer
+    case crosses real authenticated loopback route and Transport send admission
+    for Emergency Stop `R < M < S`; readiness loss consumes the owned
+    connection with zero Prepare wire or later authority and complete owner
+    drain. Platform and Desktop pass `239/239` and `608/608`; both solutions
+    pass `2355/2355` in Debug and Release, with zero build warnings/errors and
+    every local gate green. Exact-SHA CI `33283264188` and CodeQL
+    `33283264254` pass `2355/2355` on every hosted OS, Gitleaks 208/0, CodeQL
+    52/0, and all unsigned packages. Final strict review is APPROVE with 0
+    P0/P1/P2 after two P1 findings and one later P1 finding were repaired.
+    Exact commands, jobs, artifacts, digests, and limits are in
+    `docs/evidence/2026-08-30-host-emergency-stop-readiness-reservation.md`.
+    This proves only a managed process-local registrar and one real-loopback
+    order, not an OS hotkey or native action. The other Emergency Stop `M/R/S`
+    orders and fault matrix, production-composed Source `M < R` and `S < M`,
+    Permission, Trust, Connection mutation, Protection, and the complete
+    per-boundary matrix remain open. Therefore Task 5, Task 5.5a, Task 5.5,
+    every native/physical/signing/notarization/release gate, the Goal, and
+    `CreateProduction()` all remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
