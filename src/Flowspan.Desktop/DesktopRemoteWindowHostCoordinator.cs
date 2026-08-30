@@ -19,6 +19,8 @@ internal interface IDesktopRemoteWindowHostConnection :
 
     public bool IsCurrent { get; }
 
+    public string AuthenticatedPeerFingerprint { get; }
+
     public IDisposable RegisterRevocationCallback(Action callback);
 
     public void PrepareResponderRoute(
@@ -56,6 +58,11 @@ internal sealed class AuthenticatedDesktopRemoteWindowHostConnection(
     public ProtocolVersion ProtocolVersion => lease.ProtocolVersion;
 
     public bool IsCurrent => lease.IsCurrent;
+
+    public string AuthenticatedPeerFingerprint =>
+        lease.AuthenticatedPeerFingerprint
+        ?? throw new InvalidOperationException(
+            "The authenticated Remote Window connection has no peer fingerprint.");
 
     public IDisposable RegisterRevocationCallback(Action callback) =>
         lease.RegisterRevocationCallback(callback);
@@ -234,7 +241,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 {
     private const long FirstSessionGeneration = 1;
 
-    private readonly IMirrorAuthorizationSource authorization;
+    private readonly IDesktopRemoteWindowHostAuthorizationSource authorization;
     private readonly INativeRemoteWindowCaptureBoundary capture;
     private readonly IClock clock;
     private readonly object callbackOwner = new();
@@ -258,7 +265,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     public DesktopRemoteWindowHostCoordinator(
         IClock clock,
         INativeRemoteWindowPermissionBoundary permissions,
-        IMirrorAuthorizationSource authorization,
+        IDesktopRemoteWindowHostAuthorizationSource authorization,
         INativeRemoteWindowCaptureBoundary capture,
         INativeRemoteInputBoundary input,
         ILocalSharingSessionBoundary sessions,
@@ -423,6 +430,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
             generation.SourcePreparationRegistration = sourcePreparation;
             RegisterEarlySafetyObservers(generation);
+            await ReserveAuthorizationPreparationAsync(
+                    generation,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             _ = ReadCurrentSafeProtection(generation, source);
             cancellationToken.ThrowIfCancellationRequested();
             _ = ValidateCurrentHostFacts(request, generation, out _);
@@ -516,6 +528,16 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     RemoteWindowHostPreparationFact.Source);
             }
 
+            IDesktopRemoteWindowHostAuthorizationRegistration
+                authorizationReservation =
+                    generation.AuthorizationPreparationRegistration
+                    ?? throw StartFailure("mirror_capability_denied");
+            if (!authorizationReservation.IsCurrent)
+            {
+                _ = generation.PreparationReservation.TryInvalidate(
+                    RemoteWindowHostPreparationFact.Authorization);
+            }
+
             if (!generation.PreparationReservation.TryPromote(
                     CanonicalUtc(clock.UtcNow)))
             {
@@ -524,6 +546,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
             sourceReservation.Dispose();
             generation.SourcePreparationRegistration = null;
+            await authorizationReservation.DisposeAsync().ConfigureAwait(false);
+            generation.AuthorizationPreparationRegistration = null;
 
             RemoteWindowCommandResult started = await controller.StartAsync(
                     initialProtection,
@@ -984,6 +1008,65 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         generation.ProtectionObserverRegistered = true;
     }
 
+    private async ValueTask ReserveAuthorizationPreparationAsync(
+        RuntimeGeneration generation,
+        CancellationToken cancellationToken)
+    {
+        string authenticatedPeerFingerprint;
+        try
+        {
+            authenticatedPeerFingerprint =
+                generation.Request.Connection.AuthenticatedPeerFingerprint;
+            if (string.IsNullOrWhiteSpace(authenticatedPeerFingerprint))
+            {
+                throw new InvalidOperationException(
+                    "The authenticated peer fingerprint is unavailable.");
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("authenticated_connection_stale");
+        }
+
+        DesktopRemoteWindowHostAuthorizationReservationResult reservation;
+        try
+        {
+            reservation = await authorization.TryReservePreparationAsync(
+                    generation.Request.Connection.PeerDeviceId,
+                    authenticatedPeerFingerprint,
+                    generation.Request.Role,
+                    generation.PreparationReservation,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested
+            && exception.CancellationToken == cancellationToken)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw StartFailure("mirror_authorization_unavailable");
+        }
+
+        IDesktopRemoteWindowHostAuthorizationRegistration? owner =
+            reservation.Registration;
+        if (owner is not null)
+        {
+            generation.AuthorizationPreparationRegistration = owner;
+        }
+
+        if (!reservation.Reserved || owner is null || !owner.IsCurrent)
+        {
+            _ = generation.PreparationReservation.TryInvalidate(
+                RemoteWindowHostPreparationFact.Authorization);
+            throw StartFailure(reservation.Boundary.Succeeded
+                ? GetPreparationReason(generation)
+                : reservation.Boundary.ReasonCode);
+        }
+    }
+
     private void ReserveEmergencyStopReadiness(RuntimeGeneration generation)
     {
         LocalEmergencyStopReadinessReservationResult reservation;
@@ -1323,6 +1406,12 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             failures,
             () => generation.SourcePreparationRegistration?.Dispose());
         CaptureFailure(failures, generation.PreparationReservation.Dispose);
+        if (generation.AuthorizationPreparationRegistration is { } authorization)
+        {
+            await CaptureFailureAsync(failures, authorization.DisposeAsync)
+                .ConfigureAwait(false);
+        }
+
         CaptureFailure(failures, () => generation.ConnectionRevocation?.Dispose());
         if (generation.ProtectionObserverRegistered)
         {
@@ -1560,6 +1649,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         private long protectionRevision;
 
         public DesktopRemoteWindowFrameAdmissionSink Admission { get; } = admission;
+
+        public IDesktopRemoteWindowHostAuthorizationRegistration?
+            AuthorizationPreparationRegistration
+        {
+            get;
+            set;
+        }
 
         public int TerminalShutdownStarted;
 

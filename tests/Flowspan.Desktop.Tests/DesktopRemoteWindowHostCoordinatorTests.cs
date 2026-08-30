@@ -100,6 +100,12 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         RemoteWindowCommandResult result = await coordinator.StartAsync(request);
 
         Assert.Equal(RemoteWindowCommandStatus.Applied, result.Status);
+        Assert.Equal(1, authorization.ReservationCount);
+        Assert.Equal(
+            connection.AuthenticatedPeerFingerprint,
+            authorization.AuthenticatedFingerprint);
+        Assert.False(authorization.CurrentReservation?.IsCurrent);
+        Assert.Equal(1, authorization.CurrentReservation?.DisposeCount);
         Assert.Empty(connection.MediaFrames);
         capture.EmitFrame(sequence: 3);
         await connection.WaitForMediaFrameCountAsync(1);
@@ -313,6 +319,126 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(0, host.Connection.FailCloseCount);
         Assert.Equal(1, host.Connection.DisposeCount);
         Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task AuthorizationReservationRejectionPreventsRouteAndPrepare()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Authorization.ReservationRejectionReason =
+            "mirror_capability_denied";
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("mirror_capability_denied", failure.Message);
+        Assert.Equal(1, host.Authorization.ReservationCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task MissingAuthenticatedFingerprintRejectsBeforeAuthorizationReservation()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.AuthenticatedPeerFingerprint = " ";
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("authenticated_connection_stale", failure.Message);
+        Assert.Equal(0, host.Authorization.ReservationCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task AuthorizationReservationThrowIsRedactedAndOutOfMemoryEscapes()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        var injected = new IOException("AUTHORIZATION_RESERVATION_CANARY");
+        host.Authorization.ReservationFailure = injected;
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("mirror_authorization_unavailable", failure.Message);
+        Assert.DoesNotContain(injected.Message, failure.ToString());
+        Assert.Null(failure.InnerException);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(1, host.Connection.DisposeCount);
+
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var fatal = new OutOfMemoryException(
+            "Injected authorization reservation exhaustion.");
+#pragma warning restore CA2201
+        using var fatalHost = new ReadyHostHarness();
+        fatalHost.Authorization.ReservationFailure = fatal;
+        await using DesktopRemoteWindowHostCoordinator fatalCoordinator =
+            fatalHost.Coordinator;
+
+        OutOfMemoryException fatalFailure = await Assert.ThrowsAsync<
+            OutOfMemoryException>(async () => await fatalHost.StartAsync());
+
+        Assert.Same(fatal, fatalFailure);
+        Assert.DoesNotContain("connection.route", fatalHost.Timeline);
+        Assert.Equal(1, fatalHost.Connection.DisposeCount);
+    }
+
+    [Fact]
+    public async Task CallerCancellationAfterAuthorizationReservationPreservesToken()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        using var cancellation = new CancellationTokenSource();
+        host.Authorization.ReservationCommitted = cancellation.Cancel;
+
+        OperationCanceledException failure = await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(async () => await coordinator.StartAsync(
+                host.CreateRequest(host.Connection, host.Protection),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(1, host.Authorization.ReservationCount);
+        Assert.Equal(1, host.Authorization.CurrentReservation?.DisposeCount);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task AuthorizationInvalidationBeforeRoutePreventsWireAuthority()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Authorization.ReservationCommitted = () => Assert.True(
+            host.Authorization.InvalidateReservation());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("mirror_capability_denied", failure.Message);
+        Assert.DoesNotContain("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(0, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
         Assert.Null(coordinator.Snapshot);
     }
 
@@ -666,6 +792,28 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task AuthorizationInvalidationAfterRouteAdmissionPreventsPrepareAndCapture()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.RouteAdmitted = () => Assert.True(
+            host.Authorization.InvalidateReservation());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("mirror_capability_denied", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.DoesNotContain("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
     public async Task SourceInvalidationDuringRouteFailureReportsStableReason()
     {
         using var host = new ReadyHostHarness();
@@ -732,6 +880,29 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Equal(1, host.Connection.FailCloseCount);
         Assert.Equal(1, host.Connection.DisposeCount);
         Assert.Null(host.EmergencyStops.CurrentRegistration);
+        Assert.Null(coordinator.Snapshot);
+    }
+
+    [Fact]
+    public async Task AuthorizationInvalidationAfterPrepareSendPreventsReadyAuthority()
+    {
+        using var host = new ReadyHostHarness();
+        await using DesktopRemoteWindowHostCoordinator coordinator =
+            host.Coordinator;
+        host.Connection.PrepareSendAdmitted = () => Assert.True(
+            host.Authorization.InvalidateReservation());
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<
+            InvalidOperationException>(async () => await host.StartAsync());
+
+        Assert.Contains("mirror_capability_denied", failure.Message);
+        Assert.Contains("connection.route", host.Timeline);
+        Assert.Contains("connection.prepare", host.Timeline);
+        Assert.DoesNotContain("connection.wait_media", host.Timeline);
+        Assert.DoesNotContain("capture.start", host.Timeline);
+        Assert.Equal(0, host.Capture.StartCount);
+        Assert.Equal(1, host.Connection.FailCloseCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
         Assert.Null(coordinator.Snapshot);
     }
 
@@ -2300,11 +2471,29 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     private sealed class FixedAuthorizationSource(CapabilityGrant grant) :
-        IMirrorAuthorizationSource
+        IDesktopRemoteWindowHostAuthorizationSource
     {
+        public string? AuthenticatedFingerprint { get; private set; }
+
         public CapabilityGrant CurrentGrant { get; set; } = grant;
 
+        public RecordingAuthorizationRegistration? CurrentReservation
+        {
+            get;
+            private set;
+        }
+
         public Action? Reading { get; set; }
+
+        public Action? ReservationCommitted { get; set; }
+
+        public Exception? ReservationFailure { get; set; }
+
+        public string? ReservationRejectionReason { get; set; }
+
+        public MirrorParticipantRole? ReservedRole { get; private set; }
+
+        public int ReservationCount { get; private set; }
 
         public int ReadCount { get; private set; }
 
@@ -2314,6 +2503,79 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             ReadCount++;
             Reading?.Invoke();
             return CurrentGrant;
+        }
+
+        public bool InvalidateReservation() =>
+            CurrentReservation?.Invalidate() == true;
+
+        public ValueTask<DesktopRemoteWindowHostAuthorizationReservationResult>
+            TryReservePreparationAsync(
+                DeviceId peerDeviceId,
+                string authenticatedPeerFingerprint,
+                MirrorParticipantRole role,
+                IDesktopRemoteWindowHostAuthorizationInvalidationSink
+                    invalidationSink,
+                CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.Equal(ParticipantDeviceId, peerDeviceId);
+            AuthenticatedFingerprint = authenticatedPeerFingerprint;
+            ReservedRole = role;
+            ReservationCount++;
+            if (ReservationFailure is { } failure)
+            {
+                throw failure;
+            }
+
+            if (ReservationRejectionReason is { } reasonCode)
+            {
+                return ValueTask.FromResult(
+                    DesktopRemoteWindowHostAuthorizationReservationResult
+                        .Rejected(reasonCode));
+            }
+
+            CurrentReservation = new RecordingAuthorizationRegistration(
+                invalidationSink);
+            DesktopRemoteWindowHostAuthorizationReservationResult result =
+                DesktopRemoteWindowHostAuthorizationReservationResult.Confirmed(
+                    CurrentReservation);
+            ReservationCommitted?.Invoke();
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class RecordingAuthorizationRegistration(
+        IDesktopRemoteWindowHostAuthorizationInvalidationSink invalidationSink) :
+        IDesktopRemoteWindowHostAuthorizationRegistration
+    {
+        private IDesktopRemoteWindowHostAuthorizationInvalidationSink? sink =
+            invalidationSink;
+
+        public int DisposeCount { get; private set; }
+
+        public bool IsCurrent => Volatile.Read(ref sink) is not null;
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref sink, null) is not null)
+            {
+                DisposeCount++;
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        public bool Invalidate()
+        {
+            IDesktopRemoteWindowHostAuthorizationInvalidationSink? target =
+                Interlocked.Exchange(ref sink, null);
+            if (target is null)
+            {
+                return false;
+            }
+
+            target.InvalidateAuthorizationPreparationNow();
+            return true;
         }
     }
 
@@ -2957,6 +3219,9 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         public int CurrentReadCount { get; private set; }
 
         public Exception? CurrentReadFailure { get; set; }
+
+        public string AuthenticatedPeerFingerprint { get; set; } =
+            "test-authenticated-peer-fingerprint";
 
         public bool IsCurrent
         {
