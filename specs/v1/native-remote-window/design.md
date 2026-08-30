@@ -514,7 +514,97 @@ frames, await, invoke the UI dispatcher, or contact the peer. Registration
 conflict or loss blocks or stops sharing. Disposal drains the callback owner
 before releasing native handles.
 
-## 10. Testing and evidence
+## 10. Bounded cleanup confirmation
+
+Each Desktop host termination has a synchronous authority-closing prefix and one
+complete real task. The initiating path closes frame admission and moves the
+`RuntimeGeneration` out of active authority if present and into retiring
+ownership before any await, watchdog arm, or task publication. The task then
+includes controller Stop, callback retirement, fact-reservation release,
+Emergency Stop release, connection fail-close, media and control teardown,
+protection disposal, authenticated connection disposal, and final Admission
+release. An explicit Stop may supply its caller token to the first controller
+Stop attempt, but a failure or cancellation of that attempt becomes a terminal
+primary outcome and cannot cancel the remainder of the owned task. A returned
+`FullyStopped == false` result is likewise an unconfirmed primary outcome. These
+three paths run at most one owned no-caller-cancellation fallback Stop; a
+`FullyStopped == true` result does not. All required fallback Stop and owner
+release remain inside that same task. This replaces the earlier shape in which
+explicit controller Stop could wait outside the shared cleanup task.
+
+The coordinator separates three states. `active` grants the only live host
+authority and is cleared before cleanup confirmation waits. `retiring` retains
+the exact generation, its not-yet-released owners, and its real cleanup task
+until that task actually settles. A monotonic cleanup-unconfirmed latch denies
+all future Start authority. Real cleanup may release owners as their ordered
+steps finish; `retiring` means that no unsettled owner is abandoned, not that an
+already disposed owner must be retained. Late completion may clear the retiring
+reference but never the latch.
+
+The generation also owns one cleanup-confirmation operation. It uses a
+monotonic `TimeProvider`, a ten-second default, a thirty-second hard maximum,
+at most one timer-arm attempt, one stable timeout failure instance, and one
+atomic completion-versus-expiry decision. A successful arm owns exactly one
+timer. The deadline begins when real cleanup begins and is never restarted or
+extended by a later Stop, revocation, callback, or Dispose waiter. Cleanup
+completion wins only by committing the atomic decision before the timer callback.
+Otherwise timeout wins, including exact deadline equality while cleanup remains
+uncommitted. The timer never receives authority to cancel the real cleanup task.
+
+When timeout wins, the coordinator sets the sticky latch and records the
+allowlisted `host_cleanup_timeout` outcome before completing confirmation. A
+terminal callback that owns the coordinator lifecycle semaphore then releases
+that semaphore without waiting for physical cleanup. A later Start can therefore
+acquire the semaphore, observe the latch, and return
+`host_cleanup_unconfirmed` before route, Prepare, capture, Admission, media, or
+Driver authority. V1 has no reset transition; even late successful cleanup
+requires disposal and construction of a new coordinator before another Start.
+
+A non-fatal failure to create or arm the watchdog publishes
+`watchdog_unavailable`, sets the same latch, and leaves the real cleanup task
+owned and observed. Timer release is not allowed to delay a confirmation already
+published; a release failure is observed on the late cleanup diagnostic path.
+An `OutOfMemoryException` from the provider follows the fatal rule below rather
+than becoming a bounded reason.
+
+The public Dispose completion and the real cleanup completion are intentionally
+different tasks. Once a shared Dispose task has completed with
+`host_cleanup_timeout`, it cannot be changed to deliver a later cleanup fault;
+concurrent and later Dispose calls continue to share that stable completion.
+The coordinator therefore observes real cleanup through a separate internal
+completion and terminal diagnostic ledger. A late success drains owners without
+changing the timeout. A late non-fatal fault is appended exactly once after the
+timeout and remains available to structured diagnostics and tests even though it
+cannot retroactively mutate an already returned Dispose task.
+
+Failure projection uses semantic slots rather than thread-arrival order:
+terminal primary failures first, cleanup-confirmation timeout or watchdog setup
+failure second, watchdog-release failures third, and real owner-cleanup failures
+in the fixed cleanup-step order last. Aggregates are flat and retain original
+non-fatal exception instances. A direct or nested `OutOfMemoryException`
+dominates that projection by its first original instance. Cleanup continues
+through independently safe later owner steps, but OOM is never wrapped as a
+rejection, timeout, or aggregate. The separate real completion is always
+observed, including when its fatal result arrives after the public timeout.
+
+The final v1 contract applies the same model to resources acquired before a
+`RuntimeGeneration` exists. Pre-generation validation cleanup will own one real
+task and one non-extensible bounded confirmation operation rather than holding
+the lifecycle semaphore indefinitely. Until that path is implemented and
+tested, it remains an explicit Task 5.5a cleanup sub-boundary gap.
+
+The first production-composed vertical is deliberately narrower than the final
+contract: one active host receives an authenticated terminal disconnect while
+one real cleanup owner is deterministically blocked. A manual `TimeProvider`
+advances the production watchdog to equality, proves admission and authority are
+already closed, proves the global lifecycle gate can reject a replacement Start,
+then releases the owner and proves complete two-node drain while restart remains
+latched. This single order may advance only CL Timeout from Missing to Partial.
+It does not cover explicit Stop or Dispose initiation, pre-generation cleanup,
+cleanup-wins races, watchdog setup/disposal failure, late cleanup fault, OOM,
+other active or pending owners, or their combinations.
+
+## 11. Testing and evidence
 
 Each platform adapter has three evidence levels:
 

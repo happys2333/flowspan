@@ -1139,6 +1139,30 @@
     aggregate H0/H1 acceptance, every native/physical/signing/notarization/
     release gate, and the Goal remain open. `CreateProduction()` remains
     unavailable.
+    - [x] 5.5a.1 Freeze bounded cleanup-confirmation semantics in ADR 0028 and
+      NR8.9-NR8.17. Separate one complete real termination task from one bounded
+      confirmation operation; retain retiring ownership after timeout; define
+      the sticky restart latch, deterministic failure ledger, fatal OOM lane,
+      timer failure, Dispose immutability, and final pre-generation scope.
+      _Requirements: NR8.9-NR8.17_
+    - [ ] 5.5a.2 Deliver the first production-composed CL Timeout vertical for
+      active authenticated terminal disconnect with one blocked cleanup owner.
+      Use the production ten-second/maximum-thirty-second TimeProvider watchdog,
+      advance a manual provider to exact equality, prove
+      `host_cleanup_timeout`, release the lifecycle gate, reject replacement
+      Start with `host_cleanup_unconfirmed`, retain the same real cleanup task,
+      drain both nodes after releasing the owner, and keep restart latched. Move
+      only CL Timeout from M to P and retain all stated limitations.
+      _Requirements: NR8.9-NR8.16, NR10_
+    - [ ] 5.5a.3 Extend bounded confirmation across explicit Stop, Dispose,
+      cleanup-wins/equality races, timer setup/disposal failure, late non-fatal
+      failure, fatal OOM, concurrent terminators, every remaining owner, and
+      pre-generation cleanup before claiming Task 5.5a complete. Freeze explicit
+      Stop so throw, exact caller cancellation, or `FullyStopped == false` runs at
+      most one no-caller-cancellation fallback while retaining that initial
+      exception, cancellation, or unconfirmed result as the primary outcome;
+      `FullyStopped == true` never repeats Stop.
+      _Requirements: NR8.9-NR8.17, NR10_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

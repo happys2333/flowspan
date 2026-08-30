@@ -274,6 +274,71 @@ as Remote Window.
    not mutate or revive pending work. After terminal Preparation cleanup, retry
    shall use a fresh authenticated connection rather than retaining stale media
    or participant state.
+9. When a Desktop host runtime generation first enters terminal cleanup,
+   Flowspan shall synchronously close frame admission, remove that generation
+   from active authority if present, and register it as retiring ownership before
+   any await, watchdog arm, or task publication. It shall then create one
+   generation-owned real termination task that includes controller Stop and all
+   later owner release, and let concurrent Stop, revocation, fail-close,
+   terminal-callback, and disposal paths join that same task. Caller cancellation
+   or cleanup-confirmation timeout shall not cancel, replace, or abandon the real
+   task or release an owner that the task has not settled. If an initial explicit
+   controller Stop throws, is cancelled, or returns `FullyStopped == false`, the
+   real task shall retain that primary outcome and run at most one owned
+   no-caller-cancellation fallback Stop; it shall not run fallback after
+   `FullyStopped == true`.
+10. When the real termination task starts, Flowspan shall create exactly one
+    cleanup-confirmation operation for that generation and attempt to arm at most
+    one monotonic `TimeProvider` watchdog. The operation shall own one stable
+    timeout outcome shared by every waiter whether or not timer setup succeeds;
+    a successful arm shall own exactly one timer. The default duration shall be
+    ten seconds, the fixed hard maximum shall be thirty seconds, and a later
+    waiter shall not extend or restart the deadline.
+11. If the real termination task has not committed completion when its watchdog
+    fires, Flowspan shall close the public or coordinator wait with the bounded
+    reason `host_cleanup_timeout`, verify that the same generation remains absent
+    from active authority and retained in retiring ownership, and set a monotonic
+    cleanup-unconfirmed latch before releasing the host lifecycle gate. The
+    watchdog shall end only confirmation waiting; the retiring generation shall
+    continue to own and observe real cleanup.
+12. While the cleanup-unconfirmed latch is set, when any Start is attempted,
+    Flowspan shall reject it with `host_cleanup_unconfirmed` before granting a
+    route, sending Prepare, starting capture, admitting a participant,
+    publishing media, or creating Driver authority. A late successful cleanup
+    shall release its owners but shall not clear the latch; v1 shall provide no
+    automatic reset on that coordinator.
+13. When real cleanup completes after confirmation timeout, Flowspan shall
+    observe that completion independently of the already completed public wait.
+    Late success shall preserve the timeout result, while a late non-fatal fault
+    shall remain observable exactly once with its original identity and a
+    deterministic order after the timeout. A completed shared Dispose result
+    shall not be mutated to report a later fault; repeated Dispose calls shall
+    share that completed result and late cleanup shall use a separate diagnostic
+    completion surface.
+14. When terminal primary, watchdog, and cleanup failures coexist, Flowspan
+    shall project them in the fixed order primary, cleanup-confirmation outcome,
+    watchdog-release failure, then owner-cleanup failures in cleanup-step order.
+    If a direct or nested failure contains an `OutOfMemoryException`, the first
+    such exception shall dominate the failure projection by its original
+    instance and shall not be converted into a bounded rejection, timeout, or
+    aggregate; all independently safe later cleanup steps shall still be
+    attempted.
+15. If the cleanup watchdog cannot be created or armed because of a non-fatal
+    provider failure, Flowspan shall fail confirmation closed with the bounded
+    reason `watchdog_unavailable`, retain and observe real cleanup, and block
+    restart. A watchdog disposal fault shall not delay an already published
+    confirmation and shall remain observable as a cleanup fault. Provider OOM
+    shall follow the fatal rule in NR8.14.
+16. When cleanup completion and watchdog expiry race, Flowspan shall use one
+    atomic winner: completion wins only if it commits first; otherwise expiry
+    wins. The losing path shall not change an already published public result,
+    start a second cleanup, or release an owner twice.
+17. Before Native Remote Window Task 5.5a can close, resources acquired before a
+    `RuntimeGeneration` exists shall use an equivalent bounded confirmation
+    operation: one real pre-generation cleanup task, one confirmation operation,
+    at most one non-extensible watchdog arm attempt, exactly one timer after a
+    successful arm, retained ownership through late settlement, the same fatal
+    and diagnostic rules, and the same restart denial after unconfirmed cleanup.
 
 ### NR9 - Accessibility and visible sharing
 
