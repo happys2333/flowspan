@@ -885,6 +885,11 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         RunHcCaptureStartTerminationScenarioAsync(
             HcCaptureStartTerminationTrigger.CallerCancellation);
 
+    [Fact]
+    public Task HcCaptureStartRejectAfterFrameSideEffectFailsClosedAndDrainsBothNodes() =>
+        RunHcCaptureStartTerminationScenarioAsync(
+            HcCaptureStartTerminationTrigger.CaptureReject);
+
     private static async Task RunHcCaptureStartTerminationScenarioAsync(
         HcCaptureStartTerminationTrigger trigger)
     {
@@ -892,6 +897,8 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             trigger is HcCaptureStartTerminationTrigger.AuthorityRevoke;
         bool cancelCaller =
             trigger is HcCaptureStartTerminationTrigger.CallerCancellation;
+        bool rejectCapture =
+            trigger is HcCaptureStartTerminationTrigger.CaptureReject;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using var callerCancellation = new CancellationTokenSource();
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
@@ -980,7 +987,10 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         int mediaSendCountAtHook = -1;
         int renderCountAtHook = -1;
         var capture = new RecordingCaptureBoundary(
-            AfterPreAdmissionFrameDisposedAsync);
+            AfterPreAdmissionFrameDisposedAsync,
+            rejectCapture
+                ? LocalBoundaryResult.Failed("capture_start_failed")
+                : null);
         var input = new RecordingInputBoundary();
         var permissions = new RecordingPermissionBoundary(
             NativeRemoteWindowPermissionSnapshot.Create(
@@ -1062,7 +1072,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             {
                 Assert.Equal(TrustMutationResult.Applied, authorityMutation);
             }
-            else if (!cancelCaller)
+            else if (!cancelCaller && !rejectCapture)
             {
                 Assert.NotNull(disconnecting);
                 await disconnecting.WaitAsync(deadline.Token);
@@ -1080,9 +1090,15 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.True(attachmentAtHook);
             Assert.True(bilateralFsm1AtHook);
             Assert.True(connectionCurrentAtHook);
-            Assert.Equal(cancelCaller, connectionCurrentAfterHook);
-            Assert.Equal(cancelCaller, generationAcquiredAfterHook);
-            if (cancelCaller)
+            bool connectionShouldRemainCurrentAtHook =
+                cancelCaller || rejectCapture;
+            Assert.Equal(
+                connectionShouldRemainCurrentAtHook,
+                connectionCurrentAfterHook);
+            Assert.Equal(
+                connectionShouldRemainCurrentAtHook,
+                generationAcquiredAfterHook);
+            if (connectionShouldRemainCurrentAtHook)
             {
                 Assert.Equal(authenticatedGeneration, generationAfterHook);
             }
@@ -1130,10 +1146,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Null(coordinator.ActiveMediaBudget);
             Assert.Null(coordinator.TerminalFailure);
             Assert.False(capture.HasCurrentCapture);
-            if (cancelCaller)
+            if (cancelCaller || rejectCapture)
             {
                 Assert.True(capture.StopCount >= 1);
                 Assert.True(input.StopCount >= 1);
+                Assert.Equal(0, capture.EmergencyStopCount);
+                Assert.Equal(0, input.EmergencyStopCount);
             }
             else
             {
@@ -1175,6 +1193,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 Assert.Equal(
                     callerCancellation.Token,
                     canceled.CancellationToken);
+            }
+            else if (rejectCapture)
+            {
+                Assert.Equal(
+                    "Remote Window host start failed (capture_start_failed).",
+                    failure.Message);
             }
             else
             {
@@ -1249,12 +1273,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             {
                 callerCancellation.Cancel();
             }
-            else
+            else if (!rejectCapture)
             {
                 disconnecting = participantConnection!.DisposeAsync().AsTask();
             }
 
-            if (!cancelCaller)
+            if (!cancelCaller && !rejectCapture)
             {
                 await hostConnection.ConnectionRevoked.Task.WaitAsync(deadline.Token);
             }
@@ -1277,6 +1301,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         AuthenticatedDisconnect,
         AuthorityRevoke,
         CallerCancellation,
+        CaptureReject,
     }
 
     [Fact]
@@ -7334,12 +7359,15 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
     private sealed class RecordingCaptureBoundary(
         Func<RecordingCaptureBoundary, ValueTask>?
-            afterPreAdmissionFrameDisposed = null) :
+            afterPreAdmissionFrameDisposed = null,
+        LocalBoundaryResult? startResult = null) :
         INativeRemoteWindowCaptureBoundary
     {
         private Func<RecordingCaptureBoundary, ValueTask>?
             afterPreAdmissionFrameDisposed = afterPreAdmissionFrameDisposed;
         private readonly object gate = new();
+        private readonly LocalBoundaryResult startResult = startResult
+            ?? LocalBoundaryResult.Confirmed("native_capture_started");
         private Exception? emergencyStopFailure;
         private INativeRemoteWindowFrameSink? sink;
         private NativeRemoteWindowSourceUse? sourceUse;
@@ -7407,7 +7435,7 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 await hook(this).ConfigureAwait(false);
             }
 
-            return LocalBoundaryResult.Confirmed("native_capture_started");
+            return startResult;
         }
 
         public async Task<TrackingMemoryOwner> EmitFrameAsync(
