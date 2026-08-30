@@ -7,7 +7,10 @@ Branch: `codex/v1-foundation`
 Implementation commit:
 `62e9372aef378e8c085ccf79502104f63ae8aa76`
 
-Final hosted evidence tree: pending an exact `62e9372` workflow execution.
+First hosted documentation tree:
+`9ca4b2c5665cc7ffd462a1a59b8314388f16bc58`
+
+Final hosted evidence tree: pending a post-`7239448` exact workflow execution.
 
 Local environment: macOS 26.6.2 arm64, .NET SDK 10.0.301
 
@@ -78,11 +81,30 @@ Final local results at exact commit `62e9372`:
 
 ## Hosted exact-SHA evidence
 
-Pending successful Windows, macOS, Linux, Secret Scan, CodeQL, and reproducible
-unsigned-package jobs for exact commit
-`62e9372aef378e8c085ccf79502104f63ae8aa76`. Exact `a0c9648` CI
-`33303210427` and CodeQL `33303210391` prove the preceding 36-case tree, not this
-37th row.
+[CI run `33304022418`](https://github.com/happys2333/flowspan/actions/runs/33304022418),
+run number 214 attempt 1, is **failure evidence**, not a successful hosted
+checkpoint, for exact documentation tree `9ca4b2c` containing this row.
+
+The authority-revoke tracer itself was not the reported failure. Only macOS job
+`99237248671` failed, in the unrelated local-pairing test
+`DisposeRejectsAndStopsCancellationIgnoringLateEnableSession`: it expected
+`OperationCanceledException` but observed `ObjectDisposedException`. Ubuntu job
+`99237248699`, Windows job `99237248779`, and Secret Scan job `99237248763`
+succeeded. Package matrix job `99237778338` was skipped, so no package result is
+claimed from this run.
+
+[CodeQL run `33304022374`](https://github.com/happys2333/flowspan/actions/runs/33304022374),
+run number 214 attempt 1, independently completed with `success`. Job
+`99237248324` produced analysis ID `1693740950` and SARIF ID
+`7eace976-a455-11f1-9f4a-a44bc3e1e004`; service warning/error text is empty and
+the analysis reports 52 rules with 0 results. This does not convert failed CI
+into successful evidence.
+
+Production fix `72394484e9fd0fd556497641f1ac5d79afe80bce` restores
+deterministic lifetime-cancellation precedence for that unrelated pairing race.
+Final hosted evidence for the authority row remains pending a later exact tree
+containing both fixes and these records. Exact `a0c9648` CI `33303210427` and
+CodeQL `33303210391` still prove only the preceding 36-case tree.
 
 ## Explicit limitations
 

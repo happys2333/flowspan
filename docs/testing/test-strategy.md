@@ -2043,11 +2043,95 @@ independent review report 0 P0/P1/P2 findings. Exact commands and limitations
 are in the
 [host capture-start authority-revoke evidence](../evidence/2026-08-30-host-capture-start-authority-revoke.md).
 
-Hosted exact `62e9372` evidence remains pending; `a0c9648` CI `33303210427` and
-CodeQL `33303210391` prove only the preceding 36-case tree. By fault origin only
-HC Revoke changes from M to P. HC/AD/CL Disconnect remain P; every other cell is
+CI `33304022418` for documentation tree `9ca4b2c` is failure evidence only:
+macOS job `99237248671` exposed an unrelated local-pairing lifetime-cancellation
+precedence race; Ubuntu, Windows, and Secret Scan passed, while packages were
+skipped. CodeQL `33304022374` passed independently. Pairing fix `7239448`
+restores cancellation precedence; final hosted authority-row evidence remains
+pending a post-fix exact tree. By fault origin only HC Revoke changes from M to
+P. HC/AD/CL Disconnect remain P; every other cell is unchanged. This is managed
+same-host evidence, not native/physical Windows/macOS/Linux, signed, notarized,
+or release proof. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every native/
+physical/release gate, and the Goal remain open.
+
+### 2026-08-30 host capture-start caller cancellation
+
+Exact test-only commit `0f26c26e93c0af6013372245ba448fd839037a1c`
+adds the 38th production-composed managed tracer without a production change.
+Only the Start caller receives a dedicated cancellation token; an independent
+20-second harness token bounds network setup and cleanup joins.
+
+After Ready, bilateral `FSM1`, and exact first-frame disposal, the capture hook
+synchronously cancels the caller token before Start returns. Admission/send/
+render/input remain zero. Unlike revoke or disconnect, authenticated authority
+remains current: an exact probe reacquires the same generation and immediately
+disposes it, while Trust, fingerprint, and sole `mirror.view` remain unchanged.
+
+Before rethrowing `OperationCanceledException` with the exact caller token,
+Host Start awaits its owned ordinary Stop, fail-close, connection disposal, and
+cleanup. The test then observes the exact-token exception, joins participant
+session completion, and verifies both nodes' owner graphs are drained.
+
+Focused Debug/Release pass `1/1`; fresh rows pass `10/10` per configuration;
+tracer, Desktop, and solution pass `38/38`, `715/715`, and `2579/2579`; builds
+have zero warnings/errors; format/diff checks pass; and self plus independent
+review report 0 P0/P1/P2 findings. Exact commands and limitations are in the
+[host capture-start caller-cancellation evidence](../evidence/2026-08-30-host-capture-start-caller-cancellation.md).
+
+Hosted exact `0f26c26` evidence remains pending. CI `33304022418` and CodeQL
+`33304022374` target `9ca4b2c`, the preceding 37-case tree. By fault origin only
+HC Cancel changes from M to P; CL Cancel remains P and every other cell is
 unchanged. This is managed same-host evidence, not native/physical Windows/
 macOS/Linux, signed, notarized, or release proof. Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
+
+### 2026-08-30 local pairing lifetime-cancellation precedence
+
+CI `33304022418` at exact tree `9ca4b2c` failed only macOS job `99237248671`:
+`DisposeRejectsAndStopsCancellationIgnoringLateEnableSession` expected
+`OperationCanceledException` but observed `ObjectDisposedException`. Ubuntu,
+Windows, and Secret Scan passed; packages were skipped. CodeQL `33304022374`
+passed independently with 52 rules and 0 results.
+
+Dispose had cancelled the runtime lifetime, but a cancellation-ignoring late
+Start could reach result classification before the linked callback ran and see
+the disposed flag first. Production fix `7239448` checks the lifetime token
+before linked cancellation and disposal, preserving deterministic cancellation
+precedence. Pairing runtime tests pass `29/29` in Debug and Release; the exact
+row passes twenty fresh processes per configuration. Combined tree through
+`858acb2` passes `2580/2580` solution tests with zero build warnings/errors and
+passing format/diff checks. Details are in the
+[pairing lifetime-cancellation evidence](../evidence/2026-08-30-local-pairing-lifetime-cancellation.md).
+
+This repair changes no Remote Window matrix cell. Final post-fix hosted evidence
+remains pending.
+
+### 2026-08-30 host capture-start rejection
+
+Exact test-only commit `858acb2c28321ed8603646227d8834eef318405a`
+adds the 39th production-composed managed tracer. After Ready, bilateral `FSM1`,
+and exact first-frame disposal, the hook confirms current authenticated
+authority and probes/releases the same generation. Trust, fingerprint,
+`mirror.view`, and transport remain unchanged; Admission/send/render/input are
+zero.
+
+Capture returns bounded `capture_start_failed`. Host Start preserves that exact
+reason with no inner/fingerprint, ordinary capture/input Stop runs, Emergency
+Stop counts remain exactly zero, and both nodes drain. No production change is
+required.
+
+Focused Debug/Release pass `1/1`; fresh rows pass `10/10` per configuration;
+tracer, Desktop, and combined solution pass `39/39`, `716/716`, and `2580/2580`;
+builds have zero warnings/errors; format/diff checks pass; and self plus
+independent review report 0 P0/P1/P2 findings. Exact commands and limitations
+are in the
+[host capture-start rejection evidence](../evidence/2026-08-30-host-capture-start-rejection.md).
+
+Hosted exact post-`858acb2` evidence remains pending; `9ca4b2c` CI/CodeQL target
+the preceding 37-case tree and its CI failed on the unrelated pairing race. By
+fault origin only HC Reject changes from M to P. HC Reject, Cancel, Revoke, and
+Disconnect are now all P; every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
 

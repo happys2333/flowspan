@@ -1011,6 +1011,57 @@
     every other cell is unchanged. Tasks 5, 5.5a, and 5.5, aggregate H0/H1
     acceptance, `CreateProduction()`, every native/physical/signing/notarization/
     release gate, and the Goal remain open.
+    Exact test-only commit `0f26c26e93c0af6013372245ba448fd839037a1c`
+    adds the 38th managed tracer at HC capture Start. A dedicated token belongs
+    only to Start while a separate 20-second harness token bounds network/join
+    work. After Ready, bilateral `FSM1`, and exact first-frame disposal, the hook
+    synchronously cancels the caller. Admission/send/render/input remain zero;
+    the connection remains current; an exact probe acquires the same generation
+    and immediately releases it; Trust/fingerprint/sole `mirror.view` remain
+    unchanged. Before rethrowing exact-caller-token
+    `OperationCanceledException`, Host Start awaits its owned ordinary Stop,
+    fail-close, connection disposal, and cleanup. The test then joins participant
+    session completion and verifies both nodes drained. No production change is
+    required. Focused Debug/Release passes `1/1`;
+    fresh rows pass `10/10` per configuration; tracer, Desktop, and solution pass
+    `38/38`, `715/715`, and `2579/2579`; builds have zero warnings/errors;
+    format/diff checks pass; and self plus independent review report 0 P0/P1/P2.
+    Hosted exact `0f26c26` evidence remains pending; CI `33304022418` and CodeQL
+    `33304022374` target `9ca4b2c`, the 37-case tree. Commands, scope, and
+    limitations are in
+    `docs/evidence/2026-08-30-host-capture-start-caller-cancellation.md`.
+    By fault origin only HC Cancel changes M→P. CL Cancel remains P; every other
+    cell is unchanged. Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
+    `CreateProduction()`, every native/physical/signing/notarization/release gate,
+    and the Goal remain open.
+    CI `33304022418` at `9ca4b2c` then failed only macOS local-pairing lifetime
+    cancellation precedence: a cancellation-ignoring late Enable exposed
+    `ObjectDisposedException` instead of `OperationCanceledException`. Ubuntu,
+    Windows, and Secret Scan passed; packages were skipped; CodeQL `33304022374`
+    passed independently. Production fix
+    `72394484e9fd0fd556497641f1ac5d79afe80bce` checks lifetime
+    cancellation before linked cancellation/disposal. Pairing runtime passes
+    `29/29` in Debug/Release and the exact row passes twenty fresh processes per
+    configuration. This changes no Remote Window matrix cell. Details are in
+    `docs/evidence/2026-08-30-local-pairing-lifetime-cancellation.md`.
+    Exact test-only commit `858acb2c28321ed8603646227d8834eef318405a`
+    adds the 39th managed tracer at HC capture Start. After Ready, bilateral
+    `FSM1`, exact first-frame disposal, and a same-generation currentness probe,
+    capture returns bounded `capture_start_failed`; Trust/transport remain
+    unchanged and Admission/send/render/input remain zero. Host failure has no
+    inner/fingerprint; ordinary capture/input Stop runs with exact Emergency Stop
+    counts zero; and both nodes drain. No production change is required. Focused
+    Debug/Release passes `1/1`; fresh rows pass `10/10` per configuration;
+    tracer, Desktop, and combined solution pass `39/39`, `716/716`, and
+    `2580/2580`; builds have zero warnings/errors; format/diff checks pass; and
+    self plus independent review report 0 P0/P1/P2. Hosted exact post-`858acb2`
+    evidence remains pending; `9ca4b2c` targets the 37-case tree and its CI
+    failed on the unrelated pairing race. Commands, scope, and limitations are
+    in `docs/evidence/2026-08-30-host-capture-start-rejection.md`.
+    By fault origin only HC Reject changes M→P. HC Reject, Cancel, Revoke, and
+    Disconnect are now P; every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
+    aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
+    signing/notarization/release gate, and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

@@ -1530,6 +1530,79 @@ accessibility, signed/notarized package, or release proof. Tasks 5, 5.5a, and
 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
 signing/notarization/release gate, and the Goal remain open.
 
+### 5.33 2026-08-30 Host capture-start caller cancellation
+
+For T06 and T13, exact test-only commit
+`0f26c26e93c0af6013372245ba448fd839037a1c` injects exact caller
+cancellation while capture Start owns HC. A dedicated token belongs only to
+Start; a separate 20-second harness token bounds network work and joins.
+
+After Ready, bilateral `FSM1`, and exact first-frame disposal, the hook
+synchronously cancels the caller. Admission/send/render/input remain zero.
+Authenticated authority remains current, the same generation can be probed and
+immediately released, and Trust/fingerprint/sole `mirror.view` are unchanged.
+
+Host Start awaits owned ordinary Stop, fail-close, connection disposal, and
+cleanup before rethrowing the exact caller-token `OperationCanceledException`.
+The test then joins participant session completion and verifies both nodes
+drained. No production change is required.
+
+Focused Debug/Release pass `1/1`; fresh rows pass `10/10` per configuration;
+tracer, Desktop, and solution pass `38/38`, `715/715`, and `2579/2579`; builds
+have zero warnings/errors; format/diff checks pass; and self plus independent
+review report 0 P0/P1/P2 findings. Exact commands and limitations are in the
+[host capture-start caller-cancellation evidence](../evidence/2026-08-30-host-capture-start-caller-cancellation.md).
+
+Hosted exact `0f26c26` evidence remains pending. CI `33304022418` and CodeQL
+`33304022374` target `9ca4b2c`, the preceding 37-case tree. By fault origin only
+HC Cancel advances from M to P; CL Cancel remains P. Other HC cancellation
+phases, foreign/tokenless cancellation, and cancellation-plus-cleanup faults
+remain open. This is managed same-host evidence, not native API, physical two-
+Device, packaged accessibility, signed/notarized package, or release proof.
+Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every
+native/physical/signing/notarization/release gate, and the Goal remain open.
+
+### 5.34 2026-08-30 Local pairing lifetime-cancellation precedence
+
+For T13, CI `33304022418` at exact tree `9ca4b2c` failed only macOS pairing
+runtime cancellation precedence: a cancellation-ignoring late Enable observed
+disposed state before asynchronous linked-cancellation propagation became
+observable at classification, and surfaced `ObjectDisposedException` instead of
+`OperationCanceledException`. Ubuntu, Windows, and Secret Scan passed; packages
+were skipped. CodeQL `33304022374` passed 52/0 independently.
+
+Fix `72394484e9fd0fd556497641f1ac5d79afe80bce` checks runtime lifetime
+cancellation before linked cancellation and disposed state. Pairing tests pass
+`29/29` in Debug/Release; the exact row passes twenty fresh processes per
+configuration; and the combined tree through `858acb2` passes `2580/2580` with
+zero build warnings/errors. This changes no Remote Window matrix cell. Details
+are in the
+[pairing lifetime-cancellation evidence](../evidence/2026-08-30-local-pairing-lifetime-cancellation.md).
+
+### 5.35 2026-08-30 Host capture-start rejection
+
+For T06 and T14, exact test-only commit
+`858acb2c28321ed8603646227d8834eef318405a` returns bounded capture
+rejection while HC owns Start. Ready, bilateral `FSM1`, exact first-frame
+disposal, current connection, and same-generation probe all exist, while Trust,
+fingerprint, Mirror grant, and transport remain unchanged.
+
+`capture_start_failed` escapes without inner/fingerprint; Admission/send/render/
+input remain zero; ordinary capture/input Stop runs with exact Emergency Stop
+counts zero; and both nodes drain. No production change is required.
+
+Focused Debug/Release pass `1/1`; fresh rows pass `10/10` per configuration;
+tracer, Desktop, and solution pass `39/39`, `716/716`, and `2580/2580`; builds
+have zero warnings/errors; format/diff checks pass; and self plus independent
+review report 0 P0/P1/P2 findings. Exact commands and limitations are in the
+[host capture-start rejection evidence](../evidence/2026-08-30-host-capture-start-rejection.md).
+
+Hosted exact post-`858acb2` evidence remains pending. By fault origin only HC
+Reject advances from M to P; HC Reject, Cancel, Revoke, and Disconnect are now P.
+Other rejection phases and rejection-plus-cleanup faults remain open. Tasks 5,
+5.5a, and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/
+physical/signing/notarization/release gate, and the Goal remain open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
