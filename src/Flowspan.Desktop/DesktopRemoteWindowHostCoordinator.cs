@@ -655,6 +655,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     protectionReservation,
                     cancellationToken)
                 .ConfigureAwait(false);
+            _ = ValidateCurrentHostFacts(request, generation, out _);
             if (!started.Succeeded)
             {
                 throw StartFailure(started.ReasonCode);
