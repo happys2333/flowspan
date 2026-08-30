@@ -1415,6 +1415,45 @@ signed/notarized package, or release proof. Tasks 5, 5.5a, and 5.5, aggregate
 H0/H1 acceptance, `CreateProduction()`, every native/physical/signing/
 notarization/release gate, and the Goal remain open.
 
+### 5.30 2026-08-30 Final-Admission authenticated disconnect
+
+For T03, T06, and T14, exact test-only commit
+`7be177bb010c55ba44c852a851b60c3ba843d9d7` adds independent
+authenticated transport loss at the final-Admission side-effect window. The
+participant has committed and published exact `Applied` or `AlreadyApplied`,
+but the host has not completed post-publication revalidation or opened the frame
+gate.
+
+Capture has started once, the initial pre-Admission frame is disposed, and a
+second hook-emitted frame owner is disposed exactly once with zero media send/
+render; input remains empty. The hook starts real participant connection
+disposal, then waits for a barrier published after the production host
+revocation callback returns without awaiting full teardown. At that point the
+old generation is non-current and unreacquirable, while the Trust record, exact
+fingerprint, and sole `mirror.view` grant remain unchanged.
+
+Host Start exposes only `authenticated_connection_stale`, with no inner
+exception, fingerprint, or dependency payload. Capture/input receive local
+Emergency Stop and the frame gate remains closed. Full disconnect and session
+completion are joined outside the hook before both nodes' owner graphs drain.
+
+Focused final-Admission Debug/Release pass `3/3`; ten fresh disconnect processes
+per configuration pass `10/10`; tracer, Desktop, and solution pass `35/35`,
+`712/712`, and `2576/2576`; builds have zero warnings/errors; format/diff checks
+pass; and self plus independent review report 0 P0/P1/P2 findings. Exact commands
+and limitations are in the
+[final-Admission disconnect evidence](../evidence/2026-08-30-final-admission-authenticated-disconnect.md).
+
+Hosted evidence for exact `7be177b` is pending. CI `33301715578` and CodeQL
+`33301715584` target `c13acc5` and do not prove this row. By fault origin only AD
+Disconnect advances from M to P; HC Disconnect remains M and CL Disconnect
+remains P. Other Admission disconnect phases, disconnect-plus-cleanup faults,
+and native non-cooperative teardown remain open. This is managed same-host
+evidence, not native API, physical two-Device, packaged accessibility, signed/
+notarized package, or release proof. Tasks 5, 5.5a, and 5.5, aggregate H0/H1
+acceptance, `CreateProduction()`, every native/physical/signing/notarization/
+release gate, and the Goal remain open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

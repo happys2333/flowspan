@@ -933,6 +933,30 @@
     remains P, and every other cell is unchanged. Tasks 5, 5.5a, and 5.5,
     aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
     signing/notarization/release gate, and the Goal remain open.
+    Exact test-only commit `7be177bb010c55ba44c852a851b60c3ba843d9d7`
+    adds the 35th production-composed managed tracer row at final Admission.
+    After participant exact `Applied` or `AlreadyApplied`, but before host post-
+    publication revalidation and frame-gate open, the hook starts real
+    `participantConnection.DisposeAsync()` without changing Trust, fingerprint,
+    or the sole `mirror.view` grant. It waits only for a post-host-revocation-
+    callback barrier, not full disposal; the old generation is then non-current
+    and unreacquirable. The initial frame is disposed, and the hook-emitted frame
+    owner disposes exactly once; host failure is bounded to
+    `authenticated_connection_stale` with no inner/fingerprint; capture/input
+    Emergency Stop locally; media send/render/input remain zero; and outside-
+    hook disconnect/session joins drain both nodes. Focused Debug/Release passes
+    `3/3`; ten fresh final disconnect rows
+    pass `10/10` per configuration; tracer, Desktop, and solution pass `35/35`,
+    `712/712`, and `2576/2576`; both builds have zero warnings/errors; format/
+    diff checks pass; and self plus independent review report 0 P0/P1/P2.
+    Hosted exact `7be177b` results remain pending; CI `33301715578` and CodeQL
+    `33301715584` target `c13acc5` and are not evidence for this row. Commands,
+    scope, and limitations are in
+    `docs/evidence/2026-08-30-final-admission-authenticated-disconnect.md`.
+    By fault origin only AD Disconnect changes M→P. HC Disconnect remains M, CL
+    Disconnect remains P, and every other cell is unchanged. Tasks 5, 5.5a, and
+    5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
+    signing/notarization/release gate, and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

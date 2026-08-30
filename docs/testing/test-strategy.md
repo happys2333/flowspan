@@ -1937,6 +1937,43 @@ signed, notarized, or release proof. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
 
+### 2026-08-30 final-Admission authenticated disconnect
+
+Exact test-only commit `7be177bb010c55ba44c852a851b60c3ba843d9d7`
+adds the 35th production-composed managed tracer execution. The participant has
+already committed and published exact Admission as `Applied` or
+`AlreadyApplied`; the hook runs before host post-publication revalidation and
+before `Admission.TryOpen()` can open the frame gate.
+
+Capture has started once, its initial pre-Admission frame is disposed, and a
+second hook-emitted frame owner is also disposed exactly once with zero media
+send/render; input remains empty. The hook starts real
+`participantConnection.DisposeAsync()` and waits only for a barrier published
+after the host revocation callback returns, not for full disposal. The old host
+generation is then non-current and unreacquirable while Trust, fingerprint, and
+the sole `mirror.view` grant remain unchanged.
+
+Host Start returns bounded `authenticated_connection_stale` with no inner
+exception or fingerprint. Capture/input receive local Emergency Stop and the
+frame gate never opens. Outside the hook, full connection disposal and session
+completion are joined before both managed owner graphs are proved drained.
+
+The focused final-Admission family passes `3/3` in Debug and Release; ten fresh
+disconnect processes per configuration pass `10/10`; the tracer passes `35/35`;
+Desktop passes `712/712`; and the solution passes `2576/2576`, all in both
+configurations. Builds have zero warnings/errors, format and diff checks pass,
+and self-review plus independent strict review report 0 P0/P1/P2 findings.
+Exact commands and limitations are in the
+[final-Admission disconnect evidence](../evidence/2026-08-30-final-admission-authenticated-disconnect.md).
+
+Hosted evidence for exact `7be177b` remains pending. CI `33301715578` and
+CodeQL `33301715584` target `c13acc5` and cannot be counted for this row. By
+fault origin only AD Disconnect changes from M to P. HC Disconnect stays M and
+CL Disconnect stays P; every other cell is unchanged. This remains managed
+same-host macOS evidence, not native/physical Windows/macOS/Linux, signed,
+notarized, or release proof. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
+native/physical/release gate, and the Goal remain open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,
