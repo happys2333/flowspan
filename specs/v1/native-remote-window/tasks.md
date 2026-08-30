@@ -821,6 +821,37 @@
     This changes only P0 Disconnect from M to P. TX, P2, and CL stay P; every
     other cell is unchanged. Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every
     native/physical/signing/notarization/release gate, and the Goal remain open.
+    Timeout implementation commit
+    `40d4f78f32bb9958c1e7fbc075b6743620d1f0de` adds the 32nd managed
+    production-composed tracer execution across TX, P0, P2, and CL. Final CI-
+    stabilized evidence tree `de4009aae9b7e5822983e13e70909b7deb8c2b64`
+    retains that behavior and hardens the exact shutdown classifier plus local-
+    pairing publication lifetime.
+    Separate manual clocks advance only the participant to exact deadline
+    equality after Prepare send admission and bilateral `FSM1` attachment. Host
+    time remains earlier and peer disconnect has not entered when the blocked
+    renderer token is cancelled. Release yields one bounded
+    `Rejected/preparation_expired`, then disconnect; no Ready authority,
+    Admission, capture, media, render, or input opens, and the late renderer plus
+    both nodes drain. This changes only P2 Timeout from M to P. CL Timeout stays M
+    because cleanup itself does not time out; every other cell is unchanged.
+    Final local results pass focused `2/2`, fresh deadline Debug/Release `10/10`
+    each, tracer `32/32`, Desktop `707/707`, solution `2571/2571`, zero build
+    warnings/errors, and format/diff gates. Three strict review rounds report
+    zero P0/P1/P2.
+    Earlier tree `c761acf` CI `33296383742` failed Windows job `99216650548`
+    on an exact stale-aggregate classification gap and `Task.Run` publication
+    starvation, so it is not success evidence; CodeQL `33296383740` succeeded
+    independently. CI `33297152942` and CodeQL `33297152906` pass for
+    `40d4f78`. Final exact-SHA CI `33298564630` and CodeQL `33298564676`
+    pass for `de4009a`; downloaded artifacts prove `2571/2571` with all non-
+    success counters zero on every hosted OS, Gitleaks 208/0, CodeQL 52/0 with
+    0 exact-ref open alerts, and three reproducible version-0.1.205 unsigned
+    packages whose `5/5` checksums and repository verification pass. Exact jobs,
+    artifacts, digests, scope, commands, run history, and limitations are in
+    `docs/evidence/2026-08-30-pending-renderer-deadline.md`.
+    Tasks 5, 5.5a, and 5.5, `CreateProduction()`, every native/physical/signing/
+    notarization/release gate, and the Goal remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

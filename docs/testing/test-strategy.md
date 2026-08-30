@@ -1767,6 +1767,53 @@ loopback evidence, not native or physical Windows/macOS/Linux proof. Tasks 5,
 5.5a, and 5.5, `CreateProduction()`, every native/physical/signing/notarization/
 release gate, and the Goal remain open.
 
+### 2026-08-30 pending renderer exact deadline
+
+Timeout implementation commit `40d4f78f32bb9958c1e7fbc075b6743620d1f0de`
+adds the 32nd production-composed managed tracer execution across TX, P0, P2,
+and CL. Final CI-stabilized evidence tree
+`de4009aae9b7e5822983e13e70909b7deb8c2b64` preserves that timeout
+behavior and hardens two independently exposed shutdown races.
+
+The timeout row uses separate manual host and participant clocks after exact
+Prepare send admission and bilateral verified `FSM1` attachment. Only the
+participant advances to exact request-deadline equality while renderer
+Preparation is non-cooperatively blocked. Host time remains before the deadline,
+peer disconnect has not entered, and renderer cancellation is observed before
+release. Release produces one `Rejected/preparation_expired`, then disconnect;
+the host accepts only the bounded causally related terminal tuples documented in
+the exact evidence. No Ready authority, Admission, capture, media send, render,
+or input opens, and the late renderer plus both-node owner graph drain.
+
+This fault originates at P2 timeout. It changes only P2 Timeout from M to P. CL
+Timeout remains M because cleanup does not time out and no cleanup-timeout policy
+is injected; every other matrix cell is unchanged.
+
+Final local verification passes focused deadline/disconnect `2/2`, fresh
+deadline Debug and Release `10/10` each, tracer `32/32`, Desktop `707/707`, and
+solution `2571/2571` in both configurations. Both warning-as-error builds report
+zero warnings/errors, and format plus diff checks pass. Three strict review
+rounds report zero P0/P1/P2 after the exact classifier and dedicated publication-
+worker repairs.
+
+CI `33296383742` for earlier tree `c761acf` is failure evidence only: Windows
+job `99216650548` exposed the exact stale-aggregate classification gap and local-
+pairing `Task.Run` publication starvation. CodeQL `33296383740` succeeded but
+does not make that CI run successful. Implementation-tree CI `33297152942` and
+CodeQL `33297152906` pass for `40d4f78`. Final exact-SHA CI `33298564630`
+and CodeQL `33298564676` pass for `de4009a`; downloaded artifacts prove
+`2571/2571` with every non-success counter zero on each hosted OS, Gitleaks
+208/0, CodeQL 52/0 with 0 exact-ref open alerts, and all three reproducible
+version-0.1.205 unsigned packages pass `5/5` checksums and repository
+verification. Exact jobs, artifacts, digests, commands, run history, and
+limitations are in the
+[pending-renderer deadline evidence](../evidence/2026-08-30-pending-renderer-deadline.md).
+
+This remains managed same-host evidence, not native/physical Windows/macOS/Linux,
+signing, notarization, or release proof. Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

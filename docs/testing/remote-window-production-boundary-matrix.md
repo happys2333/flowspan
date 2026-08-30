@@ -14,13 +14,16 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **31 xUnit case executions**, not 31
+The current production-composed tracer has **32 xUnit case executions**, not 32
 complete boundary families:
 
 - one admitted DriverEligible success;
 - one accepted-TCP connection reset before verified `FSM1` attachment completes;
 - five renderer-preparation failures;
 - one authenticated-control disconnect after Prepare send admission and
+  bilateral `FSM1` attachment while renderer Preparation is non-cooperatively
+  blocked;
+- one exact participant deadline equality after Prepare send admission and
   bilateral `FSM1` attachment while renderer Preparation is non-cooperatively
   blocked;
 - one renderer-failure-to-replacement exact-binding/ABA trace;
@@ -58,6 +61,9 @@ The [pending-renderer disconnect evidence](../evidence/2026-08-30-pending-render
 records the 31st case at exact commit `8d0831d`; its exact-SHA CI, CodeQL, and
 reproducible unsigned-package jobs pass with the detailed artifacts and digests
 retained there.
+The [pending-renderer deadline evidence](../evidence/2026-08-30-pending-renderer-deadline.md)
+records the 32nd case, implemented at `40d4f78` and stabilized at final evidence
+tree `de4009a`.
 These local results are same-host **managed loopback runs on macOS**. Hosted
 Windows, macOS, and Linux results remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -130,7 +136,7 @@ similar coverage.
 | **TX** | **C** [E-TX] | **P** [E-TX] | **C** [E-TX] | **C** [E-TX] | **P** [E-TX] | **P** [E-TX] | **P** [E-TX, E-CL] |
 | **P0** | **P** [E-P0] | **P** [E-P0] | **P** [E-P0] | **P** [E-P0, E-TX] | **M** | **P** [E-P0, E-TRACE] | **P** [E-P0, E-CL] |
 | **P1** | **P** [E-P1] | **P** [E-P1] | **P** [E-P1] | **P** [E-P1, E-TX] | **P** [E-P1] | **P** [E-P1, E-TRACE] | **P** [E-P1, E-CL] |
-| **P2** | **C** [E-P2] | **C** [E-P2] | **P** [E-P2] | **M** | **M** | **P** [E-P2] | **P** [E-P2, E-CL] |
+| **P2** | **C** [E-P2] | **C** [E-P2] | **P** [E-P2] | **P** [E-P2, E-TRACE] | **M** | **P** [E-P2] | **P** [E-P2, E-CL] |
 | **RS** | **C** [E-RS] | **P** [E-RS] | **C** [E-RS] | **C** [E-RS] | **P** [E-RS] | **P** [E-RS] | **P** [E-RS, E-CL] |
 | **AD** | **C** [E-AD] | **P** [E-AD, E-TRACE] | **C** [E-AD] | **C** [E-AD] | **M** | **M** | **P** [E-AD, E-CL] |
 | **HC** | **M** | **P** [E-HC, E-TRACE] | **M** | **P** [E-HC] | **M** | **M** | **P** [E-HC, E-CL] |
@@ -332,6 +338,11 @@ is why the H0/H1 aggregate cells remain P or M.
   Owned cleanup enters and cancels without completing before renderer release;
   release produces one bounded `Rejected/preparation_cancelled`, disposes the
   late renderer, opens no later authority, and drains both nodes.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.TxP0P2ExactDeadlineWhileRendererPreparationIsBlockedFailsClosedAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  advances only the participant clock to exact deadline equality while the host
+  remains before deadline and peer disconnect has not entered. Renderer
+  cancellation precedes one bounded `Rejected/preparation_expired`; late
+  renderer and both-node owners drain without Ready or later authority.
 
 Send/response throws, revocation/disconnect while every distinct transaction
 phase is pending, and all cleanup-fault combinations are not complete; those
@@ -382,12 +393,18 @@ fault family.
   cancellation is observed before cleanup can finish, then late renderer
   disposal, bounded rejection, zero host Ready authority, and full drain after
   release.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.TxP0P2ExactDeadlineWhileRendererPreparationIsBlockedFailsClosedAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  supplies one production-composed P2 Timeout after exact Prepare send and
+  bilateral attachment. Split manual clocks prove participant deadline equality
+  cancels the renderer before disconnect while host time remains earlier; release
+  yields `Rejected/preparation_expired`, disposes the late renderer, and opens no
+  later authority.
 
-Missing/null and ordinary throw classification are covered. A renderer blocked
-through exact deadline expiry and a renderer interrupted by authoritative lease
-or Trust revocation remain missing; the new disconnect row covers one exact
-pending-worker phase, while other disconnect and cleanup cross-products remain
-partial.
+Missing/null and ordinary throw classification are covered. One exact deadline-
+equality timeout and one disconnect while renderer preparation is blocked now
+cross the production path. Other timeout phases, authoritative lease/Trust
+revocation, disconnect phases, and cleanup cross-products remain open, so the
+new Timeout cell and the existing non-C cells remain partial.
 
 ### E-RS — Ready send and response completion
 
@@ -469,6 +486,9 @@ particular, a failure before HC is not HC evidence.
   enter without falsely completing while a non-cooperative renderer still owns
   its call. Explicit release then disposes the late renderer and drains the
   complete managed two-node owner graph.
+- The pending-renderer deadline tracer also drains the late renderer and full
+  owner graph, but its injected fault originates at P2 deadline equality.
+  Cleanup itself does not time out, so this is not CL Timeout evidence.
 
 The remaining renderer, active/pending frame, queue, attachment, route,
 directory, controller, protection FIFO/admission-use, permission-observer,
@@ -479,7 +499,7 @@ been defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 31-case class.
+  is now the executable 32-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
   and limitations. The source-linearization, Emergency Stop readiness,
@@ -487,7 +507,8 @@ been defined or directly tested.
   cases and their exact-SHA execution. The Connection Preparation evidence
   records the 27th and 28th cases. The Protection Preparation evidence records
   the 29th and 30th cases. The pending-renderer authenticated-disconnect
-  evidence records the 31st case and keeps its narrow scope explicit.
+  evidence records the 31st case. The pending-renderer deadline evidence records
+  the 32nd case and keeps its narrow P2 Timeout scope explicit.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -557,9 +578,10 @@ one direct row for each applicable gap. The presently known gaps are:
 5. **P1:** malformed/tampered `FSM1`, blocked-handshake cancellation and exact
    timeout, endpoint/listener disconnect variants, generation revocation at
    each attach phase, and remaining handler/route/directory cleanup failures.
-6. **P2:** exact deadline cancellation while renderer preparation is blocked;
-   authoritative lease/Trust revocation at that boundary; the remaining
-   disconnect phases and all renderer cleanup combinations.
+6. **P2:** the remaining deadline phases while renderer preparation is blocked;
+   timeout plus cleanup-fault intersections; authoritative lease/Trust revocation
+   at that boundary; the remaining disconnect phases and all renderer cleanup
+   combinations.
 7. **AD:** participant-endpoint throw, authority revoke, authenticated
    disconnect, and remaining cleanup failures at the exact buffered/send/commit
    phases.

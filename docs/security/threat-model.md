@@ -1245,6 +1245,46 @@ native or physical Windows/macOS/Linux evidence. Tasks 5, 5.5a, and 5.5,
 `CreateProduction()`, every native/physical/signing/notarization/release gate,
 and the Goal remain open.
 
+### 5.26 2026-08-30 Pending renderer exact deadline
+
+Timeout implementation commit `40d4f78f32bb9958c1e7fbc075b6743620d1f0de`
+adds one managed production path across TX/P0/P2/CL. Final evidence tree
+`de4009aae9b7e5822983e13e70909b7deb8c2b64` preserves that path and
+hardens the exact shutdown classifier plus local-pairing publication lifetime.
+
+After Prepare send admission and bilateral verified `FSM1` attachment, separate
+manual clocks keep the host before deadline while advancing only the participant
+to exact request-deadline equality. Peer disconnect has not entered when the
+blocked renderer's lifetime token is cancelled. Before release there is no Ready
+outcome or host Ready authority. Release produces exactly one bounded
+`Rejected/preparation_expired`, then disconnect; only the documented bounded
+host terminal tuples are accepted. No Admission, capture, media send, render, or
+input occurs, and the late renderer plus both-node owner graph drain.
+
+By fault-origin classification this advances only P2 Timeout from M to P. The
+cleanup completes without a cleanup timeout, so CL Timeout remains M. Other
+cells do not change.
+
+Final local evidence is focused `2/2`, fresh deadline Debug/Release `10/10`
+each, tracer `32/32`, Desktop `707/707`, solution `2571/2571`, zero build
+warnings/errors, and passing format/diff checks. Three strict reviews report zero
+P0/P1/P2 after the final repairs. Earlier CI `33296383742` at `c761acf` is not
+successful evidence: Windows job `99216650548` exposed an exact stale-aggregate
+classification gap and `Task.Run` publication starvation. Its CodeQL run
+`33296383740` succeeded independently. CI `33297152942` and CodeQL
+`33297152906` pass for timeout implementation tree `40d4f78`. Final exact-SHA
+CI `33298564630` and CodeQL `33298564676` pass for `de4009a`; retained
+artifacts prove `2571/2571` on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with
+0 exact-ref open alerts, and all three reproducible version-0.1.205 unsigned
+packages. Exact jobs, artifacts, digests, commands, run history, and limitations
+are in the
+[pending-renderer deadline evidence](../evidence/2026-08-30-pending-renderer-deadline.md).
+
+This proves no native renderer, physical Device pair, Windows/macOS/Linux native
+runtime, signing, notarization, or release acceptance. Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/release gate, and the Goal remain
+open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
