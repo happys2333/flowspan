@@ -1095,6 +1095,50 @@
     CL Disconnect remains P, and every other cell is unchanged. Tasks 5, 5.5a,
     and 5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/
     physical/signing/notarization/release gate, and the Goal remain open.
+    Exact commit `d5931817d95b592bfa4e22eb8da304a18c86e2ca` adds the
+    41st managed tracer and the post-route authority gate. Real authenticated
+    protocol-1.7 loopback completes one inner responder-route side effect before
+    the hook: the host route exists, exact Connection Preparation is current,
+    Protection is reserved, Emergency Stop readiness is current, and Prepare has
+    not been called. Independent participant Connection disposal reaches a
+    barrier only after the production callback returns; Connection becomes
+    non-current and unreacquirable while Trust/fingerprint/sole `mirror.view`
+    remain unchanged. Host Start returns bounded
+    `authenticated_connection_stale`; Prepare call/wire, attachment, capture,
+    Admission, media send, render, and input remain zero. Owned route fail-close
+    and Connection disposal each run once, and both nodes fully drain.
+    The exact RED expected `PrepareCount` 0 but observed 1. A minimal post-route
+    fact read first made the row GREEN; strict counter-review then required the
+    final gate to order caller cancellation → terminal cause → deadline → current
+    host facts plus fresh-safe Protection → repeated cancellation/terminal/
+    deadline. Concurrent non-fatal failure retains the recorded terminal cause;
+    OOM remains the exact primary entering the existing outer cleanup/
+    aggregation path. Focused H1 passes
+    `1/1`; H1 plus coordinator passes `116/116`; tracer, Desktop, and solution
+    pass `41/41`, `718/718`, and `2582/2582` in Debug/Release; builds have zero
+    warnings/errors, and format/diff checks pass. CI `33306962398` failed only
+    macOS Transport
+    `ProtocolOnePointTwoInvalidInitiatorFinishedNeverRunsHandler(Omit)`:
+    macOS passed `2581/2582` overall and Desktop `718/718`; Ubuntu and Windows
+    each passed `2582/2582`; Secret Scan passed 208/0; CodeQL `33306962391`
+    passed 52/0; packages were skipped. Test-only `c98a570` widens only that
+    theory's handshake/failure/outer budgets from 300 ms/2 s/3 s to 2 s/4 s/6 s
+    with assertions unchanged. Focused Debug/Release passes `3/3`, ten fresh
+    Release processes pass `30/30`, Transport passes `755/755`, and strict
+    review reports APPROVE. Exact-SHA CI `33307322868` and CodeQL `33307322870`
+    then succeed: downloaded artifacts prove `2582/2582` with every non-success
+    counter zero on each hosted OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref
+    open alerts, and all three reproducible unsigned packages verify. Commands,
+    scope, and limitations are in
+    `docs/evidence/2026-08-30-host-route-authenticated-disconnect.md`.
+    By fault origin only H1 Disconnect changes M→P. H0 and CL Disconnect remain
+    P, and every other cell is unchanged. The local tracer is same-host managed
+    macOS evidence and the hosted matrix remains managed/contract evidence;
+    neither is native API, physical two-Device, signed/notarized package, or
+    release proof. Tasks 5, 5.5a, and 5.5,
+    aggregate H0/H1 acceptance, every native/physical/signing/notarization/
+    release gate, and the Goal remain open. `CreateProduction()` remains
+    unavailable.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

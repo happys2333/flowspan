@@ -1527,8 +1527,9 @@ fault origin only HC Revoke advances from M to P; HC/AD/CL Disconnect remain P.
 Other HC revoke phases and revoke-plus-cleanup faults remain open. This is
 managed same-host evidence, not native API, physical two-Device, packaged
 accessibility, signed/notarized package, or release proof. Tasks 5, 5.5a, and
-5.5, aggregate H0/H1 acceptance, `CreateProduction()`, every native/physical/
-signing/notarization/release gate, and the Goal remain open.
+5.5, aggregate H0/H1 acceptance, every native/physical/signing/notarization/
+release gate, and the Goal remain open. `CreateProduction()` remains
+unavailable.
 
 ### 5.33 2026-08-30 Host capture-start caller cancellation
 
@@ -1651,6 +1652,62 @@ two-Device, packaged accessibility, signed/notarized package, or release proof.
 Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
 `CreateProduction()`, every native/physical/signing/notarization/release gate,
 and the Goal remain open.
+
+### 5.37 2026-08-30 Host route authenticated disconnect
+
+For T03, T06, T07, and T14, exact commit
+`d5931817d95b592bfa4e22eb8da304a18c86e2ca` injects independent
+authenticated transport loss after a real H1 responder-route side effect but
+before any protocol Prepare call. Real authenticated protocol-1.7 loopback has
+one host route, current exact Connection Preparation, reserved Protection, and
+current Emergency Stop readiness when the hook runs.
+
+Participant Connection disposal reaches a barrier only after the production
+host revocation callback returns. Connection and its Preparation registration
+are non-current and unreacquirable, while Trust identity, fingerprint, and sole
+`mirror.view` remain unchanged. Host Start returns only bounded
+`authenticated_connection_stale`; the Prepare method and wire admission remain
+zero. No attachment, capture, Admission, media send, render, or input authority
+opens. The owned route is fail-closed once, Connection is disposed once, and the
+two-node owner graph drains.
+
+The exact RED expected `PrepareCount` 0 but observed 1. The first minimal
+post-route fact read made that row GREEN, but strict counter-review found it did
+not preserve every cancellation, terminal, deadline, Protection/Emergency, and
+failure-priority case. The final gate checks caller cancellation, the recorded
+terminal cause, and deadline; revalidates current host facts and fresh exact-
+source `Safe` Protection; then repeats cancellation, terminal, and deadline.
+Non-fatal concurrent validation failure yields the recorded terminal reason,
+while `OutOfMemoryException` remains the exact primary entering the existing
+outer cleanup/aggregation path.
+
+Focused H1 Debug/Release pass `1/1`; the H1 row plus coordinator class pass
+`116/116`; tracer, Desktop, and solution pass `41/41`, `718/718`, and
+`2582/2582`; builds have zero warnings/errors, and format/diff checks pass.
+Exact commands and limitations are in the
+[host route authenticated-disconnect evidence](../evidence/2026-08-30-host-route-authenticated-disconnect.md).
+
+Exact CI `33306962398` failed only macOS Transport
+`ProtocolOnePointTwoInvalidInitiatorFinishedNeverRunsHandler(Omit)`: macOS
+passed `2581/2582` overall and Desktop `718/718`, while Ubuntu and Windows each
+passed `2582/2582` and Secret Scan passed 208/0. CodeQL `33306962391` succeeded
+52/0. Packages were skipped. Test-only `c98a570` changes only the theory's
+handshake/failure/outer bounds from 300 ms/2 s/3 s to 2 s/4 s/6 s; all security
+assertions remain. Focused Debug/Release pass `3/3`, ten fresh Release processes
+pass `30/30`, Transport passes `755/755`, and strict review reports APPROVE.
+Exact-SHA CI `33307322868` and CodeQL `33307322870` then succeeded: downloaded
+artifacts prove `2582/2582` with every non-success counter zero on each hosted
+OS, Gitleaks 208/0, CodeQL 52/0 with 0 exact-ref open alerts, and all three
+reproducible unsigned packages verified.
+
+By fault origin only H1 Disconnect advances from M to P; H0 and CL Disconnect
+remain P. Other H1 route/send phases and disconnect-plus-cleanup faults remain
+open. The local tracer is same-host managed macOS evidence and the hosted matrix
+remains managed/contract evidence; neither is native API, physical two-Device,
+packaged accessibility, signed/notarized package, or release proof.
+Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance, every native/physical/
+signing/notarization/release gate, and the Goal remain open. `CreateProduction()`
+remains unavailable.
 
 ## 6. Security state machine rules
 

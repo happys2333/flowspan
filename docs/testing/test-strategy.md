@@ -2178,6 +2178,64 @@ Tasks 5, 5.5a, and 5.5, aggregate H0/H1 acceptance,
 `CreateProduction()`, every native/physical/release gate, and the Goal remain
 open.
 
+### 2026-08-30 host route authenticated disconnect
+
+Exact commit `d5931817d95b592bfa4e22eb8da304a18c86e2ca` adds the 41st
+production-composed managed tracer and a post-route authority gate. Real
+authenticated protocol-1.7 loopback completes the inner responder-route side
+effect before its hook runs: route and host-directory counts are one, Connection
+Preparation is current, Protection is reserved, Emergency Stop readiness is
+current, and the Prepare call count is zero.
+
+The participant independently disposes the authenticated transport. The hook
+waits only for a barrier published after the production host revocation callback
+returns, not for full disconnect cleanup. Connection and its exact Preparation
+registration become non-current and the old generation cannot be reacquired,
+while Trust, peer fingerprint, and sole `mirror.view` remain unchanged. Host
+Start returns bounded `authenticated_connection_stale`; both the Prepare method
+and wire admission remain zero. The owned route is fail-closed once, Connection
+is disposed once, and the complete two-node owner graph drains without media
+attachment, capture, Admission, media send, render, or input.
+
+The exact pre-fix RED expected `PrepareCount == 0` but observed `1`; all preceding
+route, callback, authority, failure, and cleanup assertions passed. A first
+minimal post-route fact read made that row GREEN. Strict counter-review then
+identified cancellation, deadline, Protection/Emergency, and terminal-cause
+priority gaps, so the final gate orders caller cancellation, recorded terminal
+cause, deadline, current host facts plus fresh exact-source `Safe` Protection,
+then repeats cancellation/terminal/deadline. Non-fatal concurrent failures retain
+the terminal reason; `OutOfMemoryException` remains the exact primary entering
+the existing outer cleanup/aggregation path.
+
+Focused H1 Debug/Release pass `1/1`; the H1 row plus coordinator class pass
+`116/116`; tracer, Desktop, and combined solution pass `41/41`, `718/718`, and
+`2582/2582`; builds have zero warnings/errors, and format/diff checks pass. Exact
+commands and limitations are in the
+[host route authenticated-disconnect evidence](../evidence/2026-08-30-host-route-authenticated-disconnect.md).
+
+Exact CI `33306962398` failed only macOS Transport
+`ProtocolOnePointTwoInvalidInitiatorFinishedNeverRunsHandler(Omit)`: the old
+300 ms fixture watchdog closed before responder authentication completed. macOS
+passed `2581/2582` overall, including Desktop `718/718`; Ubuntu and Windows each
+passed `2582/2582`, and Secret Scan passed 208/0. CodeQL `33306962391` succeeded
+52/0. Packages were skipped, so there is no hosted package-success claim.
+Test-only `c98a570` widens only that theory's handshake/failure/outer budgets
+from 300 ms/2 s/3 s to 2 s/4 s/6 s; its core assertions are unchanged. Focused
+Debug/Release pass `3/3`, ten fresh Release processes pass `30/30`, Transport
+passes `755/755`, and strict review reports APPROVE. Exact-SHA CI `33307322868`
+and CodeQL `33307322870` then succeeded: downloaded artifacts prove `2582/2582`
+with every non-success counter zero on each hosted OS, Gitleaks 208/0, CodeQL
+52/0 with 0 exact-ref open alerts, and all three reproducible unsigned packages
+verified.
+
+By fault origin only H1 Disconnect changes from M to P; H0 and CL Disconnect
+remain P, and every other cell is unchanged. The local tracer is same-host
+managed macOS evidence and the hosted matrix remains managed/contract evidence;
+neither is native/physical, signed, notarized, or release proof. Tasks 5, 5.5a,
+and 5.5, aggregate H0/H1 acceptance, every native/physical/
+signing/notarization/release gate, and the Goal remain open. `CreateProduction()`
+remains unavailable.
+
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
 count/index/order, empty chunks, aggregate overflow, allocation/add/copy faults,

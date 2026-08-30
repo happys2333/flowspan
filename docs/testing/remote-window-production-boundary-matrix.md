@@ -14,7 +14,7 @@ and the [test strategy](test-strategy.md). A new boundary that cannot be assigne
 to exactly one family below must first extend this document; it must not be
 silently treated as covered by an adjacent row.
 
-The current production-composed tracer has **40 xUnit case executions**, not 40
+The current production-composed tracer has **41 xUnit case executions**, not 41
 complete boundary families:
 
 - one admitted DriverEligible success;
@@ -50,6 +50,8 @@ complete boundary families:
 - one authenticated disconnect after a real fingerprint-bound host
   Authorization reservation is acquired but before that reservation is returned
   to the coordinator;
+- one authenticated disconnect after the real responder-route side effect but
+  before any protocol Prepare call;
 - one reverse-only Mirror-grant rejection;
 - one exact-source `R < M < S` reservation invalidation;
 - one managed process-local Emergency Stop readiness `R < M < S`
@@ -139,6 +141,18 @@ from Missing to Partial; H1 Disconnect remains Missing and CL Disconnect remains
 Partial. Exact-SHA CI `33305848081` and CodeQL `33305848085` succeeded; each
 hosted OS passed `2581/2581`, with Gitleaks 208/0, CodeQL 52/0, and verified
 reproducible unsigned packages.
+The [host route authenticated-disconnect evidence](../evidence/2026-08-30-host-route-authenticated-disconnect.md)
+records the 41st case and post-route authority-gate repair at exact commit
+`d593181`. It advances only H1 Disconnect from Missing to Partial; H0 and CL
+Disconnect remain Partial. CI `33306962398` failed only macOS Transport
+`ProtocolOnePointTwoInvalidInitiatorFinishedNeverRunsHandler(Omit)`: macOS
+passed `2581/2582` overall and Desktop `718/718`, while Ubuntu and Windows each
+passed `2582/2582` and Secret Scan passed 208/0. CodeQL `33306962391` passed
+52/0; packages were skipped. Test-only `c98a570` widens only that theory's
+300 ms/2 s/3 s budgets to 2 s/4 s/6 s without changing its assertions. Exact-
+SHA CI `33307322868` and CodeQL `33307322870` then succeeded: every hosted OS
+passed `2582/2582`, Gitleaks reported 208/0, CodeQL reported 52/0 with 0 exact-
+ref open alerts, and all three reproducible unsigned packages verified.
 These local results are same-host **managed loopback runs on macOS**. Hosted
 Windows, macOS, and Linux results remain managed and contract evidence. None of
 them is native API, physical two-device, signed-package, or notarization
@@ -207,7 +221,7 @@ similar coverage.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **W** | **C** [E-W] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] | **N/A** [N1] |
 | **H0** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **N/A** [N2] | **P** [E-H] | **P** [E-H, E-TRACE] | **P** [E-H, E-CL] |
-| **H1** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **M** | **P** [E-H, E-CL] |
+| **H1** | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H] | **P** [E-H, E-TRACE] | **P** [E-H, E-CL] |
 | **TX** | **C** [E-TX] | **P** [E-TX] | **C** [E-TX] | **C** [E-TX] | **P** [E-TX, E-TRACE] | **P** [E-TX] | **P** [E-TX, E-CL] |
 | **P0** | **P** [E-P0] | **P** [E-P0] | **P** [E-P0] | **P** [E-P0, E-TX] | **P** [E-P0, E-TRACE] | **P** [E-P0, E-TRACE] | **P** [E-P0, E-CL] |
 | **P1** | **P** [E-P1] | **P** [E-P1] | **P** [E-P1] | **P** [E-P1, E-TX] | **P** [E-P1] | **P** [E-P1, E-TRACE] | **P** [E-P1, E-CL] |
@@ -386,6 +400,29 @@ similar coverage.
   Gitleaks reported 208/0, CodeQL reported 52/0 with 0 exact-ref open alerts,
   and all three reproducible unsigned packages verified.
   By fault origin this advances only H0 Disconnect from Missing to Partial.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.H1AuthenticatedDisconnectAfterRouteSideEffectPreventsPrepareAndDrainsBothNodes`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  at exact commit `d593181` runs real authenticated protocol-1.7 loopback. Its
+  hook executes only after the inner responder-route operation returns, with one
+  real host route, current Connection Preparation, reserved Protection, and
+  current Emergency Stop readiness, but zero Prepare calls. Participant
+  Connection disposal reaches a barrier published only after the production
+  host revocation callback returns. The old generation and Connection
+  registration are then non-current and unreacquirable while Trust,
+  fingerprint, and sole `mirror.view` remain unchanged. The final post-route
+  gate returns causal `authenticated_connection_stale` before the Prepare method
+  or wire admission; owned route cleanup fail-closes and disposes once and both
+  nodes drain. Its exact RED was `PrepareCount` expected 0, actual 1. The repair
+  orders caller cancellation, terminal cause, deadline, current facts plus
+  fresh-safe Protection, then repeats cancellation/terminal/deadline; non-fatal
+  concurrent failures retain the terminal reason, while OOM remains the exact
+  primary for the existing outer cleanup/aggregation path. The
+  [host route authenticated-disconnect evidence](../evidence/2026-08-30-host-route-authenticated-disconnect.md)
+  records local results, the exact `d593181` hosted failure, and the `c98a570`
+  fixture-only stabilization plus successful exact-SHA hosted rerun. Every
+  hosted OS passed `2582/2582`, Gitleaks reported 208/0, CodeQL reported 52/0
+  with 0 exact-ref open alerts, and all three reproducible unsigned packages
+  verified; the retained failed run itself produced no package evidence.
+  By fault origin this advances only H1 Disconnect from Missing to Partial.
 - [`NativeRemoteWindowContractsTests`](../../tests/Flowspan.Platform.Tests/NativeRemoteWindowContractsTests.cs),
   [`RemoteWindowSessionControllerTests`](../../tests/Flowspan.Platform.Tests/RemoteWindowSessionControllerTests.cs),
   the focused Protection rows in
@@ -675,7 +712,7 @@ been defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is now the executable 40-case class.
+  is now the executable 41-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
   records the first 22 cases' exact local/hosted commands, artifacts, results,
   and limitations. The source-linearization, Emergency Stop readiness,
@@ -697,7 +734,9 @@ been defined or directly tested.
   narrow HC Cancel scope explicit. The capture-start rejection evidence records
   the 39th case and keeps its narrow HC Reject scope explicit. The host initial
   Authorization authenticated-disconnect evidence records the 40th case and
-  keeps its narrow H0 Disconnect scope explicit.
+  keeps its narrow H0 Disconnect scope explicit. The host route
+  authenticated-disconnect evidence records the 41st case and keeps its narrow
+  H1 Disconnect scope explicit.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -723,8 +762,10 @@ Authenticated Connection now has an exact generation-and-media composite
 reservation, exact route/send owners, all three focused host order shapes, one
 post-route authenticated disconnect, and one post-promotion media-mutation live
 handoff at `259c3bb`, plus one pre-safety disconnect during the Authorization
-ownership handoff at `077c996`. Neither disconnect row enters the actual send
-hook; the Transport two-lease regression supplies that separate gate evidence.
+ownership handoff at `077c996`, and one route-side-effect disconnect that reaches
+the production callback barrier but prevents the Prepare method itself at
+`d593181`. None of these disconnect rows enters the actual send hook; the
+Transport two-lease regression supplies that separate gate evidence.
 Protection now has an exact full-observation/freshness registration, formal
 capture-start gate, live FIFO, and exact frame/input use scopes, plus one
 production-composed `R < M < S` vertical implemented at `c987ca8` and recorded
@@ -750,13 +791,14 @@ one direct row for each applicable gap. The presently known gaps are:
    fault intersections, add real native permission observation evidence, and
    extend the exact authenticated Connection gate through the remaining
    production-composed mutation, disconnect, and cleanup-fault intersections.
-   The current Connection disconnect tracer terminates before actual send
+   All current Connection disconnect tracers terminate before actual send
    admission and cannot stand in for those missing rows.
 2. **H1:** finish the safety/route reject and throw variants; extend connection
-   loss through each exact route/send phase beyond the one current post-route
-   disconnect; preserve any route side effect while cleanup also fails; finish
-   the other production-composed Emergency Stop orders and fault variants;
-   prove native Emergency Stop registration/action behavior; and complete the
+   loss through each exact route/send phase beyond the existing blocked-Prepare
+   and route-side-effect/pre-Prepare disconnects; preserve any route side effect
+   while cleanup also fails; finish the other production-composed Emergency Stop
+   orders and fault variants; prove native Emergency Stop registration/action
+   behavior; and complete the
    remaining Protection promotion, capture-start, live FIFO/admission-use,
    source-loss, and cleanup-fault intersections plus native probe behavior. Add
    production-composed Protection `M < R` and `S < M`; the current Protection
