@@ -280,11 +280,19 @@ internal sealed class DesktopRemoteWindowFrameAdmissionSink :
 
 internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 {
+    internal static TimeSpan DefaultCleanupConfirmationTimeout { get; } =
+        TimeSpan.FromSeconds(10);
+
+    internal static TimeSpan MaximumCleanupConfirmationTimeout { get; } =
+        TimeSpan.FromSeconds(30);
+
     private const long FirstSessionGeneration = 1;
 
     private readonly IDesktopRemoteWindowHostAuthorizationSource authorization;
     private readonly INativeRemoteWindowCaptureBoundary capture;
     private readonly IClock clock;
+    private readonly TimeSpan cleanupConfirmationTimeout;
+    private readonly TimeProvider cleanupTimeProvider;
     private readonly object callbackOwner = new();
     private readonly DesktopRemoteWindowHostControlPeer controlPeer;
     private readonly TaskCompletionSource disposalCompletion = new(
@@ -297,10 +305,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private readonly TimeSpan preparationLifetime;
     private readonly ILocalSharingSessionBoundary sessions;
     private readonly object terminalFailureGate = new();
+    private readonly object terminalStateGate = new();
     private RuntimeGeneration? active;
+    private int cleanupUnconfirmed;
     private int disposed;
     private long nextControlGeneration;
     private long nextPreparationGeneration;
+    private RuntimeGeneration? retiring;
     private Exception? terminalFailure;
 
     public DesktopRemoteWindowHostCoordinator(
@@ -313,7 +324,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         ILocalEmergencyStopRegistrar emergencyStops,
         DesktopRemoteWindowHostControlPeer controlPeer,
         TimeSpan ownerLeaseDuration,
-        TimeSpan preparationLifetime)
+        TimeSpan preparationLifetime,
+        TimeProvider? cleanupTimeProvider = null,
+        TimeSpan? cleanupConfirmationTimeout = null)
     {
         this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
         this.permissions = permissions
@@ -341,6 +354,17 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         this.ownerLeaseDuration = ownerLeaseDuration;
         this.preparationLifetime = preparationLifetime;
+        this.cleanupTimeProvider = cleanupTimeProvider ?? TimeProvider.System;
+        TimeSpan selectedCleanupTimeout = cleanupConfirmationTimeout
+            ?? DefaultCleanupConfirmationTimeout;
+        if (selectedCleanupTimeout <= TimeSpan.Zero
+            || selectedCleanupTimeout > MaximumCleanupConfirmationTimeout)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(cleanupConfirmationTimeout));
+        }
+
+        this.cleanupConfirmationTimeout = selectedCleanupTimeout;
     }
 
     public RemoteWindowSharingSnapshot? Snapshot => Volatile.Read(ref active)?
@@ -351,6 +375,17 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
     internal int ActiveProtectionNotificationWaiterCount =>
         Volatile.Read(ref active)?.ProtectionNotificationWaiterCount ?? 0;
+
+    internal bool HasRetiringGeneration
+    {
+        get
+        {
+            lock (terminalStateGate)
+            {
+                return retiring is not null;
+            }
+        }
+    }
 
     internal Exception? TerminalFailure
     {
@@ -377,15 +412,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         try
         {
             ThrowIfDisposed();
-            if (TerminalFailure is not null)
-            {
-                throw StartFailure("host_cleanup_unconfirmed");
-            }
-
-            if (active is not null)
-            {
-                throw StartFailure("host_session_busy");
-            }
+            await EnsureStartAvailableAsync().ConfigureAwait(false);
 
             NativeRemoteWindowSourceSnapshot source = ValidateCurrentHostFacts(
                 request,
@@ -720,7 +747,18 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 throw StartFailure("host_admission_stale");
             }
 
-            active = generation;
+            lock (terminalStateGate)
+            {
+                if (Volatile.Read(ref generation.TerminalShutdownStarted) != 0
+                    || retiring is not null
+                    || Volatile.Read(ref cleanupUnconfirmed) != 0)
+                {
+                    throw StartFailure("host_admission_stale");
+                }
+
+                Volatile.Write(ref active, generation);
+            }
+
             generation = null;
             return admitted;
         }
@@ -790,6 +828,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         try
         {
             ThrowIfDisposed();
+            await AwaitRetiringConfirmationAsync().ConfigureAwait(false);
+            if (Volatile.Read(ref cleanupUnconfirmed) != 0
+                && TerminalFailure is { } unconfirmed)
+            {
+                ExceptionDispatchInfo.Capture(unconfirmed).Throw();
+            }
+
             RuntimeGeneration generation = active
                 ?? throw new InvalidOperationException(
                     "No Remote Window host session is active.");
@@ -882,6 +927,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         await gate.WaitAsync().ConfigureAwait(false);
         try
         {
+            await AwaitRetiringConfirmationAsync().ConfigureAwait(false);
             RuntimeGeneration? generation = active;
             active = null;
             if (generation is not null)
@@ -902,6 +948,58 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         finally
         {
             gate.Release();
+        }
+    }
+
+    private async ValueTask AwaitRetiringConfirmationAsync()
+    {
+        Task<CleanupConfirmationResult>? confirmation;
+        lock (terminalStateGate)
+        {
+            confirmation = retiring?.GetStartedCleanupConfirmationTask();
+            if (retiring is not null && confirmation is null)
+            {
+                throw new InvalidOperationException(
+                    "A retiring Remote Window host generation has no cleanup confirmation.");
+            }
+        }
+
+        if (confirmation is not null)
+        {
+            _ = await confirmation.ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask EnsureStartAvailableAsync()
+    {
+        while (true)
+        {
+            Task<CleanupConfirmationResult>? confirmation = null;
+            lock (terminalStateGate)
+            {
+                if (Volatile.Read(ref cleanupUnconfirmed) != 0
+                    || TerminalFailure is not null)
+                {
+                    throw StartFailure("host_cleanup_unconfirmed");
+                }
+
+                if (retiring is not null)
+                {
+                    confirmation = retiring.GetStartedCleanupConfirmationTask()
+                        ?? throw new InvalidOperationException(
+                            "A retiring Remote Window host generation has no cleanup confirmation.");
+                }
+                else if (active is not null)
+                {
+                    throw StartFailure("host_session_busy");
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            _ = await confirmation.ConfigureAwait(false);
         }
     }
 
@@ -1013,7 +1111,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            RecordTerminalFailure(exception);
+            RecordTerminalFailureSafely(exception);
         }
 
         try
@@ -1022,7 +1120,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 generation.Controller.EmergencyStop();
             if (!stopped.FullyStopped)
             {
-                RecordTerminalFailure(CreateUnconfirmedStopFailure(
+                RecordTerminalFailureSafely(CreateUnconfirmedStopFailure(
                     "emergency stop",
                     stopped.CaptureBoundary,
                     stopped.InputBoundary,
@@ -1031,48 +1129,51 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            RecordTerminalFailure(exception);
+            RecordTerminalFailureSafely(exception);
         }
 
+        Task<CleanupConfirmationResult>? confirmation =
+            TryBeginActiveTerminalCleanup(
+                generation);
         if (failCloseImmediately)
         {
             _ = generation.EnsureConnectionFailClosedAsync();
         }
 
-        _ = ThreadPool.UnsafeQueueUserWorkItem(
+        var workItem = new TerminalCleanupWorkItem(
+            this,
+            generation,
+            confirmation);
+        if (!ThreadPool.UnsafeQueueUserWorkItem(
             static workItem =>
                 _ = workItem.Coordinator.CleanupAfterTerminalSignalAsync(
-                    workItem.Generation),
-            new TerminalCleanupWorkItem(this, generation),
-            preferLocal: false);
+                    workItem.Generation,
+                    workItem.Confirmation),
+            workItem,
+            preferLocal: false))
+        {
+            _ = CleanupAfterTerminalSignalAsync(generation, confirmation);
+        }
     }
 
     private async Task CleanupAfterTerminalSignalAsync(
-        RuntimeGeneration generation)
+        RuntimeGeneration generation,
+        Task<CleanupConfirmationResult>? confirmation)
     {
         var entered = false;
         try
         {
             await gate.WaitAsync().ConfigureAwait(false);
             entered = true;
-            if (ReferenceEquals(active, generation))
-            {
-                active = null;
-            }
-
-            Exception? cleanupFailure = await CleanupAsync(generation)
-                .ConfigureAwait(false);
-            if (cleanupFailure is not null)
-            {
-                RecordCleanupFailure(generation, cleanupFailure);
-            }
+            confirmation ??= BeginTerminalCleanupUnderGate(generation);
+            _ = await confirmation.ConfigureAwait(false);
         }
         catch (ObjectDisposedException) when (Volatile.Read(ref disposed) != 0)
         {
         }
         catch (Exception exception)
         {
-            RecordTerminalFailure(exception);
+            RecordTerminalFailureSafely(exception);
         }
         finally
         {
@@ -1081,6 +1182,106 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 gate.Release();
             }
         }
+    }
+
+    private Task<CleanupConfirmationResult>?
+        TryBeginActiveTerminalCleanup(
+            RuntimeGeneration generation)
+    {
+        lock (terminalStateGate)
+        {
+            if (!ReferenceEquals(active, generation))
+            {
+                return null;
+            }
+
+            Volatile.Write(ref active, null);
+            return BeginTerminalCleanupUnderStateLock(generation);
+        }
+    }
+
+    private Task<CleanupConfirmationResult> BeginTerminalCleanupUnderGate(
+        RuntimeGeneration generation)
+    {
+        lock (terminalStateGate)
+        {
+            if (ReferenceEquals(active, generation))
+            {
+                Volatile.Write(ref active, null);
+            }
+
+            return BeginTerminalCleanupUnderStateLock(generation);
+        }
+    }
+
+    private Task<CleanupConfirmationResult> BeginTerminalCleanupUnderStateLock(
+        RuntimeGeneration generation)
+    {
+        SetRetiringGeneration(generation);
+        return generation.EnsureCleanupConfirmationAsync(
+            () => CleanupCoreAsync(
+                generation,
+                controllerAlreadyStopped: false),
+            cleanupTimeProvider,
+            cleanupConfirmationTimeout,
+            failure => CommitCleanupUnconfirmed(generation, failure),
+            failure => CompleteRetiringCleanup(generation, failure),
+            RecordTerminalFailureSafely);
+    }
+
+    private void CommitCleanupUnconfirmed(
+        RuntimeGeneration generation,
+        Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(failure);
+        lock (terminalStateGate)
+        {
+            if (ReferenceEquals(active, generation))
+            {
+                Volatile.Write(ref active, null);
+            }
+
+            Volatile.Write(ref cleanupUnconfirmed, 1);
+            RecordTerminalFailureSafely(failure);
+        }
+    }
+
+    private void CompleteRetiringCleanup(
+        RuntimeGeneration generation,
+        Exception? failure)
+    {
+        lock (terminalStateGate)
+        {
+            if (failure is not null)
+            {
+                try
+                {
+                    RecordCleanupFailure(generation, failure);
+                }
+                catch (OutOfMemoryException fatal)
+                {
+                    RecordTerminalFatalFailure(fatal);
+                }
+            }
+
+            if (ReferenceEquals(retiring, generation))
+            {
+                retiring = null;
+            }
+        }
+    }
+
+    private void SetRetiringGeneration(RuntimeGeneration generation)
+    {
+        RuntimeGeneration? existing = retiring;
+        if (existing is not null && !ReferenceEquals(existing, generation))
+        {
+            throw new InvalidOperationException(
+                "A different Remote Window host generation is still retiring.");
+        }
+
+        retiring = generation;
     }
 
     private void RegisterProtectionObserver(RuntimeGeneration generation)
@@ -2019,8 +2220,22 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
     private void RecordTerminalFailure(Exception failure)
     {
+        ArgumentNullException.ThrowIfNull(failure);
         lock (terminalFailureGate)
         {
+            if (FindFirstOutOfMemory(failure) is { } newFatal)
+            {
+                terminalFailure = newFatal;
+                return;
+            }
+
+            if (terminalFailure is not null
+                && FindFirstOutOfMemory(terminalFailure) is { } existingFatal)
+            {
+                terminalFailure = existingFatal;
+                return;
+            }
+
             terminalFailure = terminalFailure is null
                 ? failure
                 : new AggregateException(
@@ -2028,6 +2243,52 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     terminalFailure,
                     failure);
         }
+    }
+
+    private void RecordTerminalFailureSafely(Exception failure)
+    {
+        try
+        {
+            RecordTerminalFailure(failure);
+        }
+        catch (OutOfMemoryException fatal)
+        {
+            RecordTerminalFatalFailure(fatal);
+        }
+    }
+
+    private void RecordTerminalFatalFailure(OutOfMemoryException failure)
+    {
+        lock (terminalFailureGate)
+        {
+            terminalFailure = failure;
+        }
+    }
+
+    private static OutOfMemoryException? FindFirstOutOfMemory(
+        Exception failure)
+    {
+        if (failure is OutOfMemoryException fatal)
+        {
+            return fatal;
+        }
+
+        if (failure is AggregateException aggregate)
+        {
+            foreach (Exception inner in aggregate.InnerExceptions)
+            {
+                if (FindFirstOutOfMemory(inner) is { } nested)
+                {
+                    return nested;
+                }
+            }
+
+            return null;
+        }
+
+        return failure.InnerException is { } innerFailure
+            ? FindFirstOutOfMemory(innerFailure)
+            : null;
     }
 
     private void RecordCleanupFailure(
@@ -2067,9 +2328,172 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private static InvalidOperationException StartFailure(string reasonCode) =>
         new($"Remote Window host start failed ({reasonCode}).");
 
+    private static InvalidOperationException CleanupConfirmationFailure(
+        string reasonCode) => new(
+        $"Remote Window host cleanup confirmation failed ({reasonCode}).");
+
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(
         Volatile.Read(ref disposed) != 0,
         this);
+
+    private enum CleanupConfirmationStatus
+    {
+        CleanupCompleted,
+        Timeout,
+        WatchdogUnavailable,
+        Fatal,
+    }
+
+    private sealed record CleanupConfirmationResult(
+        CleanupConfirmationStatus Status,
+        Exception? Failure);
+
+    private sealed class CleanupConfirmationOperation
+    {
+        private const int Pending = 0;
+        private const int CleanupWon = 1;
+        private const int ConfirmationFailed = 2;
+
+        private readonly TaskCompletionSource<CleanupConfirmationResult>
+            completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly object commitGate = new();
+        private readonly Action<Exception?> commitRealCompletion;
+        private readonly Action<Exception> commitUnconfirmed;
+        private readonly Action<Exception> commitWatchdogReleaseFailure;
+        private readonly Task<Exception?> realCleanup;
+        private readonly TimeSpan timeout;
+        private readonly InvalidOperationException timeoutFailure =
+            CleanupConfirmationFailure("host_cleanup_timeout");
+        private readonly TimeProvider timeProvider;
+        private readonly InvalidOperationException watchdogUnavailableFailure =
+            CleanupConfirmationFailure("watchdog_unavailable");
+        private ITimer? timer;
+        private int winner;
+
+        public CleanupConfirmationOperation(
+            Task<Exception?> realCleanup,
+            TimeProvider timeProvider,
+            TimeSpan timeout,
+            Action<Exception> commitUnconfirmed,
+            Action<Exception?> commitRealCompletion,
+            Action<Exception> commitWatchdogReleaseFailure)
+        {
+            this.realCleanup = realCleanup
+                ?? throw new ArgumentNullException(nameof(realCleanup));
+            this.timeProvider = timeProvider
+                ?? throw new ArgumentNullException(nameof(timeProvider));
+            this.timeout = timeout;
+            this.commitUnconfirmed = commitUnconfirmed
+                ?? throw new ArgumentNullException(nameof(commitUnconfirmed));
+            this.commitRealCompletion = commitRealCompletion
+                ?? throw new ArgumentNullException(nameof(commitRealCompletion));
+            this.commitWatchdogReleaseFailure =
+                commitWatchdogReleaseFailure
+                ?? throw new ArgumentNullException(
+                    nameof(commitWatchdogReleaseFailure));
+        }
+
+        public Task<CleanupConfirmationResult> Completion => completion.Task;
+
+        public void Start()
+        {
+            if (!realCleanup.IsCompleted)
+            {
+                try
+                {
+                    timer = timeProvider.CreateTimer(
+                        static state =>
+                            ((CleanupConfirmationOperation)state!).OnTimeout(),
+                        this,
+                        timeout,
+                        Timeout.InfiniteTimeSpan);
+                }
+                catch (OutOfMemoryException failure)
+                {
+                    CommitUnconfirmed(CleanupConfirmationStatus.Fatal, failure);
+                }
+                catch (Exception)
+                {
+                    CommitUnconfirmed(
+                        CleanupConfirmationStatus.WatchdogUnavailable,
+                        watchdogUnavailableFailure);
+                }
+            }
+
+            _ = ObserveRealCleanupAsync();
+        }
+
+        private void CommitUnconfirmed(
+            CleanupConfirmationStatus status,
+            Exception failure)
+        {
+            lock (commitGate)
+            {
+                if (winner != Pending)
+                {
+                    return;
+                }
+
+                winner = ConfirmationFailed;
+                commitUnconfirmed(failure);
+                completion.TrySetResult(new(status, failure));
+            }
+        }
+
+        private void OnTimeout() => CommitUnconfirmed(
+            CleanupConfirmationStatus.Timeout,
+            timeoutFailure);
+
+        private async Task ObserveRealCleanupAsync()
+        {
+            Exception? cleanupFailure;
+            try
+            {
+                cleanupFailure = await realCleanup.ConfigureAwait(false);
+            }
+            catch (Exception failure)
+            {
+                cleanupFailure = failure;
+            }
+
+            lock (commitGate)
+            {
+                bool cleanupWon = winner == Pending;
+                if (cleanupWon)
+                {
+                    winner = CleanupWon;
+                }
+
+                ReleaseTimer();
+                commitRealCompletion(cleanupFailure);
+
+                if (cleanupWon)
+                {
+                    completion.TrySetResult(new(
+                        CleanupConfirmationStatus.CleanupCompleted,
+                        cleanupFailure));
+                }
+            }
+        }
+
+        private void ReleaseTimer()
+        {
+            ITimer? owned = Interlocked.Exchange(ref timer, null);
+            if (owned is null)
+            {
+                return;
+            }
+
+            try
+            {
+                owned.Dispose();
+            }
+            catch (Exception failure)
+            {
+                commitWatchdogReleaseFailure(failure);
+            }
+        }
+    }
 
     private sealed class RuntimeGeneration(
         DesktopRemoteWindowHostStartRequest request,
@@ -2106,9 +2530,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         private INativeRemoteWindowProtectionPreparationRegistration?
             protectionPreparationRegistration;
         private readonly object connectionFailCloseGate = new();
+        private readonly object cleanupConfirmationGate = new();
         private readonly object cleanupGate = new();
         private bool callbacksRetired;
         private Task<Exception?>? cleanup;
+        private CleanupConfirmationOperation? cleanupConfirmation;
         private Task<Exception?>? connectionFailClose;
         private readonly Queue<ProtectionNotification>
             pendingProtectionNotifications = new(
@@ -2226,9 +2652,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         public void CloseAdmissionNow()
         {
-            ControlRegistration?.CloseNow();
             Admission.CloseNow();
             Media.StopNow();
+            ControlRegistration?.CloseNow();
         }
 
         public void ClearPermissionPreparationRegistration(
@@ -2655,6 +3081,141 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             return completion.Task;
         }
 
+        public Task<CleanupConfirmationResult> EnsureCleanupConfirmationAsync(
+            Func<Task<Exception?>> cleanupFactory,
+            TimeProvider timeProvider,
+            TimeSpan timeout,
+            Action<Exception> commitUnconfirmed,
+            Action<Exception?> commitRealCompletion,
+            Action<Exception> commitWatchdogReleaseFailure)
+        {
+            ArgumentNullException.ThrowIfNull(cleanupFactory);
+            TaskCompletionSource<Exception?>? cleanupCompletion = null;
+            Task<Exception?> realCleanup;
+            lock (cleanupGate)
+            {
+                if (cleanup is null)
+                {
+                    cleanupCompletion = new(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    cleanup = cleanupCompletion.Task;
+                }
+
+                realCleanup = cleanup;
+            }
+
+            CleanupConfirmationOperation operation;
+            bool start = false;
+            lock (cleanupConfirmationGate)
+            {
+                if (cleanupConfirmation is null)
+                {
+                    cleanupConfirmation = new(
+                        realCleanup,
+                        timeProvider,
+                        timeout,
+                        commitUnconfirmed,
+                        commitRealCompletion,
+                        commitWatchdogReleaseFailure);
+                    start = true;
+                }
+
+                operation = cleanupConfirmation;
+            }
+
+            if (start)
+            {
+                operation.Start();
+            }
+
+            if (cleanupCompletion is not null)
+            {
+                var workItem = new CleanupWorkItem(
+                    cleanupFactory,
+                    cleanupCompletion);
+                if (!ThreadPool.UnsafeQueueUserWorkItem(
+                    static workItem => _ = CompleteCleanupAsync(
+                        workItem.CleanupFactory,
+                        workItem.Completion),
+                    workItem,
+                    preferLocal: false))
+                {
+                    StartDedicatedCleanupFallback(workItem);
+                }
+            }
+
+            return operation.Completion;
+        }
+
+        public Task<CleanupConfirmationResult>?
+            GetStartedCleanupConfirmationTask()
+        {
+            lock (cleanupConfirmationGate)
+            {
+                return cleanupConfirmation?.Completion;
+            }
+        }
+
+        private sealed record CleanupWorkItem(
+            Func<Task<Exception?>> CleanupFactory,
+            TaskCompletionSource<Exception?> Completion);
+
+        private static void StartDedicatedCleanupFallback(
+            CleanupWorkItem workItem)
+        {
+            try
+            {
+                var thread = new Thread(static state =>
+                {
+                    var item = (CleanupWorkItem)state!;
+                    _ = CompleteCleanupAsync(
+                        item.CleanupFactory,
+                        item.Completion);
+                })
+                {
+                    IsBackground = true,
+                    Name = "Flowspan Remote Window cleanup",
+                };
+                thread.Start(workItem);
+            }
+            catch (Exception schedulingFailure)
+            {
+                _ = CompleteCleanupAsync(
+                    () => RunCleanupAfterSchedulingFailureAsync(
+                        workItem.CleanupFactory,
+                        schedulingFailure),
+                    workItem.Completion);
+            }
+        }
+
+        private static async Task<Exception?>
+            RunCleanupAfterSchedulingFailureAsync(
+                Func<Task<Exception?>> cleanupFactory,
+                Exception schedulingFailure)
+        {
+            Exception? cleanupFailure;
+            try
+            {
+                cleanupFailure = await cleanupFactory().ConfigureAwait(false);
+            }
+            catch (Exception failure)
+            {
+                cleanupFailure = failure;
+            }
+
+            if (FindFirstOutOfMemory(schedulingFailure) is { } fatal)
+            {
+                return fatal;
+            }
+
+            return cleanupFailure is null
+                ? schedulingFailure
+                : new AggregateException(
+                    "Remote Window cleanup scheduling and execution both failed.",
+                    schedulingFailure,
+                    cleanupFailure);
+        }
+
         private static async Task CompleteCleanupAsync(
             Func<Task<Exception?>> cleanupFactory,
             TaskCompletionSource<Exception?> completion)
@@ -2767,5 +3328,6 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
     private sealed record TerminalCleanupWorkItem(
         DesktopRemoteWindowHostCoordinator Coordinator,
-        RuntimeGeneration Generation);
+        RuntimeGeneration Generation,
+        Task<CleanupConfirmationResult>? Confirmation);
 }
