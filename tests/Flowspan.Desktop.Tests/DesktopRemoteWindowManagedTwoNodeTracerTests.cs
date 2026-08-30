@@ -1195,15 +1195,25 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
     [Fact]
     public Task TxP0P2ExactDeadlineWhileRendererPreparationIsBlockedFailsClosedAndDrains() =>
-        RunTxP0P2BlockedRendererTerminationScenarioAsync(expireDeadline: true);
+        RunTxP0P2BlockedRendererTerminationScenarioAsync(
+            BlockedRendererTerminationTrigger.ExactDeadline);
 
     [Fact]
     public Task TxP0P2AuthenticatedControlDisconnectWhileRendererPreparationIsBlockedFailsClosedAndDrains() =>
-        RunTxP0P2BlockedRendererTerminationScenarioAsync(expireDeadline: false);
+        RunTxP0P2BlockedRendererTerminationScenarioAsync(
+            BlockedRendererTerminationTrigger.AuthenticatedControlDisconnect);
+
+    [Fact]
+    public Task P0ParticipantTrustRevokeWhileRendererPreparationIsBlockedFailsClosedAndDrains() =>
+        RunTxP0P2BlockedRendererTerminationScenarioAsync(
+            BlockedRendererTerminationTrigger.ParticipantTrustRevoke);
 
     private static async Task RunTxP0P2BlockedRendererTerminationScenarioAsync(
-        bool expireDeadline)
+        BlockedRendererTerminationTrigger trigger)
     {
+        bool expireDeadline = trigger is BlockedRendererTerminationTrigger.ExactDeadline;
+        bool revokeParticipantTrust =
+            trigger is BlockedRendererTerminationTrigger.ParticipantTrustRevoke;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var hostTimeProvider = new ManualTimeProvider(Now);
         var participantTimeProvider = new ManualTimeProvider(Now);
@@ -1261,9 +1271,12 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         using var socket = new TcpListener(IPAddress.Loopback, 0);
         socket.Start(backlog: 8);
         var endpoint = Assert.IsType<IPEndPoint>(socket.LocalEndpoint);
+        UnverifiedPairingCandidate hostCandidate = CreateCandidate(
+            hostIdentity,
+            endpoint);
         var resolver = new DesktopRemoteWindowPeerEndpointResolver(
             participantTrust,
-            () => ImmutableArray.Create(CreateCandidate(hostIdentity, endpoint)),
+            () => ImmutableArray.Create(hostCandidate),
             participantTimeProvider);
         var participantSessionHandler = new DesktopRemoteWindowPeerSessionHandler(
             participantHandler,
@@ -1279,6 +1292,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
         Task listenerRun = listener.RunAsync(listenerStop.Token).AsTask();
         AuthenticatedTcpControlConnection? participantConnection = null;
         Task? participantRun = null;
+        Task<PeerSessionAttemptResult>? participantAttempt = null;
+        Task<bool>? revokingParticipantTrust = null;
+        AuthenticatedRemoteWindowConnectionLease? revokedParticipantLease = null;
         Task? disconnecting = null;
         Task<RemoteWindowCommandResult>? starting = null;
         var capture = new RecordingCaptureBoundary();
@@ -1321,20 +1337,47 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         try
         {
-            participantConnection =
-                await AuthenticatedTcpControlConnection.ConnectAsync(
-                    endpoint,
-                    participantIdentity,
-                    new TrustRecord(
+            if (revokeParticipantTrust)
+            {
+                VerifiedPeerConnectionCandidate verifiedHostCandidate =
+                    VerifiedPeerConnectionCandidate.Create(
+                        hostCandidate.EndPoint,
+                        hostCandidate.Offer,
                         hostIdentity.PublicIdentity,
-                        Now,
-                        participantToHost),
-                    [Version],
-                    cancellationToken: deadline.Token);
-            Assert.Equal(Version, participantConnection.ProtocolVersion);
-            participantRun = participantSessionHandler
-                .RunAsync(participantConnection, deadline.Token)
-                .AsTask();
+                        participantTimeProvider.GetUtcNow());
+                var attempt = new AuthenticatedTcpPeerSessionAttempt(
+                    new AuthenticatedPeerSessionProfile(
+                        HostDeviceId,
+                        participantToHost,
+                        [Version]),
+                    participantIdentity,
+                    participantTrust,
+                    new SinglePeerConnectionCandidateSource(
+                        verifiedHostCandidate),
+                    new SystemAuthenticatedTcpConnector(),
+                    participantSessionHandler,
+                    participantTimeProvider);
+                participantAttempt = attempt.RunAsync(deadline.Token).AsTask();
+                participantRun = participantAttempt;
+            }
+            else
+            {
+                participantConnection =
+                    await AuthenticatedTcpControlConnection.ConnectAsync(
+                        endpoint,
+                        participantIdentity,
+                        new TrustRecord(
+                            hostIdentity.PublicIdentity,
+                            Now,
+                            participantToHost),
+                        [Version],
+                        cancellationToken: deadline.Token);
+                Assert.Equal(Version, participantConnection.ProtocolVersion);
+                participantRun = participantSessionHandler
+                    .RunAsync(participantConnection, deadline.Token)
+                    .AsTask();
+            }
+
             AuthenticatedRemoteWindowConnectionLease hostLease =
                 await WaitForConnectionLeaseOnChangeAsync(
                     hostHandler,
@@ -1368,6 +1411,14 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     participantMedia,
                     HostDeviceId,
                     deadline.Token);
+            if (revokeParticipantTrust)
+            {
+                revokedParticipantLease = await WaitForConnectionLeaseAsync(
+                    participantHandler,
+                    HostDeviceId,
+                    requireVerifiedPeer: true,
+                    deadline.Token);
+            }
 
             Assert.Equal(
                 RemoteWindowHostPreparationPhase.PrepareSending,
@@ -1400,6 +1451,16 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.Empty(input.Batches);
             Assert.Equal(0, hostConnection.MediaSendCount);
             Assert.Equal(0, renderer.RenderCount);
+            if (revokeParticipantTrust)
+            {
+                Assert.True(participantTrust.TryGetCurrentTrust(
+                    HostDeviceId,
+                    out _));
+                Assert.False(participantAttempt!.IsCompleted);
+                Assert.False(
+                    observingPreparationPeer.PeerDisconnectEntered.Task.IsCompleted);
+                Assert.True(revokedParticipantLease!.IsCurrent);
+            }
 
             RemoteWindowPreparationRequest preparationRequest =
                 rendererFactory.Request;
@@ -1428,8 +1489,9 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     RemoteWindowHostPreparationPhase.PrepareSending,
                     reservation.Snapshot.Phase);
             }
-            else
+            else if (!revokeParticipantTrust)
             {
+                Assert.NotNull(participantConnection);
                 disconnecting = participantConnection.DisposeAsync().AsTask();
                 await observingPreparationPeer.PeerDisconnectEntered.Task.WaitAsync(
                     deadline.Token);
@@ -1448,6 +1510,44 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                 Assert.Equal(
                     RemoteWindowHostPreparationPhase.Terminal,
                     reservation.Snapshot.Phase);
+            }
+            else
+            {
+                Assert.NotNull(participantAttempt);
+                Assert.NotNull(revokedParticipantLease);
+                revokingParticipantTrust = participantTrust
+                    .RevokePeerAsync(HostDeviceId, deadline.Token)
+                    .AsTask();
+                await observingPreparationPeer.PeerDisconnectEntered.Task.WaitAsync(
+                    deadline.Token);
+                await rendererFactory.CancellationObserved.Task.WaitAsync(
+                    deadline.Token);
+                termination = await reservation.Terminal.WaitAsync(deadline.Token);
+
+                Assert.False(participantTrust.TryGetCurrentTrust(
+                    HostDeviceId,
+                    out _));
+                Assert.False(revokingParticipantTrust.IsCompleted);
+                Assert.False(participantAttempt.IsCompleted);
+                Assert.False(revokedParticipantLease.IsCurrent);
+                Assert.False(participantHandler.TryAcquireRemoteWindowPeerConnection(
+                    HostDeviceId,
+                    out _));
+                Assert.Equal(
+                    RemoteWindowHostPreparationFact.Connection,
+                    termination.Fact);
+                Assert.Equal(
+                    "authenticated_connection_stale",
+                    termination.ReasonCode);
+                Assert.Equal(
+                    RemoteWindowHostPreparationCleanupScope.ConsumeConnection,
+                    termination.CleanupScope);
+                Assert.Equal(
+                    RemoteWindowHostPreparationPhase.Terminal,
+                    reservation.Snapshot.Phase);
+
+                await revokedParticipantLease.DisposeAsync();
+                revokedParticipantLease = null;
             }
 
             Assert.True(reservation.Snapshot.PrepareSendAdmitted);
@@ -1491,6 +1591,20 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             if (disconnecting is not null)
             {
                 await disconnecting.WaitAsync(deadline.Token);
+            }
+
+            if (revokingParticipantTrust is not null)
+            {
+                Assert.True(await revokingParticipantTrust.WaitAsync(
+                    deadline.Token));
+                PeerSessionAttemptResult attemptResult = await participantAttempt!
+                    .WaitAsync(deadline.Token);
+                Assert.Equal(
+                    PeerSessionAttemptStatus.PermanentRejection,
+                    attemptResult.Status);
+                Assert.Equal(
+                    PeerReconnectStopReason.PeerNotTrusted,
+                    attemptResult.StopReason);
             }
 
             termination ??= await reservation.Terminal.WaitAsync(deadline.Token);
@@ -1583,12 +1697,25 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             Assert.False(participantHandler.TryGetRemoteWindowPreparationChannel(
                 HostDeviceId,
                 out _));
+            if (revokeParticipantTrust)
+            {
+                Assert.False(participantTrust.TryGetCurrentTrust(
+                    HostDeviceId,
+                    out _));
+            }
+
             Assert.Throws<InvalidOperationException>(() => controlPeer.SessionId);
         }
         finally
         {
             hostConnection?.ReleasePrepareForward.TrySetResult();
             rendererFactory.Release();
+            if (revokedParticipantLease is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await revokedParticipantLease.DisposeAsync());
+            }
+
             if (disconnecting is not null)
             {
                 _ = await Record.ExceptionAsync(async () =>
@@ -1612,6 +1739,13 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
                     await ObserveSessionStopAsync(participantRun));
             }
 
+            if (revokingParticipantTrust is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await revokingParticipantTrust.WaitAsync(
+                        TimeSpan.FromSeconds(5)));
+            }
+
             listenerStop.Cancel();
             await ObserveListenerStopAsync(listenerRun, listenerStop.Token);
         }
@@ -1622,6 +1756,13 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             participantHandler!.TryAcquireRemoteWindowPeerConnection(
                 peerDeviceId,
                 out lease);
+    }
+
+    private enum BlockedRendererTerminationTrigger
+    {
+        ExactDeadline,
+        AuthenticatedControlDisconnect,
+        ParticipantTrustRevoke,
     }
 
     [Fact]
@@ -5546,6 +5687,30 @@ public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
             offer,
             endpoint,
             PairingCandidateTrustState.AlreadyPaired);
+    }
+
+    private sealed class SinglePeerConnectionCandidateSource(
+        VerifiedPeerConnectionCandidate candidate) :
+        IPeerConnectionCandidateSource
+    {
+        private readonly VerifiedPeerConnectionCandidate candidate = candidate
+            ?? throw new ArgumentNullException(nameof(candidate));
+
+        public bool TryGet(
+            DeviceId peerDeviceId,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out VerifiedPeerConnectionCandidate? resolved)
+        {
+            ArgumentNullException.ThrowIfNull(peerDeviceId);
+            if (peerDeviceId == candidate.CandidateIdentity.DeviceId)
+            {
+                resolved = candidate;
+                return true;
+            }
+
+            resolved = null;
+            return false;
+        }
     }
 
     private static NativeRemoteWindowSourceMetadata CreateMetadata() =>
