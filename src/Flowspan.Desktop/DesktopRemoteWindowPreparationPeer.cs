@@ -173,12 +173,20 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         PreparationStage stage = PreparationStage.AcquiringMedia;
         try
         {
-            bool acquired = tryAcquireConnection(
-                request.HostDeviceId,
-                out AuthenticatedRemoteWindowConnectionLease? lease);
-            if (lease is not null)
+            AuthenticatedRemoteWindowConnectionLease? lease = null;
+            bool acquired;
+            try
             {
-                generation.AttachLease(lease);
+                acquired = tryAcquireConnection(
+                    request.HostDeviceId,
+                    out lease);
+            }
+            finally
+            {
+                if (lease is not null)
+                {
+                    generation.AttachLease(lease);
+                }
             }
 
             if (!acquired

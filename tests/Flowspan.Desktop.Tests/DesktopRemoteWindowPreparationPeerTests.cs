@@ -207,6 +207,115 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
     }
 
     [Fact]
+    public async Task ConnectionAcquirerSideEffectThenThrowReleasesLease()
+    {
+        AuthenticatedRemoteWindowConnectionLease? sideEffectLease = null;
+        TryAcquireDesktopRemoteWindowPeerConnection? currentAcquirer = null;
+        var rendererFactory = new RecordingRendererFactory(
+            new RecordingRenderer());
+        await RunConnectedScenarioAsync(
+            rendererFactory,
+            async context =>
+            {
+                RemoteWindowPreparationResponse response =
+                    await context.PreparationPeer.PrepareAsync(
+                        CreateRequest(),
+                        default);
+
+                Assert.Equal(
+                    RemoteWindowPreparationOutcome.Rejected,
+                    response.Outcome);
+                Assert.Equal("media_unavailable", response.ReasonCode);
+                AuthenticatedRemoteWindowConnectionLease released = Assert.IsType<
+                    AuthenticatedRemoteWindowConnectionLease>(sideEffectLease);
+                try
+                {
+                    Assert.False(released.IsCurrent);
+                }
+                catch
+                {
+                    await released.DisposeAsync();
+                    throw;
+                }
+
+                Assert.True(context.HostLeaseIsCurrent);
+                Assert.Equal(0, rendererFactory.PrepareCount);
+                Assert.NotNull(currentAcquirer);
+                Assert.True(currentAcquirer(
+                    HostDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? replacement));
+                AuthenticatedRemoteWindowConnectionLease current = Assert.IsType<
+                    AuthenticatedRemoteWindowConnectionLease>(replacement);
+                try
+                {
+                    Assert.True(current.IsCurrent);
+
+                    await released.DisposeAsync();
+
+                    Assert.True(current.IsCurrent);
+                }
+                finally
+                {
+                    await current.DisposeAsync();
+                }
+            },
+            decorateConnectionAcquirer: acquire =>
+            {
+                currentAcquirer = acquire;
+                return (DeviceId peerDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                {
+                    Assert.True(acquire(peerDeviceId, out lease));
+                    sideEffectLease = lease;
+                    throw new IOException(
+                        "CANARY_CURRENT_LEASE_ACQUIRE_FAILURE");
+                };
+            },
+            verifyPeerDisconnectCleanup: false);
+    }
+
+    [Fact]
+    public async Task FatalConnectionAcquirerSideEffectRetainsLeaseForTerminalCleanup()
+    {
+        AuthenticatedRemoteWindowConnectionLease? sideEffectLease = null;
+        var rendererFactory = new RecordingRendererFactory(
+            new RecordingRenderer());
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var failure = new OutOfMemoryException(
+            "test fatal current lease acquisition failure");
+#pragma warning restore CA2201
+        await RunConnectedScenarioAsync(
+            rendererFactory,
+            async context =>
+            {
+                OutOfMemoryException observed =
+                    await Assert.ThrowsAsync<OutOfMemoryException>(() =>
+                        context.PreparationPeer.PrepareAsync(
+                                CreateRequest(),
+                                default)
+                            .AsTask());
+
+                Assert.Same(failure, observed);
+                AuthenticatedRemoteWindowConnectionLease retained = Assert.IsType<
+                    AuthenticatedRemoteWindowConnectionLease>(sideEffectLease);
+                Assert.True(retained.IsCurrent);
+                Assert.Equal(0, rendererFactory.PrepareCount);
+
+                await context.PreparationPeer.DisposeAsync();
+
+                Assert.False(retained.IsCurrent);
+            },
+            decorateConnectionAcquirer: acquire =>
+                (DeviceId peerDeviceId,
+                    out AuthenticatedRemoteWindowConnectionLease? lease) =>
+                {
+                    Assert.True(acquire(peerDeviceId, out lease));
+                    sideEffectLease = lease;
+                    throw failure;
+                });
+    }
+
+    [Fact]
     public async Task ReceiveFailureRacingCleanupRemainsObservable()
     {
         var renderer = new FailingAfterCancellationRenderer();
