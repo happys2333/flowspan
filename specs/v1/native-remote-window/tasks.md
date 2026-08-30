@@ -1324,6 +1324,28 @@
         Details are in the
         [late cleanup-failure ledger evidence](../../../docs/evidence/2026-08-30-late-cleanup-failure-ledger.md).
         _Requirements: NR8.9-NR8.16, NR10.8_
+      - [ ] 5.5a.3d Preserve first-fatal OOM dominance across late watchdog-
+        release and owner-cleanup failures. Use one stable active generation,
+        external Dispose-first initiation, an uncontended lifecycle gate, and a
+        healthy manual watchdog that is physically released before its disposal
+        hook throws a deeply nested OOM A. Block the later authenticated host
+        Connection owner through T-1 and exact-equality timeout, then release it
+        to throw direct OOM B. Prove the shared public Dispose Task and exact
+        `host_cleanup_timeout` remain immutable, the terminal diagnostic keeps
+        the original A instance rather than B or an aggregate, both failures are
+        actually attempted once, every independently safe owner and budget
+        drains, the timer count returns to zero, and `retiring` clears. Make the
+        earliest fatal committed under the terminal-failure gate permanently
+        dominant through both the normal recorder and its allocation-failure
+        fallback, without changing non-fatal flattening, cleanup order,
+        confirmation winner, Stop behavior, or public completion. Do not claim
+        non-fatal timer release, timer creation/arm/callback faults, another
+        initiator or owner combination, lifecycle-gate contention,
+        cleanup-completion wins, pre-generation cleanup, or a production-
+        composed tracer. Keep Tasks 5, 5.5a.3, 5.5a, and 5.5, every native/
+        physical/signing/notarization/release gate, and the Goal open; keep
+        `CreateProduction()` unavailable and promote no matrix cell.
+        _Requirements: NR8.13-NR8.16, NR10.8_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

@@ -2382,16 +2382,16 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(failure);
         lock (terminalFailureGate)
         {
-            if (FindFirstOutOfMemory(failure) is { } newFatal)
-            {
-                terminalFailure = newFatal;
-                return;
-            }
-
             if (terminalFailure is not null
                 && FindFirstOutOfMemory(terminalFailure) is { } existingFatal)
             {
                 terminalFailure = existingFatal;
+                return;
+            }
+
+            if (FindFirstOutOfMemory(failure) is { } newFatal)
+            {
+                terminalFailure = newFatal;
                 return;
             }
 
@@ -2467,6 +2467,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     {
         lock (terminalFailureGate)
         {
+            if (terminalFailure is not null
+                && FindFirstOutOfMemory(terminalFailure) is { } existingFatal)
+            {
+                terminalFailure = existingFatal;
+                return;
+            }
+
             terminalFailure = failure;
         }
     }
