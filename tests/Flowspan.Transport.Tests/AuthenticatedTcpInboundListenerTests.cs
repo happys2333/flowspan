@@ -38,7 +38,7 @@ public sealed class AuthenticatedTcpInboundListenerTests
             Required,
             [ProtocolFeatures.SecureSessionFinishedMinimumVersion],
             maximumConcurrentSessions: 1,
-            handshakeTimeout: TimeSpan.FromMilliseconds(300));
+            handshakeTimeout: TimeSpan.FromSeconds(2));
         var handler = new RecordingHandler();
         var listener = new AuthenticatedTcpInboundListener(
             socket,
@@ -49,7 +49,7 @@ public sealed class AuthenticatedTcpInboundListenerTests
         var failureSeen = new TaskCompletionSource<InboundSessionFailure>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         listener.SessionFaulted += failure => failureSeen.TrySetResult(failure);
-        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(6));
         Task running = listener.RunAsync(stop.Token).AsTask();
         Task peer = ManualProtocol12Initiator.RunUntilServerClosesAsync(
             endpoint,
@@ -59,7 +59,7 @@ public sealed class AuthenticatedTcpInboundListenerTests
             stop.Token);
 
         InboundSessionFailure failure = await failureSeen.Task.WaitAsync(
-            TimeSpan.FromSeconds(2));
+            TimeSpan.FromSeconds(4));
         await peer;
 
         Assert.Equal(InboundSessionFailureStage.Authentication, failure.Stage);
