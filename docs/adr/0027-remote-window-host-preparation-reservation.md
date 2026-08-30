@@ -3,7 +3,7 @@
 - Status: Proposed implementation contract
 - Date: 2026-08-30
 - Decision owners: Flowspan maintainers
-- Desktop-only core checkpoint: `294042f`; production composition pending
+- Source-composed checkpoint: `ec63942`; remaining fact composition pending
 
 ## Context
 
@@ -22,11 +22,12 @@ also keeps native ownership narrow and requires every post-route terminal
 failure to consume the media session and close its owning authenticated control
 connection.
 
-The current managed host coordinator performs several point-in-time reads and
-repeats them immediately before route selection. It also subscribes early to
-permission and authenticated-connection loss. Those checks reduce the ordinary
-race window and provide useful fail-close defense, but they do not define one
-linear order against changes made from arbitrary threads:
+Before the source-composed checkpoint, the managed host coordinator performed
+several point-in-time reads and repeated them immediately before route
+selection. It also subscribed early to permission and authenticated-connection
+loss. Those checks reduced the ordinary race window and provided useful
+fail-close defense, but did not define one linear order against changes made
+from arbitrary threads:
 
 - a source can invalidate after the last lease read;
 - a permission revision can change after the last permission snapshot;
@@ -36,11 +37,13 @@ linear order against changes made from arbitrary threads:
 - Emergency Stop readiness is deliberately a prompt-free point probe that
   claims no registration ownership.
 
-A later post-Ready revalidation prevents these races from granting capture or
-participant authority, but a stale Prepare can still be admitted to the wire or
-a route can be selected after a logically earlier revocation. That violates the
-pre-Prepare ordering even when final capture remains closed. Repeating reads at
-more source locations cannot prove the missing arbitrary-thread ordering.
+At that point, a later post-Ready revalidation prevented these races from
+granting capture or participant authority, but a stale Prepare could still be
+admitted to the wire or a route selected after a logically earlier revocation.
+That violated the pre-Prepare ordering even when final capture remained closed.
+Repeating reads at more source locations could not prove the missing arbitrary-
+thread ordering. The source-composed checkpoint below closes one exact Source
+order; the other facts and source orders retain this gap.
 
 This gap is represented by the H0 and H1 families in the
 [Remote Window production-boundary fault matrix](../testing/remote-window-production-boundary-matrix.md).
@@ -93,9 +96,36 @@ This checkpoint is deliberately not wired into
 `CreateProduction()`. It does not provide source invalidation admission, an
 authenticated connection route operation, the Transport send-admission hook,
 or any real fact reservation. It changes no production-boundary matrix cell and
-does not close H0, H1, Task 5.5a, or production availability. The next slice
-must connect real source invalidation through the connection route operation to
-the actual Transport Prepare send-admission point.
+does not close H0, H1, Task 5.5a, or production availability. The later seam
+and source-composed checkpoints provide the first source-only vertical without
+changing that historical core result.
+
+### Source-composed vertical checkpoint
+
+Commit `ec63942296175f63964d8f463335d6b621e22042` connects the same Desktop
+reservation to the exact Platform source lease's atomic invalidation slot, the
+generation-bound authenticated responder-route operation, the actual Transport
+Prepare send-admission hook, exact Ready matching, promotion, and coordinator
+cleanup. The source guard is installed before preflight, remains live through
+post-Ready source and protection revalidation, and is released only after the
+same reservation promotes.
+
+The production-composed managed tracer now proves source order `R < M < S`:
+after the real authenticated route is selected, source unregister linearizes
+under the source-state mutation gate; the later real send-admission hook rejects
+with zero Prepare wire delivery, capture, media, render, or Admission; and the
+owned connection, route, directories, handlers, leases, controller, and host
+generation drain. The existing two-node success tracer traverses that same
+reservation, route, send, Ready, and promotion path. The exact local and hosted
+evidence is recorded in the
+[source-linearization checkpoint](../evidence/2026-08-30-host-preparation-source-linearization.md).
+
+This checkpoint implements only the Source fact's vertical composition. The
+production-composed `M < R` and `S < M` source tracer orders remain open, as do
+Permission, Trust/Capability, authenticated Connection mutation, Emergency Stop
+reserve/promote, Protection, and the complete per-boundary fault matrix. The
+aggregate H0/H1 cells therefore remain P or M, Task 5.5a remains unchecked, and
+`CreateProduction()` remains unavailable.
 
 ### Exact epoch bundle
 
@@ -379,9 +409,10 @@ implementation text.
 
 ## Consequences
 
-- Task 5.5a remains blocked until the Desktop core is connected to the real
-  Platform, Security, Transport, and coordinator fact owners and its managed
-  production-boundary evidence is reproducible.
+- Task 5.5a remains blocked until the remaining Permission, Trust/Capability,
+  authenticated Connection, Emergency Stop, and Protection facts are connected
+  to their real owners and the complete managed production-boundary matrix is
+  reproducible. The Source path alone is insufficient.
 - The coordinator gains one deep host Preparation reservation module instead of
   more caller-visible read ordering.
 - Security gains an exact, revocable operation-Capability reservation rather

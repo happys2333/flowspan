@@ -581,13 +581,41 @@
     Debug/Release passed `9/9`, Desktop Debug/Release `590/590`, and solution
     Debug/Release `2304/2304`; warning-as-error builds had zero warnings/errors,
     and format, diff, vulnerability, composition, and simulator gates passed.
-    Hosted exact-SHA execution for `294042f` has not run. Exact commands and
-    limitations are in
+    No workflow ran at the bare implementation SHA `294042f`; hosted evidence
+    commit `fa70e63e2dc20f2d617897f5540fc6617e10d4f0` contains that core and
+    passes `2304/2304` on every hosted OS, Gitleaks 208/0, CodeQL 52/0, and the
+    reproducible unsigned packages. Exact commands, artifacts, and limitations
+    are in
     `docs/evidence/2026-08-30-host-preparation-reservation-core.md`.
     This isolated core changes no matrix cell and closes neither H0 nor H1.
-    Task 5.5a and `CreateProduction()` remain open. The next slice must connect
-    real source invalidation, a generation-bound authenticated connection route
-    operation, and the actual Transport Prepare send-admission hook.
+    Follow-up commit `3d27389de16bcdc43722ac3a94220511f563edb1`
+    independently adds the atomic source-invalidation slot, generation-bound
+    authenticated responder-route operation, and actual Transport Prepare
+    send-admission hook. Exact-SHA CI `33280551919` and CodeQL `33280551900`
+    pass `2328/2328` on every hosted OS, Gitleaks 208/0, CodeQL 52/0, and all
+    unsigned package jobs; that seam-only commit still changes no matrix cell.
+    Scope and artifacts are in
+    `docs/evidence/2026-08-30-host-preparation-admission-seams.md`.
+    Source-composed implementation
+    `ec63942296175f63964d8f463335d6b621e22042` then threads the same
+    reservation through the coordinator, exact source slot, real authenticated
+    route, actual Prepare send gate, Ready match, promotion, and cleanup. Its
+    production-composed tracer proves Source `R < M < S`: mutation after the
+    owned route prevents Prepare wire delivery and leaves capture, media,
+    render, participant policy, and Admission closed while both nodes drain.
+    The existing success tracer uses the same reservation path. Focused host
+    Debug/Release passes `44/44`, the new tracer `1/1`, Desktop `596/596`, and
+    both solutions `2334/2334`; warning-as-error builds and every local gate
+    pass with final strict review at 0 P0/P1/P2. Exact-SHA CI `33281547016` and
+    CodeQL `33281546949` pass `2334/2334` on every hosted OS, Gitleaks 208/0,
+    CodeQL 52/0, and all unsigned packages. Exact commands, artifacts, digests,
+    and limits are in
+    `docs/evidence/2026-08-30-host-preparation-source-linearization.md`.
+    Production-composed Source `M < R` and `S < M`, Permission, Trust,
+    Connection mutation, Emergency Stop reserve/promote, Protection, and the
+    complete per-boundary matrix remain open. Therefore Task 5, Task 5.5a,
+    Task 5.5, every native/physical/signing/notarization/release gate, the Goal,
+    and `CreateProduction()` all remain open.
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

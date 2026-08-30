@@ -169,10 +169,22 @@ similar coverage.
   records local and hosted results. That exact commit does not connect the
   Desktop reservation/coordinator to those seams, so it changes no cell and
   closes neither H0 nor H1.
+- [`DesktopRemoteWindowManagedTwoNodeTracerTests.SourceInvalidationAfterReservedRoutePreventsPrepareWireAndDrains`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
+  at exact commit `ec63942` connects the same reservation through the production
+  source registry, Desktop coordinator, authenticated route, and actual
+  Transport Prepare send-admission hook. It proves Source `R < M < S`: the real
+  route is owned, source unregister linearizes, the later send gate returns
+  NotDelivered with zero Prepare wire or later authority, and both nodes drain.
+  The existing DriverEligible success row traverses the same reservation and
+  promotion path. The
+  [source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md)
+  records local and hosted exact-SHA results. This source-only evidence does not
+  upgrade an aggregate cell.
 
 These tests do not yet inject every source, permission, Trust/grant, connection,
 observer-registration, protection, readiness, and route failure independently;
-that is why the H0/H1 aggregate cells remain P or M.
+production-composed Source `M < R` and `S < M` are also still open. That is why
+the H0/H1 aggregate cells remain P or M.
 
 ### E-TX — transaction, tombstone, and deadline state machine
 
@@ -319,9 +331,11 @@ defined or directly tested.
 ### E-TRACE — production-composed managed loopback
 
 - [`DesktopRemoteWindowManagedTwoNodeTracerTests`](../../tests/Flowspan.Desktop.Tests/DesktopRemoteWindowManagedTwoNodeTracerTests.cs)
-  is the executable 22-case class.
+  is now the executable 23-case class.
 - The [managed tracer evidence record](../evidence/2026-08-28-managed-remote-window-production-tracer.md)
-  records its exact local/hosted commands, artifacts, results, and limitations.
+  records the first 22 cases' exact local/hosted commands, artifacts, results,
+  and limitations. The source-linearization evidence above records the 23rd
+  case and its exact-SHA execution.
 - The [protocol-1.7 Preparation evidence](../evidence/2026-08-28-protocol-1-7-remote-window-preparation.md)
   records the broader Task 5.5a checkpoint and explicitly keeps the task open.
 
@@ -333,10 +347,13 @@ inference.
 
 The cross-thread H0/H1 ordering contract is frozen in
 [ADR 0027](../adr/0027-remote-window-host-preparation-reservation.md). Its
-Desktop-only core and deterministic state-machine evidence exist at `294042f`,
-but real fact invalidation, connection route admission, Transport send admission,
-and complete owner cleanup remain required. Neither the ADR nor its unwired core
-promotes a matrix cell by itself.
+Desktop-only core and deterministic state-machine evidence exist at `294042f`.
+The Source `R < M < S` vertical now crosses the real source mutation,
+authenticated route, Transport send-admission, and owner-cleanup boundaries at
+`ec63942`. The other fact reservations, the two remaining production-composed
+Source orders, and the complete per-boundary owner/fault evidence remain
+required. Neither the ADR, its isolated core, nor one source order promotes an
+aggregate matrix cell by itself.
 
 The next tests must use the family IDs in their names or evidence notes and add
 one direct row for each applicable gap. The presently known gaps are:
@@ -344,13 +361,14 @@ one direct row for each applicable gap. The presently known gaps are:
 1. **H0:** finish injected throws from the remaining initial fact sources and
    authenticated-disconnect coverage before route selection. The deterministic
    source, permission, grant, and connection revocation barriers do not prove an
-   atomic reservation across arbitrary concurrent threads. The next vertical
-   slice must connect real source invalidation to a generation-bound connection
-   route operation and the actual Transport Prepare send-admission hook.
+   atomic reservation across arbitrary concurrent threads. Source now has one
+   real `R < M < S` vertical; add production-composed `M < R` and `S < M`, then
+   connect Permission, Trust/Capability, and authenticated Connection mutation
+   to their exact fact gates.
 2. **H1:** finish the safety/route reject and throw variants; inject connection
    loss at the exact route boundary; preserve any route side effect while
-   cleanup also fails; and either introduce an atomic readiness/facts
-   reservation or retain the cross-thread TOCTOU gap as a blocker.
+   cleanup also fails; and implement Emergency Stop reserve/promote plus exact
+   Protection epochs or retain those cross-thread TOCTOU gaps as blockers.
 3. **TX/RS:** cover throw, revoke, disconnect, and cleanup failure at every
    distinct send-admission, buffered-response, terminal-commit, completion-hook,
    and tombstone phase rather than treating Stop as every terminal cause.

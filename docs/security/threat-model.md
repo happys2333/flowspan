@@ -817,15 +817,64 @@ Local focused Debug/Release passed `9/9`, Desktop Debug/Release `590/590`, and
 solution Debug/Release `2304/2304`; warning-as-error build, format, diff,
 vulnerability, explicit composition, and simulator gates passed. The
 [core evidence](../evidence/2026-08-30-host-preparation-reservation-core.md)
-records exact commands and limitations. Hosted `294042f` has not run.
+records exact commands and limitations. No workflow ran at bare implementation
+SHA `294042f`; hosted evidence commit `fa70e63` contains the core and passes
+`2304/2304` on every hosted OS, Gitleaks 208/0, CodeQL 52/0, and the
+reproducible unsigned packages.
 
-This is not yet a T06/T07 production mitigation. The coordinator, source
-registry, permission adapter, Trust coordinator, authenticated connection,
-Emergency Stop registrar, protection source, and Transport send gate do not use
-the core. No matrix cell changes, H0/H1 and Task 5.5a stay open, and
-`CreateProduction()` remains unavailable. The next security slice must
-linearize real source invalidation with a generation-bound connection route
-operation and the actual Transport Prepare send-admission hook.
+At that isolated-core commit this was not yet a T06/T07 production mitigation:
+the coordinator and fact owners did not use the core. The subsequent source-
+only production composition is recorded below. Permission, Trust/Capability,
+authenticated Connection mutation, Emergency Stop reserve/promote, and
+Protection still do not implement the complete reservation contract, so no
+aggregate matrix cell closes and H0/H1, Task 5.5a, and `CreateProduction()`
+remain open.
+
+### 5.19 2026-08-30 Host Preparation source linearization
+
+Exact commit `ec63942296175f63964d8f463335d6b621e22042` composes one Desktop
+host Preparation reservation across the exact Platform source invalidation
+slot, generation-bound authenticated responder-route operation, actual
+Transport Prepare send-admission hook, Ready match, post-Ready revalidation,
+promotion, and coordinator cleanup.
+
+For T06/T07, the production-composed managed tracer proves Source
+`R < M < S`. After a real authenticated protocol-1.7 route is selected, exact
+source unregister invalidates the reservation under the source-state mutation
+gate. The later real send-admission hook rejects and reports NotDelivered; no
+Prepare wire, participant policy, media attachment wait, capture, media send,
+renderer preparation, render, or final Admission occurs. The old source cannot
+be reacquired. The existing two-node success tracer traverses the same
+reservation through Ready and promotion before capture, Driver input, and
+Emergency Stop.
+
+For T10, source terminal state exposes only `native_source_stale`; concurrent
+route or wire exception text cannot replace it. An exact caller cancellation
+retains its original exception and token instead of being relabelled as a source
+failure. For T13, route admission conservatively owns connection cleanup.
+Fail-close and connection disposal run once, and the coordinator, controller,
+control handlers, media directories, routes, leases, channel, observers, and
+budgets drain without resurrection. Source invalidation is a bounded state
+transition and performs no external cleanup while holding the reservation gate.
+
+Focused host Debug/Release passes `44/44`, the new production tracer `1/1`,
+Desktop `596/596`, and both solutions `2334/2334`; warning-as-error build,
+format, diff, dependency vulnerability, explicit composition, simulator, and
+final strict review pass. Exact-SHA CI `33281547016` and CodeQL `33281546949`
+pass; downloaded artifacts prove `2334/2334` on every hosted OS, Gitleaks
+208/0, CodeQL 52/0, and all reproducible unsigned packages. Exact jobs,
+artifacts, digests, commands, and limitations are recorded in the
+[source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md).
+
+This evidence proves neither production-composed Source `M < R` nor `S < M`.
+Permission revision, exact Trust/Capability mutation, authenticated Connection
+fact invalidation at its mutation gate, Emergency Stop readiness
+reserve/promote, exact Protection epochs, and the complete per-boundary reject/
+throw/cancel/timeout/revoke/disconnect/cleanup-fault matrix remain open. Tasks
+5, 5.5a, and 5.5, `CreateProduction()`, all native/physical/signing/
+notarization/release gates, and the Goal remain open. Hosted managed execution
+does not prove native source lifetime or protection behavior on any operating
+system.
 
 ## 6. Security state machine rules
 

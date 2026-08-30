@@ -1351,8 +1351,56 @@ hosted OS, Gitleaks 208/0, CodeQL 52/0, and reproducible unsigned packages. The
 [admission-seam evidence](../evidence/2026-08-30-host-preparation-admission-seams.md)
 records the exact jobs, artifacts, digests, and limits. That commit still does
 not connect the Desktop reservation/coordinator to the seams, so it changes no
-matrix cell. H0, H1, Task 5.5a, and production availability remain open; the
-next integration must prove the cross-module mutation/route/send orders.
+matrix cell. The subsequent source-only integration is recorded below; it does
+not supply the remaining fact reservations or complete H0/H1 matrix.
+
+### 2026-08-30 Host Preparation source linearization
+
+Exact commit `ec63942296175f63964d8f463335d6b621e22042` implements the first
+production-composed fact vertical. One Desktop reservation is registered in the
+exact Platform source lease, passed through the authenticated responder-route
+operation and actual Transport Prepare send-admission hook, matched with Ready,
+and promoted only after post-Ready source/protection revalidation and formal
+safety-owner installation. Cleanup uses the reservation's conservative route-
+ownership state.
+
+The focused host class injects source invalidation before route, after route
+admission, during route failure, after Prepare send admission, during Prepare
+failure, and concurrently with exact caller cancellation. It proves stable
+`native_source_stale`, zero later authority, post-route fail-close, and exact
+caller-token preservation. These rows use a coordinator connection double to
+freeze the exact boundary.
+
+The new production-composed tracer
+`SourceInvalidationAfterReservedRoutePreventsPrepareWireAndDrains` freezes the
+real `R < M < S` order. It establishes loopback TCP, authenticated protocol 1.7,
+a production connection lease, and a real responder route; pauses before the
+Prepare forward; unregisters the exact production source; and observes a
+Source/`ConsumeConnection` terminal state. The later real Transport
+send-admission attempt returns NotDelivered with zero Prepare wire, policy,
+attachment wait, capture, media, renderer, render, or Admission. The source is
+not reacquirable, fail-close and Dispose run once, and both nodes' routes,
+directories, handlers, leases, controller, and coordinator state drain. The
+existing DriverEligible success tracer traverses the same reservation, route,
+send, Ready, promotion, media, input, and Emergency Stop path.
+
+Focused host Debug/Release passes `44/44`, the new tracer `1/1`, Desktop
+Debug/Release `596/596`, and solution Debug/Release `2334/2334`. Both warning-
+as-error builds have zero warnings/errors; format, diff, vulnerability, explicit
+composition, simulator, and final strict review pass. Exact-SHA CI
+`33281547016` and CodeQL `33281546949` pass; downloaded artifacts prove
+`2334/2334` on every hosted OS, Gitleaks 208/0, CodeQL 52/0, and reproducible
+unsigned packages. Exact commands, job/artifact IDs, digests, and limitations
+are in the
+[source-linearization evidence](../evidence/2026-08-30-host-preparation-source-linearization.md).
+
+This proves only Source `R < M < S` plus the success path. Production-composed
+Source `M < R` and `S < M`, Permission, Trust/Capability, authenticated
+Connection mutation, Emergency Stop reserve/promote, Protection, and every
+boundary's complete reject/throw/cancel/timeout/revoke/disconnect/cleanup-fault
+matrix remain open. H0/H1 stay P or M; Tasks 5, 5.5a, and 5.5,
+`CreateProduction()`, every native/physical/signing/notarization/release gate,
+and the Goal remain open.
 
 Chunker and assembler tests cover every 64-KiB boundary through 16 chunks and the
 1-MiB logical-frame ceiling, continuous sequence overflow, wrong binding/kind/
