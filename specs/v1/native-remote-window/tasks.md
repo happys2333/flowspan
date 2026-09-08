@@ -1324,7 +1324,7 @@
         Details are in the
         [late cleanup-failure ledger evidence](../../../docs/evidence/2026-08-30-late-cleanup-failure-ledger.md).
         _Requirements: NR8.9-NR8.16, NR10.8_
-      - [ ] 5.5a.3d Preserve first-fatal OOM dominance across late watchdog-
+      - [x] 5.5a.3d Preserve first-fatal OOM dominance across late watchdog-
         release and owner-cleanup failures. Use one stable active generation,
         external Dispose-first initiation, an uncontended lifecycle gate, and a
         healthy manual watchdog that is physically released before its disposal
@@ -1345,6 +1345,12 @@
         composed tracer. Keep Tasks 5, 5.5a.3, 5.5a, and 5.5, every native/
         physical/signing/notarization/release gate, and the Goal open; keep
         `CreateProduction()` unavailable and promote no matrix cell.
+        Implementation `01df06e` passed local Debug/Release verification and
+        exact-commit CI `33320452092` / CodeQL `33320452105` (run 228, attempt 1).
+        Downloaded Windows, macOS, and Linux artifacts each prove 2589/2589
+        Release tests, including the regression. See the
+        [first fatal cleanup evidence](../../../docs/evidence/2026-09-08-first-fatal-cleanup.md)
+        for scope, failure ordering, artifact digests, and remaining gates.
         _Requirements: NR8.13-NR8.16, NR10.8_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
