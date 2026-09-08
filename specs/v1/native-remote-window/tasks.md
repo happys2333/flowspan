@@ -1352,6 +1352,21 @@
         [first fatal cleanup evidence](../../../docs/evidence/2026-09-08-first-fatal-cleanup.md)
         for scope, failure ordering, artifact digests, and remaining gates.
         _Requirements: NR8.13-NR8.16, NR10.8_
+      - [ ] 5.5a.3e Handle watchdog provider failures and completion races.
+        Preserve direct/nested setup OOM, including a provider that invokes the
+        timeout callback before throwing. Retain the original setup exception
+        in an internal diagnostic lane while keeping ordinary public failures
+        bounded. Prove late callbacks cannot change a cleanup winner, and a
+        non-fatal timer-release failure after timeout is observed without
+        mutating the completed public Dispose result. Verify one creation
+        attempt, owned cleanup through late settlement, and timer/resource
+        release. Keep external commit callbacks outside the winner lock so a
+        cross-thread timeout callback and provider setup failure cannot deadlock;
+        wait for confirmation commit before recording late cleanup failures.
+        This covers managed Dispose initiation; explicit Stop primary
+        ordering, lifecycle contention, pre-generation cleanup, native runtime,
+        and the complete failure matrix remain open.
+        _Requirements: NR8.13-NR8.16_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

@@ -341,6 +341,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private RuntimeGeneration? retiring;
     private int terminalCleanupAttachmentCount;
     private Exception? terminalFailure;
+    private Exception? watchdogSetupFailure;
 
     public DesktopRemoteWindowHostCoordinator(
         IClock clock,
@@ -435,6 +436,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     // Internal diagnostic: terminal callbacks that joined published retiring work.
     internal int TerminalCleanupAttachmentCount =>
         Volatile.Read(ref terminalCleanupAttachmentCount);
+
+    // Raw provider diagnostics must never enter the public bounded exception.
+    internal Exception? WatchdogSetupFailure => Volatile.Read(ref watchdogSetupFailure);
 
     internal Exception? TerminalFailure
     {
@@ -1315,7 +1319,19 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             cleanupConfirmationTimeout,
             failure => CommitCleanupUnconfirmed(generation, failure),
             failure => CompleteRetiringCleanup(generation, failure),
+            RecordWatchdogSetupFailure,
             RecordTerminalFailureSafely);
+    }
+
+    private void RecordWatchdogSetupFailure(Exception failure)
+    {
+        Interlocked.CompareExchange(ref watchdogSetupFailure, failure, null);
+        if (FindFirstOutOfMemory(failure) is { } fatal)
+        {
+            // A provider may invoke the timeout callback before throwing.
+            // Preserve fatal diagnostics even when confirmation has a winner.
+            RecordTerminalFailureSafely(fatal);
+        }
     }
 
     private void CommitCleanupUnconfirmed(
@@ -2549,7 +2565,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         Volatile.Read(ref disposed) != 0,
         this);
 
-    private enum CleanupConfirmationStatus
+    internal enum CleanupConfirmationStatus
     {
         CleanupCompleted,
         Timeout,
@@ -2557,7 +2573,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         Fatal,
     }
 
-    private sealed record CleanupConfirmationResult(
+    internal sealed record CleanupConfirmationResult(
         CleanupConfirmationStatus Status,
         Exception? Failure);
 
@@ -2594,7 +2610,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
     }
 
-    private sealed class CleanupConfirmationOperation
+    internal sealed class CleanupConfirmationOperation
     {
         private const int Pending = 0;
         private const int CleanupWon = 1;
@@ -2605,6 +2621,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         private readonly object commitGate = new();
         private readonly Action<Exception?> commitRealCompletion;
         private readonly Action<Exception> commitUnconfirmed;
+        private readonly Action<Exception> recordWatchdogSetupFailure;
         private readonly Action<Exception> commitWatchdogReleaseFailure;
         private readonly Task<Exception?> realCleanup;
         private readonly TimeSpan timeout;
@@ -2622,6 +2639,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             TimeSpan timeout,
             Action<Exception> commitUnconfirmed,
             Action<Exception?> commitRealCompletion,
+            Action<Exception> recordWatchdogSetupFailure,
             Action<Exception> commitWatchdogReleaseFailure)
         {
             this.realCleanup = realCleanup
@@ -2633,6 +2651,8 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 ?? throw new ArgumentNullException(nameof(commitUnconfirmed));
             this.commitRealCompletion = commitRealCompletion
                 ?? throw new ArgumentNullException(nameof(commitRealCompletion));
+            this.recordWatchdogSetupFailure = recordWatchdogSetupFailure
+                ?? throw new ArgumentNullException(nameof(recordWatchdogSetupFailure));
             this.commitWatchdogReleaseFailure =
                 commitWatchdogReleaseFailure
                 ?? throw new ArgumentNullException(
@@ -2654,15 +2674,19 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                         timeout,
                         Timeout.InfiniteTimeSpan);
                 }
-                catch (OutOfMemoryException failure)
+                catch (Exception failure)
                 {
-                    CommitUnconfirmed(CleanupConfirmationStatus.Fatal, failure);
-                }
-                catch (Exception)
-                {
-                    CommitUnconfirmed(
-                        CleanupConfirmationStatus.WatchdogUnavailable,
-                        watchdogUnavailableFailure);
+                    recordWatchdogSetupFailure(failure);
+                    if (FindFirstOutOfMemory(failure) is { } fatal)
+                    {
+                        CommitUnconfirmed(CleanupConfirmationStatus.Fatal, fatal);
+                    }
+                    else
+                    {
+                        CommitUnconfirmed(
+                            CleanupConfirmationStatus.WatchdogUnavailable,
+                            watchdogUnavailableFailure);
+                    }
                 }
             }
 
@@ -2681,9 +2705,12 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 }
 
                 winner = ConfirmationFailed;
-                commitUnconfirmed(failure);
-                completion.TrySetResult(new(status, failure));
             }
+
+            // Coordinator callbacks can acquire terminalStateGate while a
+            // provider is still returning under that gate on another thread.
+            commitUnconfirmed(failure);
+            completion.TrySetResult(new(status, failure));
         }
 
         private void OnTimeout() => CommitUnconfirmed(
@@ -2702,23 +2729,31 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 cleanupFailure = failure;
             }
 
+            bool cleanupWon;
             lock (commitGate)
             {
-                bool cleanupWon = winner == Pending;
+                cleanupWon = winner == Pending;
                 if (cleanupWon)
                 {
                     winner = CleanupWon;
                 }
+            }
 
-                ReleaseTimer();
-                commitRealCompletion(cleanupFailure);
+            if (!cleanupWon)
+            {
+                // Keep confirmation diagnostics ahead of release and owner
+                // failures without retaining the winner lock across callbacks.
+                _ = await completion.Task.ConfigureAwait(false);
+            }
 
-                if (cleanupWon)
-                {
-                    completion.TrySetResult(new(
-                        CleanupConfirmationStatus.CleanupCompleted,
-                        cleanupFailure));
-                }
+            ReleaseTimer();
+            commitRealCompletion(cleanupFailure);
+
+            if (cleanupWon)
+            {
+                completion.TrySetResult(new(
+                    CleanupConfirmationStatus.CleanupCompleted,
+                    cleanupFailure));
             }
         }
 
@@ -3338,6 +3373,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             TimeSpan timeout,
             Action<Exception> commitUnconfirmed,
             Action<Exception?> commitRealCompletion,
+            Action<Exception> recordWatchdogSetupFailure,
             Action<Exception> commitWatchdogReleaseFailure)
         {
             ArgumentNullException.ThrowIfNull(cleanupFactory);
@@ -3367,6 +3403,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                         timeout,
                         commitUnconfirmed,
                         commitRealCompletion,
+                        recordWatchdogSetupFailure,
                         commitWatchdogReleaseFailure);
                     start = true;
                 }

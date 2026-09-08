@@ -260,6 +260,21 @@ fails closed immediately with `watchdog_unavailable`. The sticky latch is set,
 real cleanup remains owned and observed, and raw provider text is restricted to
 the internal diagnostic ledger. Provider OOM follows the fatal rule.
 
+The coordinator retains the original provider exception in the internal
+`WatchdogSetupFailure` diagnostic lane. Ordinary setup failure is not appended
+to `TerminalFailure`, because Stop and Dispose may expose that projection to
+callers. Direct or nested provider OOM is also recorded in the fatal lane even
+if the provider invoked the timeout callback before returning or throwing.
+The existing confirmation winner stays fixed. If external Dispose has not yet
+completed, it may expose the fatal diagnostic; an already completed public
+Dispose task keeps its original result.
+
+The confirmation winner lock protects only winner selection. Coordinator
+commit callbacks execute after that lock is released, avoiding a lock cycle
+with a provider returning under the coordinator's terminal-state gate. If
+confirmation failure won, the cleanup observer waits for that confirmation
+commit before recording timer release and owner failures.
+
 Timer disarm or disposal does not delay a confirmation already published. A
 non-fatal timer release failure is observed as a cleanup fault in its fixed
 ledger position; an OOM release failure follows fatal dominance. A late timer

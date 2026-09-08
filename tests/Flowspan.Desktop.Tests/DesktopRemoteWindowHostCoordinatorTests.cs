@@ -4359,6 +4359,233 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         }
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task WatchdogCreationOutOfMemoryEscapesUnchangedAndCleanupStillDrains(
+        bool nested,
+        bool callbackBeforeFailure)
+    {
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var fatal = new OutOfMemoryException("watchdog creation exhaustion");
+#pragma warning restore CA2201
+        var time = new ManualTimeProvider(Now)
+        {
+            CallbackBeforeCreateFailure = callbackBeforeFailure,
+            CreateFailure = nested
+                ? new AggregateException(new IOException("provider wrapper", fatal))
+                : fatal,
+        };
+        using var host = new ReadyHostHarness(cleanupTimeProvider: time);
+        host.Connection.BlockDisposal = true;
+        Task? disposal = null;
+        try
+        {
+            Assert.True((await host.StartAsync()).Succeeded);
+            var budget = Assert.IsType<RemoteWindowMediaSessionBudget>(
+                host.Coordinator.ActiveMediaBudget);
+            disposal = host.Coordinator.DisposeAsync().AsTask();
+            Task repeated = host.Coordinator.DisposeAsync().AsTask();
+
+            OutOfMemoryException observed = await Assert.ThrowsAsync<OutOfMemoryException>(
+                () => disposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Same(fatal, observed);
+            Assert.Same(disposal, repeated);
+            Assert.Same(fatal, host.Coordinator.TerminalFailure);
+            Assert.Same(time.CreateFailure, host.Coordinator.WatchdogSetupFailure);
+            Assert.Equal(callbackBeforeFailure ? 1 : 0, time.EarlyCallbackCount);
+            Assert.Equal(1, time.TimerCreateAttemptCount);
+            Assert.Equal(0, time.ActiveTimerCount);
+            Assert.Equal(Now, time.GetUtcNow());
+            await host.Connection.WaitForDisposeEnteredAsync();
+            Assert.True(host.Coordinator.HasRetiringGeneration);
+            Assert.False(host.Connection.DisposalCompleted);
+            Assert.Null(host.Coordinator.Snapshot);
+            Assert.Null(host.Coordinator.ActiveMediaBudget);
+
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                async () => await host.StartAsync());
+            host.Connection.ReleaseDisposal();
+            await host.Connection.WaitForDisposeAsync();
+            await WaitForRetiringCleanupAsync(host.Coordinator);
+
+            Assert.Same(disposal, host.Coordinator.DisposeAsync().AsTask());
+            Assert.Same(fatal, await Assert.ThrowsAsync<OutOfMemoryException>(
+                () => repeated.WaitAsync(TimeSpan.FromSeconds(5))));
+            Assert.Same(fatal, host.Coordinator.TerminalFailure);
+            Assert.False(host.Coordinator.HasRetiringGeneration);
+            Assert.Equal(1, time.TimerCreateAttemptCount);
+            Assert.Equal(0, time.ActiveTimerCount);
+            Assert.Equal(1, host.Connection.DisposeCount);
+            Assert.Equal(1, host.Connection.FailCloseCount);
+            Assert.Equal(1, host.Capture.StopCount);
+            Assert.Equal(1, host.Input.StopCount);
+            Assert.Equal(0, host.Permissions.ObserverCount);
+            Assert.True(host.Protection.IsDisposed);
+            Assert.False(host.EmergencyStops.CurrentRegistration?.IsCurrent);
+            Assert.False(host.ControlPeer.HasRetainedGeneration);
+            Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
+        }
+        finally
+        {
+            host.Connection.ReleaseDisposal();
+            disposal ??= host.Coordinator.DisposeAsync().AsTask();
+            _ = await Record.ExceptionAsync(
+                () => disposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            _ = await Record.ExceptionAsync(
+                () => WaitForRetiringCleanupAsync(host.Coordinator));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WatchdogCreationFailureKeepsPrivateDiagnosticsAndBoundsPublicFailure(
+        bool callbackBeforeFailure)
+    {
+        var injected = new IOException("WATCHDOG_PROVIDER_PRIVATE_CANARY");
+        var time = new ManualTimeProvider(Now)
+        {
+            CreateFailure = injected,
+            CallbackBeforeCreateFailure = callbackBeforeFailure,
+        };
+        using var host = new ReadyHostHarness(cleanupTimeProvider: time);
+        host.Connection.BlockDisposal = true;
+        Task? disposal = null;
+        try
+        {
+            Assert.True((await host.StartAsync()).Succeeded);
+            disposal = host.Coordinator.DisposeAsync().AsTask();
+            InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => disposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            string reason = callbackBeforeFailure ? "host_cleanup_timeout" : "watchdog_unavailable";
+            Assert.Equal($"Remote Window host cleanup confirmation failed ({reason}).", failure.Message);
+            Assert.DoesNotContain(injected.Message, failure.ToString());
+            Assert.Same(injected, host.Coordinator.WatchdogSetupFailure);
+            Assert.Equal(callbackBeforeFailure ? 1 : 0, time.EarlyCallbackCount);
+            Assert.Same(failure, host.Coordinator.TerminalFailure);
+            Assert.Equal(1, time.TimerCreateAttemptCount);
+            Assert.Equal(0, time.ActiveTimerCount);
+            await host.Connection.WaitForDisposeEnteredAsync();
+            Assert.True(host.Coordinator.HasRetiringGeneration);
+            Assert.Null(host.Coordinator.Snapshot);
+
+            host.Connection.ReleaseDisposal();
+            await WaitForRetiringCleanupAsync(host.Coordinator);
+            Assert.True(host.Connection.DisposalCompleted);
+            Assert.Equal(1, host.Connection.DisposeCount);
+            Assert.False(host.ControlPeer.HasRetainedGeneration);
+            Assert.Same(disposal, host.Coordinator.DisposeAsync().AsTask());
+            Assert.Same(failure, await Assert.ThrowsAsync<InvalidOperationException>(
+                () => disposal.WaitAsync(TimeSpan.FromSeconds(5))));
+            Assert.Same(injected, host.Coordinator.WatchdogSetupFailure);
+        }
+        finally
+        {
+            host.Connection.ReleaseDisposal();
+            disposal ??= host.Coordinator.DisposeAsync().AsTask();
+            _ = await Record.ExceptionAsync(
+                () => disposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            _ = await Record.ExceptionAsync(
+                () => WaitForRetiringCleanupAsync(host.Coordinator));
+        }
+    }
+
+    [Fact]
+    public async Task WatchdogLateCallbackCannotReplaceCompletedCleanup()
+    {
+        var time = new ManualTimeProvider(Now);
+        using var host = new ReadyHostHarness(cleanupTimeProvider: time);
+        Assert.True((await host.StartAsync()).Succeeded);
+        Task disposal = host.Coordinator.DisposeAsync().AsTask();
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, time.TimerCreateCount);
+        Assert.Equal(0, time.ActiveTimerCount);
+        Action staleCallback = Assert.IsType<Action>(time.CapturedCallback);
+
+        time.Advance(DesktopRemoteWindowHostCoordinator.MaximumCleanupConfirmationTimeout);
+        staleCallback();
+        staleCallback();
+
+        Assert.Same(disposal, host.Coordinator.DisposeAsync().AsTask());
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(host.Coordinator.TerminalFailure);
+        Assert.Null(host.Coordinator.WatchdogSetupFailure);
+        Assert.False(host.Coordinator.HasRetiringGeneration);
+        Assert.Equal(0, time.ActiveTimerCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.Equal(1, host.Capture.StopCount);
+        Assert.Equal(1, host.Input.StopCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WatchdogReleaseFailureAfterTimeoutPreservesPublicCompletion(
+        bool callbackBeforeReturn)
+    {
+        TimeSpan timeout = TimeSpan.FromSeconds(10);
+        var injected = new IOException("timer release failure");
+        var time = new ManualTimeProvider(Now) { DisposeFailure = injected };
+        using var host = new ReadyHostHarness(
+            cleanupTimeProvider: time,
+            cleanupConfirmationTimeout: timeout);
+        host.Connection.BlockDisposal = true;
+        if (callbackBeforeReturn)
+        {
+            time.TimerCreated = () => time.Advance(timeout);
+        }
+
+        Task? disposal = null;
+        try
+        {
+            Assert.True((await host.StartAsync()).Succeeded);
+            disposal = host.Coordinator.DisposeAsync().AsTask();
+            await host.Connection.WaitForDisposeEnteredAsync();
+            if (!callbackBeforeReturn)
+            {
+                Assert.False(disposal.IsCompleted);
+                time.Advance(timeout);
+            }
+
+            InvalidOperationException publicFailure = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => disposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Contains("host_cleanup_timeout", publicFailure.Message);
+            Assert.Equal(1, time.TimerCreateCount);
+            Assert.Equal(1, time.ActiveTimerCount);
+            Assert.True(host.Coordinator.HasRetiringGeneration);
+            host.Connection.ReleaseDisposal();
+            await WaitForRetiringCleanupAsync(host.Coordinator);
+
+            var diagnostic = Assert.IsType<AggregateException>(host.Coordinator.TerminalFailure);
+            Assert.Collection(diagnostic.InnerExceptions,
+                failure => Assert.Same(publicFailure, failure),
+                failure => Assert.Same(injected, failure));
+            Assert.Same(disposal, host.Coordinator.DisposeAsync().AsTask());
+            Assert.Same(publicFailure, await Assert.ThrowsAsync<InvalidOperationException>(
+                () => disposal.WaitAsync(TimeSpan.FromSeconds(5))));
+            Assert.Equal(0, time.ActiveTimerCount);
+            Assert.Equal(1, time.DisposeFailureThrowCount);
+            Assert.Equal(1, host.Connection.DisposeCount);
+            Assert.True(host.Connection.DisposalCompleted);
+            Assert.False(host.ControlPeer.HasRetainedGeneration);
+            Assert.IsType<Action>(time.CapturedCallback)();
+            Assert.Same(diagnostic, host.Coordinator.TerminalFailure);
+        }
+        finally
+        {
+            host.Connection.ReleaseDisposal();
+            disposal ??= host.Coordinator.DisposeAsync().AsTask();
+            time.Advance(DesktopRemoteWindowHostCoordinator.MaximumCleanupConfirmationTimeout);
+            _ = await Record.ExceptionAsync(
+                () => disposal.WaitAsync(TimeSpan.FromSeconds(5)));
+            _ = await Record.ExceptionAsync(
+                () => WaitForRetiringCleanupAsync(host.Coordinator));
+        }
+    }
+
     [Fact]
     public async Task StopFirstCallerCancellationRunsOneFallbackAndPreservesTheExactToken()
     {
@@ -5364,6 +5591,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         private readonly object gate = new();
         private readonly List<ManualTimer> timers = [];
         private int disposeFailureThrowCount;
+        private int timerCreateAttemptCount;
+        private int earlyCallbackCount;
         private int timerCreateCount;
         private int timerCreateThreadId;
         private DateTimeOffset utcNow = utcNow;
@@ -5381,12 +5610,22 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public int TimerCreateCount => Volatile.Read(ref timerCreateCount);
 
+        public int TimerCreateAttemptCount => Volatile.Read(ref timerCreateAttemptCount);
+
+        public Exception? CreateFailure { get; set; }
+
+        public bool CallbackBeforeCreateFailure { get; set; }
+
+        public int EarlyCallbackCount => Volatile.Read(ref earlyCallbackCount);
+
         public Exception? DisposeFailure { get; set; }
 
         public int DisposeFailureThrowCount =>
             Volatile.Read(ref disposeFailureThrowCount);
 
         public Action? TimerCreated { get; set; }
+
+        public Action? CapturedCallback { get; private set; }
 
         public int? TimerCreateThreadId
         {
@@ -5422,6 +5661,19 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             TimeSpan period)
         {
             ArgumentNullException.ThrowIfNull(callback);
+            CapturedCallback = () => callback(state);
+            Interlocked.Increment(ref timerCreateAttemptCount);
+            if (CreateFailure is { } failure)
+            {
+                if (CallbackBeforeCreateFailure)
+                {
+                    Interlocked.Increment(ref earlyCallbackCount);
+                    callback(state);
+                }
+
+                throw failure;
+            }
+
             var timer = new ManualTimer(this, callback, state);
             if (!timer.Change(dueTime, period))
             {
