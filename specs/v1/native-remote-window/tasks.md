@@ -1466,6 +1466,15 @@
   - _Requirements: NR1-NR10_
 
 - [ ] 7. Deliver the Windows native vertical slice
+  - The independent
+    [Windows WARP probe](../../../tools/Flowspan.Windows.CaptureProbe/README.md)
+    builds and passes ten managed self-checks locally in Debug/Release, with an
+    explicit unsupported-host Skip. Its default CI mode performs only a fixed
+    D3D11 software-texture staging-copy/readback on Windows x64; it never captures
+    windows. Matching-host native ABI, pixel hash and release evidence is pending.
+    This is not WGC, protection, input or production-host readiness. The next
+    slice and identity/safety boundaries are in
+    [Windows research](../../../docs/research/windows-capture-feasibility.md).
   - Implement exact-window Windows Graphics Capture, permission/readiness facts,
     SendInput mapping, secure desktop/protected-content uncertainty, source loss,
     and independent local Emergency Stop.

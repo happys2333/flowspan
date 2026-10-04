@@ -92,6 +92,37 @@ jobs:
           --no-build
           --no-restore
 
+      - name: Build standalone Windows D3D11 readback probe
+        run: >-
+          dotnet build
+          tools/Flowspan.Windows.CaptureProbe/Flowspan.Windows.CaptureProbe.csproj
+          --configuration Release
+
+      - name: Verify Windows probe formatting
+        run: >-
+          dotnet format
+          tools/Flowspan.Windows.CaptureProbe/Flowspan.Windows.CaptureProbe.csproj
+          --verify-no-changes
+          --no-restore
+
+      - name: Run portable Windows readback self-tests
+        run: >-
+          dotnet run
+          --project tools/Flowspan.Windows.CaptureProbe/Flowspan.Windows.CaptureProbe.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+          --
+          --self-test
+
+      - name: Run Windows WARP readback probe without window capture
+        run: >-
+          dotnet run
+          --project tools/Flowspan.Windows.CaptureProbe/Flowspan.Windows.CaptureProbe.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
