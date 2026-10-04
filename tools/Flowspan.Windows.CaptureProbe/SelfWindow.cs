@@ -102,7 +102,7 @@ internal sealed unsafe partial class SelfWindow
                 };
                 atom = RegisterClassW(&definition);
                 if (atom == 0) { throw new ProbeFailureException("window_class_register_failed"); }
-                hwnd = CreateWindowExW(0x80, name, name, 0x80000000, 80, 80, 64, 64, 0, 0, instance, 0);
+                hwnd = CreateWindowExW(0, name, name, 0x80000000, 80, 80, 64, 64, 0, 0, instance, 0);
                 WgcNative.RequirePointer(hwnd);
                 ShowWindow(hwnd, 4); // SW_SHOWNOACTIVATE; result is old visibility, not success.
                 if (UpdateWindow(hwnd) == 0) { throw new ProbeFailureException("window_update_failed"); }
