@@ -5,10 +5,14 @@ means its linked evidence exists; it does not imply the entire product works.
 
 Current integration repair: the failed `c533246` Linux hosted Activity teardown
 case has a deterministic real-TCP reproducer and a receive-time original-caller
-cancellation fix. Local Debug/Release solutions each pass 2692/2692; the new
-exact-source hosted checkpoint is pending. See
+cancellation fix. Clean implementation `470d0f3` Debug/Release solutions each
+pass 2692/2692, and CI `37208080273` succeeds with 2692/2692 on all three OSes. See
 [cancellation/EOF evidence](../../docs/evidence/2026-10-04-caller-cancellation-eof.md).
 This repairs an existing session-stop contract, not a native or release gate.
+Exact-source CodeQL covers 426/426 reported C# files with zero selected-rule
+results. Unsigned package jobs pass, but local complete-package inspection is
+pending. The [hosted checkpoint](../../docs/evidence/2026-10-04-cancellation-wgc-hosted-checkpoint.md)
+and separate failed Windows WGC record preserve those evidence boundaries.
 
 ## 0. Product and engineering baseline
 

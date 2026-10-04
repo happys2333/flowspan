@@ -1489,6 +1489,12 @@
     Ordinary CI invokes only managed WGC self-tests and the no-window WARP mode.
     This tool does not establish generic source identity, protection, input,
     source-loss handling, packaged behavior or production host readiness.
+    First exact-source `470d0f3` native run `37208080753` fails at owned-window
+    item creation with `0x80070057`, exit one and zero frames; it is neither a
+    Skip nor a timeout. The strict gate rejects it and preserves raw failure
+    evidence. See
+    [first WGC failure](../../../docs/evidence/2026-10-04-wgc-hosted-item-failure.md).
+    Windows native Task 7 remains open; no successful WGC frame is proven.
   - The independent
     [Windows WARP probe](../../../tools/Flowspan.Windows.CaptureProbe/README.md)
     builds and passes ten managed self-checks locally in Debug/Release, with an

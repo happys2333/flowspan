@@ -157,6 +157,13 @@ All 62 candidate cases pass on every hosted OS. CodeQL passes with measured
 Successful substeps do not make the enclosing CI successful, and no hosted
 production-driver capture or physical/release proof is claimed.
 
+The later `470d0f3` [hosted checkpoint](2026-10-04-cancellation-wgc-hosted-checkpoint.md)
+repairs that separate Activity cancellation case and passes 2692/2692 on all
+three OSes, with all 62 macOS candidate cases Passed. This does not erase the
+`c533246` failure or add new native capture/safety evidence. The same-source
+standalone Windows opt-in run separately fails before capture item creation
+completes; complete unsigned-package downloads/inner audits remain pending.
+
 ## Final-source SHA-256 anchors
 
 ```text

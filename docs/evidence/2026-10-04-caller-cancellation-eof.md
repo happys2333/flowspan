@@ -196,3 +196,16 @@ Windows/Linux execution. Root logs/TRX/query JSON are retained at
 TDD and the diagnose workflow drove the deterministic real-TCP RED, the minimal
 receive-time repair, and the negative test rejecting after-cleanup relabeling.
 The failed `c533246` hosted run remains historical failure and is not overwritten.
+
+The integrated implementation was then committed as
+`470d0f354f420b39bdc1ad5736bcb66acb01792d`. From that clean commit, the root
+reran full Debug/Release format/build/test verification: zero build warnings or
+errors, 12 TRX per configuration, 2692 distinct cases and 2692/2692 passed, all
+non-success counters zero. Raw exact-commit records are retained at
+`/tmp/flowspan-checkpoint-470d0f3/`. Main-branch CI `37208080273` now succeeds;
+downloaded Windows/macOS/Linux inventories each contain the same 2692 cases,
+all Passed, including the six new contracts and controlled real-TCP regression.
+The old failed run is not reclassified. Full hosted security/package provenance
+is in the [hosted checkpoint](2026-10-04-cancellation-wgc-hosted-checkpoint.md).
+The three unsigned package jobs passed, but complete package download/hash and
+internal inspection remain pending at handoff; those are not locally passed.
