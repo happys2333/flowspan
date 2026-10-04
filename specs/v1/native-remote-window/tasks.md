@@ -1447,6 +1447,11 @@
   - _Requirements: NR1-NR6, NR8-NR10_
 
 - [ ] 6. Deliver the macOS native vertical slice
+  - [ ] 6.1a Implement the separate
+    [delegate ownership prerequisite](macos-delegate-ownership/tasks.md):
+    immutable bounded bridge owners, terminal-without-sample admission closure,
+    self-join protection and no-capture synthetic ABI evidence. Current Capture
+    remains `delegate=0`; completing this prerequisite cannot close Task 6.
   - Implement prompt-free screen-capture and Accessibility facts, explicit TCC
     requests, secure-input observation, exact source enumeration, and generation
     leases through documented CoreGraphics, ApplicationServices, and
@@ -1482,7 +1487,7 @@
     default WARP path, with no product references or new dependencies. Both
     local configurations build without warnings and pass the unchanged ten
     baseline plus twelve WGC-boundary managed self-tests. The macOS native
-    invocation explicitly Skips; no Windows WGC success is recorded yet. See
+    invocation explicitly Skips and is not Windows native evidence. See
     [portable WGC evidence](../../../tools/Flowspan.Windows.CaptureProbe/evidence/2026-10-04-wgc-local.md).
     A separate opt-in Windows workflow requires verified 64x64 interior markers,
     an observed frame and confirmed cleanup; Skip cannot satisfy its gate.
@@ -1494,7 +1499,14 @@
     Skip nor a timeout. The strict gate rejects it and preserves raw failure
     evidence. See
     [first WGC failure](../../../docs/evidence/2026-10-04-wgc-hosted-item-failure.md).
-    Windows native Task 7 remains open; no successful WGC frame is proven.
+    The one-variable follow-up `27a26b1` removes only WS_EX_TOOLWINDOW and
+    actually passes strict hosted run `37210127349` attempts 1 and 2: each one verified
+    64×64 frame, RowPitch 256, 21/21 tracked COM references, exit zero and
+    confirmed cleanup. The original RED remains preserved. See
+    [differential WGC evidence](../../../docs/evidence/2026-10-04-wgc-non-tool-window.md).
+    This task-owned WARP-backed feasibility path does not prove generic source
+    identity/loss, protection, input, production host or physical/release gates;
+    Windows native Task 7 remains open.
   - The independent
     [Windows WARP probe](../../../tools/Flowspan.Windows.CaptureProbe/README.md)
     builds and passes ten managed self-checks locally in Debug/Release, with an

@@ -117,9 +117,12 @@ destroy the HWND before native cleanup is confirmed.
 Successful stdout begins `probe=pass mode=wgc_self_window`, includes verified
 marker/frame hashes, observed geometry/pitch/COM counts and
 `cleanup_confirmed=true`, and always reports `protection=unknown`. Skip is not
-proof of WGC capture. No real Windows WGC result is recorded yet; a successful
-compile, portable fixture, default WARP pass, or hosted job alone is not that
-evidence. Current CI defaults must not pass the opt-in argument.
+proof of WGC capture. Exact source `27a26b1` actually passes the hosted
+task-owned-window gate after removing the tool-window extended style; the
+preceding `470d0f3` CreateForWindow failure is retained. See
+[native differential evidence](../../docs/evidence/2026-10-04-wgc-non-tool-window.md).
+A successful compile, portable fixture, default WARP pass, or hosted job alone
+is not that evidence. Current CI defaults must not pass the opt-in argument.
 
 The independent `Windows task-owned WGC probe` workflow is opt-in through
 `workflow_dispatch` once registered on the default branch, or a deliberate push

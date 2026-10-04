@@ -162,7 +162,13 @@ repairs that separate Activity cancellation case and passes 2692/2692 on all
 three OSes, with all 62 macOS candidate cases Passed. This does not erase the
 `c533246` failure or add new native capture/safety evidence. The same-source
 standalone Windows opt-in run separately fails before capture item creation
-completes; complete unsigned-package downloads/inner audits remain pending.
+completes. The later
+[complete unsigned-package audit](2026-10-04-unsigned-package-local-audit.md)
+verifies that checkpoint's full artifacts without adding native safety,
+signing or release acceptance. The
+[Windows follow-up](2026-10-04-wgc-non-tool-window.md) separately records
+actual task-owned WGC success with the changed window style; it does not
+change this macOS capture candidate's evidence.
 
 ## Final-source SHA-256 anchors
 

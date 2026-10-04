@@ -121,6 +121,17 @@ and must record its own execution rather than inherit this source hash.
 
 ## Alternatives and consequences
 
+### Source-loss delegate prerequisite
+
+Before changing the candidate's current `delegate=0`, implement the separate
+[delegate ownership prerequisite](../../specs/v1/native-remote-window/macos-delegate-ownership/requirements.md).
+A bounded immutable bridge mapping, early terminal facts, admission-before-
+notification, managed invocation joins and closed tombstones must be exercised
+without capture first. Synthetic NSObject/Objective-C/GCD success does not prove
+SCStream delegate retention, unbinding or native drain. Published probe bridges
+are deliberately retained until process exit; this is not production cleanup.
+No sample-queue barrier may be renamed to claim delegate drain.
+
 A minimal C-callable Swift helper remains a fallback if actual ABI, support,
 crash/leak or maintenance evidence warrants it. It would need a versioned
 contract, deterministic build inputs, packaged native assets, signing and

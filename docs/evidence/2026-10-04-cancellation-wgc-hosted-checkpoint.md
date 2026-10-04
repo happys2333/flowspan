@@ -128,6 +128,11 @@ Full provenance, independently APPROVE-reviewed checks and raw security data:
 
 ## Archives and unsigned-package handoff
 
+Follow-up: [complete local package audit](2026-10-04-unsigned-package-local-audit.md)
+now verifies all three full downloads, payloads and companion records. The
+pending table below preserves the original handoff state, not the current
+download status. Signing, legal review and release acceptance remain open.
+
 First five archives fully downloaded: localbytes/hash, API digest/source and
 completed-job upload logs agree. API binds all eight to this exact run/SHA/branch,
 expired=false. Last three rows are **API/upload-log facts only**; complete local

@@ -1957,6 +1957,21 @@ secure desktop/input, independent local Emergency Stop, hardware GPU, physical
 two-Device behavior, packaged identity, and all production/release gates remain
 open.
 
+### macOS synthetic delegate ownership prerequisite
+
+The separate delegate owner/probe may receive opaque self/stream/error pointer
+values but must not dereference stream/error or expose them in diagnostics.
+Immutable published bridge mappings and fixed slot exhaustion prevent callback
+address reuse within the probe pool; closed tombstones cannot regain admission.
+Terminal events close local admission before notification, and retirement joins
+only admitted managed invocations with direct/descendant self-join rejection.
+Published native probe bridges remain process-owned rather than being freed on
+a guessed native-drain boundary. This finite retention is explicit, not cleanup.
+Default probe execution is no-native; opt-in synthetic NSObject/Objective-C/GCD
+execution creates no SCStream/AppKit/window, requests no permission and reads no
+samples or pixels. Real delegate source-loss/unbinding, arbitrary native fault
+containment, capture authority, Task 6 and production/release gates stay open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
