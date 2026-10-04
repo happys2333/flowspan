@@ -3,7 +3,8 @@
 Status: three test-only repairs locally verified after the failed exact
 `9deed368f2fe9697e5dd9e9d02ef0409701f2a3b` checkpoint. Production code is
 unchanged by these repairs. [Root-wide combined gates](2026-10-05-early-checkpoint-local-gates.md)
-pass Debug/Release 2777 each; a new exact-commit hosted checkpoint remains pending.
+pass Debug/Release 2777 each; exact `2c6f8fd` now also passes the separately
+[audited hosted checkpoint](2026-10-05-early-association-hosted-checkpoint.md).
 
 The [original hosted record](2026-10-05-early-coordinator-hosted-failure.md)
 remains failed: CI `37228426977` has Windows 2771 Passed / 4 Failed,

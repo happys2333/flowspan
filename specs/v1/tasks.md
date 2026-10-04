@@ -62,8 +62,17 @@ have local test-only reproductions and repairs independently of the no-capture
 early-native slice. [Final local gates](../../docs/evidence/2026-10-05-early-checkpoint-local-gates.md)
 now pass Debug/Release 2777 each; the [Foundation early mode](../../docs/evidence/2026-10-05-macos-foundation-early-associations.md)
 passes actual native final-source processes and strict root supervision.
-Fresh exact-commit hosted evidence remains open. Capture composition is the next
-vertical slice; no MSC parent, production, physical, release or Goal closes.
+Exact `2c6f8fd` now has [audited hosted evidence](../../docs/evidence/2026-10-05-early-association-hosted-checkpoint.md):
+three complete 12-TRX/2777-Passed inventories, actual Foundation early raw proof,
+strict helper fixtures, CI and CodeQL pass. The old failure remains preserved.
+Actual Capture composition is the next vertical slice; no MSC parent,
+production, physical, release or Goal closes. Task 3a now has
+[final local evidence](../../docs/evidence/2026-10-05-macos-capture-system-boundary.md)
+for the same-Capture boundary: complete Debug/Release 2794 each, final 20-process
+pressure 340 and actual task-owned macOS Debug/Release capture regression.
+Fresh exact-source all-OS hosted verification remains open. Production is still
+`delegate=0`; next fix the existing same-owner cleanup gate/retry debts before
+nonzero delegate composition, without changing sharing availability.
 
 ## 0. Product and engineering baseline
 

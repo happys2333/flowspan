@@ -2020,8 +2020,9 @@ Foundation early-race execution now has separate final-source local evidence:
 real retained NSObject sources, nil/native third reads, exact-generation replay,
 and ambiguity quarantine in controlled interleavings. This is not SCStream/OS
 scheduler behavior or native fault injection. Twenty-four final early-mode
-processes and an independently replayed strict gate pass; exact-commit hosted
-verification and Capture composition remain unverified.
+processes and an independently replayed strict gate pass. Exact `2c6f8fd`
+[hosted verification](../evidence/2026-10-05-early-association-hosted-checkpoint.md)
+also passes; Capture composition remains unverified.
 The strict gate requires exact bytes, empty stderr, exit zero and no timeout or
 interruption; raw failure/Skip records remain available. Its POSIX watchdog owns
 one unreaped leader through TERM/grace/KILL before reaping, not arbitrary native
@@ -2036,6 +2037,29 @@ release gates remain independently open. See
 [portable coordinator evidence](../evidence/2026-10-05-macos-early-association-coordinator.md),
 [ADR 0030](../adr/0030-generation-routed-macos-stream-delegate.md) and the
 [MSC specification](../../specs/v1/native-remote-window/macos-stream-delegate/requirements.md).
+
+### Actual Capture system-boundary extraction
+
+MSC task 3a makes the existing Capture constructor, admission, sample core and
+cleanup state machine testable through narrow native operations, retained-source
+and completion-owner interfaces. It creates no new public sharing surface or
+permission path. Production still uses `delegate=0`, the existing 14.2/Arm64
+candidate admission and unknown protection state. Source/Block adapter wrappers
+are allocated before acquiring their native +1 references; allocation and later
+configuration are separate so setter failure leaves a known owner for cleanup.
+
+Portable injected Stop failure deliberately retains the complete Capture and
+its callback/source owners. Tests do not reset these process roots or pretend
+uncertain cleanup succeeded. The seam does not fix the existing Capture release
+calls under its state gate or blind retry risk after unconfirmed release; those
+remain explicit task 3b/MSC6/MSC9 work, not verified safety claims. Settled Block
+results, exited callbacks and a serial sample-queue barrier remain independent.
+
+Any opt-in actual capture regression is limited to the tool's task-owned window
+and existing permission preflight, with no permission request, title reads or
+pixel files. Global enumeration metadata and TCC revocation TOCTOU remain
+limitations. A watchdog bounds the process, not native drain or resource cleanup;
+Skip must remain unverified rather than Pass.
 
 ## 6. Security state machine rules
 

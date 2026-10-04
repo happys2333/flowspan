@@ -38,7 +38,7 @@
       pairs and twenty direct-GREEN cases are separately recorded. Both review
       axes have no remaining findings; see
       [portable coordinator evidence](../../../../docs/evidence/2026-10-05-macos-early-association-coordinator.md).
-    - [ ] Verify this exact implementation commit in hosted CI/CodeQL and
+    - [x] Verify this exact implementation checkpoint in hosted CI/CodeQL and
       independently audit downloaded all-OS TRX and native/security artifacts.
       Exact `9deed36` CI failed four Windows cases; macOS/Linux pass 2775 each
       and CodeQL succeeds. All 29 coordinator cases pass everywhere, but complete
@@ -48,7 +48,11 @@
       All four failures now have test-only local reproductions and repairs;
       complete Debug/Release solutions pass 2777 each. See
       [fixture evidence](../../../../docs/evidence/2026-10-05-windows-fixture-repairs.md).
-    - [ ] Implement and actually execute separate Foundation early-publication
+      Exact `2c6f8fd` CI/CodeQL now pass; downloaded three-OS inventories each
+      contain 12 TRX / 2777 Passed, all 29 coordinator/33 router/10 pairing and
+      four ProtectionMutation rows pass. The failed `9deed36` remains failed.
+      See [new hosted checkpoint](../../../../docs/evidence/2026-10-05-early-association-hosted-checkpoint.md).
+    - [x] Implement and actually execute separate Foundation early-publication
       proof. Existing Phase 2a still reports early_publication_proved=false;
       portable fake-boundary tests cannot close this gate or parent 2b.
       - [x] Independent `--run-early-associations` local native tracer: actual
@@ -63,14 +67,52 @@
         four POSIX CLI fixtures, 12 watchdog contracts and one actual native
         early run pass. Complete solution/root evidence remains independently
         bound; see [local gates](../../../../docs/evidence/2026-10-05-early-checkpoint-local-gates.md).
-      - [ ] Download and independently audit fresh exact-commit hosted early
+      - [x] Download and independently audit fresh exact-commit hosted early
         raw bytes, complete all-OS TRX, CI/CodeQL/security evidence. Local native
-        success does not close this child or full MSC2b/MSC9.
+        success alone does not close this child or full MSC2b/MSC9.
+        Exact `2c6f8fd` hosted early stdout is 1057B, empty stderr, strict step
+        successful; 11 small ZIPs match API/upload digests. Root offline replay
+        passes. Three large package ZIPs were not downloaded; API/hosted-log
+        evidence does not prove their local archive contents.
+    - [ ] Exercise production-native unknown-ownership/failure admission and
+      full Capture quarantine in task 3b/4. The healthy Foundation proof and
+      portable injected faults do not close this remaining MSC2b/MSC9 boundary.
   - Verify permanent bridge, retained numeric tag, independent tag budget,
     callback reference ownership, nil-tag publication race and tag deallocation
     ABI in Debug and Release. Keep no-native defaults and strict evidence gates.
   - _Requirements: MSC1-MSC3, MSC6, MSC8-MSC9_
 - [ ] 3. Compose the delegate into the actual candidate Capture.
+  - [-] 3a. Add a capture-only native operations/source/completion-owner seam
+    and test the same production Capture state machine on all OSes. Preserve
+    `delegate=0`, the existing 14.2 candidate floor and production availability;
+    this refactor cannot close nonzero-delegate composition. Separate native
+    allocation from later configuration so failed setters retain a known owner.
+    Verify healthy Start/Stop/Dispose, callback settled versus exited, factory
+    rollback/handoff, serial sample barrier, quarantine and sample ownership.
+    - [x] Final implementation/local contracts: same Capture and shared sample
+      core; final focused Debug/Release 17/17, project 223/223 and complete
+      solution 12 TRX/2794 Passed each. Twenty fresh normal-configuration
+      processes pass 340 case executions. Static Standards/Spec and independent
+      evidence audit have no remaining finding. Four failed no-TRX diagnostics
+      remain preserved; no new product assertion-level RED is claimed.
+    - [x] Actual existing task-owned native capture regression in Debug/Release:
+      `--run` passes selected local macOS checks, with raw bytes/process exits
+      and unchanged source/runtime inventories. This is still `delegate=0`,
+      not native fault injection or nonzero-delegate proof. See
+      [local checkpoint](../../../../docs/evidence/2026-10-05-macos-capture-system-boundary.md).
+    - [ ] Verify fresh exact-commit all-OS hosted CI/CodeQL and independently
+      audit complete downloaded TRX inventories for this source.
+  - [ ] 3b. Compose the process-rooted native delegate/coordinator through that
+    same Capture; consume exact initializer and global failure state at every
+    construction/Start/sample admission boundary. Require retirement before
+    native release and complete cleanup before returning the Capture permit.
+    - [ ] 3b.1 Fix same-Capture cleanup prerequisites in real RED→GREEN slices:
+      no native release under Capture state gates, one attempted/confirmed fact
+      per owner, no blind uncertain release retry, independent cleanup and full
+      root retention. Keep delegate=0/14.2 until later composition evidence.
+    - [ ] 3b.2 Stage source-acquisition ownership, reserve before native work,
+      compose nonzero delegate and exact initializer/global failure admission,
+      monotonic Start, managed retirement and complete-cleanup permit return.
   - Separate delegate/output publication; close terminal delivery; prevent
     Start resurrection; retire managed handlers before native release; preserve
     independent sample/Block ownership and complete quarantine.

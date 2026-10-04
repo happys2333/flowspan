@@ -1470,14 +1470,29 @@
     [ADR 0030](../../../docs/adr/0030-generation-routed-macos-stream-delegate.md).
     The portable router now has local Debug/Release 33/33 focused and 2743/2743
     complete-solution results, 13 actual RED stages and final 40-process pressure
-    1320/1320. Native association/tag-deallocation, Capture wiring and exact
-    new-SHA hosted evidence remain open; see
+    1320/1320. The subsequent Phase 2a native association/tag-deallocation
+    checkpoint has separate local/hosted evidence; these router results alone
+    do not prove it. Capture wiring and fresh new-SHA hosted evidence remain
+    open; see
     [portable router evidence](../../../docs/evidence/2026-10-05-macos-stream-delegate-router.md).
     The separately implemented early-association coordinator now passes final
     local Debug/Release focused 62/62 and complete solutions 2775/2775; see
     [portable coordinator evidence](../../../docs/evidence/2026-10-05-macos-early-association-coordinator.md).
-    This closes only MSC 2b's portable/local subitem. Exact new-SHA hosted,
-    actual Foundation early-publication and Capture gates remain open.
+    This closes only MSC 2b's portable/local subitem. Its original `9deed36`
+    hosted CI remains failed with four Windows fixture failures; local test-only
+    repairs now pass complete Debug/Release solutions at 2777 each. Separate
+    actual Foundation early-publication local proof and strict root gate pass;
+    see [local gates](../../../docs/evidence/2026-10-05-early-checkpoint-local-gates.md).
+    Checkpoint `2c6f8fd` now passes exact-SHA hosted CI/CodeQL with three complete
+    2777-case inventories and downloaded early-native raw proof; see
+    [hosted checkpoint](../../../docs/evidence/2026-10-05-early-association-hosted-checkpoint.md).
+    Actual nonzero-delegate Capture gates remain open. The same-Capture narrow
+    native boundary now has final local Debug/Release 2794-case solutions,
+    20-process/340-case normal pressure and selected actual task-owned macOS
+    native regression in both configurations; see
+    [local evidence](../../../docs/evidence/2026-10-05-macos-capture-system-boundary.md).
+    Fresh exact-source hosted verification is pending. No nonzero delegate or
+    production sharing was enabled; existing cleanup gate/retry debts remain.
   - Implement prompt-free screen-capture and Accessibility facts, explicit TCC
     requests, secure-input observation, exact source enumeration, and generation
     leases through documented CoreGraphics, ApplicationServices, and

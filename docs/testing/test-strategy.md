@@ -2523,10 +2523,42 @@ natural rows acquire False names and two forced True rows are added; no arbitrar
 exception or null-only result is accepted.
 
 Complete local Debug/Release each pass 12 TRX / 2777, while the exact `9deed36`
-hosted CI remains failed (four Windows cases). New exact-SHA all-OS evidence is
-required. See [local gates](../evidence/2026-10-05-early-checkpoint-local-gates.md),
+hosted CI remains failed (four Windows cases). The new exact `2c6f8fd` all-OS
+inventories and native/helper artifacts pass the separate
+[hosted audit](../evidence/2026-10-05-early-association-hosted-checkpoint.md).
+See [local gates](../evidence/2026-10-05-early-checkpoint-local-gates.md),
 [fixture repairs](../evidence/2026-10-05-windows-fixture-repairs.md) and
 [native proof](../evidence/2026-10-05-macos-foundation-early-associations.md).
+
+### 2026-10-05 actual Capture boundary contracts
+
+Task 3a tests the same production Capture through native-effect interfaces,
+not a replacement fake Capture. The unmanaged sample entry and portable tests
+invoke one managed sample core. The source and completion adapters preserve
+their independent ownership and callback-exit facts; allocate owner wrappers
+before native acquisition and record allocation before fallible configuration.
+
+Required cases cover healthy Start/Stop/Dispose, failed setters, copied-Block
+result settlement versus actual callback exit, actual failed-construction owner
+handoff, output removal plus blocked serial queue barrier, complete quarantine,
+sample filtering/transfer and consumer-fault containment. Fixture publication
+and exit handshakes use small locks, with external callbacks outside them.
+Blocking factory observers use dedicated synchronous controllers and release
+barriers in finally. Retained quarantine roots are not globally cleared by tests.
+
+Fresh-process pressure uses the normal test launcher and normal ThreadPool
+configuration. Whole-process and scoped single-worker diagnostic attempts that
+time out without TRX are retained as failed diagnostics, not product-case RED
+or successful pressure. The unverified optional diagnostic mode is excluded
+from the final fixture. All final evidence must bind the final source, runtime
+hashes and complete case identities rather than reuse superseded stage totals.
+
+Portable and actual native results are separate. The opt-in task-owned window
+probe must preserve its complete lifecycle/security fields, actual exit/raw
+output and external deadline. It requests no permission, reads no titles and
+writes no pixels; Skip does not pass that gate. Neither boundary tests nor a
+healthy native run close nonzero-delegate composition, native fault injection,
+MSC6/MSC9 release debts, production sharing, physical or v1 release gates.
 
 Core invariants are asserted after every event:
 

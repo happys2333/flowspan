@@ -185,9 +185,31 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             throw new InvalidOperationException("macOS exact window unavailable.");
         }
 
-        return new Capture(this, NativeRuntime.Value, nativeSource,
+        return new Capture(this, new NativeCaptureOperations(NativeRuntime.Value),
+            new NativeCaptureSource(this, nativeSource),
             takeSampleOwnership, sourceUnavailable);
     }
+
+    internal IMacOSRemoteWindowNativeCapture CreateCaptureWithOperations(
+        IMacOSRemoteWindowCaptureSource source,
+        IMacOSRemoteWindowCaptureOperations operations,
+        Action<IMacOSRemoteWindowNativeSample> takeSampleOwnership,
+        Action sourceUnavailable)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(operations);
+        ArgumentNullException.ThrowIfNull(takeSampleOwnership);
+        ArgumentNullException.ThrowIfNull(sourceUnavailable);
+        if (!source.IsCurrent())
+        {
+            throw new InvalidOperationException("macOS exact window unavailable.");
+        }
+
+        return new Capture(this, operations, source, takeSampleOwnership, sourceUnavailable);
+    }
+
+    internal static void DeliverCaptureSample(nint output, nint stream, nint sample, nint kind) =>
+        Capture.ProcessOutput(output, stream, sample, kind);
 
     public bool TryTakeFailedCapture(Exception failure,
         out IMacOSRemoteWindowNativeCapture? capture)
@@ -556,6 +578,132 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         }
     }
 
+    private sealed class NativeCaptureSource : IMacOSRemoteWindowCaptureSource
+    {
+        private readonly MacOSRemoteWindowScreenCaptureKitApi api;
+        private NativeSource source;
+
+        internal NativeCaptureSource(MacOSRemoteWindowScreenCaptureKitApi api, NativeSource source)
+        {
+            this.api = api;
+            this.source = source;
+        }
+
+        public NativeRemoteWindowGeometry Geometry => source.Geometry;
+        public nint Filter => source.Filter;
+        public IMacOSRemoteWindowCaptureSource RetainOwner()
+        {
+            // Allocate the adapter before acquiring native owners. RetainOwner
+            // already owns its independent cleanup on acquisition failure.
+            var owner = new NativeCaptureSource(api, source);
+            owner.source = source.RetainOwner();
+            return owner;
+        }
+
+        public bool IsCurrent() => api.IsCurrent(source);
+        public void Dispose() => source.Dispose();
+    }
+
+    private sealed class NativeCaptureCompletion : IMacOSRemoteWindowCaptureCompletion
+    {
+        private readonly MacOSRemoteWindowBlock block;
+
+        internal NativeCaptureCompletion(Action<nint> action, Action<Exception> failure, Action completed)
+        {
+            // The adapter itself exists before Block.Create acquires its +1.
+            // Nothing is allocated between successful Create and assignment.
+            block = MacOSRemoteWindowBlock.Create(action, failure, completed);
+        }
+
+        public nint Pointer => block.Pointer;
+        public bool IsReleased => block.IsReleased;
+        public Exception? FirstFailure => block.FirstFailure;
+        public void Dispose() => block.Dispose();
+    }
+
+    private sealed class NativeCaptureOperations(Runtime runtime) : IMacOSRemoteWindowCaptureOperations
+    {
+        public nint PushAutoreleasePool() => N.objc_autoreleasePoolPush();
+        public void PopAutoreleasePool(nint pool) => N.objc_autoreleasePoolPop(pool);
+        public nint AllocateConfiguration() => N.Send0(runtime.ConfigurationClass, N.Sel("new"));
+        public nint AllocateOutput() => N.Send0(runtime.OutputClass, N.Sel("new"));
+        public nint CreateSampleQueue() => N.dispatch_queue_create("flowspan.remote-window.samples", 0);
+        public nint AllocateStream() => N.Send0(runtime.StreamClass, N.Sel("alloc"));
+        public nint InitializeStream(nint allocatedStream, nint filter, nint configuration, nint streamDelegate) =>
+            N.InitStream(allocatedStream, N.Sel("initWithFilter:configuration:delegate:"),
+                filter, configuration, streamDelegate);
+
+        public void Configure(nint configuration, int width, int height)
+        {
+            N.SendNUInt(configuration, N.Sel("setWidth:"), (nuint)width);
+            N.SendNUInt(configuration, N.Sel("setHeight:"), (nuint)height);
+            N.SendUInt(configuration, N.Sel("setPixelFormat:"), N.Bgra);
+            N.SendNInt(configuration, N.Sel("setQueueDepth:"), 3);
+            N.SendByte(configuration, N.Sel("setCapturesAudio:"), 0);
+            N.SendByte(configuration, N.Sel("setShowsCursor:"), 0);
+            N.SendByte(configuration, N.Sel("setScalesToFit:"), 1);
+            N.SendByte(configuration, N.Sel("setIgnoreShadowsSingleWindow:"), 1);
+            N.SendByte(configuration, N.Sel("setIncludeChildWindows:"), 0);
+            N.SendTime(configuration, N.Sel("setMinimumFrameInterval:"),
+                new MacOSCaptureTime { Value = 1, Timescale = 30, Flags = 1 });
+            _ = N.Send1(configuration, N.Sel("setColorSpaceName:"), runtime.SrgbName);
+        }
+
+        public byte AddOutput(nint stream, nint output, nint queue, out nint error) =>
+            N.AddOutput(stream, N.Sel("addStreamOutput:type:sampleHandlerQueue:error:"),
+                output, 0, queue, out error);
+
+        public byte RemoveOutput(nint stream, nint output, out nint error) =>
+            N.RemoveOutput(stream, N.Sel("removeStreamOutput:type:error:"), output, 0, out error);
+
+        public IMacOSRemoteWindowCaptureCompletion CreateCompletion(
+            Action<nint> action, Action<Exception> failure, Action completed) =>
+            new NativeCaptureCompletion(action, failure, completed);
+
+        public nint GetCompletionSelector(bool isStart) => N.Sel(isStart
+            ? "startCaptureWithCompletionHandler:" : "stopCaptureWithCompletionHandler:");
+        public void InvokeCompletion(nint stream, nint selector, nint completion) =>
+            _ = N.Send1(stream, selector, completion);
+
+        [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+        private static void QueueBarrier(nint context) { }
+
+        public unsafe void DrainSampleQueue(nint queue) => N.dispatch_sync_f(queue, 0,
+            (nint)(delegate* unmanaged[Cdecl]<nint, void>)&QueueBarrier);
+        public void ReleaseObject(nint owner) => N.objc_release(owner);
+        public void ReleaseQueue(nint queue) => N.dispatch_release(queue);
+
+        public nint? GetSampleFrameStatus(nint sample)
+        {
+            nint attachments = N.CMSampleBufferGetSampleAttachmentsArray(sample, 0);
+            if (attachments == 0 || N.CFArrayGetCount(attachments) < 1)
+            {
+                return null;
+            }
+
+            nint dictionary = N.CFArrayGetValueAtIndex(attachments, 0);
+            nint status = N.CFDictionaryGetValue(dictionary, N.FrameStatusKey);
+            return status == 0 ? null : N.GetNInt(status, N.Sel("integerValue"));
+        }
+
+        public bool IsSampleReady(nint sample) => N.CMSampleBufferIsValid(sample) != 0
+            && N.CMSampleBufferDataIsReady(sample) != 0;
+
+        public IMacOSRemoteWindowNativeSample RetainSample(nint sample, int width, int height)
+        {
+            nint retained = N.CFRetain(sample);
+            try
+            {
+                return new MacOSRemoteWindowNativeSample(retained, width, height);
+            }
+            catch
+            {
+                N.CFRelease(retained);
+                throw;
+            }
+        }
+    }
+
     private sealed class Capture : IMacOSRemoteWindowNativeCapture
     {
         private static readonly ConcurrentDictionary<nint, Capture> Roots = new();
@@ -564,7 +712,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         [ThreadStatic] private static CallbackScope? callbackScope;
         private readonly object gate = new();
         private readonly MacOSRemoteWindowScreenCaptureKitApi api;
-        private readonly NativeSource source;
+        private readonly IMacOSRemoteWindowCaptureOperations operations;
+        private readonly IMacOSRemoteWindowCaptureSource source;
         private readonly Action<IMacOSRemoteWindowNativeSample> takeSampleOwnership;
         private readonly Action sourceUnavailable;
         private readonly TaskCompletionSource<bool> startCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -578,8 +727,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         private nint queue;
         private nint configuration;
         private GCHandle callbackRoot;
-        private MacOSRemoteWindowBlock? startBlock;
-        private MacOSRemoteWindowBlock? stopBlock;
+        private IMacOSRemoteWindowCaptureCompletion? startBlock;
+        private IMacOSRemoteWindowCaptureCompletion? stopBlock;
         private Task<bool>? drain;
         private bool startRequested;
         private bool startIssued;
@@ -616,11 +765,12 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             && (!startRequested || startCallbackExited.Task.IsCompletedSuccessfully)
             && (!stopIssued || stopCallbackExited.Task.IsCompletedSuccessfully);
 
-        internal Capture(MacOSRemoteWindowScreenCaptureKitApi api, Runtime runtime,
-            NativeSource source, Action<IMacOSRemoteWindowNativeSample> takeSampleOwnership,
+        internal Capture(MacOSRemoteWindowScreenCaptureKitApi api, IMacOSRemoteWindowCaptureOperations operations,
+            IMacOSRemoteWindowCaptureSource source, Action<IMacOSRemoteWindowNativeSample> takeSampleOwnership,
             Action sourceUnavailable)
         {
             this.api = api;
+            this.operations = operations;
             this.source = source.RetainOwner();
             this.takeSampleOwnership = takeSampleOwnership;
             this.sourceUnavailable = sourceUnavailable;
@@ -636,27 +786,16 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             bool publicationRejected = false;
             try
             {
-                pool = N.objc_autoreleasePoolPush();
-                configuration = N.Send0(runtime.ConfigurationClass, N.Sel("new"));
-                output = N.Send0(runtime.OutputClass, N.Sel("new"));
-                queue = N.dispatch_queue_create("flowspan.remote-window.samples", 0);
+                pool = operations.PushAutoreleasePool();
+                configuration = operations.AllocateConfiguration();
+                output = operations.AllocateOutput();
+                queue = operations.CreateSampleQueue();
                 if (configuration == 0 || output == 0 || queue == 0)
                 {
                     throw new InvalidOperationException("macOS capture allocation unavailable.");
                 }
 
-                N.SendNUInt(configuration, N.Sel("setWidth:"), (nuint)width);
-                N.SendNUInt(configuration, N.Sel("setHeight:"), (nuint)height);
-                N.SendUInt(configuration, N.Sel("setPixelFormat:"), N.Bgra);
-                N.SendNInt(configuration, N.Sel("setQueueDepth:"), 3);
-                N.SendByte(configuration, N.Sel("setCapturesAudio:"), 0);
-                N.SendByte(configuration, N.Sel("setShowsCursor:"), 0);
-                N.SendByte(configuration, N.Sel("setScalesToFit:"), 1);
-                N.SendByte(configuration, N.Sel("setIgnoreShadowsSingleWindow:"), 1);
-                N.SendByte(configuration, N.Sel("setIncludeChildWindows:"), 0);
-                N.SendTime(configuration, N.Sel("setMinimumFrameInterval:"),
-                    new MacOSCaptureTime { Value = 1, Timescale = 30, Flags = 1 });
-                _ = N.Send1(configuration, N.Sel("setColorSpaceName:"), runtime.SrgbName);
+                operations.Configure(configuration, width, height);
 
                 callbackRoot = GCHandle.Alloc(this);
                 Interlocked.Increment(ref retainedOwners);
@@ -669,16 +808,15 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 rooted = true;
                 // SCStreamDelegate is deliberately absent: only the sample
                 // queue has a proven drain barrier in this implementation.
-                stream = N.InitStream(N.Send0(runtime.StreamClass, N.Sel("alloc")),
-                    N.Sel("initWithFilter:configuration:delegate:"), this.source.Filter, configuration, 0);
+                stream = operations.InitializeStream(operations.AllocateStream(),
+                    this.source.Filter, configuration, 0);
                 if (stream == 0)
                 {
                     throw new InvalidOperationException("macOS capture stream unavailable.");
                 }
 
                 publicationAttempted = true;
-                byte registered = N.AddOutput(stream,
-                    N.Sel("addStreamOutput:type:sampleHandlerQueue:error:"), output, 0, queue, out nint error);
+                byte registered = operations.AddOutput(stream, output, queue, out nint error);
                 publicationRejected = registered == 0;
                 if (publicationRejected || error != 0)
                 {
@@ -735,7 +873,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             {
                 if (pool != 0)
                 {
-                    N.objc_autoreleasePoolPop(pool);
+                    operations.PopAutoreleasePool(pool);
                 }
             }
         }
@@ -766,7 +904,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
             try
             {
-                if (!api.IsCurrent(source))
+                if (!source.IsCurrent())
                 {
                     SetStartResult(false);
                     NotifyUnavailable();
@@ -774,7 +912,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     return new(startCompletion.Task);
                 }
 
-                startBlock = MacOSRemoteWindowBlock.Create(error =>
+                startBlock = operations.CreateCompletion(error =>
                 {
                     SetStartResult(error == 0);
                     if (error != 0)
@@ -788,7 +926,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     SetStartResult(false);
                     NotifyUnavailable();
                 }, () => startCallbackExited.TrySetResult(true));
-                InvokeCompletion("startCaptureWithCompletionHandler:", startBlock.Pointer, isStart: true);
+                InvokeCompletion(startBlock.Pointer, isStart: true);
             }
             catch (Exception exception)
             {
@@ -840,7 +978,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     outputRemoved = true;
                 }
 
-                DrainSampleQueue(queue);
+                operations.DrainSampleQueue(queue);
                 lock (gate)
                 {
                     queueDrained = true;
@@ -953,7 +1091,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
                 // DrainAsync always starts on the thread pool. Never execute a
                 // dispatch_sync barrier inline on the sample callback queue.
-                DrainSampleQueue(queue);
+                operations.DrainSampleQueue(queue);
                 lock (gate)
                 {
                     queueDrained = true;
@@ -991,7 +1129,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
             try
             {
-                stopBlock = MacOSRemoteWindowBlock.Create(error =>
+                stopBlock = operations.CreateCompletion(error =>
                 {
                     lock (gate)
                     {
@@ -1006,7 +1144,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     MarkUnsafeFailure();
                     stopCompletion.TrySetResult(false);
                 }, () => stopCallbackExited.TrySetResult(true));
-                InvokeCompletion("stopCaptureWithCompletionHandler:", stopBlock.Pointer, isStart: false);
+                InvokeCompletion(stopBlock.Pointer, isStart: false);
                 bool stopped = await stopCompletion.Task.ConfigureAwait(false);
                 await stopCallbackExited.Task.ConfigureAwait(false);
                 return stopped;
@@ -1100,7 +1238,10 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         }
 
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-        internal static void DidOutput(nint self, nint selector, nint stream, nint sample, nint kind)
+        internal static void DidOutput(nint self, nint selector, nint stream, nint sample, nint kind) =>
+            ProcessOutput(self, stream, sample, kind);
+
+        internal static void ProcessOutput(nint self, nint stream, nint sample, nint kind)
         {
             Capture? capture = null;
             CallbackScope? ancestry = null;
@@ -1123,49 +1264,31 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     return;
                 }
 
-                if (!capture.api.IsCurrent(capture.source))
+                if (!capture.source.IsCurrent())
                 {
                     capture.NotifyUnavailable();
                     return;
                 }
 
-                nint attachments = N.CMSampleBufferGetSampleAttachmentsArray(sample, 0);
-                if (attachments == 0 || N.CFArrayGetCount(attachments) < 1)
+                nint? frameStatus = capture.operations.GetSampleFrameStatus(sample);
+                if (frameStatus is null)
                 {
                     return;
                 }
 
-                nint dictionary = N.CFArrayGetValueAtIndex(attachments, 0);
-                nint status = N.CFDictionaryGetValue(dictionary, N.FrameStatusKey);
-                if (status == 0)
-                {
-                    return;
-                }
-
-                nint frameStatus = N.GetNInt(status, N.Sel("integerValue"));
                 if (frameStatus == 5)
                 {
                     capture.NotifyUnavailable();
                     return;
                 }
 
-                if (frameStatus != 0 || N.CMSampleBufferIsValid(sample) == 0
-                    || N.CMSampleBufferDataIsReady(sample) == 0)
+                if (frameStatus != 0 || !capture.operations.IsSampleReady(sample))
                 {
                     return;
                 }
 
-                nint retained = N.CFRetain(sample);
-                MacOSRemoteWindowNativeSample owner;
-                try
-                {
-                    owner = new(retained, capture.width, capture.height);
-                }
-                catch
-                {
-                    N.CFRelease(retained);
-                    throw;
-                }
+                IMacOSRemoteWindowNativeSample owner = capture.operations.RetainSample(
+                    sample, capture.width, capture.height);
 
                 // Invocation transfers ownership, including reject/throw paths.
                 capture.takeSampleOwnership(owner);
@@ -1200,19 +1323,12 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             }
         }
 
-        [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-        private static void QueueBarrier(nint context) { }
-
-        private static unsafe void DrainSampleQueue(nint queue) =>
-            N.dispatch_sync_f(queue, 0,
-                (nint)(delegate* unmanaged[Cdecl]<nint, void>)&QueueBarrier);
-
-        private void InvokeCompletion(string selector, nint block, bool isStart)
+        private void InvokeCompletion(nint block, bool isStart)
         {
-            nint pool = N.objc_autoreleasePoolPush();
+            nint pool = operations.PushAutoreleasePool();
             try
             {
-                nint selectorPointer = N.Sel(selector);
+                nint selectorPointer = operations.GetCompletionSelector(isStart);
                 lock (gate)
                 {
                     if (isStart)
@@ -1225,25 +1341,24 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     }
                 }
 
-                _ = N.Send1(stream, selectorPointer, block);
+                operations.InvokeCompletion(stream, selectorPointer, block);
             }
             finally
             {
-                N.objc_autoreleasePoolPop(pool);
+                operations.PopAutoreleasePool(pool);
             }
         }
 
-        private static bool RemoveNativeOutput(nint stream, nint output)
+        private bool RemoveNativeOutput(nint stream, nint output)
         {
-            nint pool = N.objc_autoreleasePoolPush();
+            nint pool = operations.PushAutoreleasePool();
             try
             {
-                return N.RemoveOutput(stream, N.Sel("removeStreamOutput:type:error:"),
-                    output, 0, out nint error) != 0 && error == 0;
+                return operations.RemoveOutput(stream, output, out nint error) != 0 && error == 0;
             }
             finally
             {
-                N.objc_autoreleasePoolPop(pool);
+                operations.PopAutoreleasePool(pool);
             }
         }
 
@@ -1372,7 +1487,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 {
                     try
                     {
-                        N.dispatch_release(queue);
+                        operations.ReleaseQueue(queue);
                         queue = 0;
                     }
                     catch (Exception exception)
@@ -1415,7 +1530,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             }
         }
 
-        private bool ReleaseBlock(MacOSRemoteWindowBlock? block)
+        private bool ReleaseBlock(IMacOSRemoteWindowCaptureCompletion? block)
         {
             if (block is null)
             {
@@ -1454,7 +1569,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
             try
             {
-                N.objc_release(owner);
+                operations.ReleaseObject(owner);
                 owner = 0;
                 return true;
             }

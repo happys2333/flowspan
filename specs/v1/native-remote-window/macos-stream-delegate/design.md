@@ -34,14 +34,14 @@ including Task.Run descendants. Completion continuations run asynchronously and
 outside the gate. Callback exceptions are observable and fail admission closed.
 Generation exhaustion rejects rather than wrapping.
 
-## Native association slice (Foundation local prerequisites verified)
+## Native association slice (Foundation local/hosted prerequisites verified)
 
 The opt-in tool now implements and actually verifies the tag/reference/dealloc
 subset below, without actual Capture. See
 [Phase 2a evidence](../../../../docs/evidence/2026-10-05-macos-native-association.md).
 The legacy Phase 2a nil-tag path still rejects unknown sources. The independent
-early mode now executes the retained early-fact/publication protocol locally;
-its exact-commit hosted gate remains open. Neither mode is actual Capture
+early mode now executes the retained early-fact/publication protocol locally and
+at exact `2c6f8fd` in hosted CI. Neither mode is actual Capture
 composition or permission/pixel evidence.
 
 One permanent NSObject bridge dispatches via immutable stream associations.
@@ -101,8 +101,10 @@ configurations; full local solutions pass 2775 cases each. See
 [portable evidence](../../../../docs/evidence/2026-10-05-macos-early-association-coordinator.md).
 Exact `9deed36` hosted CI failed four Windows fixture cases, while all 29
 coordinator cases passed on all OSes. The repaired complete local solution now
-passes 2777 cases per configuration; fresh exact-SHA hosted verification remains
-open. The separate Foundation early-publication proof has final local evidence.
+passes 2777 cases per configuration; exact `2c6f8fd` now passes the complete
+three-OS hosted inventory. The separate Foundation early-publication proof has
+final local and hosted evidence. Native error/ownership and Capture composition
+remain separate unverified gates.
 
 An immutable Initializer object wraps one registration; it is never recycled.
 The coordinator serializes exact-token/pending-fact state with a short gate,
@@ -152,7 +154,7 @@ scheduling or native fault containment.
 in its finally path can still fail and close the runtime. Capture must consume
 `Failure` and `NativeAdmissionClosed`; the Boolean cannot grant sharing admission.
 
-## Opt-in Foundation early-association proof (local verified; hosted pending)
+## Opt-in Foundation early-association proof (local/hosted verified)
 
 `--run-early-associations` is an independent no-capture mode, with its own
 process-rooted coordinator/router/bridge and validated numeric tag class. Keep
@@ -198,6 +200,24 @@ native subitem; actual Capture and remaining MSC gates stay independent. See
 and [root gates](../../../../docs/evidence/2026-10-05-early-checkpoint-local-gates.md).
 
 ## Capture composition (not yet implemented)
+
+The first composition preparation extracts only the Capture's native system
+boundary, not another Capture state machine. An internal operations interface
+owns allocation/configuration, output and sample queue operations, stream
+initialization, completion invocation, release, pool and sample reads. A source
+owner interface retains/checks/releases the exact source; a small completion
+owner wraps the unchanged copied-Block implementation. Allocate and record each
++1 owner before later configuration can fail. Keep stream alloc/init ownership
+semantics explicit. The unmanaged sample trampoline and portable tests invoke
+one shared managed sample core on the actual Capture. Enumeration, TCC/window
+system and permission APIs remain outside this seam.
+
+This initial refactor deliberately keeps production `delegate=0`, the existing
+14.2 candidate floor and availability unchanged. Tests drive healthy lifecycle,
+completion action versus callback exit, factory rollback/handoff, sample queue
+barrier, independent owner quarantine and sample ownership transfer. Such tests
+prove the existing same-state-machine composition with fake native boundaries;
+they do not prove SCStream execution or the later nonzero-delegate lifetime.
 
 `MacOSRemoteWindowScreenCaptureKitApi.Capture` currently publishes only sample
 output and passes `delegate=0`. Nonzero delegate publication occurs before

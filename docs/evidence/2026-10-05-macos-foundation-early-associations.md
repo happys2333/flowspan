@@ -2,8 +2,9 @@
 
 Status: final no-capture tool locally executed in Debug/Release and independently
 audited. [Root CI-helper replay and broader combined solution gates](2026-10-05-early-checkpoint-local-gates.md)
-also pass in separate records; a new exact commit's hosted evidence remains
-pending and is not inferred here. Actual
+also pass in separate records. Exact `2c6f8fd` has separately audited
+[hosted evidence](2026-10-05-early-association-hosted-checkpoint.md), not inferred
+from these local executions. Actual
 Capture still passes `delegate=0`; MSC task 2b, MSC9 composition, parent Task 6,
 v1 and the active Goal remain open.
 
