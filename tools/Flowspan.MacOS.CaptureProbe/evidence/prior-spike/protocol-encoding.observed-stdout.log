@@ -1,0 +1,8 @@
+target triple = "arm64-apple-macosx12.3.0"
+@OBJC_METH_VAR_NAME_.41 = private unnamed_addr constant [37 x i8] c"stream:didOutputSampleBuffer:ofType:\00", section "__TEXT,__objc_methname,cstring_literals", align 1
+@OBJC_METH_VAR_TYPE_.42 = private unnamed_addr constant [40 x i8] c"v40@0:8@16^{opaqueCMSampleBuffer=}24q32\00", section "__TEXT,__objc_methtype,cstring_literals", align 1
+@OBJC_METH_VAR_TYPE_.43 = private unnamed_addr constant [50 x i8] c"v40@0:8@\22SCStream\2216^{opaqueCMSampleBuffer=}24q32\00", section "__TEXT,__objc_methtype,cstring_literals", align 1
+target triple = "x86_64-apple-macosx12.3.0"
+@OBJC_METH_VAR_NAME_.41 = private unnamed_addr constant [37 x i8] c"stream:didOutputSampleBuffer:ofType:\00", section "__TEXT,__objc_methname,cstring_literals", align 1
+@OBJC_METH_VAR_TYPE_.42 = private unnamed_addr constant [40 x i8] c"v40@0:8@16^{opaqueCMSampleBuffer=}24q32\00", section "__TEXT,__objc_methtype,cstring_literals", align 1
+@OBJC_METH_VAR_TYPE_.43 = private unnamed_addr constant [50 x i8] c"v40@0:8@\22SCStream\2216^{opaqueCMSampleBuffer=}24q32\00", section "__TEXT,__objc_methtype,cstring_literals", align 1

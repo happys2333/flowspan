@@ -1,0 +1,7 @@
+runtime=.NET 10.0.9; arch=Arm64; mode=synthetic-only
+sizes: block=40; descriptor=40; CGRect=32; CMTime=24; timing=72
+stream_configuration=pass; width=2; height=2; format=BGRA; queueDepth=3; CMTime_roundtrip=pass; CGRect_roundtrip=pass
+copied_blocks=pass; cycles=1000; callbacks=1000; copy_helpers=1000; dispose_helpers=1000; live_contexts=0; forced_GC_before_invoke=true
+objc_output_callback=pass; native_dispatch_thread=true; protocol_pre_registered=False; protocol_encoding=v40@0:8@16^{opaqueCMSampleBuffer=}24q32; synthetic_sample_cycles=1000; retained_after_producer_release=pass; bounded_row_copy=pass; live_retained_samples=0
+own_window_capture=skip; reason=explicit_native_self_window_flag_required; preflight_called=false; AppKit_initialized=false; native_capture_executed=false
+user_existing_window_capture_calls=0; window_title_reads=0; permissions_requested=0; pixel_files_written=0; all_block_GCHandle_contexts=0

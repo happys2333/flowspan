@@ -492,8 +492,15 @@ Accessibility trust plus CoreGraphics events for input, and
 window sharing/protection facts and source loss supplement secure input.
 
 Core C APIs use source-generated C# interop. ScreenCaptureKit is Objective-C and
-block based; implementation must first prove that direct managed interop can own
-callbacks and lifetimes without private ABI assumptions. Otherwise a minimal,
+block based. The ordinary-arm64 feasibility probe actually exercised copied
+Blocks, retained samples and a task-owned exact-window capture; the direct C#
+candidate follows [ADR 0029](../../../docs/adr/0029-direct-csharp-screencapturekit-interop.md).
+Its documented Clang compiler-ABI bridge is explicit, not a claim that compiler-
+only symbols are ordinary high-level APIs. The initial candidate is restricted
+to macOS >=14.2 ordinary arm64 and requires the existing AppKit owner; protected-
+content status remains Unknown. Native stop/output-removal/queue/worker drain
+is separately owned and joined by Desktop, not inferred from a closed delivery
+latch or controller `FullyStopped`. Otherwise a minimal,
 versioned, C-callable Swift shim is allowed only at that ABI boundary and requires
 an ADR, deterministic build input, packaging, signing, and leak/crash tests. All
 state and policy remain in C#.

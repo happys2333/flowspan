@@ -147,6 +147,22 @@ vulnerabilities reported by any of its 26 projects.
 The package artifact metadata binds each archive to the exact implementation
 SHA and CI run, and its ID, size, and digest match the upload logs. These
 digests identify GitHub artifact archives, not their inner release packages.
+Linux and macOS outer archives were also downloaded; their local SHA-256
+matches the table, and all six entries per archive pass `unzip -t`. The
+additional Windows archive download terminated with a network-read timeout;
+its incomplete bytes were retained as `.zip.partial`, and no matching local
+Windows package-archive hash is claimed. Its package job and repeated-seal
+verification are independently proven by the successful job and logs above.
+
+This closes managed Tasks 5.5a.3e and 5.5a.3f. The remaining native, physical-
+Device, accessibility, signing, notarization, and release gates remain open.
+
+Documentation-only follow-up `7eaad515c45077b38bcb5f454def4603a9fcc19f`
+also passed CI `37196156598` and CodeQL `37196156525` (run 231, attempt 1).
+Its three test jobs, Secret Scan and three package jobs succeeded; CodeQL
+analysis `1888447294` binds that SHA and reports 52 rules / 0 results. Only four
+docs/specs files differ from the implementation SHA, so this does not broaden
+the native or physical evidence. These follow-up artifacts were not redownloaded.
 
 Reproduce the hosted state and retrieve the retained evidence:
 
