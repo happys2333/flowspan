@@ -1393,7 +1393,7 @@
         and the remaining lifecycle, pre-generation, and full fault matrix
         gates remain open.
         _Requirements: NR8.12-NR8.16_
-  - [ ] 5.5b Compose a cross-platform production ViewOnly participant Viewer.
+  - [x] 5.5b Compose a cross-platform production ViewOnly participant Viewer.
     Default reception to disabled and expose explicit enable/stop controls;
     reject DriverEligible before attachment. Inject the real Avalonia renderer
     and local receive policy through the existing authenticated runtime and
@@ -1404,6 +1404,19 @@
     connection. Verify keyboard/resource-backed presentation, late generations,
     queued UI ownership, and the real TCP/protocol-1.7/FSM1 path on the hosted OS
     matrix. Host native readiness, driving, and physical-device gates remain open.
+    Implementation `94f10dc`, with import-order verification correction
+    `f598d92`, passes exact-source local Debug/Release and exact-SHA CI
+    `37199481975` / CodeQL `37199481994`. Each hosted OS has 12 downloaded TRX
+    files proving 2624/2624 tests with every non-success counter zero, including
+    all 21 added Viewer, Stop-join, epoch and Transport cases. The real headless
+    Skia/TCP tracer proves hidden Prepare, exact Admission before pixels, borrowed
+    storage release, and complete logical-node cleanup. Windows/Linux native ABI
+    probes explicitly skip; the macOS default probe runs synthetic ABI checks
+    without window capture. Signing, packaged native accessibility, native host
+    readiness and physical Devices are not proven. Exact artifact digests,
+    initial formatting failure, CodeQL 391/392 scan boundary and repeatable
+    unsigned-package limits are in the
+    [Viewer evidence](../../../docs/evidence/2026-10-04-viewonly-participant-viewer.md).
     _Requirements: NR2.7-NR2.12, NR3.4-NR3.5, NR8, NR9_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
