@@ -17,6 +17,10 @@ preserves the original failed Windows WGC attempt; the one-variable
 [non-tool-window follow-up](../../docs/evidence/2026-10-04-wgc-non-tool-window.md)
 has actual task-owned hosted capture success. Production/native/physical/release
 gates remain open, and the macOS delegate ownership prerequisite is in progress.
+Its final local owner/tool slice passes complete Debug/Release solutions at
+2710/2710 and actual no-capture synthetic Objective-C/GCD execution in both
+configurations; [local evidence](../../docs/evidence/2026-10-04-macos-delegate-ownership.md)
+does not substitute for its pending exact-SHA hosted matrix or production gates.
 
 ## 0. Product and engineering baseline
 

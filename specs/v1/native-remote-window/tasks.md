@@ -1447,11 +1447,14 @@
   - _Requirements: NR1-NR6, NR8-NR10_
 
 - [ ] 6. Deliver the macOS native vertical slice
-  - [ ] 6.1a Implement the separate
+  - [-] 6.1a Implement the separate
     [delegate ownership prerequisite](macos-delegate-ownership/tasks.md):
     immutable bounded bridge owners, terminal-without-sample admission closure,
     self-join protection and no-capture synthetic ABI evidence. Current Capture
     remains `delegate=0`; completing this prerequisite cannot close Task 6.
+    Final local portable owner, no-capture synthetic tool and complete solution
+    Debug/Release pass (2710/2710 each); exact new-SHA hosted matrix remains
+    pending. See [delegate ownership evidence](../../../docs/evidence/2026-10-04-macos-delegate-ownership.md).
   - Implement prompt-free screen-capture and Accessibility facts, explicit TCC
     requests, secure-input observation, exact source enumeration, and generation
     leases through documented CoreGraphics, ApplicationServices, and

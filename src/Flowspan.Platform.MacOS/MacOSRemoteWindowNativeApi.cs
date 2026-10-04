@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Flowspan.Platform.MacOS.Tests")]
 [assembly: InternalsVisibleTo("Flowspan.MacOS.NativeCaptureProbe")]
+[assembly: InternalsVisibleTo("Flowspan.MacOS.DelegateProbe")]
 
 namespace Flowspan.Platform.MacOS;
 
