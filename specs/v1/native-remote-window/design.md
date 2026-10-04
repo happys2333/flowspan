@@ -452,6 +452,18 @@ managed bytes. The codec clears source/scaled Skia pixel spans, its native encod
 copy, failed decode buffers, and pooled scratch before releasing them. Task 5 must
 preserve that ownership through queue, transport, and renderer handoff.
 
+The first production participant path is an explicitly enabled ViewOnly receiver
+in the existing Desktop shell. It defaults to disabled, rejects DriverEligible,
+and owns one generation-bound renderer. Prepare reserves a hidden surface; only
+the existing exact final Admission and receive loop can supply visible pixels.
+Render awaits UI-thread pixel copying before returning the borrowed decoded
+frame. The UI callback rechecks cancellation and the local receive epoch before
+swapping the bitmap; replaced and closed bitmaps are cleared and disposed.
+Stopping reception first closes local admission and then detaches, cancels,
+fail-closes, and drains the actual participant/media generation. Re-enabling
+creates a fresh epoch, so a delayed old Prepare or frame cannot restore display.
+This receiver does not change native host readiness or grant driving authority.
+
 Golden compatibility covers a fixed decoder JPEG, the 1.6 attachment envelopes,
 and the existing fixed media-frame codec vector. Encoder output is deliberately
 not hash-frozen across supported OS native Skia builds; tests instead assert JPEG

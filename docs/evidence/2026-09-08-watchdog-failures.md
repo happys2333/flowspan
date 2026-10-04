@@ -7,9 +7,10 @@ Local environment: macOS 26.6.2 arm64, build 25G83, .NET SDK 10.0.301.
 
 This is the Task 5.5a.3e managed-contract checkpoint under
 [ADR 0028](../adr/0028-bounded-remote-window-cleanup-confirmation.md).
-The exact-commit hosted runs succeeded. Named-case hosted TRX verification is
-still pending because their retained artifacts are no longer available; this
-checkpoint does not yet close the task.
+The original exact-commit hosted runs succeeded, although their retained TRX
+artifacts are no longer available. A subsequent exact-commit checkpoint on
+2026-10-04 supplies downloaded, individually matched hosted TRX for all ten
+cases below.
 
 ## Implemented behavior
 
@@ -191,13 +192,43 @@ gh api --paginate 'repos/happys2333/flowspan/code-scanning/alerts?state=open&ref
 git show 972d95749447810004972c6a1ec645712a40651b:.github/workflows/ci.yml
 ```
 
+## Subsequent named-case checkpoint
+
+Implementation `7e7efdc91c5ca3719da20e93c7e55c61b6eeb859` retains all ten
+watchdog cases and adds the separate semantic failure ordering slice.
+[CI 37195202126](https://github.com/happys2333/flowspan/actions/runs/37195202126)
+and [CodeQL 37195202142](https://github.com/happys2333/flowspan/actions/runs/37195202142)
+are run 230, attempt 1, completed successfully at that exact SHA.
+
+Downloaded Windows, Linux, and macOS archives each contain 12 parsed TRX
+files, 2603 total/executed/passed tests, and 739 total/executed/passed Desktop
+tests. Every other counter is zero. Each of the five test families in the
+regression table was matched by name in every archive with exactly the listed
+case count (4, 2, 1, 2, and 1 respectively); all ten outcomes are `Passed` on
+each OS. The downloaded archive bytes match their API digests:
+
+| OS | Artifact ID | Downloaded archive SHA-256 |
+| --- | ---: | --- |
+| Windows | `11300951255` | `613cf7fd21af8ddb931a4b8a6193406404c84e2c5c44313212ddc3c960752ff1` |
+| Linux | `11301095708` | `509f82416531997a6b54eeac62ad9af89a598935ec1cf75033b825fce645cb5a` |
+| macOS | `11301020989` | `4cad4dd3e88c2d533faa547fbf05f28d1cdaf6794dc9f5c55bdc86dd7312124e` |
+
+Artifact metadata binds every archive to the later exact implementation SHA
+and CI run. This supplies the missing named-case checkpoint evidence without
+claiming that the expired historical run 229 TRX were recovered. Full
+run-230 Secret Scan, CodeQL, package, and semantic-slice evidence is in
+[semantic terminal failure ordering](2026-10-04-semantic-terminal-failures.md).
+Task 5.5a.3e is complete with this later named-case checkpoint.
+
 ## Acceptance limits
 
 The coordinator cases exercise managed Dispose initiation; the additional
 cross-thread case tests the internal confirmation operation with controlled
-callbacks. Explicit Stop primary-failure ledger ordering, lifecycle-gate
-contention, pre-generation cleanup, and the complete failure matrix remain
-open. This adds no production-composed tracer case; that class remains 42.
+callbacks. The original watchdog slice did not cover explicit Stop primary-
+failure ledger ordering; the subsequent Task 5.5a.3f slice addresses that
+ordering separately. Lifecycle-gate contention, pre-generation cleanup, and
+the complete failure matrix remain open. This adds no production-composed
+tracer case; that class remains 42.
 
 Native APIs, physical two-Device use, packaged accessibility, signing,
 notarization, and release acceptance remain unverified by this checkpoint.

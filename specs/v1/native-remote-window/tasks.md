@@ -1352,7 +1352,7 @@
         [first fatal cleanup evidence](../../../docs/evidence/2026-09-08-first-fatal-cleanup.md)
         for scope, failure ordering, artifact digests, and remaining gates.
         _Requirements: NR8.13-NR8.16, NR10.8_
-      - [ ] 5.5a.3e Handle watchdog provider failures and completion races.
+      - [x] 5.5a.3e Handle watchdog provider failures and completion races.
         Preserve direct/nested setup OOM, including a provider that invokes the
         timeout callback before throwing. Retain the original setup exception
         in an internal diagnostic lane while keeping ordinary public failures
@@ -1363,11 +1363,17 @@
         release. Keep external commit callbacks outside the winner lock so a
         cross-thread timeout callback and provider setup failure cannot deadlock;
         wait for confirmation commit before recording late cleanup failures.
-        This covers managed Dispose initiation; explicit Stop primary
-        ordering, lifecycle contention, pre-generation cleanup, native runtime,
-        and the complete failure matrix remain open.
+        This covers managed Dispose initiation; explicit Stop primary ordering
+        is covered separately by Task 5.5a.3f. Lifecycle contention,
+        pre-generation cleanup, native runtime, and the complete failure matrix
+        remain open. Exact-commit CI `37195202126` at `7e7efdc` provides
+        downloaded Windows, macOS, and Linux TRX with all ten named watchdog
+        cases Passed, 2603/2603 solution tests, and 739/739 Desktop tests per OS.
+        See the
+        [watchdog failure evidence](../../../docs/evidence/2026-09-08-watchdog-failures.md)
+        for the original implementation and later named-case checkpoint.
         _Requirements: NR8.13-NR8.16_
-      - [ ] 5.5a.3f Project terminal failures in fixed semantic order across
+      - [x] 5.5a.3f Project terminal failures in fixed semantic order across
         explicit Stop, confirmation, watchdog release, and owner cleanup.
         Retain every original non-aggregate leaf and first-committed OOM;
         preserve already completed public Stop/Dispose results and record the
@@ -1376,9 +1382,29 @@
         failed watchdog setup, combined primary/timeout/release/fallback/owner
         failures, Confirmation OOM before late Primary OOM, caller cancellation, and
         distinct initial/fallback unconfirmed results. Verify all independently
-        safe owners drain. Native composition and the remaining lifecycle,
-        pre-generation, and full fault matrix gates remain open.
+        safe owners drain. Exact implementation `7e7efdc` passes 2603/2603
+        solution tests in local Debug and Release. Exact-commit CI
+        `37195202126` provides downloaded Windows, macOS, and Linux TRX with
+        the four new semantic-slot cases and the existing cancellation and
+        unconfirmed Stop cases individually Passed. Secret Scan, CodeQL
+        `37195202142`, and all three unsigned package jobs succeed. See the
+        [semantic terminal failure evidence](../../../docs/evidence/2026-10-04-semantic-terminal-failures.md)
+        for artifact digests and repeatable-packaging limits. Native composition
+        and the remaining lifecycle, pre-generation, and full fault matrix
+        gates remain open.
         _Requirements: NR8.12-NR8.16_
+  - [ ] 5.5b Compose a cross-platform production ViewOnly participant Viewer.
+    Default reception to disabled and expose explicit enable/stop controls;
+    reject DriverEligible before attachment. Inject the real Avalonia renderer
+    and local receive policy through the existing authenticated runtime and
+    shell. Keep Prepare hidden and show pixels only after exact final Admission.
+    Await bounded UI copying of borrowed frames, recheck receive epoch and
+    cancellation at UI execution, and clear replaced/disposed bitmap storage.
+    Stop must close admission and drain the participant plus owning media/control
+    connection. Verify keyboard/resource-backed presentation, late generations,
+    queued UI ownership, and the real TCP/protocol-1.7/FSM1 path on the hosted OS
+    matrix. Host native readiness, driving, and physical-device gates remain open.
+    _Requirements: NR2.7-NR2.12, NR3.4-NR3.5, NR8, NR9_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop
