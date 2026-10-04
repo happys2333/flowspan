@@ -1367,6 +1367,18 @@
         ordering, lifecycle contention, pre-generation cleanup, native runtime,
         and the complete failure matrix remain open.
         _Requirements: NR8.13-NR8.16_
+      - [ ] 5.5a.3f Project terminal failures in fixed semantic order across
+        explicit Stop, confirmation, watchdog release, and owner cleanup.
+        Retain every original non-aggregate leaf and first-committed OOM;
+        preserve already completed public Stop/Dispose results and record the
+        real cleanup result once. Retain a fallback unconfirmed outcome even
+        after an initially unconfirmed Stop. Exercise a late Primary after
+        failed watchdog setup, combined primary/timeout/release/fallback/owner
+        failures, Confirmation OOM before late Primary OOM, caller cancellation, and
+        distinct initial/fallback unconfirmed results. Verify all independently
+        safe owners drain. Native composition and the remaining lifecycle,
+        pre-generation, and full fault matrix gates remain open.
+        _Requirements: NR8.12-NR8.16_
   - [ ] 5.5 Compose exact-source capture, permission/readiness, controller,
     JPEG encoder, authenticated media, decoder, participant renderer, protection,
     independent Emergency Stop, visible sharing, input, and ordered Desktop

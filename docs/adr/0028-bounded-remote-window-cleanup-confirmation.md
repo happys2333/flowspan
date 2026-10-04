@@ -239,6 +239,14 @@ ordered timeout-plus-late-fault diagnostic projection. Each generation records
 its real cleanup failure at most once, regardless of the number of joining
 terminal observers or Dispose callers.
 
+The implementation retains a list for each semantic slot and publishes a new
+flat exception snapshot after each non-fatal addition. It retains the first
+committed OOM independently of slot order. Late initial Stop failure therefore
+precedes an earlier watchdog failure in diagnostics, while a previously completed
+public task keeps its original exception. An unconfirmed fallback Stop is always
+retained as a cleanup-step failure, including when the initial Stop was also
+unconfirmed; pending Stop and later Dispose expose the combined failures.
+
 ### Fatal exhaustion
 
 A direct `OutOfMemoryException`, or the first OOM found inside a nested cleanup

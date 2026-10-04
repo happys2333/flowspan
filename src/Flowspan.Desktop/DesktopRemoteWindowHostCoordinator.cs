@@ -332,6 +332,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private readonly TimeSpan preparationLifetime;
     private readonly ILocalSharingSessionBoundary sessions;
     private readonly object terminalFailureGate = new();
+    private readonly List<Exception>[] terminalFailureSlots = [[], [], [], []];
     private readonly object terminalStateGate = new();
     private RuntimeGeneration? active;
     private int cleanupUnconfirmed;
@@ -341,6 +342,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     private RuntimeGeneration? retiring;
     private int terminalCleanupAttachmentCount;
     private Exception? terminalFailure;
+    private OutOfMemoryException? terminalFatalFailure;
     private Exception? watchdogSetupFailure;
 
     public DesktopRemoteWindowHostCoordinator(
@@ -840,7 +842,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     .ConfigureAwait(false);
                 if (cleanupFailure is not null)
                 {
-                    RecordTerminalFailure(cleanupFailure);
+                    RecordTerminalFailure(
+                        cleanupFailure,
+                        TerminalFailureSlot.OwnerCleanup);
                     throw new AggregateException(
                         "Remote Window host validation and cleanup both failed.",
                         failure,
@@ -901,7 +905,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 }
                 catch (Exception failure)
                 {
-                    RecordTerminalFailureSafely(failure);
+                    RecordTerminalFailureSafely(failure, TerminalFailureSlot.Primary);
                 }
 
                 Volatile.Write(ref active, null);
@@ -1019,7 +1023,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
             catch (Exception failure)
             {
-                RecordTerminalFailureSafely(failure);
+                RecordTerminalFailureSafely(failure, TerminalFailureSlot.Primary);
             }
 
             Volatile.Write(ref active, null);
@@ -1187,7 +1191,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            RecordTerminalFailureSafely(exception);
+            RecordTerminalFailureSafely(exception, TerminalFailureSlot.Primary);
         }
 
         try
@@ -1200,12 +1204,12 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                     "emergency stop",
                     stopped.CaptureBoundary,
                     stopped.InputBoundary,
-                    stopped.SessionBoundary));
+                    stopped.SessionBoundary), TerminalFailureSlot.Primary);
             }
         }
         catch (Exception exception)
         {
-            RecordTerminalFailureSafely(exception);
+            RecordTerminalFailureSafely(exception, TerminalFailureSlot.Primary);
         }
 
         Task<CleanupConfirmationResult>? confirmation =
@@ -1249,7 +1253,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            RecordTerminalFailureSafely(exception);
+            RecordTerminalFailureSafely(exception, TerminalFailureSlot.OwnerCleanup);
         }
         finally
         {
@@ -1320,7 +1324,9 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             failure => CommitCleanupUnconfirmed(generation, failure),
             failure => CompleteRetiringCleanup(generation, failure),
             RecordWatchdogSetupFailure,
-            RecordTerminalFailureSafely);
+            failure => RecordTerminalFailureSafely(
+                failure,
+                TerminalFailureSlot.WatchdogRelease));
     }
 
     private void RecordWatchdogSetupFailure(Exception failure)
@@ -1330,7 +1336,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         {
             // A provider may invoke the timeout callback before throwing.
             // Preserve fatal diagnostics even when confirmation has a winner.
-            RecordTerminalFailureSafely(fatal);
+            RecordTerminalFatalFailure(fatal);
         }
     }
 
@@ -1348,7 +1354,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
             }
 
             Volatile.Write(ref cleanupUnconfirmed, 1);
-            RecordTerminalFailureSafely(failure);
+            RecordTerminalFailureSafely(failure, TerminalFailureSlot.Confirmation);
         }
     }
 
@@ -2284,7 +2290,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
         if (initialFailure is not null)
         {
-            RecordTerminalFailureSafely(initialFailure);
+            RecordTerminalFailureSafely(initialFailure, TerminalFailureSlot.Primary);
         }
         else if (initialResult is { FullyStopped: false })
         {
@@ -2292,7 +2298,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 "stop",
                 initialResult.CaptureBoundary,
                 initialResult.InputBoundary,
-                initialResult.SessionBoundary));
+                initialResult.SessionBoundary), TerminalFailureSlot.Primary);
         }
 
         explicitStop.Complete(initialResult, initialFailure);
@@ -2308,8 +2314,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                         generation.Controller,
                         CancellationToken.None)
                     .ConfigureAwait(false);
-            if (!fallback.FullyStopped
-                && initialResult is not { FullyStopped: false })
+            if (!fallback.FullyStopped)
             {
                 failures.Add(CreateUnconfirmedStopFailure(
                     "fallback stop",
@@ -2393,13 +2398,20 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
         + $"(capture={capture.ReasonCode}, input={input.ReasonCode}, "
         + $"sessions={sessions.ReasonCode}).");
 
-    private void RecordTerminalFailure(Exception failure)
+    private enum TerminalFailureSlot
+    {
+        Primary,
+        Confirmation,
+        WatchdogRelease,
+        OwnerCleanup,
+    }
+
+    private void RecordTerminalFailure(Exception failure, TerminalFailureSlot slot)
     {
         ArgumentNullException.ThrowIfNull(failure);
         lock (terminalFailureGate)
         {
-            if (terminalFailure is not null
-                && FindFirstOutOfMemory(terminalFailure) is { } existingFatal)
+            if (terminalFatalFailure is { } existingFatal)
             {
                 terminalFailure = existingFatal;
                 return;
@@ -2407,36 +2419,20 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
 
             if (FindFirstOutOfMemory(failure) is { } newFatal)
             {
+                terminalFatalFailure = newFatal;
                 terminalFailure = newFatal;
                 return;
             }
 
-            terminalFailure = terminalFailure is null
-                ? FlattenNonFatalTerminalFailure(failure)
-                : CombineNonFatalTerminalFailures(terminalFailure, failure);
+            AppendNonFatalTerminalLeaves(terminalFailureSlots[(int)slot], failure);
+            var projection = new List<Exception>();
+            foreach (List<Exception> failures in terminalFailureSlots)
+            {
+                projection.AddRange(failures);
+            }
+
+            terminalFailure = CreateNonFatalTerminalFailure(projection, failure);
         }
-    }
-
-    private static Exception CombineNonFatalTerminalFailures(
-        Exception existing,
-        Exception appended)
-    {
-        var leaves = new List<Exception>();
-        AppendNonFatalTerminalLeaves(leaves, existing);
-        AppendNonFatalTerminalLeaves(leaves, appended);
-        return CreateNonFatalTerminalFailure(leaves, existing);
-    }
-
-    private static Exception FlattenNonFatalTerminalFailure(Exception failure)
-    {
-        if (failure is not AggregateException)
-        {
-            return failure;
-        }
-
-        var leaves = new List<Exception>();
-        AppendNonFatalTerminalLeaves(leaves, failure);
-        return CreateNonFatalTerminalFailure(leaves, failure);
     }
 
     private static void AppendNonFatalTerminalLeaves(
@@ -2467,11 +2463,11 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
                 leaves),
         };
 
-    private void RecordTerminalFailureSafely(Exception failure)
+    private void RecordTerminalFailureSafely(Exception failure, TerminalFailureSlot slot)
     {
         try
         {
-            RecordTerminalFailure(failure);
+            RecordTerminalFailure(failure, slot);
         }
         catch (OutOfMemoryException fatal)
         {
@@ -2483,13 +2479,13 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     {
         lock (terminalFailureGate)
         {
-            if (terminalFailure is not null
-                && FindFirstOutOfMemory(terminalFailure) is { } existingFatal)
+            if (terminalFatalFailure is { } existingFatal)
             {
                 terminalFailure = existingFatal;
                 return;
             }
 
+            terminalFatalFailure = failure;
             terminalFailure = failure;
         }
     }
@@ -2526,7 +2522,7 @@ internal sealed class DesktopRemoteWindowHostCoordinator : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref generation.CleanupFailureRecorded, 1) == 0)
         {
-            RecordTerminalFailure(failure);
+            RecordTerminalFailure(failure, TerminalFailureSlot.OwnerCleanup);
         }
     }
 

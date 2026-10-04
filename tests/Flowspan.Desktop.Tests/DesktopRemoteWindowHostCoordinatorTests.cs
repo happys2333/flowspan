@@ -5098,6 +5098,248 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
     }
 
     [Fact]
+    public async Task StopPrimaryFailurePrecedesEarlierWatchdogFailureWithoutChangingCompletedStop()
+    {
+        var providerFailure = new IOException("watchdog provider diagnostic");
+        var primaryFailure = new IOException("initial controller stop failed");
+        var time = new ManualTimeProvider(Now) { CreateFailure = providerFailure };
+        var releaseInitialStop = NewCompletion();
+        using var host = new ReadyHostHarness(cleanupTimeProvider: time);
+        host.ControllerStops.StopOverride = async (controller, token, attempt) =>
+        {
+            if (attempt == 1)
+            {
+                await releaseInitialStop.Task;
+                throw primaryFailure;
+            }
+
+            return await controller.StopAsync(token);
+        };
+
+        Task<RemoteWindowStopResult>? stopping = null;
+        try
+        {
+            Assert.True((await host.StartAsync()).Succeeded);
+            stopping = host.Coordinator.StopAsync().AsTask();
+            await host.ControllerStops.WaitForAttemptCountAsync(1);
+            InvalidOperationException publicFailure = await Assert.ThrowsAsync<
+                InvalidOperationException>(async () =>
+                    await stopping.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Contains("watchdog_unavailable", publicFailure.Message);
+            Assert.True(host.Coordinator.HasRetiringGeneration);
+            Assert.True(host.Coordinator.IsRetiringAuthorityClosed);
+
+            releaseInitialStop.TrySetResult();
+            await WaitForRetiringCleanupAsync(host.Coordinator);
+            var diagnostic = await Assert.ThrowsAsync<AggregateException>(
+                async () => await host.Coordinator.DisposeAsync());
+            Assert.Collection(
+                diagnostic.InnerExceptions,
+                failure => Assert.Same(primaryFailure, failure),
+                failure => Assert.Same(publicFailure, failure));
+            Assert.Same(diagnostic, host.Coordinator.TerminalFailure);
+            Assert.Equal(2, host.ControllerStops.AttemptCount);
+            Assert.All(host.ControllerStops.Tokens,
+                token => Assert.Equal(CancellationToken.None, token));
+            Assert.Equal(1, host.Connection.DisposeCount);
+            Assert.Equal(1, host.Connection.FailCloseCount);
+            Assert.True(host.Protection.IsDisposed);
+            Assert.Equal(0, time.ActiveTimerCount);
+            Assert.Same(providerFailure, host.Coordinator.WatchdogSetupFailure);
+            Assert.Same(publicFailure, await Assert.ThrowsAsync<
+                InvalidOperationException>(async () => await stopping));
+        }
+        finally
+        {
+            releaseInitialStop.TrySetResult();
+            if (stopping is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await stopping.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+
+            _ = await Record.ExceptionAsync(async () =>
+                await host.Coordinator.DisposeAsync()
+                    .AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
+    public async Task LateStopAndCleanupFailuresUseSemanticOrderAndKeepPublicTasksStable()
+    {
+        var primary = new IOException("initial stop failure");
+        var release = new IOException("watchdog release failure");
+        var fallback = new IOException("fallback stop failure");
+        var owner = new IOException("connection cleanup failure");
+        var time = new ManualTimeProvider(Now)
+        {
+            DisposeFailure = new AggregateException(new AggregateException(release)),
+        };
+        var releaseInitialStop = NewCompletion();
+        using var host = new ReadyHostHarness(cleanupTimeProvider: time);
+        host.Connection.DisposeFailure = new AggregateException(
+            new AggregateException(owner));
+        host.ControllerStops.StopOverride = async (controller, token, attempt) =>
+        {
+            if (attempt == 1)
+            {
+                await releaseInitialStop.Task;
+                throw primary;
+            }
+
+            _ = await controller.StopAsync(token);
+            throw fallback;
+        };
+        Task<RemoteWindowStopResult>? stopping = null;
+        Task? disposal = null;
+        try
+        {
+            Assert.True((await host.StartAsync()).Succeeded);
+            RemoteWindowMediaSessionBudget budget = Assert.IsType<
+                RemoteWindowMediaSessionBudget>(host.Coordinator.ActiveMediaBudget);
+            stopping = host.Coordinator.StopAsync().AsTask();
+            await host.ControllerStops.WaitForAttemptCountAsync(1);
+            time.Advance(DesktopRemoteWindowHostCoordinator.DefaultCleanupConfirmationTimeout);
+            InvalidOperationException timeout = await Assert.ThrowsAsync<
+                InvalidOperationException>(async () =>
+                    await stopping.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Contains("host_cleanup_timeout", timeout.Message);
+            disposal = host.Coordinator.DisposeAsync().AsTask();
+            Assert.Same(disposal, host.Coordinator.DisposeAsync().AsTask());
+            Assert.Same(timeout, await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await disposal.WaitAsync(TimeSpan.FromSeconds(5))));
+
+            releaseInitialStop.TrySetResult();
+            await WaitForRetiringCleanupAsync(host.Coordinator);
+            var diagnostic = Assert.IsType<AggregateException>(host.Coordinator.TerminalFailure);
+            Assert.Collection(
+                diagnostic.InnerExceptions,
+                failure => Assert.Same(primary, failure),
+                failure => Assert.Same(timeout, failure),
+                failure => Assert.Same(release, failure),
+                failure => Assert.Same(fallback, failure),
+                failure => Assert.Same(owner, failure));
+            Assert.Same(disposal, host.Coordinator.DisposeAsync().AsTask());
+            Assert.Same(timeout, await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await disposal));
+            Assert.Same(timeout, await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await stopping));
+            Assert.Same(diagnostic, host.Coordinator.TerminalFailure);
+            Assert.Equal(2, host.ControllerStops.AttemptCount);
+            Assert.Equal(1, time.DisposeFailureThrowCount);
+            Assert.Equal(0, time.ActiveTimerCount);
+            Assert.Equal(1, host.Connection.DisposeCount);
+            Assert.Equal(1, host.Connection.FailCloseCount);
+            Assert.True(host.Protection.IsDisposed);
+            Assert.False(host.ControlPeer.HasRetainedGeneration);
+            Assert.Equal(RemoteWindowMediaBudgetSnapshot.Empty, budget.Snapshot);
+        }
+        finally
+        {
+            releaseInitialStop.TrySetResult();
+            time.Advance(DesktopRemoteWindowHostCoordinator.MaximumCleanupConfirmationTimeout);
+            if (stopping is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await stopping.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+
+            _ = await Record.ExceptionAsync(async () =>
+                await host.Coordinator.DisposeAsync().AsTask()
+                    .WaitAsync(TimeSpan.FromSeconds(5)));
+            _ = await Record.ExceptionAsync(async () =>
+                await WaitForRetiringCleanupAsync(host.Coordinator));
+        }
+    }
+
+    [Fact]
+    public async Task EarlierConfirmationFatalDominatesLatePrimaryFatalDespiteSemanticOrdering()
+    {
+#pragma warning disable CA2201 // Intentional fatal-runtime injection.
+        var confirmationFatal = new OutOfMemoryException("watchdog fatal");
+        var primaryFatal = new OutOfMemoryException("late primary fatal");
+#pragma warning restore CA2201
+        var time = new ManualTimeProvider(Now)
+        {
+            CreateFailure = new AggregateException(
+                new InvalidOperationException("provider wrapper", confirmationFatal)),
+        };
+        var releaseInitialStop = NewCompletion();
+        using var host = new ReadyHostHarness(cleanupTimeProvider: time);
+        host.ControllerStops.StopOverride = async (controller, token, attempt) =>
+        {
+            if (attempt == 1)
+            {
+                await releaseInitialStop.Task;
+                throw new AggregateException(primaryFatal);
+            }
+
+            return await controller.StopAsync(token);
+        };
+        Task<RemoteWindowStopResult>? stopping = null;
+        try
+        {
+            Assert.True((await host.StartAsync()).Succeeded);
+            stopping = host.Coordinator.StopAsync().AsTask();
+            await host.ControllerStops.WaitForAttemptCountAsync(1);
+            Assert.Same(confirmationFatal, await Assert.ThrowsAsync<OutOfMemoryException>(
+                async () => await stopping.WaitAsync(TimeSpan.FromSeconds(5))));
+            releaseInitialStop.TrySetResult();
+            await WaitForRetiringCleanupAsync(host.Coordinator);
+
+            Assert.Same(confirmationFatal, host.Coordinator.TerminalFailure);
+            Assert.Same(confirmationFatal, await Assert.ThrowsAsync<OutOfMemoryException>(
+                async () => await host.Coordinator.DisposeAsync()));
+            Assert.Equal(2, host.ControllerStops.AttemptCount);
+            Assert.Equal(1, host.Connection.DisposeCount);
+            Assert.True(host.Protection.IsDisposed);
+        }
+        finally
+        {
+            releaseInitialStop.TrySetResult();
+            if (stopping is not null)
+            {
+                _ = await Record.ExceptionAsync(async () =>
+                    await stopping.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+
+            _ = await Record.ExceptionAsync(async () =>
+                await host.Coordinator.DisposeAsync().AsTask()
+                    .WaitAsync(TimeSpan.FromSeconds(5)));
+            _ = await Record.ExceptionAsync(async () =>
+                await WaitForRetiringCleanupAsync(host.Coordinator));
+        }
+    }
+
+    [Fact]
+    public async Task DifferentUnconfirmedInitialAndFallbackStopsAreBothReported()
+    {
+        using var host = new ReadyHostHarness();
+        host.ControllerStops.StopOverride = async (controller, token, attempt) =>
+        {
+            host.Capture.StopResult = LocalBoundaryResult.Failed(attempt == 1
+                ? "initial_capture_unconfirmed"
+                : "fallback_capture_unconfirmed");
+            return await controller.StopAsync(token);
+        };
+        Assert.True((await host.StartAsync()).Succeeded);
+
+        var failure = await Assert.ThrowsAsync<AggregateException>(
+            async () => await host.Coordinator.StopAsync());
+
+        Assert.Collection(
+            failure.InnerExceptions,
+            primary => Assert.Contains("initial_capture_unconfirmed", primary.Message),
+            fallback => Assert.Contains("fallback_capture_unconfirmed", fallback.Message));
+        Assert.Same(failure, host.Coordinator.TerminalFailure);
+        Assert.Equal(2, host.ControllerStops.AttemptCount);
+        Assert.Equal(1, host.Connection.DisposeCount);
+        Assert.True(host.Protection.IsDisposed);
+        Assert.Same(failure, await Assert.ThrowsAsync<AggregateException>(
+            async () => await host.Coordinator.DisposeAsync()));
+    }
+
+    [Fact]
     public async Task UnconfirmedExplicitStopBlocksRestart()
     {
         using var host = new ReadyHostHarness();
@@ -5105,10 +5347,14 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             "native_capture_stop_unconfirmed");
         Assert.True((await host.StartAsync()).Succeeded);
 
-        RemoteWindowStopResult stopped = await host.Coordinator.StopAsync();
+        var stopped = await Assert.ThrowsAsync<AggregateException>(
+            async () => await host.Coordinator.StopAsync());
 
-        Assert.False(stopped.FullyStopped);
-        Assert.NotNull(host.Coordinator.TerminalFailure);
+        Assert.Collection(
+            stopped.InnerExceptions,
+            primary => Assert.Contains("host stop was not fully confirmed", primary.Message),
+            fallback => Assert.Contains("host fallback stop was not fully confirmed", fallback.Message));
+        Assert.Same(stopped, host.Coordinator.TerminalFailure);
         var replacementConnection = new RecordingHostConnection(
             host.Timeline,
             HostDeviceId,
@@ -5127,8 +5373,8 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
         Assert.Contains("host_cleanup_unconfirmed", restartFailure.Message);
         Assert.Equal(1, replacementConnection.DisposeCount);
         Assert.True(replacementProtection.IsDisposed);
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await host.Coordinator.DisposeAsync());
+        Assert.Same(stopped, await Assert.ThrowsAsync<AggregateException>(
+            async () => await host.Coordinator.DisposeAsync()));
     }
 
     [Fact]
@@ -7000,6 +7246,10 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
 
         public int AttemptCount => Volatile.Read(ref attemptCount);
 
+        public Func<RemoteWindowSessionController, CancellationToken, int,
+            ValueTask<RemoteWindowStopResult>>? StopOverride
+        { get; set; }
+
         public CancellationToken[] Tokens
         {
             get
@@ -7035,7 +7285,7 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
             CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(controller);
-            Interlocked.Increment(ref attemptCount);
+            int attempt = Interlocked.Increment(ref attemptCount);
             lock (gate)
             {
                 tokens.Add(cancellationToken);
@@ -7044,7 +7294,9 @@ public sealed class DesktopRemoteWindowHostCoordinatorTests
                 completed.TrySetResult();
             }
 
-            return controller.StopAsync(cancellationToken);
+            return StopOverride is { } stop
+                ? stop(controller, cancellationToken, attempt)
+                : controller.StopAsync(cancellationToken);
         }
     }
 
