@@ -1987,10 +1987,17 @@ external notification and released afterward, with no native call under a
 managed routing gate. Early nil-tag streams require retained identity,
 initializer snapshot and association re-read; ambiguous published construction
 poisons future initialization rather than misrouting old work. Active or a
-successful Start completion cannot reopen terminal admission. The actual native
-association and Capture composition remain unimplemented/unverified; production
-host sharing, sample/Block lifetime, protection, input, physical and release
-gates remain independently open. See
+successful Start completion cannot reopen terminal admission. The opt-in
+Foundation Phase 2a probe now actually verifies numeric association lifetime,
+retained callback source/tag references and successful NSObject superclass
+deallocation in local Debug/Release. It has no Capture or early-initializer
+protocol; nil tags are rejected, not retained as pending facts. Permanent
+bridge/classes remain process-owned. Native faults/Objective-C exceptions are
+not proved contained, and healthy runs are not such fault evidence. Early
+publication races and actual Capture composition remain unimplemented/unverified;
+production host sharing, sample/Block lifetime, protection, input, physical and
+release gates remain independently open. See
+[Phase 2a evidence](../evidence/2026-10-05-macos-native-association.md),
 [ADR 0030](../adr/0030-generation-routed-macos-stream-delegate.md) and the
 [MSC specification](../../specs/v1/native-remote-window/macos-stream-delegate/requirements.md).
 

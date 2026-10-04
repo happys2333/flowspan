@@ -34,7 +34,14 @@ including Task.Run descendants. Completion continuations run asynchronously and
 outside the gate. Callback exceptions are observable and fail admission closed.
 Generation exhaustion rejects rather than wrapping.
 
-## Native association slice (not yet implemented)
+## Native association slice (Foundation Phase 2a verified; early protocol open)
+
+The opt-in tool now implements and actually verifies the tag/reference/dealloc
+subset below, without actual Capture. See
+[Phase 2a evidence](../../../../docs/evidence/2026-10-05-macos-native-association.md).
+Its nil-tag path rejects unknown sources; it does not yet implement the retained
+early-fact/publication protocol described here. That protocol remains required
+before replacing Capture's `delegate=0`.
 
 One permanent NSObject bridge dispatches via immutable stream associations.
 Use a small NSObject tag subclass with a numeric ivar, not NSNumber (which can

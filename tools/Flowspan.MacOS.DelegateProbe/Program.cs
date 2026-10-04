@@ -14,7 +14,7 @@ internal static class Program
             return 0;
         }
 
-        if (args is not ["--run-synthetic"])
+        if (args is not ["--run-synthetic"] and not ["--run-associations"])
         {
             Console.Error.WriteLine("delegate_probe=fail; reason=unknown_arguments; native_calls=0; capture_executed=false");
             return 2;
@@ -23,18 +23,35 @@ internal static class Program
         if (!OperatingSystem.IsMacOSVersionAtLeast(15, 2)
             || RuntimeInformation.ProcessArchitecture != Architecture.Arm64)
         {
-            Console.WriteLine("delegate_probe=skip; reason=requires_macos_15_2_ordinary_arm64; native_calls=0; capture_executed=false");
+            Console.WriteLine(args is ["--run-associations"]
+                ? "association_probe=skip; reason=requires_macos_15_2_ordinary_arm64; native_calls=0; capture_executed=false"
+                : "delegate_probe=skip; reason=requires_macos_15_2_ordinary_arm64; native_calls=0; capture_executed=false");
             return 0;
         }
 
         try
         {
-            NativeDelegateProbe.Run();
+            if (args is ["--run-associations"])
+            {
+                NativeAssociationProbe.Run();
+            }
+            else
+            {
+                NativeDelegateProbe.Run();
+            }
             return 0;
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine($"delegate_probe=fail; managed_exception={exception.GetType().Name}; capture_executed=false");
+            if (args is ["--run-associations"])
+            {
+                Console.Error.WriteLine($"association_probe=fail; managed_exception={exception.GetType().Name}; check={NativeAssociationProbe.FailedCheck ?? "native_or_managed_call_failed"}; capture_executed=false");
+            }
+            else
+            {
+                Console.Error.WriteLine($"delegate_probe=fail; managed_exception={exception.GetType().Name}; capture_executed=false");
+            }
+
             return 1;
         }
     }

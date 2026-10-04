@@ -1,8 +1,14 @@
 # macOS stream delegate router — portable evidence
 
-Status: portable implementation and final local verification passed. Exact new-
-commit hosted CI/CodeQL evidence remains pending; this is not Windows/Linux
-native or production Capture evidence.
+Status: portable implementation and final local verification passed. Exact
+`f9896b82f60a375264743a9ebb5f43b32b5e785e` CI run `37220623934`, attempt 1,
+failed in the Windows test job (one permission-race failure and an aborted
+Desktop pairing test); macOS and Ubuntu test jobs succeeded and
+packaging was skipped. Exact CodeQL run `37220623873` succeeded. Downloaded
+artifact provenance/inventory audit passed while preserving both Windows
+failures; local fixture repairs passed, but new hosted verification is required.
+There is no complete three-platform pass at
+this checkpoint. This is not Windows/Linux native or production Capture evidence.
 
 Scope: [MSC task 1](../../specs/v1/native-remote-window/macos-stream-delegate/tasks.md)
 under [ADR 0030](../adr/0030-generation-routed-macos-stream-delegate.md). The
@@ -85,8 +91,75 @@ each return exit 0. The including-transitive NuGet vulnerability query covers
 26 projects, reports no vulnerable packages or query errors, returns exit 0
 and has zero-byte stderr. This is a point-in-time advisory query, not universal
 security proof. All checks here are local macOS portable/managed execution.
-Exact new-SHA Windows/macOS/Linux downloaded TRX, Secret Scan and CodeQL remain
-pending; older c27532d hosted results are not inherited by this implementation.
+The exact new-SHA downloaded TRX audit preserves the Windows failed case
+`MacOSNativeRemoteWindowPermissionBoundaryTests.CommitThatWinsRaceRejectsReservationAgainstNewDeniedFact`
+with `Assert.NotSame` before its Desktop run was aborted while
+`DesktopPairingDecisionSourceTests.CancellationCoalescingRetainsTheHighestAllocatedSequence`
+was active. The log also reports output-file errors and the three-minute blame
+inactivity limit; neither identifies the root cause without diagnosis. This
+failed run is preserved, not replaced by older c27532d results or by a future
+successful checkpoint.
+
+## Exact f9896b8 hosted audit — CI failed
+
+The push runs above are attempt 1, branch `codex/v1-foundation`, run number 243.
+Workflow source bytes match the exact commit. All six small artifacts were
+downloaded; their run/SHA/ref/repository, API size, upload-log ID/digest and local
+ZIP SHA-256 agree. No dump or package artifact exists in this run. The package
+API shows one skipped, unexpanded matrix placeholder, not three executed jobs.
+
+| Host | TRX | Recorded results | Complete inventory |
+| --- | ---: | --- | --- |
+| Linux | 12 | 2743 Passed | yes |
+| macOS | 12 | 2743 Passed | yes |
+| Windows | 12 | 2291 Passed, 1 Failed | no: 451 Desktop cases missing |
+
+Linux/macOS have zero non-success counters and Completed summaries. Their exact
+qualified inventory hash matches the final local inventory above. All three
+hosts independently pass the new router's 33 cases; its sorted-name inventory
+SHA-256 is `b97751ab753c348e4fa362049e7353f15ef7493074c4462f9560a81d859dd986`.
+This does not rescue Windows full-CI acceptance. Its MacOS assembly has one
+permission-race failure; Desktop records 306 Passed but has a Failed summary
+and an aborted run. Sequence has 307 entries, one unfinished pairing case, and
+SHA-256 `893ec23d7b94351041fa6b03faa4723ef76b2cf7e17358ec1467cced30a54d7f`.
+Windows post-test composition/simulator/probes were skipped.
+
+Downloaded TRX ZIPs: macOS artifact `11310317964`, 639375 bytes, SHA-256
+`7e0a5bc08c78ae5d15eb09bf5d1ee403a9da404d0a7479746afc2d55b7937be7`;
+Linux `11309474809`, 639212 bytes,
+`6d805b006633de0dc632dc6f39bb527ec117e8b841e806df5d3a00e57e188c83`;
+Windows `11309964146`, 542753 bytes,
+`a7080559f91f167e65744c89a81d441994ca4ea8d5c7d879c7b8cdbec4f9a334`.
+The remaining synthetic, Linux ABI and Gitleaks archives and every member hash
+are enumerated by the audit manifest.
+
+The macOS synthetic stdout is 277 bytes, one LF, no NUL, stderr empty: 61
+callbacks and four bridges retained. It is the old MDO proof, not native tag/
+association/deallocation evidence. Linux library ABI success likewise creates
+no daemon connection, portal or capture stream.
+
+CodeQL job `111490043048`, analysis `1889312109`, exact SHA/ref agree: reported
+433/433 C# files (count agreement, not a per-file TRAP audit), CodeQL 2.27.1,
+52 unique descriptors (44 problem/pathproblem, eight metrics), zero results.
+There are three raw diagnostics, zero summary diagnostics and one runner
+migration notice; reconstructed API SARIF does not preserve original diagnostic
+details. Gitleaks 8.24.3 scans only the latest f989 commit with `--log-opts=-1`,
+approximately 77767 bytes, 208 descriptors and zero results. Neither is universal
+security proof or a full-history scan.
+
+Reproduce the preserved-input audit with:
+
+```sh
+python3 /tmp/flowspan-msc-hosted-f9896b8/audit.py
+```
+
+The audit actually exits 0; this means provenance/inventory checks passed, not
+CI success. `audit.json` is 163745 bytes, SHA-256
+`ee0ddefcbe04d0d7f68c6ec5c3f206a3054098c6a9991476e8f5207109372f5f`;
+complete `case-inventory.json` is 1076362 bytes, SHA-256
+`766226c8da41ee1d1ec778c656963105aac20f0ef40e9b42732a24147d8a6415`.
+Raw API/job/workflow inputs and the full scope audit are preserved in that
+directory. A later repaired commit requires its own exact-SHA CI evidence.
 
 ## Native-stage compile-only precheck
 

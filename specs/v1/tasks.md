@@ -33,8 +33,18 @@ beginning with a portable bounded registry. Its native association/deallocation
 and actual Capture wiring are separate, not inherited from the MDO probe.
 Its [portable implementation/local evidence](../../docs/evidence/2026-10-05-macos-stream-delegate-router.md)
 now passes final Debug/Release complete solutions at 2743/2743 plus 33 focused
-cases and final 40-process pressure at 1320/1320. Exact new-SHA hosted gates
-remain pending, and this does not close the parent native task or v1 acceptance.
+cases and final 40-process pressure at 1320/1320. Exact f9896b8 CI `37220623934`
+failed in the Windows test job; macOS/Ubuntu jobs and CodeQL `37220623873`
+succeeded, but packaging was skipped. Downloaded artifacts were audited with
+both Windows failures preserved; this does not close the parent native task
+or v1 acceptance.
+The two hosted Windows failures now have
+[local test-fixture repairs](../../docs/evidence/2026-10-05-windows-fixture-lifecycle-repair.md),
+without production changes: both complete local solutions pass 2746/2746.
+The [no-capture Foundation Phase 2a proof](../../docs/evidence/2026-10-05-macos-native-association.md)
+also passes actual local Debug/Release and independent raw CI-gate execution.
+This closes only MSC 2a local verification; exact new-SHA hosted verification,
+MSC 2b early publication and actual Capture integration remain open.
 
 ## 0. Product and engineering baseline
 

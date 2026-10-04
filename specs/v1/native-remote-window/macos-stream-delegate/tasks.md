@@ -12,10 +12,20 @@
     pass 2743/2743 across 12 TRX, with all non-success counters zero. Thirteen
     actual RED→GREEN stages have 16 failed cases; final four-lane 40-process
     pressure passes 1320/1320. Standards/Spec review has no remaining findings.
-    This closes only portable implementation/local verification. Exact new-SHA
-    hosted matrix/CodeQL and all native obligations remain open. See
+    This closes only portable implementation/local verification. Exact f9896b8
+    hosted CI failed in the Windows test job; CodeQL succeeded. Artifact audit
+    preserves that failure; local fixture repairs below still require a new
+    hosted checkpoint. This does not close the full matrix or native task 2. See
     [portable evidence](../../../../docs/evidence/2026-10-05-macos-stream-delegate-router.md).
 - [ ] 2. Implement and actually execute the no-capture native association proof.
+  - [x] 2a. Verify ordinary-arm64 Foundation numeric tags, retained callback
+    references, old-generation isolation, independent maximum-16 tag budget and
+    successful superclass deallocation without Capture. Local Debug/Release
+    and 23 independent final native processes pass; strict CI gate and 74 gate
+    fixtures are implemented. Hosted exact-SHA verification remains pending.
+    See [Phase 2a evidence](../../../../docs/evidence/2026-10-05-macos-native-association.md).
+  - [ ] 2b. Implement and verify exact-initializer retained early facts, nil-tag
+    publication/pending-clear/third-read races, ambiguity and poison/quarantine.
   - Verify permanent bridge, retained numeric tag, independent tag budget,
     callback reference ownership, nil-tag publication race and tag deallocation
     ABI in Debug and Release. Keep no-native defaults and strict evidence gates.

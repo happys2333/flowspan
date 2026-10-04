@@ -420,6 +420,7 @@ public sealed class MacOSNativeRemoteWindowPermissionBoundaryTests
     {
         using var invalidationEntered = new ManualResetEventSlim();
         using var releaseInvalidation = new ManualResetEventSlim();
+        using var invalidationExited = new ManualResetEventSlim();
         using var reservationAttempted = new ManualResetEventSlim();
         var interop = new RecordingScreenCapturePermissionInterop
         {
@@ -430,10 +431,15 @@ public sealed class MacOSNativeRemoteWindowPermissionBoundaryTests
         var oldSink = new RecordingPermissionPreparationInvalidationSink(() =>
         {
             invalidationEntered.Set();
-            if (!releaseInvalidation.Wait(TimeSpan.FromSeconds(5)))
+            try
             {
-                throw new TimeoutException(
-                    "Timed out releasing permission invalidation.");
+                // The test owns release in finally; a callback-local timeout
+                // could open the gate before the contender has been scheduled.
+                releaseInvalidation.Wait();
+            }
+            finally
+            {
+                invalidationExited.Set();
             }
         });
         NativeRemoteWindowPermissionPreparationReservationResult oldResult =
@@ -453,12 +459,17 @@ public sealed class MacOSNativeRemoteWindowPermissionBoundaryTests
                 granted.OwnerGeneration,
                 checked(granted.Revision + 1));
         interop.PreflightResult = false;
-        Task<NativeRemoteWindowPermissionSnapshot> mutation = Task.Run(
-            boundary.GetSnapshot);
-        Assert.True(invalidationEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task<NativeRemoteWindowPermissionSnapshot> mutation = StartDedicated(
+            boundary.GetSnapshot,
+            out Thread mutationThread);
         var newSink = new RecordingPermissionPreparationInvalidationSink();
-        Task<NativeRemoteWindowPermissionPreparationReservationResult>
-            reservation = Task.Run(() =>
+        Task<NativeRemoteWindowPermissionPreparationReservationResult>?
+            reservation = null;
+        Thread? reservationThread = null;
+        try
+        {
+            Assert.True(invalidationEntered.Wait(TimeSpan.FromSeconds(5)));
+            reservation = StartDedicated(() =>
             {
                 reservationAttempted.Set();
                 return ((INativeRemoteWindowPermissionPreparationBoundary)
@@ -466,25 +477,35 @@ public sealed class MacOSNativeRemoteWindowPermissionBoundaryTests
                         expectedRevoked,
                         MirrorParticipantRole.ViewOnly,
                         newSink);
-            });
-        Assert.True(reservationAttempted.Wait(TimeSpan.FromSeconds(5)));
-
-        try
-        {
-            Task first = await Task.WhenAny(
-                reservation,
-                Task.Delay(TimeSpan.FromMilliseconds(100)));
-            Assert.NotSame(reservation, first);
+            }, out reservationThread);
+            Assert.True(reservationAttempted.Wait(TimeSpan.FromSeconds(5)));
+            // The dedicated contender has no fixture wait after its entry
+            // signal. Observe lock contention, not an elapsed-time absence.
+            Assert.True(SpinWait.SpinUntil(
+                () => reservation.IsCompleted
+                    || (reservationThread.ThreadState
+                        & ThreadState.WaitSleepJoin) != 0,
+                TimeSpan.FromSeconds(5)));
+            Assert.False(invalidationExited.IsSet);
+            Assert.False(mutation.IsCompleted);
+            Assert.False(reservation.IsCompleted);
         }
         finally
         {
             releaseInvalidation.Set();
+            bool mutationJoined = mutationThread.Join(TimeSpan.FromSeconds(5));
+            bool reservationJoined = reservationThread?.Join(
+                TimeSpan.FromSeconds(5)) ?? true;
+            Assert.True(mutationJoined);
+            Assert.True(reservationJoined);
         }
 
         NativeRemoteWindowPermissionSnapshot revoked =
             await mutation.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.NotNull(reservation);
         NativeRemoteWindowPermissionPreparationReservationResult result =
             await reservation.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(invalidationExited.IsSet);
         Assert.Equal(expectedRevoked, revoked);
         Assert.False(oldRegistration.IsCurrent);
         Assert.Equal(1, oldSink.Count);
@@ -1308,6 +1329,30 @@ public sealed class MacOSNativeRemoteWindowPermissionBoundaryTests
         }
 
         Assert.Equal(NativeRemoteWindowPermissionState.Unsupported, snapshot.Input);
+    }
+
+    private static Task<T> StartDedicated<T>(
+        Func<T> operation,
+        out Thread thread)
+    {
+        var completion = new TaskCompletionSource<T>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        thread = new Thread(() =>
+        {
+            try
+            {
+                completion.SetResult(operation());
+            }
+            catch (Exception exception)
+            {
+                completion.SetException(exception);
+            }
+        })
+        {
+            IsBackground = true,
+        };
+        thread.Start();
+        return completion.Task;
     }
 
     private sealed class RecordingScreenCapturePermissionInterop :

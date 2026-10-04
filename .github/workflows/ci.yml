@@ -169,6 +169,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Require actual Foundation association lifetime without capture
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/MacOSAssociationEvidence"
+          mkdir -p "$evidence"
+          dotnet tools/Flowspan.MacOS.DelegateProbe/bin/Release/net10.0/Flowspan.MacOS.DelegateProbe.dll --run-associations > "$evidence/native.stdout.raw" 2> "$evidence/native.stderr.raw"
+          test ! -s "$evidence/native.stderr.raw"
+          test "$(wc -c < "$evidence/native.stdout.raw")" -le 4096
+          test "$(wc -l < "$evidence/native.stdout.raw")" -eq 1
+          test "$(LC_ALL=C tr -d '\000' < "$evidence/native.stdout.raw" | wc -c)" -eq "$(wc -c < "$evidence/native.stdout.raw")"
+          result="$(< "$evidence/native.stdout.raw")"
+          printf '%s\n' "$result"
+          expected='association_probe=pass; mode=foundation; permanent_bridges=1; process_routers=1; probe_gc_handles=0; method_signatures=4; tag_budget=16; maximum_tags_in_use=16; tags_allocated=86; tag_owners_released=86; tag_dealloc_entries=86; tag_super_deallocations=86; tags_in_use=0; quarantined_tags=0; source_owners_acquired=87; source_owners_released=87; native_callbacks=249; unknown_callbacks=2; callback_source_retains=249; callback_source_releases=249; callback_tag_retains=247; callback_tag_releases=247; healthy_generations=64; forced_gc_rounds=12; contained_failures=0; capture_executed=false; SCStream_creations=0; AppKit_initialized=false; permissions_requested=0; pixel_reads=0; early_publication_proved=false'
+          test "$result" = "$expected"
+
+      - name: Upload Foundation association evidence even on failure
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: macos-association-foundation-${{ github.sha }}
+          path: ${{ runner.temp }}/MacOSAssociationEvidence
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Verify Windows probe formatting
         run: >-
           dotnet format

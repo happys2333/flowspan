@@ -67,6 +67,116 @@ public sealed class DesktopPairingDecisionSourceTests
     [Fact]
     public async Task CancellationCoalescingRetainsTheHighestAllocatedSequence()
     {
+        ConcurrentQueue<DesktopPairingPromptChangedEventArgs> observed =
+            await ExerciseCancellationCoalescingAsync();
+
+        Assert.Contains(
+            observed,
+            static change => change.Kind == DesktopPairingPromptChangeKind.Canceled
+                && change.Sequence == 4);
+    }
+
+    [Theory]
+    [InlineData("before-worker-capture")]
+    [InlineData("before-publication")]
+    [InlineData("cancellation-join")]
+    public async Task CancellationCoalescingFixtureDrainsPublicationAfterInjectedFailure(
+        string failurePoint)
+    {
+        var capturedWorker = new TaskCompletionSource<Action>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var injectedFailureReached = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int publicationRuns = 0;
+        int publicationAttempts = 0;
+        int publicationStarted = 0;
+        Task<ConcurrentQueue<DesktopPairingPromptChangedEventArgs>> exercise =
+            Task.Factory.StartNew(
+                () => ExerciseCancellationCoalescingAsync(
+                    publish =>
+                    {
+                        Action runOnce = () =>
+                        {
+                            if (Interlocked.CompareExchange(
+                                    ref publicationStarted,
+                                    1,
+                                    0) == 0)
+                            {
+                                Interlocked.Increment(ref publicationRuns);
+                                publish();
+                            }
+                        };
+                        capturedWorker.TrySetResult(runOnce);
+                        return () =>
+                        {
+                            Interlocked.Increment(ref publicationAttempts);
+                            runOnce();
+                        };
+                    },
+                    failurePoint == "before-publication" ? ThrowInjectedFailure : null,
+                    failurePoint == "before-worker-capture" ? ThrowInjectedFailure : null,
+                    failurePoint == "cancellation-join" ? ThrowInjectedFailure : null),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap();
+        try
+        {
+            await capturedWorker.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await injectedFailureReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            if (failurePoint == "cancellation-join")
+            {
+                AggregateException exception = await Assert.ThrowsAsync<AggregateException>(
+                    () => exercise.WaitAsync(TimeSpan.FromSeconds(5)));
+                Assert.IsType<InjectedFixtureFailureException>(
+                    Assert.Single(exception.InnerExceptions));
+            }
+            else
+            {
+                await Assert.ThrowsAsync<InjectedFixtureFailureException>(
+                    () => exercise.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+        }
+        finally
+        {
+            // Rescue the deliberately broken fixture during RED verification.
+            // A passing fixture has already drained its worker exactly once.
+            if (capturedWorker.Task.IsCompletedSuccessfully)
+            {
+                (await capturedWorker.Task)();
+            }
+
+            try
+            {
+                await exercise.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (InjectedFixtureFailureException)
+            {
+            }
+            catch (AggregateException exception) when (
+                exception.InnerExceptions.Count == 1
+                && exception.InnerException is InjectedFixtureFailureException)
+            {
+            }
+        }
+
+        Assert.Equal(1, Volatile.Read(ref publicationRuns));
+        Assert.Equal(1, Volatile.Read(ref publicationAttempts));
+
+        void ThrowInjectedFailure()
+        {
+            injectedFailureReached.TrySetResult();
+            throw new InjectedFixtureFailureException();
+        }
+    }
+
+    private static async Task<ConcurrentQueue<DesktopPairingPromptChangedEventArgs>>
+        ExerciseCancellationCoalescingAsync(
+            Func<Action, Action>? decoratePublication = null,
+            Action? beforePublication = null,
+            Action? beforeWorkerCapture = null,
+            Action? afterFirstQueueReleased = null)
+    {
         using DeviceIdentity peer = CreatePeer("Peer desk");
         using var firstCancellation = new CancellationTokenSource();
         using var secondCancellation = new CancellationTokenSource();
@@ -75,10 +185,13 @@ public sealed class DesktopPairingDecisionSourceTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var workerCaptured = new TaskCompletionSource<Action>(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var publicationGate = new Lock();
+        Action? pendingPublication = null;
+        bool publicationReleased = false;
         var observed = new ConcurrentQueue<DesktopPairingPromptChangedEventArgs>();
         int firstCancellationPaused = 0;
         using var source = new DesktopPairingDecisionSource(
-            publish => workerCaptured.TrySetResult(publish),
+            SchedulePublication,
             BeforeCancellationChangeQueued);
         source.PromptChanged += (_, eventArgs) => observed.Enqueue(eventArgs);
 
@@ -91,30 +204,62 @@ public sealed class DesktopPairingDecisionSourceTests
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
         Task<PairingDecision> second;
-        Action publish;
         try
         {
             await firstQueueReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            beforeWorkerCapture?.Invoke();
             second = source.DecideAsync(
                 CreateRequest(peer, "222222"),
                 secondCancellation.Token).AsTask();
             secondCancellation.Cancel();
-            publish = await workerCaptured.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await workerCaptured.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            beforePublication?.Invoke();
         }
         finally
         {
             releaseFirstQueue.Set();
-            await cancelFirst.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                await cancelFirst.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                Action? publication;
+                lock (publicationGate)
+                {
+                    publicationReleased = true;
+                    publication = pendingPublication;
+                    pendingPublication = null;
+                }
+
+                publication?.Invoke();
+            }
         }
 
-        publish();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
 
-        Assert.Contains(
-            observed,
-            static change => change.Kind == DesktopPairingPromptChangeKind.Canceled
-                && change.Sequence == 4);
+        return observed;
+
+        void SchedulePublication(Action publish)
+        {
+            Action publication = decoratePublication?.Invoke(publish) ?? publish;
+            bool publishNow;
+            lock (publicationGate)
+            {
+                publishNow = publicationReleased;
+                if (!publishNow)
+                {
+                    pendingPublication = publication;
+                }
+            }
+
+            workerCaptured.TrySetResult(publication);
+            if (publishNow)
+            {
+                publication();
+            }
+        }
 
         void BeforeCancellationChangeQueued(
             DesktopPairingPromptChangedEventArgs eventArgs)
@@ -130,6 +275,7 @@ public sealed class DesktopPairingDecisionSourceTests
 
             firstQueueReached.TrySetResult();
             releaseFirstQueue.Wait(TimeSpan.FromSeconds(10));
+            afterFirstQueueReleased?.Invoke();
         }
     }
 
@@ -332,4 +478,6 @@ public sealed class DesktopPairingDecisionSourceTests
         DeviceIdentity.Generate(
             DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
             displayName);
+
+    private sealed class InjectedFixtureFailureException : Exception;
 }
