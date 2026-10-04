@@ -448,6 +448,16 @@ the implementation must produce exactly one of these orders:
   immediately makes the generation terminal, and cleanup prevents capture,
   final Admission, input, and rendering.
 
+Mutation-first rejection guarantees zero admitted Prepare bytes, not one
+mandatory return shape after teardown. `RemoteWindowControlSession.Cancel()`
+can trigger real authenticated-generation revocation before its post-Cancel
+token check. A lease-linked token may therefore produce the exact internal
+`OperationCanceledException` instead of a normal `NotDelivered` result, while
+the original caller remains uncanceled. Tests distinguish these two proven
+outcomes, keep all zero-authority/drain assertions, and do not accept arbitrary
+exceptions or a null delivery status alone. Historical normal-result evidence
+remains historical; see [fixture repair](../evidence/2026-10-05-windows-fixture-repairs.md).
+
 Similarly, for connection revocation `C` and route admission `R`, `C < R`
 produces no route, while `R < C` produces an owned route that must be consumed
 and cannot be reused. Wall-clock callback order or the time at which an

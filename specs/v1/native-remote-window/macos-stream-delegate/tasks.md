@@ -40,9 +40,32 @@
       [portable coordinator evidence](../../../../docs/evidence/2026-10-05-macos-early-association-coordinator.md).
     - [ ] Verify this exact implementation commit in hosted CI/CodeQL and
       independently audit downloaded all-OS TRX and native/security artifacts.
+      Exact `9deed36` CI failed four Windows cases; macOS/Linux pass 2775 each
+      and CodeQL succeeds. All 29 coordinator cases pass everywhere, but complete
+      CI and packaging do not. Preserve the
+      [failed checkpoint](../../../../docs/evidence/2026-10-05-early-coordinator-hosted-failure.md)
+      while repairing each failure; a later success cannot rewrite this run.
+      All four failures now have test-only local reproductions and repairs;
+      complete Debug/Release solutions pass 2777 each. See
+      [fixture evidence](../../../../docs/evidence/2026-10-05-windows-fixture-repairs.md).
     - [ ] Implement and actually execute separate Foundation early-publication
       proof. Existing Phase 2a still reports early_publication_proved=false;
       portable fake-boundary tests cannot close this gate or parent 2b.
+      - [x] Independent `--run-early-associations` local native tracer: actual
+        nil callback, retained same-source pending replay, reference/dealloc
+        accounting, controlled second-nil/publication-clear/replacement/third-read
+        and fail-closed ambiguity. Final source has 24 fresh early processes,
+        identical 1057B stdout/empty stderr; one actual RED→GREEN pair is
+        distinguished from direct GREEN and compiler exclusions. No-native
+        defaults and old schemas remain unchanged. See
+        [native evidence](../../../../docs/evidence/2026-10-05-macos-foundation-early-associations.md).
+      - [x] Implement and locally replay strict CI gate: 152 raw-byte fixtures,
+        four POSIX CLI fixtures, 12 watchdog contracts and one actual native
+        early run pass. Complete solution/root evidence remains independently
+        bound; see [local gates](../../../../docs/evidence/2026-10-05-early-checkpoint-local-gates.md).
+      - [ ] Download and independently audit fresh exact-commit hosted early
+        raw bytes, complete all-OS TRX, CI/CodeQL/security evidence. Local native
+        success does not close this child or full MSC2b/MSC9.
   - Verify permanent bridge, retained numeric tag, independent tag budget,
     callback reference ownership, nil-tag publication race and tag deallocation
     ABI in Debug and Release. Keep no-native defaults and strict evidence gates.

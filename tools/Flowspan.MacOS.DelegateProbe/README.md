@@ -21,7 +21,7 @@ delegate_probe=skip; reason=explicit_run_required; native_calls=0; capture_execu
 ```
 
 Unknown arguments return exit 2 before native initialization. Only
-`--run-synthetic` or `--run-associations` may invoke native code, and only on ordinary-arm64 macOS 15.2
+`--run-synthetic`, `--run-associations` or `--run-early-associations` may invoke native code, and only on ordinary-arm64 macOS 15.2
 or later. Other hosts print an explicit unsupported-host Skip; it is not a
 native pass. The minimum comes from the SDK's active/inactive delegate methods,
 not a change to the existing capture candidate's 14.2 floor.
@@ -183,3 +183,84 @@ See the scoped requirements/design/tasks in
 local execution logs and input hashes are recorded separately under
 `/tmp/flowspan-macos-delegate-probe-20261004/`; a record copied with `apply_patch`
 is not a new test execution.
+
+## Opt-in retained early-association proof
+
+`--run-early-associations` runs a separate process-rooted Foundation runtime,
+bridge, numeric tag class, portable router and early-association coordinator.
+It does not run or reset the Phase 2a runtime. The existing default/help,
+unknown-argument, synthetic and Phase 2a implementations and output schemas
+remain unchanged. Unsupported hosts print `early_association_probe=skip` before
+native initialization; that is not a pass.
+
+Build the same independent project with isolated outputs, then run the produced
+DLL explicitly with `--run-early-associations` in both configurations. Every
+native invocation must be a fresh process supervised by an external deadline.
+For example, where GNU timeout is installed:
+
+```sh
+dotnet build tools/Flowspan.MacOS.DelegateProbe/Flowspan.MacOS.DelegateProbe.csproj -c Debug -p:RestoreLockedMode=true --artifacts-path /tmp/flowspan-msc-early-native-20261005/artifacts
+timeout --signal=TERM --kill-after=5s 45s dotnet /tmp/flowspan-msc-early-native-20261005/artifacts/bin/Flowspan.MacOS.DelegateProbe/debug/Flowspan.MacOS.DelegateProbe.dll --run-early-associations
+```
+
+The mode actually executes three sequential behaviors through typed native
+NSObject bridge messages and real retained associations:
+
+- Same-source terminal callbacks retain and coalesce one pending fact. Active
+  does not occupy pending storage. Releasing the caller's source +1 before
+  publication leaves the retained pending source alive. Exact completion
+  releases pending/publication references, actual tag superclass deallocation
+  completes, and handler activation replays one terminal notification.
+- A callback pauses only **after** the actual second native association read
+  returns nil. Exact old-source publication clears the original initializer;
+  a replacement initializer is then admitted and published. The resumed old
+  callback loses exact-token recording and performs a real third native read,
+  verifies the original tag and notifies only the original once. The replacement
+  remains independently associable and receives zero notifications.
+- The same deterministic interleaving with an unknown old source and a distinct
+  returned source produces a third real nil read. Identity ambiguity poisons
+  construction and quarantines the two related exact initializers without a
+  guessed notification. Managed retirement does not return their quarantined
+  permits. The separate native-work admission is not falsely reported as closed
+  by this identity-only event.
+
+These pauses are controlled post-read interleavings, not proof that the OS
+scheduler or SCStream produced such a race. Task-owned source owners remain
+alive while worker callbacks are paused. The first pending-fact behavior also
+deliberately proves lifetime without the caller owner. The callback and
+publication coordinator reserve independent bounded ownership records before
+native source/tag work; final counters report no uncertain or charged reference
+records in this healthy/identity-ambiguity run. The ambiguity registrations
+remain process-owned quarantines, not fully cleaned Captures.
+
+The bounded one-line `early_association_probe=pass` schema reports actual
+source-owner acquisition/release, coordinator source/tag retain/release,
+association and protocol read counts, nil protocol reads, typed callback counts,
+tag allocation/owner/dealloc/superclass-return counts, final native budgets and
+ownership records, notifications, quarantined initializers and forced GC rounds.
+`publication_race_proved=true` requires the second-nil/publication/clear/
+replacement/third-read assertions above; no output field promotes Phase 2a's
+separate `early_publication_proved=false`. `contained_failures=0`, zero stderr
+and exit 0 are required in addition to the pass line. The outer managed gate
+checks fatal failures across native, reverse-entry, coordinator and every exact
+remembered initializer before ordinary failures, including when an assertion or
+cleanup throws. A deterministic managed-only selector assertion verifies the
+original aggregate-wrapped fatal identity wins over an earlier ordinary failure;
+this run does not inject native faults or
+prove cross-owner fault containment.
+
+Only the permanent bridge and registered classes are intentionally retained at
+process exit. Each source's immutable tag uses the separately bounded maximum-16
+allocation budget and verified runtime layout/superclass-deallocation ABI.
+No tag is replaced or removed at retirement, no GCHandle is allocated, and all
+acquired reference counters are balanced after actual successful native releases.
+Invalid pointers, Objective-C exceptions, ABI failures or process termination
+remain outside managed exception containment. An uncertain native call is not
+proof of cleanup and may leave a charged quarantine.
+
+This is a no-capture early-association slice, not complete MSC Phase 2b or Capture
+composition. It does not prove all ambiguity variants, native ownership faults,
+native drain, actual source-loss, TCC/protection/input, independent Emergency
+Stop, minimum OS, Intel/arm64e, physical devices, production or release
+acceptance. Actual local stage source snapshots, runtime manifests and raw
+stdout/stderr are retained under `/tmp/flowspan-msc-early-native-20261005/`.

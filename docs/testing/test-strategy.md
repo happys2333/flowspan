@@ -2499,6 +2499,35 @@ the accepted current view-only session. These are portable local-gate and Deskto
 contracts, not media, authenticated protocol, native capture/input/protection,
 physical Device, operating-system permission, or real accessibility evidence.
 
+### 2026-10-05 early-association checkpoint gates
+
+Foundation early mode is independent of Phase 2a and actual Capture. Final
+source evidence uses only native stages 13/14/15: 24 fresh early processes,
+1057-byte exact stdout and empty stderr. The sole actual native RED→GREEN pair
+is 02→03; direct GREEN additions, compiler exclusions and superseded sources
+are recorded separately. Controlled hooks follow real native reads but do not
+prove SCStream or OS-scheduler behavior, native fault containment or drain.
+
+The strict CI helper rejects any changed/missing/duplicated/reordered field,
+extra/CR/NUL bytes, stderr, nonzero result, Skip or timeout. Root separately
+replays 152 raw fixtures, four POSIX CLI fixtures, 12 process-watchdog contracts
+and actual early native execution. The watchdog is a bounded task-owned POSIX
+leader/group contract, not native cleanup; its Darwin EPERM path stays nonzero.
+
+The three Windows fixture repairs preserve real blocking admission/drain and
+zero-authority assertions. Release gates are owner-finally controlled, not
+auto-expiring callback waits; blocking workers are dedicated and joined before
+gate disposal. The mutation-first Prepare test accepts only exact NotDelivered
+or proven canceled noncaller-token OCE after real connection revocation. Two
+natural rows acquire False names and two forced True rows are added; no arbitrary
+exception or null-only result is accepted.
+
+Complete local Debug/Release each pass 12 TRX / 2777, while the exact `9deed36`
+hosted CI remains failed (four Windows cases). New exact-SHA all-OS evidence is
+required. See [local gates](../evidence/2026-10-05-early-checkpoint-local-gates.md),
+[fixture repairs](../evidence/2026-10-05-windows-fixture-repairs.md) and
+[native proof](../evidence/2026-10-05-macos-foundation-early-associations.md).
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source

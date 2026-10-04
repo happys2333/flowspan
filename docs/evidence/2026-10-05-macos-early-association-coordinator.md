@@ -2,7 +2,9 @@
 
 Status: portable implementation and final local verification passed. This does
 not close MSC task 2b's native gate, actual Capture, parent Task 6 or v1. Exact
-new-commit hosted verification is pending; no earlier SHA's results are inherited.
+new-commit hosted verification failed on Windows; see the
+[preserved failed checkpoint](2026-10-05-early-coordinator-hosted-failure.md).
+No earlier SHA's results are inherited.
 
 ## Source and behavior
 

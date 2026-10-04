@@ -2016,7 +2016,20 @@ publication coordinator contracts now have final local fake-boundary verificatio
 this is not native early-publication execution. A true CompleteAssociation result
 confirms association only; cleanup can still fail-close runtime admission, which
 future Capture must independently consume. Actual
-Foundation race execution and Capture composition remain unverified;
+Foundation early-race execution now has separate final-source local evidence:
+real retained NSObject sources, nil/native third reads, exact-generation replay,
+and ambiguity quarantine in controlled interleavings. This is not SCStream/OS
+scheduler behavior or native fault injection. Twenty-four final early-mode
+processes and an independently replayed strict gate pass; exact-commit hosted
+verification and Capture composition remain unverified.
+The strict gate requires exact bytes, empty stderr, exit zero and no timeout or
+interruption; raw failure/Skip records remain available. Its POSIX watchdog owns
+one unreaped leader through TERM/grace/KILL before reaping, not arbitrary native
+resource cleanup. Darwin zombie-only group-signal EPERM is a truthful nonzero
+failure; normal-exit detached/background descendants are outside that contract.
+No permission, AppKit/window, SCStream, pixel or input operation enters this
+Foundation mode. See [local early proof](../evidence/2026-10-05-macos-foundation-early-associations.md).
+Actual
 production host sharing, sample/Block lifetime, protection, input, physical and
 release gates remain independently open. See
 [Phase 2a evidence](../evidence/2026-10-05-macos-native-association.md),

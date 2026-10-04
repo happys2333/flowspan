@@ -3334,10 +3334,13 @@ public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
     }
 
     [Theory]
-    [InlineData(ProtectionKind.SecureInput)]
-    [InlineData(ProtectionKind.Unknown)]
+    [InlineData(ProtectionKind.SecureInput, false)]
+    [InlineData(ProtectionKind.Unknown, false)]
+    [InlineData(ProtectionKind.SecureInput, true)]
+    [InlineData(ProtectionKind.Unknown, true)]
     public async Task ProtectionMutationAfterReservedRoutePreventsPrepareWireAndDrains(
-        ProtectionKind replacementKind)
+        ProtectionKind replacementKind,
+        bool revokeBeforePreparationResult)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using DeviceIdentity hostIdentity = DeviceIdentity.Generate(
@@ -3473,12 +3476,24 @@ public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
                     deadline.Token);
             hostConnection = new SourceInvalidationObservingHostConnection(
                 new AuthenticatedDesktopRemoteWindowHostConnection(hostLease));
+            hostConnection.BlockPrepareReturn = true;
             Assert.Equal(new ProtocolVersion(1, 7), hostConnection.ProtocolVersion);
             Assert.Equal(HostDeviceId, hostConnection.LocalDeviceId);
             Assert.Equal(ParticipantDeviceId, hostConnection.PeerDeviceId);
             Assert.Equal(
                 participantIdentity.PublicIdentity.Fingerprint,
                 hostConnection.AuthenticatedPeerFingerprint);
+            Task? hostDisposal = null;
+            Assert.True(hostHandler.TryGetRemoteWindowPreparationChannel(
+                ParticipantDeviceId,
+                out IRemoteWindowPreparationChannel? preparationChannel));
+            var preparationSession = Assert.IsType<RemoteWindowControlSession>(
+                preparationChannel);
+            using CancellationTokenRegistration revocationBeforeResult =
+                revokeBeforePreparationResult
+                    ? preparationSession.RegisterLifetimeCancellationCallback(
+                        () => hostDisposal = hostHandler.DisposeAsync().AsTask())
+                    : default;
             Task<RemoteWindowCommandResult> starting = coordinator.StartAsync(
                     new DesktopRemoteWindowHostStartRequest(
                         sourceLease,
@@ -3547,6 +3562,26 @@ public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
                 hostConnection.ReleasePrepareForward.TrySetResult();
             }
 
+            try
+            {
+                await hostConnection.PrepareCompleted.Task.WaitAsync(deadline.Token);
+                Assert.False(starting.IsCompleted);
+                if (revokeBeforePreparationResult)
+                {
+                    Assert.NotNull(hostDisposal);
+                    Assert.Null(hostConnection.PreparationStatus);
+                    OperationCanceledException cancelled = Assert.IsType<
+                        OperationCanceledException>(hostConnection.PreparationFailure);
+                    Assert.True(cancelled.CancellationToken.IsCancellationRequested);
+                    Assert.NotEqual(deadline.Token, cancelled.CancellationToken);
+                    Assert.False(deadline.IsCancellationRequested);
+                }
+            }
+            finally
+            {
+                hostConnection.ReleasePrepareReturn.TrySetResult();
+            }
+
             InvalidOperationException failure = await Assert.ThrowsAsync<
                 InvalidOperationException>(async () => await starting);
 
@@ -3555,9 +3590,24 @@ public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
                 failure.Message);
             Assert.Equal(1, hostConnection.PrepareCount);
             Assert.Equal(1, hostConnection.PrepareSendAdmissionCount);
-            Assert.Equal(
-                RemoteWindowControlDeliveryStatus.NotDelivered,
-                hostConnection.PreparationStatus);
+            if (hostConnection.PreparationStatus is { } preparationStatus)
+            {
+                Assert.False(revokeBeforePreparationResult);
+                Assert.Equal(
+                    RemoteWindowControlDeliveryStatus.NotDelivered,
+                    preparationStatus);
+                Assert.Null(hostConnection.PreparationFailure);
+            }
+            else
+            {
+                OperationCanceledException cancelled = Assert.IsType<
+                    OperationCanceledException>(hostConnection.PreparationFailure);
+                Assert.True(cancelled.CancellationToken.IsCancellationRequested);
+                Assert.NotEqual(deadline.Token, cancelled.CancellationToken);
+                Assert.False(deadline.IsCancellationRequested);
+                Assert.True(hostConnection.ConnectionRevoked.Task.IsCompletedSuccessfully);
+            }
+
             Assert.False(reservation.Snapshot.PrepareSendAdmitted);
             Assert.Equal(0, receivePolicy.EvaluationCount);
             Assert.Equal(0, capture.StartCount);
@@ -3575,6 +3625,11 @@ public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
                 hostMedia,
                 participantMedia,
                 deadline.Token);
+
+            if (hostDisposal is not null)
+            {
+                await hostDisposal.WaitAsync(deadline.Token);
+            }
 
             Assert.Equal(1, hostConnection.FailCloseCount);
             Assert.Equal(1, hostConnection.DisposeCount);
@@ -3613,6 +3668,7 @@ public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
         finally
         {
             hostConnection?.ReleasePrepareForward.TrySetResult();
+            hostConnection?.ReleasePrepareReturn.TrySetResult();
             if (participantConnection is not null)
             {
                 await participantConnection.DisposeAsync();
@@ -8556,9 +8612,19 @@ public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
 
         public RemoteWindowControlDeliveryStatus? PreparationStatus { get; private set; }
 
+        public Exception? PreparationFailure { get; private set; }
+
+        public bool BlockPrepareReturn { get; set; }
+
+        public TaskCompletionSource PrepareCompleted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
         public ProtocolVersion ProtocolVersion => inner.ProtocolVersion;
 
         public TaskCompletionSource ReleasePrepareForward { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleasePrepareReturn { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int WaitForMediaAttachmentCount =>
@@ -8608,13 +8674,29 @@ public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
             var observedAdmission = new CountingPrepareSendAdmission(
                 admission,
                 () => Interlocked.Increment(ref prepareSendAdmissionCount));
-            RemoteWindowPreparationDeliveryResult result = await inner.PrepareAsync(
+            try
+            {
+                RemoteWindowPreparationDeliveryResult result = await inner.PrepareAsync(
                     request,
                     observedAdmission,
                     cancellationToken)
                 .ConfigureAwait(false);
-            PreparationStatus = result.Status;
-            return result;
+                PreparationStatus = result.Status;
+                return result;
+            }
+            catch (Exception exception)
+            {
+                PreparationFailure = exception;
+                throw;
+            }
+            finally
+            {
+                PrepareCompleted.TrySetResult();
+                if (BlockPrepareReturn)
+                {
+                    await ReleasePrepareReturn.Task.ConfigureAwait(false);
+                }
+            }
         }
 
         public ValueTask PublishAdmissionStateAsync(

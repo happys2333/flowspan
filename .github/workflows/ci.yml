@@ -196,6 +196,49 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Exercise strict early-association raw-byte gate fixtures
+        shell: bash
+        run: >-
+          bash .github/scripts/test-macos-early-association-gate.sh
+          "$RUNNER_TEMP/MacOSEarlyAssociationGateFixtures"
+
+      - name: Exercise independent POSIX process watchdog contracts
+        if: runner.os != 'Windows'
+        shell: bash
+        run: >-
+          python3 .github/scripts/test-posix-watchdog.py
+          "$RUNNER_TEMP/PosixWatchdogEvidence"
+
+      - name: Upload gate and watchdog evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: early-association-gate-${{ runner.os }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/MacOSEarlyAssociationGateFixtures
+            ${{ runner.temp }}/PosixWatchdogEvidence
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Require actual Foundation early associations without capture
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        shell: bash
+        run: >-
+          bash .github/scripts/macos-early-association-gate.sh
+          "$RUNNER_TEMP/MacOSEarlyAssociationEvidence" 30 2 --
+          dotnet tools/Flowspan.MacOS.DelegateProbe/bin/Release/net10.0/Flowspan.MacOS.DelegateProbe.dll
+          --run-early-associations
+
+      - name: Upload Foundation early-association evidence even on failure
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: macos-association-early-${{ github.sha }}
+          path: ${{ runner.temp }}/MacOSEarlyAssociationEvidence
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Verify Windows probe formatting
         run: >-
           dotnet format

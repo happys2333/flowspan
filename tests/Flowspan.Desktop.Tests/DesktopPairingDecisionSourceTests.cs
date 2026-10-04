@@ -10,47 +10,82 @@ public sealed class DesktopPairingDecisionSourceTests
     [Fact]
     public async Task DisposeWaitsForActiveCancellationPublication()
     {
+        Task<PairingDecision> decision = await RunOnDedicatedThread(
+            ExerciseDisposalWithActivePublication);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => decision);
+    }
+
+    private static Task<PairingDecision> ExerciseDisposalWithActivePublication()
+    {
         using DeviceIdentity peer = CreatePeer("Peer desk");
         using var cancellation = new CancellationTokenSource();
         using var releasePublication = new ManualResetEventSlim();
-        var publicationEntered = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var source = new DesktopPairingDecisionSource();
+        using var publicationEntered = new ManualResetEventSlim();
+        using var disposalEntered = new ManualResetEventSlim();
+        Task publication = Task.CompletedTask;
+        using var source = new DesktopPairingDecisionSource(
+            publish => publication = RunOnDedicatedThread(publish));
         source.PromptChanged += OnPromptChanged;
         Task<PairingDecision> decision = source.DecideAsync(
             CreateRequest(peer, "111111"),
             cancellation.Token).AsTask();
 
-        cancellation.Cancel();
-        await publicationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Task disposing = Task.Run(source.Dispose);
+        Task? disposing = null;
+        Task? observeDisposal = null;
+        Thread? disposingThread = null;
         int returnedBeforePublicationReleased = 0;
-        Task observeDisposal = disposing.ContinueWith(
-            _ =>
-            {
-                if (!releasePublication.IsSet)
-                {
-                    Interlocked.Exchange(
-                        ref returnedBeforePublicationReleased,
-                        1);
-                }
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
         try
         {
+            cancellation.Cancel();
+            WaitForStage(publicationEntered, "cancellation publication entry");
+            disposing = RunOnDedicatedThread(() =>
+            {
+                Volatile.Write(ref disposingThread, Thread.CurrentThread);
+                disposalEntered.Set();
+                source.Dispose();
+            });
+            observeDisposal = disposing.ContinueWith(
+                _ =>
+                {
+                    if (!releasePublication.IsSet)
+                    {
+                        Interlocked.Exchange(
+                            ref returnedBeforePublicationReleased,
+                            1);
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            WaitForStage(disposalEntered, "disposal worker entry");
+            Assert.True(SpinWait.SpinUntil(
+                () => disposing.IsCompleted
+                    || (Volatile.Read(ref disposingThread)!.ThreadState
+                        & ThreadState.WaitSleepJoin) != 0,
+                TimeSpan.FromSeconds(5)));
+            Assert.False(disposing.IsCompleted);
             Assert.False(releasePublication.IsSet);
         }
         finally
         {
             releasePublication.Set();
-            await Task.WhenAll(disposing, observeDisposal);
+            source.Dispose();
+            CompleteOwnedWork(publication);
+            if (disposing is not null)
+            {
+                CompleteOwnedWork(disposing);
+            }
+
+            if (observeDisposal is not null)
+            {
+                CompleteOwnedWork(observeDisposal);
+            }
         }
 
         Assert.Equal(0, Volatile.Read(ref returnedBeforePublicationReleased));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => decision);
+        return decision;
 
         void OnPromptChanged(
             object? sender,
@@ -58,8 +93,8 @@ public sealed class DesktopPairingDecisionSourceTests
         {
             if (eventArgs.Kind == DesktopPairingPromptChangeKind.Canceled)
             {
-                publicationEntered.TrySetResult();
-                releasePublication.Wait(TimeSpan.FromSeconds(10));
+                publicationEntered.Set();
+                releasePublication.Wait();
             }
         }
     }
@@ -67,11 +102,16 @@ public sealed class DesktopPairingDecisionSourceTests
     [Fact]
     public async Task CancellationCoalescingRetainsTheHighestAllocatedSequence()
     {
-        ConcurrentQueue<DesktopPairingPromptChangedEventArgs> observed =
-            await ExerciseCancellationCoalescingAsync();
+        CancellationExercise exercise = await RunOnDedicatedThread(
+            () => ExerciseCancellationCoalescing());
+
+        foreach (Task<PairingDecision> decision in exercise.Decisions)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => decision);
+        }
 
         Assert.Contains(
-            observed,
+            exercise.Observed,
             static change => change.Kind == DesktopPairingPromptChangeKind.Canceled
                 && change.Sequence == 4);
     }
@@ -90,9 +130,8 @@ public sealed class DesktopPairingDecisionSourceTests
         int publicationRuns = 0;
         int publicationAttempts = 0;
         int publicationStarted = 0;
-        Task<ConcurrentQueue<DesktopPairingPromptChangedEventArgs>> exercise =
-            Task.Factory.StartNew(
-                () => ExerciseCancellationCoalescingAsync(
+        Task<CancellationExercise> exercise = RunOnDedicatedThread(
+                () => ExerciseCancellationCoalescing(
                     publish =>
                     {
                         Action runOnce = () =>
@@ -115,10 +154,7 @@ public sealed class DesktopPairingDecisionSourceTests
                     },
                     failurePoint == "before-publication" ? ThrowInjectedFailure : null,
                     failurePoint == "before-worker-capture" ? ThrowInjectedFailure : null,
-                    failurePoint == "cancellation-join" ? ThrowInjectedFailure : null),
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default).Unwrap();
+                    failurePoint == "cancellation-join" ? ThrowInjectedFailure : null));
         try
         {
             await capturedWorker.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -170,8 +206,7 @@ public sealed class DesktopPairingDecisionSourceTests
         }
     }
 
-    private static async Task<ConcurrentQueue<DesktopPairingPromptChangedEventArgs>>
-        ExerciseCancellationCoalescingAsync(
+    private static CancellationExercise ExerciseCancellationCoalescing(
             Func<Action, Action>? decoratePublication = null,
             Action? beforePublication = null,
             Action? beforeWorkerCapture = null,
@@ -181,10 +216,8 @@ public sealed class DesktopPairingDecisionSourceTests
         using var firstCancellation = new CancellationTokenSource();
         using var secondCancellation = new CancellationTokenSource();
         using var releaseFirstQueue = new ManualResetEventSlim();
-        var firstQueueReached = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var workerCaptured = new TaskCompletionSource<Action>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var firstQueueReached = new ManualResetEventSlim();
+        using var workerCaptured = new ManualResetEventSlim();
         var publicationGate = new Lock();
         Action? pendingPublication = null;
         bool publicationReleased = false;
@@ -198,21 +231,17 @@ public sealed class DesktopPairingDecisionSourceTests
         Task<PairingDecision> first = source.DecideAsync(
             CreateRequest(peer, "111111"),
             firstCancellation.Token).AsTask();
-        Task cancelFirst = Task.Factory.StartNew(
-            firstCancellation.Cancel,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+        Task cancelFirst = RunOnDedicatedThread(firstCancellation.Cancel);
         Task<PairingDecision> second;
         try
         {
-            await firstQueueReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            WaitForStage(firstQueueReached, "first cancellation queue entry");
             beforeWorkerCapture?.Invoke();
             second = source.DecideAsync(
                 CreateRequest(peer, "222222"),
                 secondCancellation.Token).AsTask();
             secondCancellation.Cancel();
-            await workerCaptured.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            WaitForStage(workerCaptured, "cancellation publication capture");
             beforePublication?.Invoke();
         }
         finally
@@ -220,7 +249,7 @@ public sealed class DesktopPairingDecisionSourceTests
             releaseFirstQueue.Set();
             try
             {
-                await cancelFirst.WaitAsync(TimeSpan.FromSeconds(5));
+                CompleteOwnedWork(cancelFirst);
             }
             finally
             {
@@ -236,10 +265,7 @@ public sealed class DesktopPairingDecisionSourceTests
             }
         }
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
-
-        return observed;
+        return new CancellationExercise(observed, [first, second]);
 
         void SchedulePublication(Action publish)
         {
@@ -254,7 +280,7 @@ public sealed class DesktopPairingDecisionSourceTests
                 }
             }
 
-            workerCaptured.TrySetResult(publication);
+            workerCaptured.Set();
             if (publishNow)
             {
                 publication();
@@ -273,8 +299,8 @@ public sealed class DesktopPairingDecisionSourceTests
                 return;
             }
 
-            firstQueueReached.TrySetResult();
-            releaseFirstQueue.Wait(TimeSpan.FromSeconds(10));
+            firstQueueReached.Set();
+            releaseFirstQueue.Wait();
             afterFirstQueueReleased?.Invoke();
         }
     }
@@ -282,42 +308,12 @@ public sealed class DesktopPairingDecisionSourceTests
     [Fact]
     public async Task DelayedCancellationKeepsSequenceAndCoalescesToLatestChange()
     {
-        using DeviceIdentity peer = CreatePeer("Peer desk");
-        using var source = new DesktopPairingDecisionSource();
-        using var firstCancellation = new CancellationTokenSource();
-        using var secondCancellation = new CancellationTokenSource();
-        using var thirdCancellation = new CancellationTokenSource();
-        using var releaseFirstCancellation = new ManualResetEventSlim();
-        var firstCancellationEntered = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var latestCancellationPublished = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var observed = new ConcurrentQueue<DesktopPairingPromptChangedEventArgs>();
-        long firstCanceledSequence = 0;
-        int blockedCancellation = 0;
-        source.PromptChanged += BlockFirstCancellation;
-        source.PromptChanged += RecordChange;
-
-        Task<PairingDecision> first = source.DecideAsync(
-            CreateRequest(peer, "111111"),
-            firstCancellation.Token).AsTask();
-        firstCancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
-        await firstCancellationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-        Task<PairingDecision> second = source.DecideAsync(
-            CreateRequest(peer, "222222"),
-            secondCancellation.Token).AsTask();
-        secondCancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
-        Task<PairingDecision> third = source.DecideAsync(
-            CreateRequest(peer, "333333"),
-            thirdCancellation.Token).AsTask();
-        thirdCancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => third);
-
-        releaseFirstCancellation.Set();
-        await latestCancellationPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        CancellationExercise exercise = await RunOnDedicatedThread(
+            ExerciseDelayedCancellation);
+        foreach (Task<PairingDecision> decision in exercise.Decisions)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => decision);
+        }
 
         Assert.Equal(
             [
@@ -327,7 +323,60 @@ public sealed class DesktopPairingDecisionSourceTests
                 (DesktopPairingPromptChangeKind.Canceled, 2L),
                 (DesktopPairingPromptChangeKind.Canceled, 6L),
             ],
-            observed.Select(static change => (change.Kind, change.Sequence)));
+            exercise.Observed.Select(static change => (change.Kind, change.Sequence)));
+    }
+
+    private static CancellationExercise ExerciseDelayedCancellation()
+    {
+        using DeviceIdentity peer = CreatePeer("Peer desk");
+        using var firstCancellation = new CancellationTokenSource();
+        using var secondCancellation = new CancellationTokenSource();
+        using var thirdCancellation = new CancellationTokenSource();
+        using var releaseFirstCancellation = new ManualResetEventSlim();
+        using var firstCancellationEntered = new ManualResetEventSlim();
+        using var latestCancellationPublished = new ManualResetEventSlim();
+        var publicationWorkers = new ConcurrentQueue<Task>();
+        using var source = new DesktopPairingDecisionSource(
+            publish => publicationWorkers.Enqueue(RunOnDedicatedThread(publish)));
+        var observed = new ConcurrentQueue<DesktopPairingPromptChangedEventArgs>();
+        long firstCanceledSequence = 0;
+        int blockedCancellation = 0;
+        source.PromptChanged += BlockFirstCancellation;
+        source.PromptChanged += RecordChange;
+
+        Task<PairingDecision> first = source.DecideAsync(
+            CreateRequest(peer, "111111"),
+            firstCancellation.Token).AsTask();
+        Task<PairingDecision> second;
+        Task<PairingDecision> third;
+        try
+        {
+            firstCancellation.Cancel();
+            WaitForStage(firstCancellationEntered, "first cancellation publication entry");
+
+            second = source.DecideAsync(
+                CreateRequest(peer, "222222"),
+                secondCancellation.Token).AsTask();
+            secondCancellation.Cancel();
+            third = source.DecideAsync(
+                CreateRequest(peer, "333333"),
+                thirdCancellation.Token).AsTask();
+            thirdCancellation.Cancel();
+
+            releaseFirstCancellation.Set();
+            WaitForStage(latestCancellationPublished, "latest cancellation publication");
+        }
+        finally
+        {
+            releaseFirstCancellation.Set();
+            source.Dispose();
+            foreach (Task worker in publicationWorkers)
+            {
+                CompleteOwnedWork(worker);
+            }
+        }
+
+        return new CancellationExercise(observed, [first, second, third]);
 
         void BlockFirstCancellation(
             object? sender,
@@ -340,8 +389,8 @@ public sealed class DesktopPairingDecisionSourceTests
             }
 
             Volatile.Write(ref firstCanceledSequence, eventArgs.Sequence);
-            firstCancellationEntered.TrySetResult();
-            releaseFirstCancellation.Wait(TimeSpan.FromSeconds(10));
+            firstCancellationEntered.Set();
+            releaseFirstCancellation.Wait();
         }
 
         void RecordChange(
@@ -352,7 +401,7 @@ public sealed class DesktopPairingDecisionSourceTests
             if (eventArgs.Kind == DesktopPairingPromptChangeKind.Canceled
                 && eventArgs.Sequence > Volatile.Read(ref firstCanceledSequence))
             {
-                latestCancellationPublished.TrySetResult();
+                latestCancellationPublished.Set();
             }
         }
     }
@@ -478,6 +527,51 @@ public sealed class DesktopPairingDecisionSourceTests
         DeviceIdentity.Generate(
             DeviceId.Parse("22222222-2222-2222-2222-222222222222"),
             displayName);
+
+    // An async LongRunning delegate protects only its synchronous prefix. These
+    // controllers must remain synchronous until every test-owned barrier drains.
+    private static Task<T> RunOnDedicatedThread<T>(Func<T> action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private static Task RunOnDedicatedThread(Action action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private static void WaitForStage(ManualResetEventSlim stage, string name)
+    {
+        if (!stage.Wait(TimeSpan.FromSeconds(5)))
+        {
+            throw new TimeoutException($"Timed out waiting for {name}.");
+        }
+    }
+
+    private static void CompleteOwnedWork(Task task)
+    {
+        try
+        {
+            if (!task.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException("A dedicated test worker did not drain.");
+            }
+        }
+        catch (AggregateException)
+        {
+            // Preserve the worker's original exception rather than Task.Wait's
+            // additional aggregate wrapper (including cancellation callback faults).
+            task.GetAwaiter().GetResult();
+        }
+    }
+
+    private sealed record CancellationExercise(
+        ConcurrentQueue<DesktopPairingPromptChangedEventArgs> Observed,
+        Task<PairingDecision>[] Decisions);
 
     private sealed class InjectedFixtureFailureException : Exception;
 }

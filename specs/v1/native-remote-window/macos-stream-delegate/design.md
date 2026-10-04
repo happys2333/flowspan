@@ -34,14 +34,15 @@ including Task.Run descendants. Completion continuations run asynchronously and
 outside the gate. Callback exceptions are observable and fail admission closed.
 Generation exhaustion rejects rather than wrapping.
 
-## Native association slice (Foundation Phase 2a verified; early protocol open)
+## Native association slice (Foundation local prerequisites verified)
 
 The opt-in tool now implements and actually verifies the tag/reference/dealloc
 subset below, without actual Capture. See
 [Phase 2a evidence](../../../../docs/evidence/2026-10-05-macos-native-association.md).
-Its nil-tag path rejects unknown sources; it does not yet implement the retained
-early-fact/publication protocol described here. That protocol remains required
-before replacing Capture's `delegate=0`.
+The legacy Phase 2a nil-tag path still rejects unknown sources. The independent
+early mode now executes the retained early-fact/publication protocol locally;
+its exact-commit hosted gate remains open. Neither mode is actual Capture
+composition or permission/pixel evidence.
 
 One permanent NSObject bridge dispatches via immutable stream associations.
 Use a small NSObject tag subclass with a numeric ivar, not NSNumber (which can
@@ -98,7 +99,10 @@ superclass deallocation or handlers.
 The final 29-case coordinator and 33-case router focused suites pass in both
 configurations; full local solutions pass 2775 cases each. See
 [portable evidence](../../../../docs/evidence/2026-10-05-macos-early-association-coordinator.md).
-Exact new-SHA hosted and actual Foundation early-publication proof remain open.
+Exact `9deed36` hosted CI failed four Windows fixture cases, while all 29
+coordinator cases passed on all OSes. The repaired complete local solution now
+passes 2777 cases per configuration; fresh exact-SHA hosted verification remains
+open. The separate Foundation early-publication proof has final local evidence.
 
 An immutable Initializer object wraps one registration; it is never recycled.
 The coordinator serializes exact-token/pending-fact state with a short gate,
@@ -141,11 +145,57 @@ does not claim native drain. Later phases require fresh admission. Independently
 confirmed source/tag references still get their single cleanup attempts in nested
 finally paths after a fault; failure of one release must not skip the other.
 Portable boundary fixtures prove only these managed ownership and ordering
-contracts. Actual Foundation early-publication execution remains a separate
-required gate before any Capture composition.
+contracts. Separate Foundation early-publication execution verifies real native
+reads/retains/associations in controlled interleavings, not actual SCStream
+scheduling or native fault containment.
 `CompleteAssociation` returning true confirms an association fact only: cleanup
 in its finally path can still fail and close the runtime. Capture must consume
 `Failure` and `NativeAdmissionClosed`; the Boolean cannot grant sharing admission.
+
+## Opt-in Foundation early-association proof (local verified; hosted pending)
+
+`--run-early-associations` is an independent no-capture mode, with its own
+process-rooted coordinator/router/bridge and validated numeric tag class. Keep
+default/help/unknown arguments and the existing synthetic/Phase 2a output
+contracts unchanged. Only ordinary-arm64 macOS 15.2+ can execute it; unsupported
+hosts return explicit Skip, which a native CI gate must reject. No SCStream,
+AppKit/window, content enumeration, permission, sample/pixel or input API enters
+this mode. A fresh process and external deadline contain a stalled probe; they
+do not establish native exception containment or cleanup.
+
+The first vertical slice sends an actual typed terminal callback on a real
+NSObject with a nil association before initialization completes. Verify retained
+same-source identity, one pending replay after actual association publication,
+terminal-once delivery, complete reference accounting and successful NSObject
+superclass tag deallocation. A first tracer result cannot claim the publication
+race: its separate race/ambiguity fields remain false until exercised.
+
+Then gate the callback immediately after its actual second native nil read has
+completed, publish/clear the exact initializer, admit a replacement initializer,
+and resume the losing early-record attempt. Verify the third actual native
+association read routes only the original immutable generation and never the
+replacement. A separate nil-third-read/distinct-source scenario must preserve
+poison/quarantine without guessed replacement notification. Controlled hooks
+follow real native operations; this is deterministic native-boundary interleaving,
+not proof of SCStream/OS scheduler behavior. No production coordinator test hook
+or Capture modification is required.
+
+Every reverse entry has a local autorelease pool, managed exception containment
+and an outer failure gate. Count actual source/tag owners, reference acquisition
+and confirmed release, native reads/callbacks, pending/race notifications and
+final charged/uncertain ownership separately. Successful output requires bounded
+one-LF/no-NUL bytes, empty stderr, exact Pass facts and exit zero; uploads retain
+raw failure/Skip bytes. Unknown native outcomes never become a balanced Pass.
+Final Debug/Release and 24 independent early-mode processes pass with identical
+1057-byte stdout and empty stderr. Only stages 13/14/15 bind the final source;
+one actual native RED→GREEN pair (02→03) is recorded separately from direct
+GREEN additions and compiler exclusions. The strict gate is byte-exact and
+rejects Skip/nonzero/stderr/timeout. A Python3-stdlib POSIX process watchdog is
+CI infrastructure, not a product language split or native cleanup proof.
+Only complete local and exact-commit hosted evidence can close the corresponding
+native subitem; actual Capture and remaining MSC gates stay independent. See
+[native evidence](../../../../docs/evidence/2026-10-05-macos-foundation-early-associations.md)
+and [root gates](../../../../docs/evidence/2026-10-05-early-checkpoint-local-gates.md).
 
 ## Capture composition (not yet implemented)
 

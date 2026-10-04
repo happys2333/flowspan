@@ -14,7 +14,7 @@ internal static class Program
             return 0;
         }
 
-        if (args is not ["--run-synthetic"] and not ["--run-associations"])
+        if (args is not ["--run-synthetic"] and not ["--run-associations"] and not ["--run-early-associations"])
         {
             Console.Error.WriteLine("delegate_probe=fail; reason=unknown_arguments; native_calls=0; capture_executed=false");
             return 2;
@@ -23,7 +23,9 @@ internal static class Program
         if (!OperatingSystem.IsMacOSVersionAtLeast(15, 2)
             || RuntimeInformation.ProcessArchitecture != Architecture.Arm64)
         {
-            Console.WriteLine(args is ["--run-associations"]
+            Console.WriteLine(args is ["--run-early-associations"]
+                ? "early_association_probe=skip; reason=requires_macos_15_2_ordinary_arm64; native_calls=0; capture_executed=false"
+                : args is ["--run-associations"]
                 ? "association_probe=skip; reason=requires_macos_15_2_ordinary_arm64; native_calls=0; capture_executed=false"
                 : "delegate_probe=skip; reason=requires_macos_15_2_ordinary_arm64; native_calls=0; capture_executed=false");
             return 0;
@@ -31,7 +33,11 @@ internal static class Program
 
         try
         {
-            if (args is ["--run-associations"])
+            if (args is ["--run-early-associations"])
+            {
+                NativeEarlyAssociationProbe.Run();
+            }
+            else if (args is ["--run-associations"])
             {
                 NativeAssociationProbe.Run();
             }
@@ -43,7 +49,11 @@ internal static class Program
         }
         catch (Exception exception)
         {
-            if (args is ["--run-associations"])
+            if (args is ["--run-early-associations"])
+            {
+                Console.Error.WriteLine($"early_association_probe=fail; managed_exception={exception.GetType().Name}; check={NativeEarlyAssociationProbe.FailedCheck ?? "native_or_managed_call_failed"}; capture_executed=false");
+            }
+            else if (args is ["--run-associations"])
             {
                 Console.Error.WriteLine($"association_probe=fail; managed_exception={exception.GetType().Name}; check={NativeAssociationProbe.FailedCheck ?? "native_or_managed_call_failed"}; capture_executed=false");
             }

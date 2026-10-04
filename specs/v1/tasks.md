@@ -54,6 +54,16 @@ at 62/62 (29 new coordinator + 33 router). Two independent preserved-evidence
 audits replay successfully; both review axes have no remaining findings.
 Only MSC 2b's portable/local subitem closes. Its exact new-SHA hosted checkpoint,
 actual Foundation early-publication proof, Capture, Task 6 and v1 remain open.
+Its [exact 9deed36 hosted attempt](../../docs/evidence/2026-10-05-early-coordinator-hosted-failure.md)
+now records CI failure: macOS/Linux 2775 Passed, Windows 2771 Passed plus four
+Failed; packaging skipped, CodeQL successful. The 29 coordinator cases pass
+on all OSes. Complete hosted acceptance remains open while the four failures
+have local test-only reproductions and repairs independently of the no-capture
+early-native slice. [Final local gates](../../docs/evidence/2026-10-05-early-checkpoint-local-gates.md)
+now pass Debug/Release 2777 each; the [Foundation early mode](../../docs/evidence/2026-10-05-macos-foundation-early-associations.md)
+passes actual native final-source processes and strict root supervision.
+Fresh exact-commit hosted evidence remains open. Capture composition is the next
+vertical slice; no MSC parent, production, physical, release or Goal closes.
 
 ## 0. Product and engineering baseline
 

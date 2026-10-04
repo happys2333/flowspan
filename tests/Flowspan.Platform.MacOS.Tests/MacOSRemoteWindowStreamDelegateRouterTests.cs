@@ -124,25 +124,31 @@ public sealed class MacOSRemoteWindowStreamDelegateRouterTests
         var router = new MacOSRemoteWindowStreamDelegateRouter();
         var registration = ReserveAssociated(router);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var release = new ManualResetEventSlim();
+        var handlerExited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new ManualResetEventSlim();
         Assert.True(registration.Activate(() =>
         {
             entered.TrySetResult();
-            Assert.True(release.Wait(TestTimeout));
+            // Only the observer releases the admitted handler. A timed wait here
+            // can expire while its continuation is queued and falsify the join.
+            release.Wait();
+            handlerExited.SetResult();
         }));
-        Task callback = Task.Run(() => router.Dispatch(registration.Generation, MacOSRemoteWindowDelegateSignal.Inactive));
+        var callback = new DedicatedCallback(() => router.Dispatch(registration.Generation, MacOSRemoteWindowDelegateSignal.Inactive));
         Task<MacOSRemoteWindowCallbackRetirement>? retirement = null;
         try
         {
             await entered.Task.WaitAsync(TestTimeout);
             retirement = registration.RetireAsync().AsTask();
             Assert.True(registration.AdmissionClosed);
+            Assert.False(release.IsSet);
+            Assert.False(handlerExited.Task.IsCompleted);
             Assert.False(retirement.IsCompleted);
         }
         finally
         {
             release.Set();
-            await callback.WaitAsync(TestTimeout);
+            callback.JoinAndDisposeGate(release);
             if (retirement is not null)
             {
                 Assert.Equal(MacOSRemoteWindowCallbackRetirement.ManagedInvocationsExited,
@@ -151,6 +157,7 @@ public sealed class MacOSRemoteWindowStreamDelegateRouterTests
         }
 
         Assert.Null(registration.Failure);
+        Assert.True(handlerExited.Task.IsCompletedSuccessfully);
         Assert.False(registration.Activate(() => Assert.Fail("Retired generation cannot activate.")));
     }
 
@@ -556,15 +563,15 @@ public sealed class MacOSRemoteWindowStreamDelegateRouterTests
         {
             var registration = ReserveAssociated(router);
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var release = new ManualResetEventSlim();
+            var release = new ManualResetEventSlim();
             int notifications = 0;
             Assert.True(registration.Activate(() =>
             {
                 Interlocked.Increment(ref notifications);
                 entered.TrySetResult();
-                Assert.True(release.Wait(TestTimeout));
+                release.Wait();
             }));
-            Task callback = Task.Run(() => router.Dispatch(registration.Generation, MacOSRemoteWindowDelegateSignal.Inactive));
+            var callback = new DedicatedCallback(() => router.Dispatch(registration.Generation, MacOSRemoteWindowDelegateSignal.Inactive));
             Task<MacOSRemoteWindowCallbackRetirement>[] retirementTasks = [];
             try
             {
@@ -584,7 +591,7 @@ public sealed class MacOSRemoteWindowStreamDelegateRouterTests
             finally
             {
                 release.Set();
-                await callback.WaitAsync(TestTimeout);
+                callback.JoinAndDisposeGate(release);
                 var results = await Task.WhenAll(retirementTasks).WaitAsync(TestTimeout);
                 Assert.All(results, result => Assert.Equal(MacOSRemoteWindowCallbackRetirement.ManagedInvocationsExited, result));
             }
@@ -604,5 +611,44 @@ public sealed class MacOSRemoteWindowStreamDelegateRouterTests
         Assert.True(registration.MarkDelegatePublished());
         Assert.True(registration.ConfirmAssociation());
         return registration;
+    }
+
+    // Blocking a test-owned thread leaves pool capacity for the async observer
+    // and duplicate dispatches. Every caller releases its gate in finally.
+    private sealed class DedicatedCallback
+    {
+        private readonly Thread thread;
+        private Exception? failure;
+
+        internal DedicatedCallback(Action callback)
+        {
+            thread = new Thread(() =>
+            {
+                try
+                {
+                    callback();
+                }
+                catch (Exception exception)
+                {
+                    failure = exception;
+                }
+            })
+            { IsBackground = true };
+            thread.Start();
+        }
+
+        internal void JoinAndDisposeGate(ManualResetEventSlim release)
+        {
+            bool exited = thread.Join(TestTimeout);
+            if (exited)
+            {
+                release.Dispose();
+            }
+
+            // If exit is unconfirmed, retain the already-signaled gate rather
+            // than make the surviving background thread use a disposed one.
+            Assert.True(exited, "The explicitly released callback thread did not exit.");
+            Assert.Null(failure);
+        }
     }
 }
