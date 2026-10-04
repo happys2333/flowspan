@@ -36,7 +36,7 @@ input, protection, participant or Driver authority.
   shall contain managed faults, restore callback ancestry and return invocation
   ownership in finally; failures shall remain observable, not native success.
 - MDO7: Default/help/unknown probe modes shall make no native calls. Only
-  `--run-synthetic` on supported ordinary-arm64 macOS may instantiate NSObject
+  `--run-synthetic` on ordinary-arm64 macOS 15.2 or later may instantiate NSObject
   bridges and invoke typed Objective-C/GCD callbacks. It shall not create
   SCStream, AppKit, windows, enumerate sources, preflight/request permissions,
   read titles, capture samples/pixels or inject input. Unsupported hosts shall

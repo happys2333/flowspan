@@ -24,6 +24,8 @@ Never wire the owner into current Capture or `CreateProduction()` in this slice.
 
 Validate public SDK SCStreamDelegate method signatures with typed objc_msgSend
 and nonthrowing reverse entries for terminal, active and inactive callbacks.
+The last two protocol methods require macOS 15.2, so this three-method probe
+uses that minimum; it does not raise the existing capture candidate's 14.2 floor.
 The synthetic probe exercises forced GC, GCD dispatch, terminal-before-binding,
 retirement with an in-flight managed invocation and late tombstone callbacks.
 Fake stream identities are never messaged or dereferenced. Any uncertain native
