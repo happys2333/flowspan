@@ -43,7 +43,10 @@ The two hosted Windows failures now have
 without production changes: both complete local solutions pass 2746/2746.
 The [no-capture Foundation Phase 2a proof](../../docs/evidence/2026-10-05-macos-native-association.md)
 also passes actual local Debug/Release and independent raw CI-gate execution.
-This closes only MSC 2a local verification; exact new-SHA hosted verification,
+The [exact 974e954 hosted checkpoint](../../docs/evidence/2026-10-05-association-hosted-checkpoint.md)
+now passes CI/CodeQL, with three independently downloaded complete inventories
+of 12 TRX / 2746 Passed and the new strict Foundation native gate. This closes
+MSC 2a's local/hosted verification and the fixture checkpoint, not MSC task 2.
 MSC 2b early publication and actual Capture integration remain open.
 
 ## 0. Product and engineering baseline

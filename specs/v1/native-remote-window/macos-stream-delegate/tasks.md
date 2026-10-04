@@ -14,22 +14,31 @@
     pressure passes 1320/1320. Standards/Spec review has no remaining findings.
     This closes only portable implementation/local verification. Exact f9896b8
     hosted CI failed in the Windows test job; CodeQL succeeded. Artifact audit
-    preserves that failure; local fixture repairs below still require a new
-    hosted checkpoint. This does not close the full matrix or native task 2. See
+    preserves that failure. The later exact 974e954 hosted checkpoint passes
+    the repaired complete matrix; f989 itself remains failed. Neither closes
+    native task 2. See
     [portable evidence](../../../../docs/evidence/2026-10-05-macos-stream-delegate-router.md).
 - [ ] 2. Implement and actually execute the no-capture native association proof.
   - [x] 2a. Verify ordinary-arm64 Foundation numeric tags, retained callback
     references, old-generation isolation, independent maximum-16 tag budget and
     successful superclass deallocation without Capture. Local Debug/Release
     and 23 independent final native processes pass; strict CI gate and 74 gate
-    fixtures are implemented. Hosted exact-SHA verification remains pending.
+    fixtures are implemented. Exact 974e954 CI/CodeQL and downloaded hosted
+    raw proof now pass; see
+    [hosted checkpoint](../../../../docs/evidence/2026-10-05-association-hosted-checkpoint.md).
     See [Phase 2a evidence](../../../../docs/evidence/2026-10-05-macos-native-association.md).
   - [ ] 2b. Implement and verify exact-initializer retained early facts, nil-tag
     publication/pending-clear/third-read races, ambiguity and poison/quarantine.
+    Portable coordinator implementation is in progress: reserve a separate
+    maximum-16 ownership record before native work, preserve unknown ownership,
+    and fail all delivery admission closed on native resource/ownership faults.
+    Prove source identity, terminal-only coalescing, unique release, replacement
+    isolation and reentrant association before a separate actual Foundation
+    early-publication probe. Neither boundary is checked complete yet.
   - Verify permanent bridge, retained numeric tag, independent tag budget,
     callback reference ownership, nil-tag publication race and tag deallocation
     ABI in Debug and Release. Keep no-native defaults and strict evidence gates.
-  - _Requirements: MSC1-MSC3, MSC6, MSC8_
+  - _Requirements: MSC1-MSC3, MSC6, MSC8-MSC9_
 - [ ] 3. Compose the delegate into the actual candidate Capture.
   - Separate delegate/output publication; close terminal delivery; prevent
     Start resurrection; retire managed handlers before native release; preserve

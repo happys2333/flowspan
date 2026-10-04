@@ -1979,14 +1979,31 @@ association instead of reusing delegate addresses. Managed generation routing
 must reject stale/unknown generations and close delivery before notification.
 Capture permits include constructing, retiring and quarantined native resources;
 handler retirement is not cleanup confirmation. A separate tag budget follows
-actual native tag deallocation. Neither budget can be silently reset.
+actual native tag deallocation. Neither budget can be silently reset. The early
+coordinator adds a third, independent maximum-16 process ownership-record
+budget for in-flight native work, retained pending facts and unknown ownership.
+It reserves before native work and returns only after confirmed reference
+release; unknown retain/read/release outcomes remain charged without blind
+release retries. Late uncertainty cannot reoccupy a complete-cleanup Capture
+slot that another generation has reused.
 
 Unlike the opaque-pointer MDO prerequisite, this candidate reads native
 associations. Borrowed callback stream/tag references must be retained before
 external notification and released afterward, with no native call under a
 managed routing gate. Early nil-tag streams require retained identity,
 initializer snapshot and association re-read; ambiguous published construction
-poisons future initialization rather than misrouting old work. Active or a
+poisons future initialization rather than misrouting old work. Recording that
+loses to publication/clear requires a third association read bound to the same
+token, never a replacement snapshot. Completion compares returned source with
+retained early identity and rechecks after native reentry. Only same-source
+terminal facts coalesce; Active cannot consume/overwrite them. Identity
+ambiguity isolates related exact tokens without notifying unrelated Captures.
+Native ownership/resource faults and record exhaustion instead close all new
+native-work and delivery admission permanently, preserving primary/fatal
+failure. Already admitted native work may return; known independent references
+still receive their single cleanup attempt outside gates. This does not prove
+native drain or contain Objective-C/OS faults. Actual Capture must consume this
+runtime failure state before admission. Active or a
 successful Start completion cannot reopen terminal admission. The opt-in
 Foundation Phase 2a probe now actually verifies numeric association lifetime,
 retained callback source/tag references and successful NSObject superclass
@@ -1994,7 +2011,8 @@ deallocation in local Debug/Release. It has no Capture or early-initializer
 protocol; nil tags are rejected, not retained as pending facts. Permanent
 bridge/classes remain process-owned. Native faults/Objective-C exceptions are
 not proved contained, and healthy runs are not such fault evidence. Early
-publication races and actual Capture composition remain unimplemented/unverified;
+publication coordinator contracts are being implemented portably; actual
+Foundation race execution and Capture composition remain unverified;
 production host sharing, sample/Block lifetime, protection, input, physical and
 release gates remain independently open. See
 [Phase 2a evidence](../evidence/2026-10-05-macos-native-association.md),

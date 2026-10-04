@@ -1,7 +1,8 @@
 # macOS Foundation association proof — MSC Phase 2a
 
-Status: implemented and actually verified locally in Debug/Release. Hosted
-exact-commit verification remains pending. MSC task 2 stays open: its early
+Status: implemented and actually verified locally in Debug/Release and in the
+[exact 974e954 hosted checkpoint](2026-10-05-association-hosted-checkpoint.md).
+MSC task 2 stays open: its early
 initializer/publication-race obligations are not implemented or proved.
 
 Scope: [MSC requirements](../../specs/v1/native-remote-window/macos-stream-delegate/requirements.md),
@@ -118,4 +119,5 @@ No actual SCStream source loss, native capture, sample/Block drain, TCC,
 protection/input/independent Emergency Stop, minimum-OS, Intel/arm64e, physical
 devices, signed packages, production host sharing or v1 release criterion is
 closed by this Foundation proof. The previous f989 hosted failure is preserved;
-the new implementation needs its own exact-SHA CI/CodeQL result.
+974e954's own successful CI/CodeQL and downloaded raw proof are recorded in
+the hosted checkpoint above, without inheriting a prior-SHA outcome.

@@ -2,7 +2,7 @@
 
 - Status: accepted for staged implementation; native composition unverified
 - Date: 2026-10-05
-- Requirements: NR6, NR8, NR10; MSC1-MSC8
+- Requirements: NR6, NR8, NR10; MSC1-MSC9
 
 ## Context
 
@@ -25,6 +25,24 @@ Hold separate maximum-16 Capture and tag allocation budgets; managed handler
 retirement does not release either native-lifetime obligation. Serialize only
 initialization admission, fail fast on contention, and poison future
 initialization after ambiguous published failure.
+
+The early-association coordinator additionally has a separate fixed maximum-16
+process ownership-record budget. Reserve before source/tag native work;
+callback, pending-fact, publication and unknown ownership obligations keep it
+charged until confirmed release. Record acquisition/release attempts separately
+from confirmations, and never retry an uncertain release. This budget cannot
+be returned by Capture slot reuse or guessed absence of a native reference.
+
+Distinguish source-identity ambiguity from a native ownership/resource fault.
+Ambiguity poisons new construction and related exact initializer tokens only,
+without routing a guessed terminal signal to another Capture. Resource faults,
+including record exhaustion, permanently close global native-work and delivery
+admission and preserve primary/fatal failure. Already admitted native calls may
+return; independently confirmed references still receive single cleanup
+attempts outside gates, even if another release fails. Closure is not drain.
+Complete-cleanup registrations never reoccupy reused slots after a late fault;
+unknown ownership stays in process records. Capture must later consume the
+runtime failure/admission state, not merely refuse new construction.
 
 Implement and verify the portable router first, then actual no-capture
 association/dealloc ABI, then actual Capture composition. Keep existing Capture

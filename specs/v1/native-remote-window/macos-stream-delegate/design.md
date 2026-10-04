@@ -85,12 +85,59 @@ distinct untagged stream during the same initialization is ambiguity: poison
 the construction, never overwrite the first identity or route either to a
 later initializer. Exact association completion or rejection owns release of
 all acquired pending-stream references; failed/uncertain release retains that
-ownership within the charged Capture quarantine. Pending-fact storage itself
+ownership within an independent charged process record, with related Capture
+quarantine while that registration still owns resources. Pending-fact storage itself
 must be bounded; rejecting an extra fact still balances its callback +1.
 
 Objective-C association publication can initialize/reenter runtime code. Do not
 hold the routing gate across `objc_setAssociatedObject`, native retain/release,
 superclass deallocation or handlers.
+
+## Retained early-association coordinator (portable implementation in progress)
+
+An immutable Initializer object wraps one registration; it is never recycled.
+The coordinator serializes exact-token/pending-fact state with a short gate,
+but admits native calls and invokes handlers outside it. A valid borrowed
+source is retained before any association read. After a first nil read, snapshot
+the exact initializer and perform the second read. If that read is nil but
+recording loses to publication/pending-clear, perform the third read and route
+only a verified immutable tag. Never resnapshot a replacement initializer.
+No proved tag after that race is ambiguity, not permission to drop the terminal
+event. Same-source terminal facts can coalesce; Active cannot occupy the record.
+Distinct early sources or a returned source differing from the retained fact
+poison construction rather than overwriting identity. Association publication
+retains its own source through native reentry and rechecks exact-token/poison
+state afterward. Completion/rejection has one owner for pending-reference release.
+
+Use a fixed maximum-16 array of ownership records distinct from both Capture
+and tag-allocation budgets. Reserve before any native retain/read/publication;
+this also bounds callbacks whose ownership outcome becomes unknowable. Each
+record tracks source/tag acquisition attempted versus confirmed and release
+attempted versus confirmed. An early fact transfers its existing charged record,
+not an untracked pointer. Return a record only after all references are confirmed
+released. A throwing retain/read may have changed native ownership; a throwing
+release may have consumed its +1. Keep those records charged, do not infer
+absence, and never retry an uncertain release. These are process-lifetime
+quarantines, not native fault containment or a cleanup/drain guarantee.
+
+Identity ambiguity only poisons later construction and quarantines related
+exact tokens; it must not notify unrelated or replacement Captures. By contrast,
+native ownership/resource faults and record exhaustion permanently close new
+native-work admission and every registration's delivery admission. Preserve the
+first primary exception and original nested fatal exception; expose runtime
+Failure/NativeAdmissionClosed for later Capture composition. These state-only
+router operations invoke neither native code nor handlers. A late unknown fault
+cannot restore a registration whose complete-cleanup slot was already reused;
+the separate process record owns the uncertainty.
+
+Every non-cleanup native operation receives admission under a short state gate
+and executes outside it. Work admitted before a fault may still finish; closure
+does not claim native drain. Later phases require fresh admission. Independently
+confirmed source/tag references still get their single cleanup attempts in nested
+finally paths after a fault; failure of one release must not skip the other.
+Portable boundary fixtures prove only these managed ownership and ordering
+contracts. Actual Foundation early-publication execution remains a separate
+required gate before any Capture composition.
 
 ## Capture composition (not yet implemented)
 

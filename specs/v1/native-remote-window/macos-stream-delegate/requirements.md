@@ -37,12 +37,17 @@ number of per-session delegate bridges or inventing a native-drain guarantee.
   stream during that initialization shall poison rather than overwrite the
   early fact. Every retained pending fact shall be released on exact completion
   or rejection, or remain charged to an explicit quarantine when release is
-  unconfirmed.
+  unconfirmed. Completion shall compare its returned source with the retained
+  early source and revalidate the exact token after reentrant publication.
+  Only terminal facts may occupy/coalesce pending storage; Active shall not
+  consume or replace them.
 - MSC4: When an exact current generation receives StoppedWithError or Inactive,
   it shall close local delivery admission before notifying SourceUnavailable
   once, even without samples. Active and successful Start completion shall not
   reopen terminal admission. Unknown and retired generations shall affect no
-  other Capture.
+  other Capture by generation routing. A process-wide native ownership/resource
+  failure is a distinct fail-closed runtime event governed by MSC9, not a
+  terminal signal guessed from an unknown generation.
 - MSC5: When retirement begins, it shall close admission, join admitted managed
   handlers and remove the generation-to-Capture mapping. Direct and active
   ExecutionContext-descendant self-join shall reject before waiting. It shall
@@ -66,6 +71,21 @@ number of per-session delegate bridges or inventing a native-drain guarantee.
   deallocation in Debug and Release. Default execution shall make no native
   calls. Actual source-close/SCStream failure is a separate opt-in test, with
   native sample count distinguished from sink-frame count.
+- MSC9: Before native source/tag work, the coordinator shall reserve one of
+  at most 16 independent process ownership records, separate from Capture and
+  tag-allocation permits. In-flight callbacks, retained early facts, association
+  publication and uncertain retain/read/release outcomes shall remain charged
+  until every owned reference is confirmed released. Unconfirmed release shall
+  never be retried blindly. Identity ambiguity shall poison new construction
+  and quarantine only related exact tokens without notifying another Capture.
+  Native ownership/resource faults, including ownership-record exhaustion,
+  shall permanently close new native-work and all delivery admission and
+  preserve the original primary/fatal failure. Already admitted native work may
+  return; known independent references shall still receive at most one cleanup
+  attempt outside managed gates. Late uncertainty shall remain in process
+  ownership records and shall not reoccupy a complete-cleanup registration's
+  reused Capture slot. Actual Capture composition shall consume this runtime
+  failure/admission state before it can be considered verified.
 
 ## Non-goals and evidence levels
 

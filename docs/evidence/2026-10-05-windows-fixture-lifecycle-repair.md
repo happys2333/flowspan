@@ -1,7 +1,9 @@
 # Windows hosted test fixture lifecycle repair
 
-Status: local portable repair verified; a new exact-SHA Windows CI result is
-still required. No production pairing or permission code changed.
+Status: local portable repair and
+[exact 974e954 hosted verification](2026-10-05-association-hosted-checkpoint.md)
+passed, including all three OSes' complete TRX inventories. No production
+pairing or permission code changed.
 
 ## Preserved failed checkpoint
 
