@@ -1915,6 +1915,48 @@ accessibility, signing, notarization, or release proof. Tasks 5, 5.5a.3, 5.5a,
 and 5.5, every native/physical/release gate, and the Goal remain open.
 `CreateProduction()` remains unavailable.
 
+### 5.42 Explicit task-owned Windows WGC probe boundary
+
+`tools/Flowspan.Windows.CaptureProbe --native-self-window` is an independent
+clean-room feasibility probe, not a product adapter. It creates and captures
+only its own visible 64-by-64 HWND. The probe does not enumerate existing
+windows, read user-window titles, request capture/input permissions, disable
+the OS capture border, capture secondary windows, inject input, or save pixels.
+Only hashes and bounded structural metadata enter its evidence. Pixel buffers
+are cleared after marker verification. Capture success remains
+`protection=unknown`; it cannot authorize production capture or input.
+
+The poll-only source boundary relies on ownership of this HWND. Admission closes
+on `WM_CLOSE`, and the UI owner must not destroy the admitted source before
+native capture cleanup is confirmed. Native Close or owner-join uncertainty
+quarantines the native graph and HWND until this standalone process exits;
+process termination is not a claim of confirmed native cleanup. Managed
+fixtures prove selected stop/commit/Close and COM-ownership contracts only, not
+WGC/DWM behavior, arbitrary native-fault containment, or native leak freedom.
+
+The independent `Windows task-owned WGC probe` workflow opts in only through an
+explicit `workflow_dispatch` invocation or a push to the exact test ref
+`codex/wgc-self-window-probe`. Ordinary `main`, other `codex/**` pushes, and pull
+requests do not start this lane; ordinary CI runs only the new portable
+`--wgc-self-test` in addition to its existing no-window-capture WARP checks.
+The lane has read-only repository permissions, no secrets or arbitrary command
+inputs, a fixed hosted Windows runner, a 45-second child-process watchdog, and
+step/job timeouts. It preserves exact checkout SHA, source/build-input manifests,
+actual OS/image/SDK metadata, invocation, process status, and raw stdout/stderr,
+including original CRLF bytes. Parsing normalizes a separate copy only.
+
+The native gate rejects every Skip even when the probe exits zero. It requires
+one exact `wgc_self_window` pass record, verified fixed interior markers, a
+valid frame hash, 64-by-64 content and at least one actual frame, balanced owned
+COM references, confirmed capture/session/cleanup flags, every declared safety
+counter at zero, and Protection `unknown`. Failure and watchdog evidence is
+retained, not relabelled as native success. A future verified hosted run can
+prove only this task-owned-HWND WGC slice. Generic-window identity/ABA and
+source-Closed callbacks, resize, permission grant/deny/revoke, protected or
+secure desktop/input, independent local Emergency Stop, hardware GPU, physical
+two-Device behavior, packaged identity, and all production/release gates remain
+open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

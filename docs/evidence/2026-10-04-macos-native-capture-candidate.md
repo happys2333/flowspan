@@ -142,8 +142,20 @@ packaged permission identity and grant/deny/revoke, real UI composition, physica
 two-device operation, signing/notarization and release acceptance.
 
 CI defaults never pass `--run`; they only build/format and verify the no-capture
-default. Hosted outcomes for the new final commit are pending at this checkpoint.
-They must not be inferred from earlier successful CI or these local native runs.
+default. The superseding integration commit
+`c5332462880f079a3767e7c6cf4c3d4990c457d3` was independently rerun locally from a
+clean checkout: both solutions 2686/2686, all four standalone probes built and
+formatted, Windows ten/Linux seventeen portable cases passed, and a further
+actual Release task-owned macOS native run passed. Its stdout is retained at
+`/tmp/flowspan-native-candidate-c533246/native-exact.stdout`.
+
+That commit's [hosted checkpoint](2026-10-04-native-candidate-hosted-ci.md) is
+**failed CI**: Windows/macOS each pass 2686/2686, Linux passes 2685/2686 because
+of an Activity teardown exception mismatch, and all package jobs are skipped.
+All 62 candidate cases pass on every hosted OS. CodeQL passes with measured
+421/421 C# extraction; the separate Linux no-capture ABI job truly passes.
+Successful substeps do not make the enclosing CI successful, and no hosted
+production-driver capture or physical/release proof is claimed.
 
 ## Final-source SHA-256 anchors
 

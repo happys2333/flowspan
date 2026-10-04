@@ -136,6 +136,16 @@ jobs:
           --
           --self-test
 
+      - name: Run portable Windows WGC-boundary self-tests without capture
+        run: >-
+          dotnet run
+          --project tools/Flowspan.Windows.CaptureProbe/Flowspan.Windows.CaptureProbe.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+          --
+          --wgc-self-test
+
       - name: Run Windows WARP readback probe without window capture
         run: >-
           dotnet run

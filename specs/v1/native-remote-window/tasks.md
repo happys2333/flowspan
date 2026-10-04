@@ -1464,7 +1464,12 @@
     preceding real first-frame timeout remains recorded. See
     [candidate evidence](../../../docs/evidence/2026-10-04-macos-native-capture-candidate.md)
     for source hashes, true asynchronous Stop joins, finite delivery-proxy
-    observations and remaining safety/composition gaps. This does
+    observations and remaining safety/composition gaps. Exact-source hosted
+    checkpoint `c533246` passes all 62 candidate cases on each OS and CodeQL
+    covers 421/421 C# files, but enclosing CI fails a Linux Activity cancellation
+    case and skips package jobs; the
+    [failed hosted record](../../../docs/evidence/2026-10-04-native-candidate-hosted-ci.md)
+    preserves that distinction. This does
     not complete the native, permission, protection, input or package gates.
   - Implement exact-window capture, bounded frame ownership, CoreGraphics input,
     source/permission loss, and independent local Emergency Stop.
@@ -1473,6 +1478,17 @@
   - _Requirements: NR1-NR10_
 
 - [ ] 7. Deliver the Windows native vertical slice
+  - An explicit task-owned HWND WGC probe is implemented separately from the
+    default WARP path, with no product references or new dependencies. Both
+    local configurations build without warnings and pass the unchanged ten
+    baseline plus twelve WGC-boundary managed self-tests. The macOS native
+    invocation explicitly Skips; no Windows WGC success is recorded yet. See
+    [portable WGC evidence](../../../tools/Flowspan.Windows.CaptureProbe/evidence/2026-10-04-wgc-local.md).
+    A separate opt-in Windows workflow requires verified 64x64 interior markers,
+    an observed frame and confirmed cleanup; Skip cannot satisfy its gate.
+    Ordinary CI invokes only managed WGC self-tests and the no-window WARP mode.
+    This tool does not establish generic source identity, protection, input,
+    source-loss handling, packaged behavior or production host readiness.
   - The independent
     [Windows WARP probe](../../../tools/Flowspan.Windows.CaptureProbe/README.md)
     builds and passes ten managed self-checks locally in Debug/Release, with an
@@ -1505,7 +1521,11 @@
     is implemented with 17 portable self-tests, warning-free Debug/Release
     builds, and an explicit local macOS Skip. Its separate Ubuntu 24.04 CI gate
     requires actual native success and complete cleanup, records the installed
-    PipeWire library version, and rejects Skip; execution evidence is pending.
+    PipeWire library version, and rejects Skip. Exact-source `c533246` job
+    `111444162478` actually executes the thread-loop ABI with library 1.0.5
+    (`libpipewire-0.3-0t64` 1.0.5-1ubuntu3.3) and confirms cleanup. Enclosing
+    CI still fails a separate Linux Desktop test and skips packages; see the
+    [hosted evidence](../../../docs/evidence/2026-10-04-native-candidate-hosted-ci.md).
     No daemon, portal, stream, hardware, window or pixel operation is performed,
     and no Linux native capture or production readiness is proven.
   - Implement ScreenCast/RemoteDesktop portal negotiation, PipeWire frame

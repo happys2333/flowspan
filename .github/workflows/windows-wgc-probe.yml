@@ -1,0 +1,286 @@
+name: Windows task-owned WGC probe
+
+# This explicit test ref also works before the workflow is on the default branch.
+# Ordinary main/codex implementation pushes and pull requests do not opt in.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/wgc-self-window-probe
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-wgc-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-self-window:
+    name: Require actual task-owned HWND WGC capture
+    runs-on: windows-2025
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+    steps:
+      - name: Check out exact source
+        id: checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Initialize failure evidence before SDK setup
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'WindowsWgcEvidence'
+          [IO.Directory]::CreateDirectory($evidence) | Out-Null
+          [ordered]@{
+            expected_source_sha = $env:GITHUB_SHA; ref = $env:GITHUB_REF
+            event = $env:GITHUB_EVENT_NAME; run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT; runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH; image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+          } | ConvertTo-Json | Set-Content (Join-Path $evidence 'run-context.json') -Encoding utf8NoBOM
+
+      - name: Install pinned .NET SDK
+        id: sdk
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          global-json-file: global.json
+
+      - name: Record exact source and actual runner metadata
+        id: metadata
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sha -cne $env:GITHUB_SHA -or $sha -cnotmatch '^[0-9a-f]{40}$') {
+            throw 'Checkout does not match the exact workflow SHA.'
+          }
+          $dirty = @(git status --porcelain=v1 --untracked-files=normal)
+          if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'Checkout is not clean.' }
+          $evidence = Join-Path $env:RUNNER_TEMP 'WindowsWgcEvidence'
+          [IO.Directory]::CreateDirectory($evidence) | Out-Null
+          $utf8 = [Text.UTF8Encoding]::new($false)
+          $os = Get-CimInstance Win32_OperatingSystem
+          $metadata = [ordered]@{
+            evidence_kind = 'github-hosted-task-owned-hwnd-wgc-probe'
+            physical_device_evidence = $false
+            production_adapter_evidence = $false
+            source_sha = $sha
+            ref = $env:GITHUB_REF
+            event = $env:GITHUB_EVENT_NAME
+            workflow_ref = $env:GITHUB_WORKFLOW_REF
+            workflow_sha = $env:GITHUB_WORKFLOW_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+            os_caption = $os.Caption
+            os_version = $os.Version
+            os_build = $os.BuildNumber
+            os_architecture = $os.OSArchitecture
+            powershell_version = $PSVersionTable.PSVersion.ToString()
+            process_architecture = [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
+          }
+          [IO.File]::WriteAllText((Join-Path $evidence 'metadata.json'), ($metadata | ConvertTo-Json) + "`n", $utf8)
+          dotnet --info | Out-File (Join-Path $evidence 'dotnet.txt') -Encoding utf8NoBOM
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot record the actual .NET runtime.' }
+          $tool = 'tools/Flowspan.Windows.CaptureProbe'
+          $sources = @(Get-ChildItem $tool -Filter '*.cs' -File | Sort-Object Name -CaseSensitive)
+          $sources += Get-Item "$tool/Flowspan.Windows.CaptureProbe.csproj"
+          $manifest = ($sources | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $tool/$($_.Name)`n"
+          }) -join ''
+          $manifestPath = Join-Path $evidence 'source-files.sha256'
+          [IO.File]::WriteAllText($manifestPath, $manifest, $utf8)
+          $manifestHash = (Get-FileHash $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $evidence 'source-manifest.sha256'), "$manifestHash  source-files.sha256`n", $utf8)
+          $inputs = @('global.json', 'Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props', '.github/workflows/windows-wgc-probe.yml')
+          $inputManifest = ($inputs | Where-Object { Test-Path $_ -PathType Leaf } | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant())  $_`n"
+          }) -join ''
+          [IO.File]::WriteAllText((Join-Path $evidence 'build-inputs.sha256'), $inputManifest, $utf8)
+          git ls-files --eol -- tools/Flowspan.Windows.CaptureProbe | Out-File (Join-Path $evidence 'source-eol.txt') -Encoding utf8NoBOM
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot record source newline attributes.' }
+
+      - name: Build standalone probe with warnings as errors
+        id: build
+        run: >-
+          dotnet build
+          tools/Flowspan.Windows.CaptureProbe/Flowspan.Windows.CaptureProbe.csproj
+          --configuration Release
+
+      - name: Verify standalone probe formatting
+        id: formatting
+        run: >-
+          dotnet format
+          tools/Flowspan.Windows.CaptureProbe/Flowspan.Windows.CaptureProbe.csproj
+          --verify-no-changes
+          --no-restore
+
+      - name: Run portable self-tests without native calls
+        id: portable
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'WindowsWgcEvidence'
+          $dll = 'tools/Flowspan.Windows.CaptureProbe/bin/Release/net10.0/Flowspan.Windows.CaptureProbe.dll'
+          dotnet $dll --self-test | Tee-Object -FilePath (Join-Path $evidence 'readback-self-test.stdout')
+          if ($LASTEXITCODE -ne 0) { throw 'Readback self-tests failed.' }
+          dotnet $dll --wgc-self-test | Tee-Object -FilePath (Join-Path $evidence 'wgc-self-test.stdout')
+          if ($LASTEXITCODE -ne 0) { throw 'WGC boundary self-tests failed.' }
+
+      - name: Run explicit task-owned capture under an external process watchdog
+        id: native
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'WindowsWgcEvidence'
+          $utf8 = [Text.UTF8Encoding]::new($false)
+          $dll = Join-Path $env:GITHUB_WORKSPACE 'tools/Flowspan.Windows.CaptureProbe/bin/Release/net10.0/Flowspan.Windows.CaptureProbe.dll'
+          $status = [ordered]@{
+            started = $false; timed_out = $false; tree_kill_requested = $false
+            exited = $false; exit_code = $null; raw_streams_complete = $false
+            watchdog_ms = 45000; supervisor_error = $false
+          }
+          $process = [Diagnostics.Process]::new()
+          $stdout = $null
+          $stderr = $null
+          $copies = $null
+          try {
+            $start = [Diagnostics.ProcessStartInfo]::new()
+            $start.FileName = (Get-Command dotnet -CommandType Application).Source
+            $start.ArgumentList.Add($dll)
+            $start.ArgumentList.Add('--native-self-window')
+            $start.WorkingDirectory = $env:GITHUB_WORKSPACE
+            $start.UseShellExecute = $false
+            $start.RedirectStandardOutput = $true
+            $start.RedirectStandardError = $true
+            $process.StartInfo = $start
+            [IO.File]::WriteAllText((Join-Path $evidence 'invocation.json'), (@{
+              executable = $start.FileName; arguments = @($dll, '--native-self-window')
+              cwd = $start.WorkingDirectory; source_sha = $env:GITHUB_SHA
+            } | ConvertTo-Json) + "`n", $utf8)
+            $stdout = [IO.File]::Create((Join-Path $evidence 'native.stdout.raw'))
+            $stderr = [IO.File]::Create((Join-Path $evidence 'native.stderr.raw'))
+            if (-not $process.Start()) { throw 'Native probe process did not start.' }
+            $status.started = $true
+            # Copy bytes directly: retain the original CRLF and complete stderr.
+            $copies = [Threading.Tasks.Task[]]@(
+              $process.StandardOutput.BaseStream.CopyToAsync($stdout),
+              $process.StandardError.BaseStream.CopyToAsync($stderr)
+            )
+            if (-not $process.WaitForExit($status.watchdog_ms)) {
+              $status.timed_out = $true
+              $status.tree_kill_requested = $true
+              $process.Kill($true)
+              if (-not $process.WaitForExit(5000)) { throw 'Timed-out process did not exit after tree kill.' }
+            }
+            $status.exited = $process.HasExited
+            if ($status.exited) { $status.exit_code = $process.ExitCode }
+            if (-not [Threading.Tasks.Task]::WaitAll($copies, 5000)) { throw 'Raw output streams did not drain.' }
+            $status.raw_streams_complete = $true
+          }
+          catch {
+            $status.supervisor_error = $true
+            [IO.File]::WriteAllText((Join-Path $evidence 'supervisor-error.txt'), $_.Exception.ToString() + "`n", $utf8)
+          }
+          finally {
+            if ($status.started -and -not $process.HasExited) {
+              $status.tree_kill_requested = $true
+              try { $process.Kill($true); $null = $process.WaitForExit(5000) }
+              catch { $status.supervisor_error = $true }
+            }
+            if ($null -ne $stdout) { $stdout.Dispose() }
+            if ($null -ne $stderr) { $stderr.Dispose() }
+            $process.Dispose()
+            [IO.File]::WriteAllText((Join-Path $evidence 'process-status.json'), ($status | ConvertTo-Json) + "`n", $utf8)
+          }
+
+      - name: Require verified native success; Skip is a failed native gate
+        id: gate
+        if: always() && steps.native.outcome != 'skipped'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'WindowsWgcEvidence'
+          $status = Get-Content (Join-Path $evidence 'process-status.json') -Raw | ConvertFrom-Json
+          if (-not $status.started -or $status.timed_out -or $status.tree_kill_requested -or
+              -not $status.exited -or $status.exit_code -ne 0 -or -not $status.raw_streams_complete -or $status.supervisor_error) {
+            throw 'Native process did not finish successfully within its external watchdog.'
+          }
+          $stderrPath = Join-Path $evidence 'native.stderr.raw'
+          if ((Get-Item $stderrPath).Length -ne 0) { throw 'Native stderr is not empty; inspect the retained raw evidence.' }
+          $stdoutPath = Join-Path $evidence 'native.stdout.raw'
+          if ((Get-Item $stdoutPath).Length -gt 4096) { throw 'Native stdout exceeds the single-record evidence bound.' }
+          $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+          $raw = $strictUtf8.GetString([IO.File]::ReadAllBytes($stdoutPath))
+          # Normalize a parsing copy only. Never overwrite raw stdout/stderr.
+          $line = $raw.Replace("`r`n", "`n")
+          if ($line.EndsWith("`n", [StringComparison]::Ordinal)) { $line = $line.Substring(0, $line.Length - 1) }
+          if ($line.Length -eq 0 -or $line.Contains("`n") -or $line.Contains("`r")) { throw 'Expected exactly one native result record.' }
+          [IO.File]::WriteAllText((Join-Path $evidence 'native.stdout.normalized'), $line + "`n", [Text.UTF8Encoding]::new($false))
+          $fields = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+          foreach ($token in $line.Split(' ')) {
+            if ($token -cnotmatch '^([a-z_][a-z0-9_]*)=([A-Za-z0-9_.]+)$' -or -not $fields.TryAdd($Matches[1], $Matches[2])) {
+              throw 'Malformed or duplicate native evidence field.'
+            }
+          }
+          $expected = [ordered]@{
+            probe = 'pass'; mode = 'wgc_self_window'; reason = 'known_markers_verified'
+            api = 'WindowsGraphicsCapture'; driver = 'WARP'; apartment = 'MTA'; content = '64x64'
+            hresult = '0x00000000'
+            marker_sha256 = 'c836b97f55a9b91993869d4040438f5975519655fa455f07819951eb1373e54e'
+            capture_session_started = 'true'; window_capture_executed = 'true'; cleanup_confirmed = 'true'
+            existing_windows_enumerated = '0'; user_titles_read = '0'; permissions_requested = '0'
+            pixel_files_written = '0'; protection = 'unknown'
+          }
+          $variableKeys = @('frames', 'row_pitch', 'feature_level', 'owned_refs', 'released_refs', 'secondary_windows_policy', 'frame_sha256')
+          if ($fields.Count -ne $expected.Count + $variableKeys.Count) { throw 'Native evidence has missing or extra fields.' }
+          foreach ($entry in $expected.GetEnumerator()) {
+            if (-not $fields.ContainsKey($entry.Key) -or $fields[$entry.Key] -cne $entry.Value) {
+              throw "Native gate rejected field '$($entry.Key)'; Skip is not capture evidence."
+            }
+          }
+          foreach ($key in $variableKeys) { if (-not $fields.ContainsKey($key)) { throw "Native evidence is missing '$key'." } }
+          foreach ($key in @('frames', 'row_pitch', 'owned_refs', 'released_refs')) {
+            if ($fields[$key] -cnotmatch '^[0-9]{1,10}$') { throw "Native evidence has invalid '$key'." }
+          }
+          if ([long]$fields['frames'] -lt 1 -or [long]$fields['row_pitch'] -lt 256 -or
+              [long]$fields['owned_refs'] -lt 1 -or $fields['owned_refs'] -cne $fields['released_refs']) {
+            throw 'Native evidence has no valid frame or unbalanced owned COM references.'
+          }
+          if ($fields['feature_level'] -cnotmatch '^0x[0-9a-f]{4}$' -or
+              $fields['frame_sha256'] -cnotmatch '^[0-9a-f]{64}$' -or
+              $fields['secondary_windows_policy'] -cnotin @('explicit_false', 'documented_default_false')) {
+            throw 'Native feature/hash/secondary-window evidence is invalid.'
+          }
+          $fields | ConvertTo-Json | Set-Content (Join-Path $evidence 'verified-native-result.json') -Encoding utf8NoBOM
+          Write-Host 'Verified hosted task-owned HWND WGC capture; not production, protected-surface, hardware-GPU, or physical-device acceptance.'
+
+      - name: Record final step outcomes even before native execution
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'WindowsWgcEvidence'
+          [IO.Directory]::CreateDirectory($evidence) | Out-Null
+          [ordered]@{
+            checkout = '${{ steps.checkout.outcome }}'; sdk = '${{ steps.sdk.outcome }}'
+            metadata = '${{ steps.metadata.outcome }}'; build = '${{ steps.build.outcome }}'
+            formatting = '${{ steps.formatting.outcome }}'; portable = '${{ steps.portable.outcome }}'
+            native = '${{ steps.native.outcome }}'; gate = '${{ steps.gate.outcome }}'
+          } | ConvertTo-Json | Set-Content (Join-Path $evidence 'step-outcomes.json') -Encoding utf8NoBOM
+
+      - name: Upload raw and verified evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-wgc-self-window-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/WindowsWgcEvidence
+          if-no-files-found: warn
+          retention-days: 14

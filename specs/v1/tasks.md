@@ -3,6 +3,13 @@
 Status legend: `[ ]` pending, `[-]` in progress, `[x]` complete. A checked task
 means its linked evidence exists; it does not imply the entire product works.
 
+Current integration repair: the failed `c533246` Linux hosted Activity teardown
+case has a deterministic real-TCP reproducer and a receive-time original-caller
+cancellation fix. Local Debug/Release solutions each pass 2692/2692; the new
+exact-source hosted checkpoint is pending. See
+[cancellation/EOF evidence](../../docs/evidence/2026-10-04-caller-cancellation-eof.md).
+This repairs an existing session-stop contract, not a native or release gate.
+
 ## 0. Product and engineering baseline
 
 - [x] 0.1 Record the approved v1 scope as EARS-style acceptance criteria.

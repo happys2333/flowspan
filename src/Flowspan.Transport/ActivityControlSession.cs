@@ -2196,7 +2196,8 @@ public sealed class AuthenticatedActivitySessionHandler :
                 beginOwnedCleanup: mediaRegistration is null
                     ? null
                     : registration.BeginOwnedCleanupAsync,
-                cancellationToken: linked.Token).ConfigureAwait(false);
+                cancellationToken: linked.Token,
+                originalCallerCancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception)
         {

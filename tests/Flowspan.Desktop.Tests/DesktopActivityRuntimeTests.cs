@@ -651,6 +651,18 @@ public sealed class DesktopActivityRuntimeTests
         await using AuthenticatedTcpControlConnection targetConnection = await accepting;
         using var stop = new CancellationTokenSource();
         Task sourceRun = sourceHandler.RunAsync(sourceConnection, stop.Token).AsTask();
+        var parentCancellationEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowSourceCancellationPropagation = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        // Cancellation callbacks run in reverse registration order. Keep the
+        // source's linked token pending after the target has observed stop.
+        using CancellationTokenRegistration orderedCancellation = stop.Token.Register(
+            () =>
+            {
+                parentCancellationEntered.TrySetResult();
+                allowSourceCancellationPropagation.Task.GetAwaiter().GetResult();
+            });
         Task targetRun = targetHandler.RunAsync(targetConnection, stop.Token).AsTask();
         DesktopActivityTargetSnapshot liveTarget = Assert.Single(source.GetTargets());
         Assert.Empty(source.GetRemoteWindowTargets(MirrorParticipantRole.ViewOnly));
@@ -667,9 +679,27 @@ public sealed class DesktopActivityRuntimeTests
         Assert.True(receipt.IsSuccess);
         Assert.Equal(ActivityLifecycle.Active, Assert.Single(source.GetActivities()).Lifecycle);
         Assert.Equal("Release plan", Assert.Single(target.GetActivities()).Title);
-        stop.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sourceRun);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => targetRun);
+        Assert.False(sourceRun.IsCompleted);
+        Assert.False(targetRun.IsCompleted);
+        Task canceling = Task.Run(stop.Cancel);
+        try
+        {
+            await parentCancellationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(stop.IsCancellationRequested);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                targetRun.WaitAsync(TimeSpan.FromSeconds(5)));
+            OperationCanceledException sourceFailure =
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                    sourceRun.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(stop.Token, sourceFailure.CancellationToken);
+            Assert.IsType<EndOfStreamException>(sourceFailure.InnerException);
+        }
+        finally
+        {
+            allowSourceCancellationPropagation.TrySetResult();
+            await canceling.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
         Assert.Empty(source.GetTargets());
         await sourceTrust.DisposeAsync();
         await targetTrust.DisposeAsync();

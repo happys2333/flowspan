@@ -59,7 +59,8 @@ internal sealed class AuthenticatedControlSessionDispatcher : IAsyncDisposable
         Func<IDisposable> enterSessionCall,
         Action? onStarted = null,
         Func<ValueTask>? beginOwnedCleanup = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CancellationToken originalCallerCancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(activitySession);
         ArgumentNullException.ThrowIfNull(enterSessionCall);
@@ -119,12 +120,18 @@ internal sealed class AuthenticatedControlSessionDispatcher : IAsyncDisposable
                     }
                 }
             }
-            catch (IOException exception) when (linked.IsCancellationRequested)
+            catch (IOException exception) when (
+                originalCallerCancellationToken.IsCancellationRequested
+                || linked.IsCancellationRequested)
             {
+                // The caller's flag is set before its linked callbacks run.
+                // Classify here, before cleanup can race a later cancellation.
                 failure = new OperationCanceledException(
                     "The authenticated control session was stopped.",
                     exception,
-                    linked.Token);
+                    originalCallerCancellationToken.IsCancellationRequested
+                        ? originalCallerCancellationToken
+                        : linked.Token);
             }
             catch (Exception exception)
             {
