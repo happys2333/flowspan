@@ -1456,8 +1456,15 @@
     [ADR 0029](../../../docs/adr/0029-direct-csharp-screencapturekit-interop.md)
     accepts the direct C# ordinary-arm64 candidate after actual local Blocks,
     sample-ownership and task-owned exact-window feasibility execution. The
-    repository reproducer is committed at `b021251`; the adapter is in progress.
-    This does
+    initial ABI reproducer is committed at `b021251`. Candidate implementation
+    `3418f20` and first-frame repair `f8f3bd1` pass clean exact-checkout local
+    Debug/Release solutions at 2686/2686 (MacOS 126/126). The production-driver
+    reproducer actually passed three Debug and three Release fresh task-owned-
+    window native runs after four startup regressions went RED to GREEN; the
+    preceding real first-frame timeout remains recorded. See
+    [candidate evidence](../../../docs/evidence/2026-10-04-macos-native-capture-candidate.md)
+    for source hashes, true asynchronous Stop joins, finite delivery-proxy
+    observations and remaining safety/composition gaps. This does
     not complete the native, permission, protection, input or package gates.
   - Implement exact-window capture, bounded frame ownership, CoreGraphics input,
     source/permission loss, and independent local Emergency Stop.
@@ -1493,8 +1500,14 @@
   - Freeze the session/serial identity, request/FD ownership and OS-selection
     versus Flowspan-ingestion distinction from
     [Linux research](../../../docs/research/linux-capture-feasibility.md) before
-    composing a portal. The independent thread-loop ABI probe is in progress;
-    no Linux native capture or production readiness is proven.
+    composing a portal. The independent
+    [thread-loop ABI probe](../../../tools/Flowspan.Linux.CaptureProbe/README.md)
+    is implemented with 17 portable self-tests, warning-free Debug/Release
+    builds, and an explicit local macOS Skip. Its separate Ubuntu 24.04 CI gate
+    requires actual native success and complete cleanup, records the installed
+    PipeWire library version, and rejects Skip; execution evidence is pending.
+    No daemon, portal, stream, hardware, window or pixel operation is performed,
+    and no Linux native capture or production readiness is proven.
   - Implement ScreenCast/RemoteDesktop portal negotiation, PipeWire frame
     ownership, revocation/session-close handling, input mapping, and Emergency
     Stop for the supported Wayland matrix.

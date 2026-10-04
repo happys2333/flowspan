@@ -92,6 +92,27 @@ jobs:
           --no-build
           --no-restore
 
+      - name: Build standalone production-driver capture probe
+        run: >-
+          dotnet build
+          tools/Flowspan.MacOS.NativeCaptureProbe/Flowspan.MacOS.NativeCaptureProbe.csproj
+          --configuration Release
+
+      - name: Verify production-driver probe formatting
+        run: >-
+          dotnet format
+          tools/Flowspan.MacOS.NativeCaptureProbe/Flowspan.MacOS.NativeCaptureProbe.csproj
+          --verify-no-changes
+          --no-restore
+
+      - name: Verify production-driver probe defaults to no capture
+        run: >-
+          dotnet run
+          --project tools/Flowspan.MacOS.NativeCaptureProbe/Flowspan.MacOS.NativeCaptureProbe.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+
       - name: Build standalone Windows D3D11 readback probe
         run: >-
           dotnet build
@@ -123,6 +144,29 @@ jobs:
           --no-build
           --no-restore
 
+      - name: Build standalone Linux thread-loop ABI probe
+        run: >-
+          dotnet build
+          tools/Flowspan.Linux.CaptureProbe/Flowspan.Linux.CaptureProbe.csproj
+          --configuration Release
+
+      - name: Verify Linux probe formatting
+        run: >-
+          dotnet format
+          tools/Flowspan.Linux.CaptureProbe/Flowspan.Linux.CaptureProbe.csproj
+          --verify-no-changes
+          --no-restore
+
+      - name: Run portable Linux thread-loop self-tests
+        run: >-
+          dotnet run
+          --project tools/Flowspan.Linux.CaptureProbe/Flowspan.Linux.CaptureProbe.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+          --
+          --self-test
+
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -132,9 +176,79 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  linux-thread-loop-abi:
+    name: Linux thread-loop ABI (no capture)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          global-json-file: global.json
+
+      - name: Install PipeWire library without a daemon or portal
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libpipewire-0.3-0t64
+
+      - name: Record actual native runtime and runner image
+        shell: bash
+        run: |
+          mkdir -p NativeProbeEvidence
+          dpkg-query --show --showformat='${Package} ${Version} ${Architecture}\n' libpipewire-0.3-0t64 \
+            | tee NativeProbeEvidence/package.txt
+          uname -a | tee NativeProbeEvidence/kernel.txt
+          printf 'ImageOS=%s\nImageVersion=%s\n' "$ImageOS" "$ImageVersion" \
+            | tee NativeProbeEvidence/image.txt
+          dotnet --info | tee NativeProbeEvidence/dotnet.txt
+
+      - name: Build standalone Linux thread-loop ABI probe
+        run: >-
+          dotnet build
+          tools/Flowspan.Linux.CaptureProbe/Flowspan.Linux.CaptureProbe.csproj
+          --configuration Release
+
+      - name: Verify Linux probe formatting
+        run: >-
+          dotnet format
+          tools/Flowspan.Linux.CaptureProbe/Flowspan.Linux.CaptureProbe.csproj
+          --verify-no-changes
+          --no-restore
+
+      - name: Run portable self-tests without native calls
+        shell: bash
+        run: |
+          dotnet run \
+            --project tools/Flowspan.Linux.CaptureProbe/Flowspan.Linux.CaptureProbe.csproj \
+            --configuration Release --no-build --no-restore -- --self-test \
+            | tee NativeProbeEvidence/self-test.stdout
+
+      - name: Require actual native thread-loop success and complete cleanup
+        shell: bash
+        run: |
+          dotnet run \
+            --project tools/Flowspan.Linux.CaptureProbe/Flowspan.Linux.CaptureProbe.csproj \
+            --configuration Release --no-build --no-restore \
+            | tee NativeProbeEvidence/native.stdout
+          expected='probe=pass mode=thread_loop_abi reason=none library_version=[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9._-]+)? native_result=0 native_calls_executed=true owners_released=true loop_roundtrip=true lock_roundtrips=2 native_timespec_bytes=16 native_time_valid=true outside_loop_thread=true daemon_connections=0 portal_calls=0 stream_creations=0 hardware_operations=0 window_capture_executed=false permissions_requested=0 pixel_reads=0 pixel_writes=0'
+          test "$(wc -l < NativeProbeEvidence/native.stdout)" -eq 1
+          grep --extended-regexp --line-regexp "$expected" NativeProbeEvidence/native.stdout
+
+      - name: Upload native ABI evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-thread-loop-abi-evidence
+          path: NativeProbeEvidence
+          if-no-files-found: warn
+          retention-days: 14
+
   package:
     name: Package (${{ matrix.rid }})
-    needs: test
+    needs: [test, linux-thread-loop-abi]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:

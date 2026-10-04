@@ -43,5 +43,12 @@ jobs:
       - name: Build analyzed source
         run: dotnet build Flowspan.slnx --configuration Release --no-restore
 
+      - name: Build standalone probe source for analysis
+        run: |
+          dotnet build tools/Flowspan.MacOS.CaptureProbe/Flowspan.MacOS.CaptureProbe.csproj --configuration Release
+          dotnet build tools/Flowspan.MacOS.NativeCaptureProbe/Flowspan.MacOS.NativeCaptureProbe.csproj --configuration Release
+          dotnet build tools/Flowspan.Windows.CaptureProbe/Flowspan.Windows.CaptureProbe.csproj --configuration Release
+          dotnet build tools/Flowspan.Linux.CaptureProbe/Flowspan.Linux.CaptureProbe.csproj --configuration Release
+
       - name: Analyze
         uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
