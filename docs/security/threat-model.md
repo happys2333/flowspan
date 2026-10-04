@@ -2061,6 +2061,31 @@ pixel files. Global enumeration metadata and TCC revocation TOCTOU remain
 limitations. A watchdog bounds the process, not native drain or resource cleanup;
 Skip must remain unverified rather than Pass.
 
+### Same-Capture cleanup prerequisite (task 3b.1)
+
+A release that throws may have already consumed its native +1. Keeping a handle
+nonzero or observing a completion owner as unreleased does not establish that
+retry is safe. Capture cleanup must record attempted and confirmed facts
+separately, never retry an uncertain effect, and still attempt each independently
+known resource once outside the Capture state gate. Remove the output address
+index before release and never restore an uncertain address as a live callback
+owner. Removal must match the exact owner, including on repeated Dispose and
+failed registration; a reused address is not authority to delete another
+Capture's index entry. Preserve the original primary/fatal failure.
+
+Unknown cleanup retains the full Capture/source/completion/root graph, including
+early unpublished construction failures; a replaceable thread-local handoff
+cannot be its sole root. Sample/Block drain, cleanup attempt and confirmed
+complete cleanup are separate facts. A prior successful drain cannot return a
+future delegate Capture permit while release is uncertain. This prerequisite
+does not itself publish a delegate, close NativeSource retain/check/dispose
+fault paths or grant production availability. Portable injected after-effects
+must not be described as actual ScreenCaptureKit failure containment.
+Selected fresh local healthy native regression now passes for this frozen
+Capture-only patch; this does not validate real NativeSource fault paths or
+nonzero delegate admission. See
+[cleanup evidence](../evidence/2026-10-05-macos-capture-cleanup.md).
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

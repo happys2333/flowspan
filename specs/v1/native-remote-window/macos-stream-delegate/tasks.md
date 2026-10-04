@@ -82,7 +82,7 @@
     ABI in Debug and Release. Keep no-native defaults and strict evidence gates.
   - _Requirements: MSC1-MSC3, MSC6, MSC8-MSC9_
 - [ ] 3. Compose the delegate into the actual candidate Capture.
-  - [-] 3a. Add a capture-only native operations/source/completion-owner seam
+  - [x] 3a. Add a capture-only native operations/source/completion-owner seam
     and test the same production Capture state machine on all OSes. Preserve
     `delegate=0`, the existing 14.2 candidate floor and production availability;
     this refactor cannot close nonzero-delegate composition. Separate native
@@ -100,16 +100,33 @@
       and unchanged source/runtime inventories. This is still `delegate=0`,
       not native fault injection or nonzero-delegate proof. See
       [local checkpoint](../../../../docs/evidence/2026-10-05-macos-capture-system-boundary.md).
-    - [ ] Verify fresh exact-commit all-OS hosted CI/CodeQL and independently
-      audit complete downloaded TRX inventories for this source.
-  - [ ] 3b. Compose the process-rooted native delegate/coordinator through that
+    - [x] Verify fresh exact-commit all-OS hosted CI/CodeQL and independently
+      audit complete downloaded TRX inventories for this source. Exact
+      `473c625` has 12 TRX / 2794 Passed on each OS; complete qualified inventories
+      match saved local Debug/Release. Eleven downloaded small ZIPs and exact
+      native/helper/security evidence pass root's offline replay; three large
+      package ZIPs retain API/log-only scope. See
+      [hosted checkpoint](../../../../docs/evidence/2026-10-05-capture-boundary-hosted-checkpoint.md).
+  - [-] 3b. Compose the process-rooted native delegate/coordinator through that
     same Capture; consume exact initializer and global failure state at every
     construction/Start/sample admission boundary. Require retirement before
     native release and complete cleanup before returning the Capture permit.
-    - [ ] 3b.1 Fix same-Capture cleanup prerequisites in real RED→GREEN slices:
+    - [-] 3b.1 Fix same-Capture cleanup prerequisites in real RED→GREEN slices:
       no native release under Capture state gates, one attempted/confirmed fact
       per owner, no blind uncertain release retry, independent cleanup and full
-      root retention. Keep delegate=0/14.2 until later composition evidence.
+      root retention. Reject cached successful Start after a cleanup ownership
+      fault. Keep delegate=0/14.2 until later composition evidence.
+      - [x] Final local implementation, TDD, complete regression and selected
+        actual native regression: ten actual RED rounds / 14 failed executions
+        and five direct-GREEN added rows; final 32 focused/238 project cases and
+        complete Debug/Release 12 TRX/2809 each, 20 fresh pressure processes/640 Passed.
+        Exact-owner index removal preserves replacement/incumbent routing;
+        original fatal and durable weak-owner graph are verified. Selected
+        task-owned native D/R passes without Skip. Standards/Spec 0/0 and root
+        offline audits pass. NativeSource's own algorithms remain task 3b.2. See
+        [cleanup evidence](../../../../docs/evidence/2026-10-05-macos-capture-cleanup.md).
+      - [ ] Verify fresh exact-commit all-OS hosted CI/CodeQL and downloaded
+        complete inventories/artifacts; prior `473c625` success cannot close it.
     - [ ] 3b.2 Stage source-acquisition ownership, reserve before native work,
       compose nonzero delegate and exact initializer/global failure admission,
       monotonic Start, managed retirement and complete-cleanup permit return.

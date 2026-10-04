@@ -2560,6 +2560,31 @@ writes no pixels; Skip does not pass that gate. Neither boundary tests nor a
 healthy native run close nonzero-delegate composition, native fault injection,
 MSC6/MSC9 release debts, production sharing, physical or v1 release gates.
 
+### Same-Capture cleanup tests (task 3b.1)
+
+Use vertical assertion-level RED→GREEN slices on the production Capture with
+only external effects replaced. A held object/source release runs on a dedicated
+thread; a second dedicated same-owner observer must return while release stays
+held. Explicit entry/release gates and owner-finally release/join make the test
+independent of ThreadPool scheduling. An observation deadline is failure
+protection, never automatic release or cleanup proof.
+
+For completion, object, queue and source cleanup, inject an exception after the
+external effect is recorded. Assert that repeated Dispose does not repeat that
+uncertain effect, independently known owners each get one cleanup attempt, and
+the complete faulted root remains retained. Include early unpublished factory
+failures and distinguish primary/fatal identity from cleanup confirmation.
+Cleanup ownership faults must reject Start before a cached successful result;
+this does not replace later terminal-delegate/Start-completion tests.
+Do not restore uncertain output addresses or reset process quarantine to make
+tests pass. Reuse an after-effect-freed output address in a replacement Capture
+and verify old repeated Dispose cannot remove its sample-delivery index.
+Fake source disposal tests do not prove NativeSource's own algorithm.
+Preserve compiler-only failures separately from behavioral RED, bind final
+Debug/Release and pressure results to final source/runtime bytes, and obtain
+fresh exact-commit all-OS evidence. Existing native results are historical, not
+verification of these new cleanup changes.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source

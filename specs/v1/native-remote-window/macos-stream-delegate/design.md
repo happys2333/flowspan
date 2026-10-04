@@ -219,6 +219,38 @@ barrier, independent owner quarantine and sample ownership transfer. Such tests
 prove the existing same-state-machine composition with fake native boundaries;
 they do not prove SCStream execution or the later nonzero-delegate lifetime.
 
+### Task 3b.1: same-Capture cleanup prerequisite
+
+Before publishing a nonzero delegate, separate cleanup selection from external
+effects on this same Capture. Claim one cleanup operation under its short state
+gate, then release completion, stream, output, queue, configuration and source
+owners outside that gate. An independent same-owner state observer must not
+wait for a held native release. This is not permission to free resources before
+the existing independent Block/sample drain facts are established.
+
+Track each owner's cleanup attempt independently from confirmed release. Mark
+the attempt before entering the external boundary: a throwing call may already
+have consumed its native ownership. Do not retry an unconfirmed effect on a
+later Dispose. Still give each independently known owner its one cleanup
+attempt, and preserve both the original failure and any original fatal failure.
+An output pointer whose release is uncertain must not be reinserted as a valid
+sample-output address. Address-index removal must match this exact owner, so
+repeated cleanup or failed registration cannot delete a replacement Capture at
+a reused address. Physical IsDrained remains distinct from complete owner
+cleanup; cached successful sample drain cannot authorize permit return.
+Once cleanup records an ownership fault, Start must reject before returning a
+cached successful completion. This local fault rule is not the later terminal
+delegate/Start-completion composition proof.
+
+Any unconfirmed cleanup retains the complete Capture, source, completion owners
+and callback roots. This includes failures before output publication: a single
+replaceable thread-local failed-factory handoff is not durable quarantine.
+Healthy cleanup alone releases the complete root. Portable after-effect hooks
+prove these Capture-level ownership rules, not actual native exception
+containment or NativeSource's own retain/check/dispose algorithm. That source
+acquisition/lifetime work remains task 3b.2. Task 3b.1 keeps `delegate=0`, the
+14.2 candidate floor and production sharing availability unchanged.
+
 `MacOSRemoteWindowScreenCaptureKitApi.Capture` currently publishes only sample
 output and passes `delegate=0`. Nonzero delegate publication occurs before
 entering InitStream and must be tracked independently of AddOutput publication.

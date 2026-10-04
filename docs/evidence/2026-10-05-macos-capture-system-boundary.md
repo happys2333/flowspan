@@ -2,7 +2,8 @@
 
 Status: final portable local contracts, complete local regression and selected
 real macOS task-owned capture checks pass.
-Fresh exact-commit Windows/macOS/Linux hosted verification is pending. This
+Fresh exact `473c625` Windows/macOS/Linux hosted verification now passes; see
+[hosted checkpoint](2026-10-05-capture-boundary-hosted-checkpoint.md). This
 extracts the existing Capture's system boundary; it does not implement nonzero
 stream-delegate composition or grant production sharing availability. MSC task
 3, MSC6/MSC9 release debts, Task 6, physical/release acceptance and the Goal

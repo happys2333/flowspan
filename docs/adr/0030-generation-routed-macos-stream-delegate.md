@@ -49,6 +49,18 @@ association/dealloc ABI, then actual Capture composition. Keep existing Capture
 at `delegate=0` until those prerequisites pass. The new Inactive/Active
 composition starts at ordinary-arm64 macOS 15.2, not the older 14.2 floor.
 
+Before that composition, fix the same Capture's cleanup claim: select under a
+short gate and perform external releases outside it, with per-owner attempted
+and confirmed facts. Unknown release effects are not retried, independently
+known owners still receive one attempt, and the complete owner/root graph stays
+retained, even for unpublished construction failures. An uncertain output
+address must not be restored as a valid callback index. Physical sample/Block
+drain is not complete cleanup. Index removal is exact-owner matched, never an
+unconditional deletion of a replacement at a reused address. This preparation
+keeps the existing delegate and
+platform admission unchanged; NativeSource acquisition/lifetime and actual
+nonzero delegate admission remain later, independently verified work.
+
 ## Consequences
 
 One permanent bridge is bounded process retention, not delegate cleanup.

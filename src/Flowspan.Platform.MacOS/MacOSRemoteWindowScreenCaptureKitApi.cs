@@ -741,6 +741,19 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         private OutOfMemoryException? fatalFailure;
         private bool disposed;
         private bool disposing;
+        private bool releasingOwners;
+        private bool streamReleaseAttempted;
+        private bool outputReleaseAttempted;
+        private bool configurationReleaseAttempted;
+        private bool queueReleaseAttempted;
+        private bool startBlockReleaseAttempted;
+        private bool startBlockReleaseConfirmed;
+        private bool stopBlockReleaseAttempted;
+        private bool stopBlockReleaseConfirmed;
+        private bool sourceReleaseAttempted;
+        private bool sourceReleaseConfirmed;
+        private readonly bool sourceRetainAttempted;
+        private readonly bool sourceAcquired;
         private readonly Exception? factoryFailure;
         private Exception? disposalFailure;
         private bool rootCounted;
@@ -771,14 +784,11 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         {
             this.api = api;
             this.operations = operations;
-            this.source = source.RetainOwner();
+            // The shell holds a borrowed reference until RetainOwner returns.
+            // A throwing retain must never authorize disposing that reference.
+            this.source = source;
             this.takeSampleOwnership = takeSampleOwnership;
             this.sourceUnavailable = sourceUnavailable;
-            if (!TryDimensions(source.Geometry, out width, out height))
-            {
-                this.source.Dispose();
-                throw new InvalidOperationException("macOS window pixel bounds unavailable.");
-            }
 
             nint pool = 0;
             bool rooted = false;
@@ -786,6 +796,19 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             bool publicationRejected = false;
             try
             {
+                // Keep the complete owner reachable before any per-Capture
+                // native allocation can need an uncertain cleanup attempt.
+                callbackRoot = GCHandle.Alloc(this);
+                Interlocked.Increment(ref retainedOwners);
+                rootCounted = true;
+                sourceRetainAttempted = true;
+                this.source = source.RetainOwner();
+                sourceAcquired = true;
+                if (!TryDimensions(this.source.Geometry, out width, out height))
+                {
+                    throw new InvalidOperationException("macOS window pixel bounds unavailable.");
+                }
+
                 pool = operations.PushAutoreleasePool();
                 configuration = operations.AllocateConfiguration();
                 output = operations.AllocateOutput();
@@ -797,9 +820,6 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
                 operations.Configure(configuration, width, height);
 
-                callbackRoot = GCHandle.Alloc(this);
-                Interlocked.Increment(ref retainedOwners);
-                rootCounted = true;
                 if (!Roots.TryAdd(output, this))
                 {
                     throw new InvalidOperationException("macOS callback registration unavailable.");
@@ -832,7 +852,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 if (!publicationAttempted)
                 {
                     // No callback queue has ever been handed to native code.
-                    // These absence facts permit retries of failed releases.
+                    // These absence facts permit one cleanup attempt; they
+                    // do not prove a throwing native release had no effect.
                     startSettled = true;
                     stopSettled = true;
                     outputRemoved = true;
@@ -840,7 +861,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     Volatile.Write(ref nativeDrainConfirmed, 1);
                     if (rooted)
                     {
-                        Roots.TryRemove(output, out _);
+                        Roots.TryRemove(new KeyValuePair<nint, Capture>(output, this));
                     }
 
                     if (!ReleaseUnpublishedOwners())
@@ -864,8 +885,9 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     }
                 }
 
-                // Once published to a native callback, the process-lifetime
-                // root owns every allocation until a confirmed drain.
+                // A tracked uncertain source acquisition or known-owner
+                // release retains the complete shell independently of the
+                // single failed-factory slot.
                 ThrowPendingFatal();
                 throw;
             }
@@ -889,6 +911,11 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             lock (gate)
             {
                 ObjectDisposedException.ThrowIf(disposed, this);
+                if (Volatile.Read(ref disposalFailure) is not null)
+                {
+                    return ValueTask.FromResult(false);
+                }
+
                 if (startRequested)
                 {
                     return new(startCompletion.Task);
@@ -1440,16 +1467,26 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 }
 
                 disposing = true;
-                try
+            }
+
+            try
+            {
+                bool released = ReleaseUnpublishedOwners();
+                lock (gate)
                 {
-                    disposed = ReleaseUnpublishedOwners();
-                    ThrowDisposalFailure();
-                    if (!disposed)
-                    {
-                        throw releaseUnconfirmed;
-                    }
+                    disposed = released;
                 }
-                finally
+
+                ThrowDisposalFailure();
+                if (!released)
+                {
+                    ThrowPendingFatal();
+                    throw releaseUnconfirmed;
+                }
+            }
+            finally
+            {
+                lock (gate)
                 {
                     disposing = false;
                 }
@@ -1460,53 +1497,35 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         {
             lock (gate)
             {
-                bool released = ReleaseBlock(startBlock) & ReleaseBlock(stopBlock);
-                released &= ReleaseObject(ref stream);
+                if (releasingOwners)
+                {
+                    return false;
+                }
+
+                releasingOwners = true;
+            }
+
+            try
+            {
+                bool released = ReleaseBlock(startBlock, ref startBlockReleaseAttempted, ref startBlockReleaseConfirmed)
+                    & ReleaseBlock(stopBlock, ref stopBlockReleaseAttempted, ref stopBlockReleaseConfirmed);
+                released &= ReleaseObject(ref stream, ref streamReleaseAttempted);
                 nint outputKey = output;
                 if (outputKey != 0)
                 {
                     // Remove the address lookup before native deallocation so
                     // an immediately reused address cannot hit this owner.
-                    Roots.TryRemove(outputKey, out _);
-                    bool outputReleased = ReleaseObject(ref output);
-                    released &= outputReleased;
-                    if (!outputReleased)
-                    {
-                        try
-                        {
-                            Roots.TryAdd(outputKey, this);
-                        }
-                        catch (Exception exception)
-                        {
-                            RecordDisposalFailure(exception);
-                        }
-                    }
+                    Roots.TryRemove(new KeyValuePair<nint, Capture>(outputKey, this));
+                    // An uncertain release may already have deallocated this
+                    // address. Never republish its lookup; callbackRoot keeps
+                    // the full owner reachable independently of that address.
+                    released &= ReleaseObject(ref output, ref outputReleaseAttempted);
                 }
 
-                if (queue != 0)
-                {
-                    try
-                    {
-                        operations.ReleaseQueue(queue);
-                        queue = 0;
-                    }
-                    catch (Exception exception)
-                    {
-                        RecordDisposalFailure(exception);
-                        released = false;
-                    }
-                }
+                released &= ReleaseQueue();
 
-                released &= ReleaseObject(ref configuration);
-                try
-                {
-                    source.Dispose();
-                }
-                catch (Exception exception)
-                {
-                    RecordDisposalFailure(exception);
-                    released = false;
-                }
+                released &= ReleaseObject(ref configuration, ref configurationReleaseAttempted);
+                released &= ReleaseSource();
 
                 if (released && callbackRoot.IsAllocated)
                 {
@@ -1528,30 +1547,80 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
                 return released;
             }
+            finally
+            {
+                lock (gate)
+                {
+                    releasingOwners = false;
+                }
+            }
         }
 
-        private bool ReleaseBlock(IMacOSRemoteWindowCaptureCompletion? block)
+        private bool ReleaseBlock(IMacOSRemoteWindowCaptureCompletion? block, ref bool attempted, ref bool confirmed)
         {
-            if (block is null)
+            lock (gate)
             {
-                return true;
+                if (block is null) { return true; }
+                if (attempted) { return confirmed; }
+                attempted = true;
             }
 
+            bool released = false;
             try
             {
                 Exception? before = block.FirstFailure;
                 block.Dispose();
+                released = block.IsReleased;
                 if (block.FirstFailure is { } after && !ReferenceEquals(before, after))
                 {
                     RecordDisposalFailure(after);
                 }
 
-                if (!block.IsReleased)
+                if (!released)
                 {
                     RecordDisposalFailure(block.FirstFailure ?? releaseUnconfirmed);
                 }
 
-                return block.IsReleased;
+                return released;
+            }
+            catch (Exception exception)
+            {
+                RecordDisposalFailure(exception);
+                return false;
+            }
+            finally
+            {
+                lock (gate) { confirmed = released; }
+            }
+        }
+
+        private bool ReleaseObject(ref nint owner, ref bool attempted)
+        {
+            nint selected;
+            lock (gate)
+            {
+                if (owner == 0)
+                {
+                    return true;
+                }
+
+                if (attempted)
+                {
+                    return false;
+                }
+
+                attempted = true;
+                selected = owner;
+            }
+
+            try
+            {
+                operations.ReleaseObject(selected);
+                lock (gate)
+                {
+                    owner = 0;
+                }
+                return true;
             }
             catch (Exception exception)
             {
@@ -1560,17 +1629,48 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             }
         }
 
-        private bool ReleaseObject(ref nint owner)
+        private bool ReleaseQueue()
         {
-            if (owner == 0)
+            nint selected;
+            lock (gate)
             {
-                return true;
+                if (queue == 0) { return true; }
+                if (queueReleaseAttempted) { return false; }
+                queueReleaseAttempted = true;
+                selected = queue;
             }
 
             try
             {
-                operations.ReleaseObject(owner);
-                owner = 0;
+                operations.ReleaseQueue(selected);
+                lock (gate) { queue = 0; }
+                return true;
+            }
+            catch (Exception exception)
+            {
+                RecordDisposalFailure(exception);
+                return false;
+            }
+        }
+
+        private bool ReleaseSource()
+        {
+            lock (gate)
+            {
+                if (!sourceAcquired)
+                {
+                    // A throwing retain may have acquired opaque native refs.
+                    // Preserve the shell, but do not release a borrowed source.
+                    return !sourceRetainAttempted;
+                }
+                if (sourceReleaseAttempted) { return sourceReleaseConfirmed; }
+                sourceReleaseAttempted = true;
+            }
+
+            try
+            {
+                source.Dispose();
+                lock (gate) { sourceReleaseConfirmed = true; }
                 return true;
             }
             catch (Exception exception)
@@ -1582,6 +1682,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
         private void RecordDisposalFailure(Exception exception)
         {
+            Interlocked.Exchange(ref deliveryClosed, 1);
+            MarkUnsafeFailure();
             RecordFatal(exception);
             Interlocked.CompareExchange(ref disposalFailure, exception, null);
         }
