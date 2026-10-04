@@ -292,6 +292,10 @@ public sealed class MacOSRemoteWindowCaptureBoundary :
                         {
                             deliveryOpen = true;
                             started = true;
+                            if (pendingSample is not null)
+                            {
+                                SignalUnderGate();
+                            }
                         }
                     }
                 }
@@ -347,7 +351,7 @@ public sealed class MacOSRemoteWindowCaptureBoundary :
             {
                 lock (gate)
                 {
-                    if (closed || !deliveryOpen)
+                    if (closed)
                     {
                         return;
                     }
@@ -374,12 +378,19 @@ public sealed class MacOSRemoteWindowCaptureBoundary :
 
                     lock (gate)
                     {
-                        if (deliveryOpen && !closed)
+                        if (!closed)
                         {
                             replaced = pendingSample;
                             pendingSample = sample;
                             transferred = true;
-                            SignalUnderGate();
+                            // A static window may produce its only Complete
+                            // sample before native Start settles. Retain the
+                            // bounded latest slot, but grant no copy/delivery
+                            // until Start succeeds and revalidates the source.
+                            if (deliveryOpen)
+                            {
+                                SignalUnderGate();
+                            }
                         }
                     }
                 }

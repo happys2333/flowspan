@@ -12,6 +12,185 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
 
     [Fact]
+    public async Task SampleBeforeNativeStartSettlementIsRetainedAndDeliveredAfterConfirmation()
+    {
+        var nativeStart = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var frameDelivered = NewSignal();
+        var nativeSource = new MacOSRemoteWindowTestSource();
+        var nativeCapture = new OwnershipTestCapture { StartResult = nativeStart.Task };
+        var api = new MacOSRemoteWindowTestApi
+        {
+            Sources = [nativeSource],
+            Capture = nativeCapture,
+        };
+        await using var catalog = new MacOSRemoteWindowSourceCatalog(
+            DeviceId.From(Guid.NewGuid()), api);
+        await catalog.RefreshAsync();
+        var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
+        int prematureCopy = 0;
+        int prematureDelivery = 0;
+        int receivedMarker = 0;
+        var sample = new OwnershipTestSample(7)
+        {
+            OnCopy = () =>
+            {
+                if (!nativeStart.Task.IsCompletedSuccessfully)
+                {
+                    Interlocked.Increment(ref prematureCopy);
+                }
+            },
+        };
+        var sink = new MacOSRemoteWindowTestSink
+        {
+            OnFrame = frame =>
+            {
+                receivedMarker = frame.Pixels.Span[0];
+                if (!nativeStart.Task.IsCompletedSuccessfully)
+                {
+                    Interlocked.Increment(ref prematureDelivery);
+                }
+
+                frameDelivered.TrySetResult();
+            },
+        };
+        Task<LocalBoundaryResult>? start = null;
+        try
+        {
+            start = boundary.StartAsync(
+                NativeRemoteWindowSourceUse.Create(Assert.Single(catalog.GetSnapshot()), 1, 1),
+                sink, CancellationToken.None).AsTask();
+            await nativeCapture.StartEntered.Task.WaitAsync(TestTimeout);
+            Assert.False(start.IsCompleted);
+            api.SampleCallback!(sample);
+
+            Assert.Equal(0, sample.CopyCalls);
+            Assert.Equal(0, sample.DisposeCalls);
+            Assert.False(frameDelivered.Task.IsCompleted);
+            nativeStart.SetResult(true);
+            Assert.True((await start.WaitAsync(TestTimeout)).Succeeded);
+            await frameDelivered.Task.WaitAsync(TestTimeout);
+        }
+        finally
+        {
+            nativeStart.TrySetResult(true);
+            await boundary.DisposeAsync().AsTask().WaitAsync(TestTimeout);
+            if (start is not null)
+            {
+                await start.WaitAsync(TestTimeout);
+            }
+        }
+
+        await catalog.DisposeAsync();
+        Assert.Equal(0, prematureCopy);
+        Assert.Equal(0, prematureDelivery);
+        Assert.Equal(7, receivedMarker);
+        Assert.Equal(new long[] { 1 }, sink.Sequences);
+        Assert.Equal(1, sample.CopyCalls);
+        Assert.Equal(1, sample.DisposeCalls);
+        Assert.Equal(1, sample.Pixels.DisposeCalls);
+        Assert.Equal(1, nativeCapture.StartCalls);
+        Assert.Equal(1, nativeCapture.StopCalls);
+        Assert.Equal(1, nativeCapture.DisposeCalls);
+        Assert.Equal(1, nativeSource.DisposeCalls);
+    }
+
+    [Theory]
+    [InlineData("failure")]
+    [InlineData("cancellation")]
+    [InlineData("stop")]
+    public async Task FailedCanceledOrStoppedNativeStartReleasesPrestartSampleWithoutCopyOrDelivery(
+        string terminal)
+    {
+        var nativeStart = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var sampleReleased = NewSignal();
+        var nativeSource = new MacOSRemoteWindowTestSource();
+        var nativeCapture = new OwnershipTestCapture { StartResult = nativeStart.Task };
+        var api = new MacOSRemoteWindowTestApi
+        {
+            Sources = [nativeSource],
+            Capture = nativeCapture,
+        };
+        await using var catalog = new MacOSRemoteWindowSourceCatalog(
+            DeviceId.From(Guid.NewGuid()), api);
+        await catalog.RefreshAsync();
+        var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
+        using var cancellation = new CancellationTokenSource();
+        var sink = new MacOSRemoteWindowTestSink();
+        var sample = new OwnershipTestSample(7)
+        {
+            OnDispose = () => sampleReleased.TrySetResult(),
+        };
+        Task<LocalBoundaryResult>? start = null;
+        try
+        {
+            start = boundary.StartAsync(
+                NativeRemoteWindowSourceUse.Create(Assert.Single(catalog.GetSnapshot()), 1, 1),
+                sink, cancellation.Token).AsTask();
+            await nativeCapture.StartEntered.Task.WaitAsync(TestTimeout);
+            Assert.False(start.IsCompleted);
+            api.SampleCallback!(sample);
+            Assert.Equal(0, sample.CopyCalls);
+            Assert.Equal(0, sample.DisposeCalls);
+
+            if (terminal == "cancellation")
+            {
+                cancellation.Cancel();
+                OperationCanceledException canceled =
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                        start.WaitAsync(TestTimeout));
+                Assert.Equal(cancellation.Token, canceled.CancellationToken);
+                Assert.False(nativeStart.Task.IsCompleted);
+                Assert.Equal(0, nativeCapture.StopCalls);
+                Assert.Equal(0, nativeCapture.DisposeCalls);
+            }
+            else if (terminal == "stop")
+            {
+                Assert.True(boundary.StopNow().Succeeded);
+                Assert.False(start.IsCompleted);
+                Assert.Equal(0, nativeCapture.StopCalls);
+                Assert.Equal(0, nativeCapture.DisposeCalls);
+            }
+
+            nativeStart.SetResult(terminal != "failure");
+            if (terminal != "cancellation")
+            {
+                Assert.False((await start.WaitAsync(TestTimeout)).Succeeded);
+            }
+
+            await sampleReleased.Task.WaitAsync(TestTimeout);
+        }
+        finally
+        {
+            nativeStart.TrySetResult(terminal != "failure");
+            await boundary.DisposeAsync().AsTask().WaitAsync(TestTimeout);
+            if (start is not null)
+            {
+                if (terminal == "cancellation" && cancellation.IsCancellationRequested)
+                {
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                        start.WaitAsync(TestTimeout));
+                }
+                else
+                {
+                    await start.WaitAsync(TestTimeout);
+                }
+            }
+        }
+
+        await catalog.DisposeAsync();
+        Assert.Empty(sink.Sequences);
+        Assert.Equal(0, sample.CopyCalls);
+        Assert.Equal(1, sample.DisposeCalls);
+        Assert.Equal(0, sample.Pixels.DisposeCalls);
+        Assert.Equal(1, nativeCapture.StartCalls);
+        Assert.Equal(1, nativeCapture.StopCalls);
+        Assert.Equal(1, nativeCapture.DisposeCalls);
+        Assert.Equal(1, nativeSource.DisposeCalls);
+    }
+
+    [Fact]
     public async Task StopCompletionJoinsPendingSampleReleaseAfterActiveDeliveryReturns()
     {
         var sinkEntered = NewSignal();
@@ -883,6 +1062,8 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
 
         public Exception? StartFailure { get; init; }
 
+        public Task<bool>? StartResult { get; init; }
+
         public Exception? StopFailure { get; init; }
 
         public Task<bool>? StopResult { get; init; }
@@ -899,6 +1080,8 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
 
         public TaskCompletionSource StopEntered { get; } = NewSignal();
 
+        public TaskCompletionSource StartEntered { get; } = NewSignal();
+
         public int StartCalls => Volatile.Read(ref startCalls);
 
         public int StopCalls => Volatile.Read(ref stopCalls);
@@ -908,6 +1091,12 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
         public ValueTask<bool> StartAsync()
         {
             Interlocked.Increment(ref startCalls);
+            StartEntered.TrySetResult();
+            if (StartResult is not null)
+            {
+                return new ValueTask<bool>(StartResult);
+            }
+
             return StartFailure is null
                 ? ValueTask.FromResult(true)
                 : ValueTask.FromException<bool>(StartFailure);
