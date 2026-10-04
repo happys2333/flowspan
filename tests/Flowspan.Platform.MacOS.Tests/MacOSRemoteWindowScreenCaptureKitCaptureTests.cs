@@ -3,7 +3,7 @@ using Flowspan.Platform.MacOS;
 
 namespace Flowspan.Platform.MacOS.Tests;
 
-public sealed class MacOSRemoteWindowScreenCaptureKitCaptureTests
+public sealed partial class MacOSRemoteWindowScreenCaptureKitCaptureTests
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 

@@ -58,8 +58,14 @@ address must not be restored as a valid callback index. Physical sample/Block
 drain is not complete cleanup. Index removal is exact-owner matched, never an
 unconditional deletion of a replacement at a reused address. This preparation
 keeps the existing delegate and
-platform admission unchanged; NativeSource acquisition/lifetime and actual
-nonzero delegate admission remain later, independently verified work.
+platform admission unchanged. The next prerequisite stages a managed retained
+NativeSource token on the full Capture root before native retain. It preserves
+partial/unknown acquisition, executes retain/current-check/release outside
+source gates, joins admitted uses before independent single-attempt cleanup,
+and rejects direct/active-descendant self-join. Only these three system effects
+are injectable; the real source state machine remains shared with production.
+Initial enumeration/CreateSource owner handoffs and actual nonzero delegate
+admission remain separate, independently verified work.
 
 ## Consequences
 

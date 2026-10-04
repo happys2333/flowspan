@@ -251,6 +251,40 @@ containment or NativeSource's own retain/check/dispose algorithm. That source
 acquisition/lifetime work remains task 3b.2. Task 3b.1 keeps `delegate=0`, the
 14.2 candidate floor and production sharing availability unchanged.
 
+### Task 3b.2a: real NativeSource prerequisite (local verified; hosted pending)
+
+Keep the existing NativeSource state machine and inject only three native
+effects: retain, release and current-source check. Tests construct that same
+NativeSource/NativeCaptureSource and pass it through the production Capture
+factory; a fake source state machine cannot prove this boundary. Public source
+contracts, default delegate=0, the 14.2 floor and availability stay unchanged.
+
+Prepare a managed retained-owner token before native acquisition. The Capture
+stores that token and establishes its full root before the first retain; a
+throwing second retain cannot lose its partial/unknown owner in an unreturned
+local. Window and filter acquisition attempts/confirmations and release
+attempts/confirmations are independent facts. A confirmed window owner may get
+its one cleanup attempt while an uncertain filter retain remains charged.
+Never guess-release an unconfirmed acquisition or retry an unknown release.
+Retain the original primary/fatal diagnosis and complete token/Capture graph.
+
+Use the source gate only for admission and snapshots. Retain/current-check
+effects execute outside it with an admitted use; closing rejects new uses.
+Dispose closes admission and joins existing uses outside the gate, with direct
+and active ExecutionContext-descendant self-join rejection before waiting.
+After those uses exit, claim each independently owned filter/window release
+once and execute it outside the gate. A failed filter release cannot skip the
+window; repeated Dispose observes the stable unconfirmed result. No new use
+may read or retain an address whose release has begun.
+
+This is a Capture-retained source lifecycle prerequisite, not the full MSC9
+process runtime. CreateSource filter alloc/init, initial window retain before
+owner assignment, enumeration list/owner handoff and durable catalog-owner
+quarantine remain independently open. Portable native-effect injection and a
+healthy task-owned SCStream regression do not prove native fault containment.
+See [final local evidence](../../../../docs/evidence/2026-10-05-macos-native-source-lifecycle.md);
+the exact-new-commit hosted gate remains separate from prior a07d911 results.
+
 `MacOSRemoteWindowScreenCaptureKitApi.Capture` currently publishes only sample
 output and passes `delegate=0`. Nonzero delegate publication occurs before
 entering InitStream and must be tracked independently of AddOutput publication.

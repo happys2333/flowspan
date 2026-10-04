@@ -70,9 +70,22 @@ production, physical, release or Goal closes. Task 3a now has
 [final local evidence](../../docs/evidence/2026-10-05-macos-capture-system-boundary.md)
 for the same-Capture boundary: complete Debug/Release 2794 each, final 20-process
 pressure 340 and actual task-owned macOS Debug/Release capture regression.
-Fresh exact-source all-OS hosted verification remains open. Production is still
-`delegate=0`; next fix the existing same-owner cleanup gate/retry debts before
-nonzero delegate composition, without changing sharing availability.
+Production is still `delegate=0`; the following checkpoints do not change
+sharing availability. Task 3a now has exact `473c625`
+[hosted evidence](../../docs/evidence/2026-10-05-capture-boundary-hosted-checkpoint.md)
+with complete three-OS 12-TRX/2794-Passed inventories. Task 3b.1 has
+[final local evidence](../../docs/evidence/2026-10-05-macos-capture-cleanup.md):
+Debug/Release 12 TRX/2809 each, 32 focused cases, 20 fresh processes/640 Passed,
+selected actual healthy macOS regression and independent audits. Exact
+`a07d911` now has [fresh hosted evidence](../../docs/evidence/2026-10-05-capture-cleanup-hosted-checkpoint.md):
+CI/CodeQL success and independently audited matching three-OS 2809 inventories,
+not inherited from 473c625. This closes only MSC task 3b.1.
+Task 3b.2a now has [final local evidence](../../docs/evidence/2026-10-05-macos-native-source-lifecycle.md)
+for the real NativeSource retained-owner lifecycle: focused/project D/R 59/265,
+complete solutions 2836 each, 590 ordinary repeat executions, selected actual
+healthy native D/R and saved-data replays pass. Fresh exact-commit hosted
+verification remains open. This does not publish a nonzero delegate or close
+initial CreateSource/enumeration/catalog-owner handoff obligations.
 
 ## 0. Product and engineering baseline
 

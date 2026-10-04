@@ -2086,6 +2086,32 @@ Capture-only patch; this does not validate real NativeSource fault paths or
 nonzero delegate admission. See
 [cleanup evidence](../evidence/2026-10-05-macos-capture-cleanup.md).
 
+### Real NativeSource prerequisite (task 3b.2a, local verified; hosted pending)
+
+Two retains are not one atomic acquisition: the first may return an owned
+window while the second changes filter ownership and throws. Stage the complete
+managed owner token on the rooted Capture before either effect, retain unknown
+acquisition as charged debt, and never dispose the borrowed catalog source as
+compensation. Confirmed independent owners receive at most one cleanup attempt;
+an unknown retain is not permission to guess a matching release.
+
+Source closing must reject new retain/current-check admission before release
+starts. Previously admitted effects run outside the source state gate and are
+joined outside it; active direct/descendant self-join must reject instead of
+deadlocking. Filter failure cannot skip independent window cleanup, and unknown
+release is never blindly retried. Original fatal identity and full owner/root
+reachability remain separate from physical sample/Block readiness.
+
+This scoped contract does not itself close production-native fault admission,
+initial CreateSource/enumeration owner handoff or durable catalog quarantine.
+Tests replace only native effects on the real source state machine; such faults
+are portable injection, not Objective-C/OS fault containment. Healthy selected
+native regression remains a distinct evidence level. Delegate=0,
+14.2/Arm64 candidate admission and production sharing availability stay unchanged.
+The [final local checkpoint](../evidence/2026-10-05-macos-native-source-lifecycle.md)
+records injected behavior, independent full regression and selected healthy
+native execution separately; fresh exact-commit hosted verification stays open.
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

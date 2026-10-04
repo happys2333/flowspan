@@ -2,8 +2,9 @@
 
 Status: frozen same-Capture portable contracts, complete local Debug/Release
 regression and selected actual macOS capture checks pass. Final pressure/evidence
-audit passes; fresh exact-commit hosted verification remains
-pending. This is MSC task 3b.1, not
+audit passes; fresh exact `a07d911` hosted verification now passes with
+[independently audited three-OS inventories](2026-10-05-capture-cleanup-hosted-checkpoint.md).
+This is MSC task 3b.1, not
 nonzero delegate composition, production sharing or v1 acceptance.
 
 ## Scope and frozen source
@@ -173,11 +174,14 @@ Static review is not execution evidence or external security certification.
 
 ## Remaining gates
 
-Fresh exact-SHA Windows/macOS/Linux CI and CodeQL remain pending for this patch;
-the prior [473c625 hosted success](2026-10-05-capture-boundary-hosted-checkpoint.md)
-cannot verify changed source. Actual NativeSource lifecycle/acquisition,
+Fresh exact `a07d911` Windows/macOS/Linux CI and CodeQL now pass with
+[downloaded evidence](2026-10-05-capture-cleanup-hosted-checkpoint.md), independently
+of the prior 473c625 success. Actual NativeSource lifecycle/acquisition,
 nonzero delegate/initializer/runtime admission, terminal versus Start completion,
 managed retirement and bounded complete-cleanup permit return remain task 3b.2.
 Native SCStream fault injection, MSC2b/MSC6/MSC9 aggregate acceptance, Task 4/6,
 production sharing, protection/input/Emergency Stop, physical LAN, minimum
 OS/architectures, accessibility, signing and v1/Goal acceptance remain open.
+The later [NativeSource local checkpoint](2026-10-05-macos-native-source-lifecycle.md)
+verifies the scoped retained-owner lifecycle separately; initial source-entry/
+enumeration/catalog ownership and the remaining composition gates stay open.

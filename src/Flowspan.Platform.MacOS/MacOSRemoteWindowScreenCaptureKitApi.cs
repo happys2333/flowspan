@@ -12,6 +12,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
     private const int MaximumDimension = 16_384;
     private const long MaximumPixelBytes = 64 * 1024 * 1024;
     private readonly HashSet<uint> allowedOwnWindowIds;
+    private readonly IMacOSRemoteWindowSourceOperations sourceOperations;
     private static readonly Lazy<Runtime> NativeRuntime = new(() => new Runtime());
     [ThreadStatic] private static Capture? failedFactoryCapture;
 
@@ -25,6 +26,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         this.allowedOwnWindowIds = allowedOwnWindowIds is null
             ? []
             : allowedOwnWindowIds.Take(MaximumSources).ToHashSet();
+        sourceOperations = new NativeSourceOperations(this);
     }
 
     public bool IsSupported => OperatingSystem.IsMacOSVersionAtLeast(14, 2)
@@ -164,12 +166,12 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
     public bool IsCurrent(IMacOSRemoteWindowNativeSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (!PreflightCaptureAccess() || source is not NativeSource nativeSource)
+        if (source is not NativeSource nativeSource)
         {
             return false;
         }
 
-        return nativeSource.CheckCurrent(NativeRuntime.Value);
+        return nativeSource.CheckCurrent();
     }
 
     public IMacOSRemoteWindowNativeCapture CreateCapture(
@@ -206,6 +208,16 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         }
 
         return new Capture(this, operations, source, takeSampleOwnership, sourceUnavailable);
+    }
+
+    internal IMacOSRemoteWindowCaptureSource CreateCaptureSourceWithOperations(
+        MacOSRemoteWindowNativeIdentity identity, NativeRemoteWindowGeometry geometry,
+        nint windowOwner, nint filterOwner, IMacOSRemoteWindowSourceOperations operations)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(operations);
+        return new NativeCaptureSource(this,
+            new NativeSource(identity, geometry, windowOwner, filterOwner, operations));
     }
 
     internal static void DeliverCaptureSample(nint output, nint stream, nint sample, nint kind) =>
@@ -285,7 +297,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             }
 
             windowOwner = N.objc_retain(window);
-            var source = new NativeSource(identity, geometry, windowOwner, filter);
+            var source = new NativeSource(identity, geometry, windowOwner, filter, sourceOperations);
             windowOwner = 0;
             filter = 0;
             return source;
@@ -414,73 +426,239 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         return exception.InnerException is { } cause ? FindFatal(cause) : null;
     }
 
+    private sealed class NativeSourceOperations(MacOSRemoteWindowScreenCaptureKitApi api)
+        : IMacOSRemoteWindowSourceOperations
+    {
+        public nint Retain(nint owner) => N.objc_retain(owner);
+        public void Release(nint owner) => N.objc_release(owner);
+        public bool CheckCurrent(nint filter, MacOSRemoteWindowNativeIdentity identity,
+            NativeRemoteWindowGeometry geometry) => api.PreflightCaptureAccess()
+                && N.GetFloat(filter, N.Sel("pointPixelScale")) == geometry.ScaleFactor
+                && CheckWindowInfo(NativeRuntime.Value, identity, geometry);
+    }
+
     private sealed class NativeSource(
         MacOSRemoteWindowNativeIdentity identity,
         NativeRemoteWindowGeometry geometry,
         nint windowOwner,
-        nint filterOwner) : IMacOSRemoteWindowNativeSource
+        nint filterOwner, IMacOSRemoteWindowSourceOperations operations,
+        NativeSource? acquisitionSource = null) : IMacOSRemoteWindowNativeSource
     {
         private readonly object gate = new();
+        private readonly NativeSource? parent = acquisitionSource;
         private nint window = windowOwner;
         private nint filter = filterOwner;
+        private nint windowRetainResult;
+        private nint filterRetainResult;
+        private bool windowRetainAttempted;
+        private bool filterRetainAttempted;
+        // A base source arrives with its caller-owned native references.
+        // Prepared tokens only borrow them until each retain is confirmed.
+        private bool windowRetainConfirmed = acquisitionSource is null;
+        private bool filterRetainConfirmed = acquisitionSource is null;
+        private bool windowReleaseAttempted;
+        private bool filterReleaseAttempted;
+        private bool acquisitionStarted;
+        private bool closing;
+        private bool disposing;
+        private int activeUses;
+        private readonly TaskCompletionSource<bool> usesExited = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private Exception? ownerFailure;
+        private OutOfMemoryException? ownerFatal;
+        private readonly InvalidOperationException releaseUnconfirmed =
+            new("macOS native source release unconfirmed.");
         public MacOSRemoteWindowNativeIdentity Identity { get; } = identity;
         public NativeRemoteWindowGeometry Geometry { get; } = geometry;
 
-        internal nint Filter => filter;
-
-        internal NativeSource RetainOwner()
+        internal nint Filter
         {
-            lock (gate)
+            get
             {
-                ObjectDisposedException.ThrowIf(window == 0 || filter == 0, this);
-                nint retainedWindow = N.objc_retain(window);
-                nint retainedFilter = 0;
-                try
+                lock (gate)
                 {
-                    retainedFilter = N.objc_retain(filter);
-                    return new(Identity, Geometry, retainedWindow, retainedFilter);
-                }
-                catch
-                {
-                    if (retainedFilter != 0)
+                    ObjectDisposedException.ThrowIf(closing || filter == 0, this);
+                    if (parent is not null && (!windowRetainConfirmed || !filterRetainConfirmed))
                     {
-                        N.objc_release(retainedFilter);
+                        throw new InvalidOperationException("macOS native source acquisition unconfirmed.");
                     }
-
-                    N.objc_release(retainedWindow);
-                    throw;
+                    return filter;
                 }
             }
         }
 
-        internal bool CheckCurrent(Runtime runtime)
+        internal NativeSource PrepareOwner()
         {
             lock (gate)
             {
-                return window != 0 && filter != 0
-                    && N.GetFloat(filter, N.Sel("pointPixelScale")) == Geometry.ScaleFactor
-                    && CheckWindowInfo(runtime, Identity, Geometry);
+                ObjectDisposedException.ThrowIf(closing || window == 0 || filter == 0
+                    || (parent is not null && (!windowRetainConfirmed || !filterRetainConfirmed)), this);
+                return new(Identity, Geometry, window, filter, operations, this);
+            }
+        }
+
+        internal void AcquireOwner()
+        {
+            if (parent is null) { throw new InvalidOperationException("macOS native source acquisition unavailable."); }
+            ObjectDisposedException.ThrowIf(
+                !parent.TryEnterUse(out nint selectedWindow, out nint selectedFilter), parent);
+            bool ownerUseEntered = false;
+            try
+            {
+                lock (gate)
+                {
+                    ObjectDisposedException.ThrowIf(closing, this);
+                    if (acquisitionStarted) { throw new InvalidOperationException("macOS native source acquisition already attempted."); }
+                    acquisitionStarted = true;
+                    activeUses++;
+                    ownerUseEntered = true;
+                }
+
+                // Both borrowed addresses and the staged ledger stay pinned.
+                // Managed scope setup precedes the first native-attempt fact.
+                using var parentActivity = NativeRemoteWindowDrainActivityScope.Enter(parent, this);
+                using var ownerActivity = NativeRemoteWindowDrainActivityScope.Enter(this, this);
+                try
+                {
+                    lock (gate) { windowRetainAttempted = true; }
+                    nint retainedWindow = operations.Retain(selectedWindow);
+                    lock (gate)
+                    {
+                        windowRetainResult = retainedWindow;
+                        windowRetainConfirmed = retainedWindow != 0 && retainedWindow == selectedWindow;
+                    }
+                    if (!windowRetainConfirmed) { throw new InvalidOperationException("macOS native window retain unconfirmed."); }
+                    lock (gate) { filterRetainAttempted = true; }
+                    nint retainedFilter = operations.Retain(selectedFilter);
+                    lock (gate)
+                    {
+                        filterRetainResult = retainedFilter;
+                        filterRetainConfirmed = retainedFilter != 0 && retainedFilter == selectedFilter;
+                    }
+                    if (!filterRetainConfirmed) { throw new InvalidOperationException("macOS native filter retain unconfirmed."); }
+                }
+                catch (Exception exception)
+                {
+                    RecordOwnerFailure(exception);
+                    throw;
+                }
+
+                lock (gate) { ObjectDisposedException.ThrowIf(closing, this); }
+            }
+            finally
+            {
+                if (ownerUseEntered) { ExitUse(); }
+                parent.ExitUse();
+            }
+        }
+
+        internal bool CheckCurrent()
+        {
+            if (!TryEnterUse(out _, out nint selectedFilter)) { return false; }
+            try
+            {
+                using var activity = NativeRemoteWindowDrainActivityScope.Enter(this, this);
+                bool current = operations.CheckCurrent(selectedFilter, Identity, Geometry);
+                lock (gate) { return !closing && current; }
+            }
+            finally
+            {
+                ExitUse();
             }
         }
 
         public void Dispose()
         {
+            bool selfJoin = NativeRemoteWindowDrainActivityScope.IsActiveForOwner(this);
+            Task wait;
             lock (gate)
             {
-                nint oldWindow = window;
-                nint oldFilter = filter;
-                if (oldFilter != 0)
+                closing = true;
+                if (selfJoin)
                 {
-                    N.objc_release(oldFilter);
-                    filter = 0;
+                    throw new InvalidOperationException("macOS native source use cannot join its own cleanup.");
                 }
-
-                if (oldWindow != 0)
+                if (disposing) { throw releaseUnconfirmed; }
+                disposing = true;
+                wait = activeUses == 0 ? Task.CompletedTask : usesExited.Task;
+            }
+            try
+            {
+                // Closing rejects new uses. Only already-admitted uses can
+                // delay cleanup, and their exit is joined outside the gate.
+                wait.GetAwaiter().GetResult();
+                bool released = ReleaseOwner(ref filter, filterRetainAttempted,
+                    filterRetainConfirmed, ref filterReleaseAttempted)
+                    & ReleaseOwner(ref window, windowRetainAttempted,
+                        windowRetainConfirmed, ref windowReleaseAttempted);
+                if (!released)
                 {
-                    N.objc_release(oldWindow);
-                    window = 0;
+                    if (Volatile.Read(ref ownerFatal) is { } fatal) { ExceptionDispatchInfo.Capture(fatal).Throw(); }
+                    throw releaseUnconfirmed;
                 }
             }
+            finally
+            {
+                lock (gate) { disposing = false; }
+            }
+        }
+
+        private bool TryEnterUse(out nint selectedWindow, out nint selectedFilter)
+        {
+            lock (gate)
+            {
+                selectedWindow = 0;
+                selectedFilter = 0;
+                if (closing || window == 0 || filter == 0
+                    || (parent is not null && (!windowRetainConfirmed || !filterRetainConfirmed)))
+                {
+                    return false;
+                }
+                activeUses++;
+                selectedWindow = window;
+                selectedFilter = filter;
+                return true;
+            }
+        }
+
+        private void ExitUse()
+        {
+            bool notify;
+            lock (gate)
+            {
+                activeUses--;
+                notify = closing && activeUses == 0;
+            }
+            if (notify) { usesExited.TrySetResult(true); }
+        }
+
+        private bool ReleaseOwner(ref nint owner, bool attempted, bool confirmed, ref bool releaseAttempted)
+        {
+            nint selected;
+            lock (gate)
+            {
+                if (!confirmed) { return !attempted; }
+                if (owner == 0) { return true; }
+                if (releaseAttempted) { return false; }
+                releaseAttempted = true;
+                selected = owner;
+            }
+            try
+            {
+                operations.Release(selected);
+                lock (gate) { owner = 0; }
+                return true;
+            }
+            catch (Exception exception)
+            {
+                RecordOwnerFailure(exception);
+                return false;
+            }
+        }
+
+        private void RecordOwnerFailure(Exception exception)
+        {
+            Interlocked.CompareExchange(ref ownerFailure, exception, null);
+            if (FindFatal(exception) is { } fatal) { Interlocked.CompareExchange(ref ownerFatal, fatal, null); }
         }
     }
 
@@ -578,10 +756,10 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         }
     }
 
-    private sealed class NativeCaptureSource : IMacOSRemoteWindowCaptureSource
+    private sealed class NativeCaptureSource : IMacOSRemoteWindowStagedCaptureSource
     {
         private readonly MacOSRemoteWindowScreenCaptureKitApi api;
-        private NativeSource source;
+        private readonly NativeSource source;
 
         internal NativeCaptureSource(MacOSRemoteWindowScreenCaptureKitApi api, NativeSource source)
         {
@@ -593,14 +771,15 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         public nint Filter => source.Filter;
         public IMacOSRemoteWindowCaptureSource RetainOwner()
         {
-            // Allocate the adapter before acquiring native owners. RetainOwner
-            // already owns its independent cleanup on acquisition failure.
-            var owner = new NativeCaptureSource(api, source);
-            owner.source = source.RetainOwner();
-            return owner;
+            // No unrooted one-step path may lose a partially acquired token.
+            throw new InvalidOperationException("macOS native source requires staged acquisition.");
         }
 
-        public bool IsCurrent() => api.IsCurrent(source);
+        public IMacOSRemoteWindowStagedCaptureSource PrepareOwner() =>
+            new NativeCaptureSource(api, source.PrepareOwner());
+        public void AcquireOwner() => source.AcquireOwner();
+
+        public bool IsCurrent() => source.CheckCurrent();
         public void Dispose() => source.Dispose();
     }
 
@@ -753,7 +932,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         private bool sourceReleaseAttempted;
         private bool sourceReleaseConfirmed;
         private readonly bool sourceRetainAttempted;
-        private readonly bool sourceAcquired;
+        private readonly bool sourceCleanupOwned;
         private readonly Exception? factoryFailure;
         private Exception? disposalFailure;
         private bool rootCounted;
@@ -801,9 +980,20 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 callbackRoot = GCHandle.Alloc(this);
                 Interlocked.Increment(ref retainedOwners);
                 rootCounted = true;
-                sourceRetainAttempted = true;
-                this.source = source.RetainOwner();
-                sourceAcquired = true;
+                if (source is IMacOSRemoteWindowStagedCaptureSource staged)
+                {
+                    IMacOSRemoteWindowStagedCaptureSource owner = staged.PrepareOwner();
+                    this.source = owner;
+                    sourceCleanupOwned = true;
+                    sourceRetainAttempted = true;
+                    owner.AcquireOwner();
+                }
+                else
+                {
+                    sourceRetainAttempted = true;
+                    this.source = source.RetainOwner();
+                    sourceCleanupOwned = true;
+                }
                 if (!TryDimensions(this.source.Geometry, out width, out height))
                 {
                     throw new InvalidOperationException("macOS window pixel bounds unavailable.");
@@ -1657,7 +1847,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         {
             lock (gate)
             {
-                if (!sourceAcquired)
+                if (!sourceCleanupOwned)
                 {
                     // A throwing retain may have acquired opaque native refs.
                     // Preserve the shell, but do not release a borrowed source.

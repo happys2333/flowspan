@@ -2585,6 +2585,33 @@ Debug/Release and pressure results to final source/runtime bytes, and obtain
 fresh exact-commit all-OS evidence. Existing native results are historical, not
 verification of these new cleanup changes.
 
+### Real NativeSource lifecycle tests (task 3b.2a)
+
+Replace only retain/release/current-check system effects and execute the real
+NativeSource/NativeCaptureSource through the same Capture factory. Re-read the
+current baseline before selecting a RED: a prior patch may already satisfy
+root/handoff assertions. Save actual assertion-level failure of remaining
+partial ownership behavior; missing types or compiler failures are not RED.
+
+Let window retain succeed, then let filter retain change native ownership and
+throw the original nested fatal. Assert that the staged token was already
+reachable through the full Capture root, the confirmed window gets one release
+attempt, the uncertain filter is not guess-released, and repeated failed-owner
+cleanup preserves the exact fatal without retry. Do not reset quarantine roots.
+
+Use dedicated threads, explicit entry/release gates and finally release/join
+for blocked retain/current-check/release. Closing must reject new uses while
+Dispose joins previously admitted ones without holding the state gate. Exercise
+direct and active ExecutionContext-descendant self-join, independent filter and
+window cleanup after an after-effect exception, stable repeated/concurrent
+cleanup, healthy owner balance and no access to release-started addresses.
+
+Bind final focused/project/solution Debug and Release TRX and normal fresh
+process pressure to final source/runtime inventories. Obtain new exact-commit
+all-OS evidence rather than inherit task 3b.1 success. Healthy actual task-owned
+SCStream regression stays separate; injected effects do not prove native faults,
+initial CreateSource/enumeration/catalog handoff or nonzero-delegate acceptance.
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source

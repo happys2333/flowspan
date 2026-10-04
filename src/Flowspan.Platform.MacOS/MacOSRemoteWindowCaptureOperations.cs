@@ -11,6 +11,14 @@ internal interface IMacOSRemoteWindowCaptureSource : IDisposable
     public bool IsCurrent();
 }
 
+// Native source acquisition must be staged on the rooted Capture before the
+// first retain. Legacy system-boundary fakes keep the original opaque contract.
+internal interface IMacOSRemoteWindowStagedCaptureSource : IMacOSRemoteWindowCaptureSource
+{
+    public IMacOSRemoteWindowStagedCaptureSource PrepareOwner();
+    public void AcquireOwner();
+}
+
 internal interface IMacOSRemoteWindowCaptureCompletion : IDisposable
 {
     public nint Pointer { get; }

@@ -111,7 +111,7 @@
     same Capture; consume exact initializer and global failure state at every
     construction/Start/sample admission boundary. Require retirement before
     native release and complete cleanup before returning the Capture permit.
-    - [-] 3b.1 Fix same-Capture cleanup prerequisites in real RED→GREEN slices:
+    - [x] 3b.1 Fix same-Capture cleanup prerequisites in real RED→GREEN slices:
       no native release under Capture state gates, one attempted/confirmed fact
       per owner, no blind uncertain release retry, independent cleanup and full
       root retention. Reject cached successful Start after a cleanup ownership
@@ -125,11 +125,45 @@
         task-owned native D/R passes without Skip. Standards/Spec 0/0 and root
         offline audits pass. NativeSource's own algorithms remain task 3b.2. See
         [cleanup evidence](../../../../docs/evidence/2026-10-05-macos-capture-cleanup.md).
-      - [ ] Verify fresh exact-commit all-OS hosted CI/CodeQL and downloaded
+      - [x] Verify fresh exact-commit all-OS hosted CI/CodeQL and downloaded
         complete inventories/artifacts; prior `473c625` success cannot close it.
-    - [ ] 3b.2 Stage source-acquisition ownership, reserve before native work,
+        Exact `a07d911` now passes CI/CodeQL; all three OSes contain matching
+        12-TRX/2809-Passed inventories with all 32 Capture rows. Root actually
+        replays both downloaded-evidence audits with zero violations. See
+        [hosted checkpoint](../../../../docs/evidence/2026-10-05-capture-cleanup-hosted-checkpoint.md).
+    - [-] 3b.2 Stage source-acquisition ownership, reserve before native work,
       compose nonzero delegate and exact initializer/global failure admission,
       monotonic Start, managed retirement and complete-cleanup permit return.
+      - [-] 3b.2a Fix the real NativeSource acquisition/use/cleanup prerequisite.
+        Inject only native retain/release/current-check effects; stage the
+        managed retained owner on the same rooted Capture before acquisition.
+        Join admitted uses outside gates, reject direct/active-descendant
+        self-join, and attempt independently known filter/window cleanup once.
+        Unknown partial acquisition or release stays charged without retry.
+        Preserve actual RED/GREEN, final local/hosted inventories and selected
+        healthy native regression separately. Keep delegate=0/14.2 unchanged.
+        CreateSource/enumeration acquisition and catalog-owner rooting remain
+        separate unresolved entry points, not implicit acceptance of this slice.
+        - [x] Final local implementation, behavior-level TDD, focused/project/
+          complete solution Debug and Release, ordinary repeat runs, selected
+          task-owned healthy native regression and independent saved-data audits.
+          Preserve superseded fixtures and actual failures separately. See
+          [source lifecycle evidence](../../../../docs/evidence/2026-10-05-macos-native-source-lifecycle.md).
+          Final focused/project D/R pass 59/265 each, complete solution D/R
+          each 12 TRX/2836 Passed, ordinary repeat runs 590 Passed. Selected
+          actual task-owned native D/R and root saved-data replays pass;
+          Standards/Spec have no remaining findings. No nonzero delegate or
+          source-entry/catalog ownership acceptance follows.
+        - [ ] Verify fresh exact-new-commit Windows/macOS/Linux CI and CodeQL,
+          downloaded complete inventories and source/artifact bindings. Prior
+          a07d911 success is not a result for this implementation.
+        _Requirements: MSC6-MSC7, MSC9 ownership prerequisite; NR8, NR10_
+      - [ ] 3b.2b Compose reserved nonzero delegate/exact initializer, monotonic
+        Start, global-fault admission and managed retirement on the same Capture.
+      - [ ] 3b.2c Implement the bounded process native bridge/tag runtime and
+        require complete confirmed owner/root cleanup before permit return.
+      - [ ] 3b.2d Verify final exact-source local and fresh all-OS hosted gates;
+        portable fault injection is not actual SCStream fault containment.
   - Separate delegate/output publication; close terminal delivery; prevent
     Start resurrection; retire managed handlers before native release; preserve
     independent sample/Block ownership and complete quarantine.
