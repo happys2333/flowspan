@@ -1447,14 +1447,32 @@
   - _Requirements: NR1-NR6, NR8-NR10_
 
 - [ ] 6. Deliver the macOS native vertical slice
-  - [-] 6.1a Implement the separate
+  - [x] 6.1a Implement the separate
     [delegate ownership prerequisite](macos-delegate-ownership/tasks.md):
     immutable bounded bridge owners, terminal-without-sample admission closure,
     self-join protection and no-capture synthetic ABI evidence. Current Capture
     remains `delegate=0`; completing this prerequisite cannot close Task 6.
     Final local portable owner, no-capture synthetic tool and complete solution
-    Debug/Release pass (2710/2710 each); exact new-SHA hosted matrix remains
-    pending. See [delegate ownership evidence](../../../docs/evidence/2026-10-04-macos-delegate-ownership.md).
+    Debug/Release pass (2710/2710 each). Exact implementation
+    `c27532dd809cb9d29f5ec01b45e37bbca5fcddd3` CI `37214730077` and CodeQL
+    `37214730078` succeed; downloaded all-OS archives each contain 12 TRX /
+    2710 Passed with no non-success counters. The downloaded macOS synthetic
+    stdout is byte-identical to local Debug/Release: 61 callbacks / four
+    retained bridges, no capture. Only this prerequisite closes; production
+    delegate composition, Task 6, v1 and all native/physical/release gates
+    remain open. See [delegate ownership evidence](../../../docs/evidence/2026-10-04-macos-delegate-ownership.md).
+  - [-] 6.1b Implement the separately specified
+    [generation-routed stream delegate candidate](macos-stream-delegate/tasks.md).
+    First prove the portable bounded registry, publication poison and managed
+    retirement; then execute native association/tag-deallocation ownership
+    before actual Capture integration. Keep independent native, production,
+    physical and release gates open. See
+    [ADR 0030](../../../docs/adr/0030-generation-routed-macos-stream-delegate.md).
+    The portable router now has local Debug/Release 33/33 focused and 2743/2743
+    complete-solution results, 13 actual RED stages and final 40-process pressure
+    1320/1320. Native association/tag-deallocation, Capture wiring and exact
+    new-SHA hosted evidence remain open; see
+    [portable router evidence](../../../docs/evidence/2026-10-05-macos-stream-delegate-router.md).
   - Implement prompt-free screen-capture and Accessibility facts, explicit TCC
     requests, secure-input observation, exact source enumeration, and generation
     leases through documented CoreGraphics, ApplicationServices, and

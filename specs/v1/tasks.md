@@ -16,11 +16,25 @@ now passes for that exact checkpoint, without signing or legal clearance. The
 preserves the original failed Windows WGC attempt; the one-variable
 [non-tool-window follow-up](../../docs/evidence/2026-10-04-wgc-non-tool-window.md)
 has actual task-owned hosted capture success. Production/native/physical/release
-gates remain open, and the macOS delegate ownership prerequisite is in progress.
-Its final local owner/tool slice passes complete Debug/Release solutions at
-2710/2710 and actual no-capture synthetic Objective-C/GCD execution in both
-configurations; [local evidence](../../docs/evidence/2026-10-04-macos-delegate-ownership.md)
-does not substitute for its pending exact-SHA hosted matrix or production gates.
+gates remain open. The macOS delegate ownership prerequisite is complete at
+`c27532dd809cb9d29f5ec01b45e37bbca5fcddd3`: local Debug/Release solutions each
+pass 2710/2710; exact-SHA CI `37214730077` and CodeQL `37214730078` succeed.
+Downloaded Windows/macOS/Linux archives each contain 12 TRX / 2710 Passed
+with no non-success counters, and actual no-capture synthetic macOS
+Objective-C/GCD raw output matches local Debug/Release. The
+[local and hosted evidence](../../docs/evidence/2026-10-04-macos-delegate-ownership.md)
+closes only MDO task 4 and native task 6.1a; production Capture remains
+`delegate=0`, Task 6, full v1 and the long-term Goal remain open. Exact-checkpoint
+package and Linux ABI ZIPs were not downloaded; their API/upload/hosted-log
+evidence is not independent local archive or native/physical/release proof.
+The next scoped implementation is
+[generation-routed macOS stream delegates](native-remote-window/macos-stream-delegate/tasks.md),
+beginning with a portable bounded registry. Its native association/deallocation
+and actual Capture wiring are separate, not inherited from the MDO probe.
+Its [portable implementation/local evidence](../../docs/evidence/2026-10-05-macos-stream-delegate-router.md)
+now passes final Debug/Release complete solutions at 2743/2743 plus 33 focused
+cases and final 40-process pressure at 1320/1320. Exact new-SHA hosted gates
+remain pending, and this does not close the parent native task or v1 acceptance.
 
 ## 0. Product and engineering baseline
 

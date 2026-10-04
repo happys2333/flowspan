@@ -1972,6 +1972,28 @@ execution creates no SCStream/AppKit/window, requests no permission and reads no
 samples or pixels. Real delegate source-loss/unbinding, arbitrary native fault
 containment, capture authority, Task 6 and production/release gates stay open.
 
+### macOS generation-routed stream delegate candidate
+
+The next candidate uses a process-owned bridge and immutable numeric stream
+association instead of reusing delegate addresses. Managed generation routing
+must reject stale/unknown generations and close delivery before notification.
+Capture permits include constructing, retiring and quarantined native resources;
+handler retirement is not cleanup confirmation. A separate tag budget follows
+actual native tag deallocation. Neither budget can be silently reset.
+
+Unlike the opaque-pointer MDO prerequisite, this candidate reads native
+associations. Borrowed callback stream/tag references must be retained before
+external notification and released afterward, with no native call under a
+managed routing gate. Early nil-tag streams require retained identity,
+initializer snapshot and association re-read; ambiguous published construction
+poisons future initialization rather than misrouting old work. Active or a
+successful Start completion cannot reopen terminal admission. The actual native
+association and Capture composition remain unimplemented/unverified; production
+host sharing, sample/Block lifetime, protection, input, physical and release
+gates remain independently open. See
+[ADR 0030](../adr/0030-generation-routed-macos-stream-delegate.md) and the
+[MSC specification](../../specs/v1/native-remote-window/macos-stream-delegate/requirements.md).
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.
