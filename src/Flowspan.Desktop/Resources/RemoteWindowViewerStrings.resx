@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="Viewer_Unavailable" xml:space="preserve"><value>REMOTE WINDOW RECEIVING UNAVAILABLE</value></data>
+  <data name="Viewer_Disabled" xml:space="preserve"><value>REMOTE WINDOW RECEIVING OFF</value></data>
+  <data name="Viewer_Waiting" xml:space="preserve"><value>WAITING FOR A VIEW-ONLY REMOTE WINDOW</value></data>
+  <data name="Viewer_Viewing" xml:space="preserve"><value>REMOTE WINDOW — VIEW ONLY</value></data>
+  <data name="Viewer_Stopping" xml:space="preserve"><value>STOPPING REMOTE WINDOW RECEIVING</value></data>
+  <data name="Viewer_StopFailed" xml:space="preserve"><value>REMOTE WINDOW RECEIVING STOPPED — CLEANUP FAILED</value></data>
+  <data name="Viewer_ReceiverAutomationName" xml:space="preserve"><value>View-only Remote Window receiver</value></data>
+  <data name="Viewer_Heading" xml:space="preserve"><value>RECEIVE A REMOTE WINDOW</value></data>
+  <data name="Viewer_StatusAutomationName" xml:space="preserve"><value>Remote Window receiving status</value></data>
+  <data name="Viewer_Explanation" xml:space="preserve"><value>The application continues to run on the source device. This view-only receiver cannot send keyboard, pointer, or scroll input. Receiving starts only when you enable it for a trusted paired device.</value></data>
+  <data name="Viewer_EnableLabel" xml:space="preserve"><value>Enable receiving</value></data>
+  <data name="Viewer_EnableAutomationName" xml:space="preserve"><value>Enable view-only Remote Window receiving</value></data>
+  <data name="Viewer_EnableHelp" xml:space="preserve"><value>Allow a trusted paired device to show one Remote Window here. Receiving is view only and does not request screen-capture or remote-input permission on this device.</value></data>
+  <data name="Viewer_StopLabel" xml:space="preserve"><value>Stop receiving</value></data>
+  <data name="Viewer_StopAutomationName" xml:space="preserve"><value>Stop Remote Window receiving</value></data>
+  <data name="Viewer_StopHelp" xml:space="preserve"><value>Stop receiving closes this local view and revokes permission to receive a Remote Window until you enable it again.</value></data>
+  <data name="Viewer_ImageAutomationName" xml:space="preserve"><value>Received view-only Remote Window</value></data>
+</root>

@@ -58,9 +58,15 @@ evidence, not a permission denial to retry blindly.
 
 ## Ownership and safety boundaries
 
-- Enumeration is prompt-free. Native window ID, owning PID, process-start
-  identity and geometry resolve a host-local token; a fresh native check occurs
-  immediately before capture. Titles are not required for generic labels.
+- Production enumeration must remain prompt-free. The candidate repeats the
+  capture-access preflight before global shareable-content enumeration, but
+  those checks are not atomic with the API call. Permission revocation in that
+  interval and possible OS consent UI remain an unproven release boundary.
+  Native window ID, owning PID, process-start identity and geometry resolve a
+  host-local token; a fresh native check occurs immediately before capture.
+  These values alone do not distinguish an unobserved same-process window-ID
+  reuse. Source-loss/retained-filter identity evidence is still required before
+  production admission. Titles are not required for generic labels.
 - The source catalog reports capture capability but input unsupported and
   protection **Unknown**. Enumerability or a successful capture does not prove
   protected-content safety, and does not make the host production-ready.

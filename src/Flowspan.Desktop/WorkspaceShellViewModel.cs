@@ -59,7 +59,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         IDesktopSceneRepositoryService? sceneRepositoryService = null,
         IDesktopLocalDataService? localDataService = null,
         IDesktopRemoteWindowService? remoteWindowService = null,
-        IDesktopRemoteWindowPermissionService? remoteWindowPermissionService = null)
+        IDesktopRemoteWindowPermissionService? remoteWindowPermissionService = null,
+        RemoteWindowViewerViewModel? remoteWindowViewer = null)
     {
         ArgumentNullException.ThrowIfNull(startup);
         this.startup = startup;
@@ -91,6 +92,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             remoteWindowService ?? UnavailableDesktopRemoteWindowService.Instance,
             effectiveDispatcher,
             remoteWindowPermissionService);
+        RemoteWindowViewer = remoteWindowViewer ?? new RemoteWindowViewerViewModel(
+            effectiveDispatcher);
         Activities = new ActivityWorkspaceViewModel(
             effectiveActivityService,
             effectiveDispatcher);
@@ -126,6 +129,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     public LocalDataViewModel LocalData { get; }
 
     public RemoteWindowWorkspaceViewModel RemoteWindow { get; }
+
+    public RemoteWindowViewerViewModel RemoteWindowViewer { get; }
 
     public SceneApplyViewModel Scenes { get; }
 
@@ -341,11 +346,16 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => DisposeCoreAsync(forceJoin: false);
+
+    internal ValueTask DisposeForOwnerAsync() => DisposeCoreAsync(forceJoin: true);
+
+    private async ValueTask DisposeCoreAsync(bool forceJoin)
     {
         bool isLifecycleCallback = IsLifetimeCallbackActive;
         bool isRemoteWindowProjectionCallback =
             IsRemoteWindowProjectionCallbackActive;
+        bool isRemoteWindowViewerCallback = RemoteWindowViewer.IsCallbackActive;
         lock (remoteWindowProjectionGate)
         {
             remoteWindowProjectionClosed = true;
@@ -375,7 +385,10 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
             _ = DisposeResourcesAsync();
         }
 
-        if (isLifecycleCallback || isRemoteWindowProjectionCallback)
+        if (!forceJoin
+            && (isLifecycleCallback
+                || isRemoteWindowProjectionCallback
+                || isRemoteWindowViewerCallback))
         {
             return;
         }
@@ -402,6 +415,18 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
     {
         var failures = new List<Exception>();
         RemoteWindow.FailCloseForOwnerDisposal();
+        Task remoteWindowViewerDisposal;
+        try
+        {
+            remoteWindowViewerDisposal = RemoteWindowViewer
+                .DisposeForOwnerAsync().AsTask();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+            remoteWindowViewerDisposal = Task.CompletedTask;
+        }
+
         try
         {
             Activities.PropertyChanged -= OnActivityWorkspacePropertyChanged;
@@ -432,6 +457,8 @@ public sealed class WorkspaceShellViewModel : INotifyPropertyChanged, IAsyncDisp
         await CaptureFailureAsync(remoteWindowDisposal, failures)
             .ConfigureAwait(false);
         await CaptureFailureAsync(localPairingDisposal, failures)
+            .ConfigureAwait(false);
+        await CaptureFailureAsync(remoteWindowViewerDisposal, failures)
             .ConfigureAwait(false);
         await remoteWindowProjectionsDrained.Task.ConfigureAwait(false);
         await CaptureFailureAsync(lifetimeCancellationTask, failures)

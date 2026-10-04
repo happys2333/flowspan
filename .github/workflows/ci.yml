@@ -78,6 +78,20 @@ jobs:
           --no-build
           --no-restore
 
+      - name: Build standalone capture ABI probe
+        run: >-
+          dotnet build
+          tools/Flowspan.MacOS.CaptureProbe/Flowspan.MacOS.CaptureProbe.csproj
+          --configuration Release
+
+      - name: Run capture ABI probe without screen capture
+        run: >-
+          dotnet run
+          --project tools/Flowspan.MacOS.CaptureProbe/Flowspan.MacOS.CaptureProbe.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

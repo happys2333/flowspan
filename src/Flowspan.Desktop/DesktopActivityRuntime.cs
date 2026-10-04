@@ -42,6 +42,8 @@ internal sealed class DesktopActivityRuntime :
         sceneRemoteChildStatePayloadStore;
     private readonly ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore;
     private readonly TimeProvider timeProvider;
+    private readonly IDesktopRemoteWindowReceivePolicy remoteWindowReceivePolicy;
+    private readonly IDesktopRemoteWindowParticipantRendererFactory remoteWindowRendererFactory;
     private InMemoryActivityCatalog? catalog;
     private AuthenticatedActivitySessionHandler? handler;
     private FlowspanNode? node;
@@ -67,7 +69,8 @@ internal sealed class DesktopActivityRuntime :
         ISceneRemoteChildStatePayloadStore?
             sceneRemoteChildStatePayloadStore = null,
         ISceneApplyStatePayloadStore? sceneApplyStatePayloadStore = null,
-        IReceiptSink? receiptSink = null)
+        IReceiptSink? receiptSink = null,
+        RemoteWindowViewerViewModel? remoteWindowViewer = null)
         : this(
             getIdentity,
             getTrust,
@@ -77,7 +80,9 @@ internal sealed class DesktopActivityRuntime :
             sceneApplyStatePayloadStore,
             receiptSink,
             static provider => new DesktopRemoteWindowMediaSessionOwner(provider),
-            onSessionHandlerCreated: null)
+            onSessionHandlerCreated: null,
+            remoteWindowViewer,
+            remoteWindowViewer)
     {
     }
 
@@ -95,7 +100,9 @@ internal sealed class DesktopActivityRuntime :
         Action<
             AuthenticatedActivitySessionHandler,
             DesktopRemoteWindowHostControlPeer>?
-            onSessionHandlerCreated = null)
+            onSessionHandlerCreated = null,
+        IDesktopRemoteWindowReceivePolicy? remoteWindowReceivePolicy = null,
+        IDesktopRemoteWindowParticipantRendererFactory? remoteWindowRendererFactory = null)
     {
         ArgumentNullException.ThrowIfNull(getIdentity);
         ArgumentNullException.ThrowIfNull(getTrust);
@@ -110,6 +117,10 @@ internal sealed class DesktopActivityRuntime :
             sceneRemoteChildStatePayloadStore;
         this.sceneApplyStatePayloadStore = sceneApplyStatePayloadStore;
         this.receiptSink = receiptSink ?? NullReceiptSink.Instance;
+        this.remoteWindowReceivePolicy = remoteWindowReceivePolicy
+            ?? UnavailableDesktopRemoteWindowReceivePolicy.Instance;
+        this.remoteWindowRendererFactory = remoteWindowRendererFactory
+            ?? UnavailableDesktopRemoteWindowParticipantRendererFactory.Instance;
     }
 
     public event Action? Changed;
@@ -996,9 +1007,8 @@ internal sealed class DesktopActivityRuntime :
                     new DesktopRemoteWindowPreparationPeer(
                         identity.DeviceId,
                         TryAcquireRemoteWindowPeerConnection,
-                        UnavailableDesktopRemoteWindowReceivePolicy.Instance,
-                        UnavailableDesktopRemoteWindowParticipantRendererFactory
-                            .Instance,
+                        remoteWindowReceivePolicy,
+                        remoteWindowRendererFactory,
                         timeProvider);
                 newRemoteWindowHostControlPeer =
                     new DesktopRemoteWindowHostControlPeer(identity.DeviceId);
@@ -1191,6 +1201,31 @@ internal sealed class DesktopActivityRuntime :
         }
 
         return new ValueTask(disposalCompletion.Task);
+    }
+
+    internal async ValueTask StopRemoteWindowReceivingAsync()
+    {
+        if (Volatile.Read(ref disposed) != 0)
+        {
+            await disposalCompletion.Task.ConfigureAwait(false);
+            return;
+        }
+
+        DesktopRemoteWindowPreparationPeer? current;
+        await initializationGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            current = remoteWindowPreparationPeer;
+        }
+        finally
+        {
+            initializationGate.Release();
+        }
+
+        if (current is not null)
+        {
+            await current.StopReceivingAsync().ConfigureAwait(false);
+        }
     }
 
     private async Task CompleteDisposalAsync()

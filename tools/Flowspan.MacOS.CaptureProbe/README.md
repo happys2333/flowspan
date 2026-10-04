@@ -11,6 +11,11 @@ Requires the repository's .NET SDK and macOS 14.4 or later on ordinary arm64.
 Unsupported OS/architecture returns a structured `probe=skip`; this is not test
 evidence. No Intel or arm64e execution support is claimed.
 
+The three-OS CI workflow builds this independent project and invokes only its
+default synthetic mode. Inspect the job stdout: unsupported runners report Skip,
+not native ABI success. CI never supplies `--native-self-window`; a successful
+CI job is not evidence of real capture or permission access.
+
 From the repository root:
 
 ```sh
@@ -48,7 +53,9 @@ uses macOS 14.4's documented, redacted
 TCC user consent), matches both this process PID and the exact NSWindow window
 number, and constructs a desktop-independent filter only for that exact window.
 It does not enumerate global user content, read titles, capture existing user
-windows, capture audio/cursor/child windows, or save pixel files.
+windows, capture audio/cursor, or save pixel files. The tool creates no child
+windows; this is not a general guarantee that the includeChildWindows setter
+excludes every child surface in a desktop-independent window filter.
 
 One Complete BGRA frame is bounded to 16,384 row-normalized bytes. Fixed interior
 markers are verified exactly; native scaling/boundary interpolation means the

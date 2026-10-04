@@ -2698,7 +2698,8 @@ public sealed class AuthenticatedActivitySessionHandler :
                     media.Session,
                     BeginOwnedCleanupAsync,
                     requireVerifiedPeer,
-                    out lease);
+                    out lease,
+                    Completion.Task);
             }
 
             lease = null;

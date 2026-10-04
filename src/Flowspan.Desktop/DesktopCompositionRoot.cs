@@ -22,7 +22,12 @@ public static class DesktopCompositionRoot
             CreatePlatformOperationHistoryStatePayloadStore(),
             trustAuthority,
             () => localPairingRuntime?.GetTrustedPeerConnections() ?? []);
-        var activityRuntime = new DesktopActivityRuntime(
+        DesktopActivityRuntime? activityRuntime = null;
+        var remoteWindowViewer = new RemoteWindowViewerViewModel(
+            AvaloniaDesktopUiDispatcher.Instance,
+            () => (activityRuntime ?? throw new InvalidOperationException())
+                .StopRemoteWindowReceivingAsync());
+        activityRuntime = new DesktopActivityRuntime(
             identityStartup.GetRuntimeIdentityAsync,
             trustAuthority.GetRuntimeCoordinatorAsync,
             replaceStatePayloadStore: CreatePlatformReplaceStatePayloadStore(),
@@ -30,7 +35,8 @@ public static class DesktopCompositionRoot
                 CreatePlatformSceneRemoteChildStatePayloadStore(),
             sceneApplyStatePayloadStore:
                 CreatePlatformSceneApplyStatePayloadStore(),
-            receiptSink: localDataRuntime);
+            receiptSink: localDataRuntime,
+            remoteWindowViewer: remoteWindowViewer);
         localPairingRuntime = new DesktopLocalPairingRuntime(
             new SystemDesktopLocalPairingNetworkFactory(
                 identityStartup,
@@ -48,7 +54,8 @@ public static class DesktopCompositionRoot
             DesktopLocalNetworkPermissionGuide.ForCurrentPlatform(),
             activityRuntime,
             sceneRepositoryService: sceneRepositoryRuntime,
-            localDataService: localDataRuntime);
+            localDataService: localDataRuntime,
+            remoteWindowViewer: remoteWindowViewer);
     }
 
     public static WorkspaceShellViewModel CreateValidation() =>

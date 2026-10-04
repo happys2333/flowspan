@@ -46,13 +46,15 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
     private readonly RemoteWindowConnectionGeneration generation;
     private readonly AuthenticatedRemoteWindowMediaSession mediaSession;
     private readonly IRemoteWindowPreparationChannel preparationChannel;
+    private readonly Task connectionCompletion;
     private int disposed;
 
     internal AuthenticatedRemoteWindowConnectionLease(
         RemoteWindowConnectionGeneration generation,
         IRemoteWindowPreparationChannel preparationChannel,
         AuthenticatedRemoteWindowMediaSession mediaSession,
-        Func<ValueTask> failClose)
+        Func<ValueTask> failClose,
+        Task connectionCompletion)
     {
         this.generation = generation
             ?? throw new ArgumentNullException(nameof(generation));
@@ -62,6 +64,8 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
             ?? throw new ArgumentNullException(nameof(mediaSession));
         this.failClose = failClose
             ?? throw new ArgumentNullException(nameof(failClose));
+        this.connectionCompletion = connectionCompletion
+            ?? throw new ArgumentNullException(nameof(connectionCompletion));
         Generation = generation.Value;
         LocalDeviceId = mediaSession.LocalDeviceId;
         PeerDeviceId = mediaSession.PeerDeviceId;
@@ -120,6 +124,21 @@ public sealed class AuthenticatedRemoteWindowConnectionLease : IAsyncDisposable
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         return FailCloseAdmittedOperationAsync();
     }
+
+    /// <summary>
+    /// Waits for the exact authenticated control registration's dispatch and
+    /// owned media and child-session cleanup to settle. This does not initiate
+    /// connection shutdown and remains available after the borrowed lease has
+    /// been disposed.
+    /// </summary>
+    /// <remarks>
+    /// Call only from outside the connection's control workers and callbacks,
+    /// after shutdown has been initiated, to avoid waiting for the caller itself.
+    /// The wait reports registration cleanup failures, not every run failure,
+    /// and does not release borrowed leases or own TCP, listener, or handler
+    /// disposal.
+    /// </remarks>
+    public ValueTask WaitForConnectionClosedAsync() => new(connectionCompletion);
 
     public bool TryDeferFailCloseUntilPreparationDeadline(
         RemoteWindowPreparationRequest request)
@@ -1006,15 +1025,18 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
             mediaSession,
             failClose,
             requireVerifiedPeer: false,
-            out lease);
+            out lease,
+            Task.CompletedTask);
 
     internal bool TryAcquire(
         IRemoteWindowPreparationChannel preparationChannel,
         AuthenticatedRemoteWindowMediaSession mediaSession,
         Func<ValueTask> failClose,
         bool requireVerifiedPeer,
-        out AuthenticatedRemoteWindowConnectionLease? lease)
+        out AuthenticatedRemoteWindowConnectionLease? lease,
+        Task connectionCompletion)
     {
+        ArgumentNullException.ThrowIfNull(connectionCompletion);
         if (requireVerifiedPeer
             && !IsPeerConnectionCandidateCurrent(mediaSession.ProtocolVersion))
         {
@@ -1038,7 +1060,8 @@ internal sealed class RemoteWindowConnectionGeneration : IDisposable
                 this,
                 preparationChannel,
                 mediaSession,
-                failClose);
+                failClose,
+                connectionCompletion);
             return true;
         }
     }

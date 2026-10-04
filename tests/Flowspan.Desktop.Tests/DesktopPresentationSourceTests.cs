@@ -44,6 +44,11 @@ public sealed class DesktopPresentationSourceTests
                 "native_adapters_unavailable",
                 "service_state_unavailable",
             ],
+            ["RemoteWindowViewerViewModel.cs"] =
+            [
+                "renderer_unavailable",
+                "role_unsupported",
+            ],
             ["SceneApplyViewModel.cs"] = ["O"],
             ["SceneRepositoryViewModel.cs"] = ["O"],
             ["TrustedDevicesViewModel.cs"] =

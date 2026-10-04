@@ -9,7 +9,7 @@ using Flowspan.Transport;
 
 namespace Flowspan.Desktop.Tests;
 
-public sealed class DesktopRemoteWindowPreparationPeerTests
+public sealed partial class DesktopRemoteWindowPreparationPeerTests
 {
     private static readonly DeviceId ParticipantDeviceId = DeviceId.Parse(
         "11111111-1111-1111-1111-111111111111");
@@ -20,6 +20,53 @@ public sealed class DesktopRemoteWindowPreparationPeerTests
     private static readonly RemoteWindowSessionId SessionId =
         RemoteWindowSessionId.From(
             Guid.Parse("44444444-4444-4444-4444-444444444444"));
+
+    [Fact]
+    public async Task LocalStopBetweenPolicyAndGenerationReservationRejectsTheOldPreparation()
+    {
+        DesktopRemoteWindowPreparationPeer? peer = null;
+        int acquisitions = 0;
+        var renderer = new RecordingRenderer();
+        var factory = new RecordingRendererFactory(renderer);
+        var policy = new StopDuringPolicy(() => peer!.StopReceivingAsync());
+        peer = new DesktopRemoteWindowPreparationPeer(
+            ParticipantDeviceId,
+            AcquireConnection,
+            policy,
+            factory);
+        await using (peer)
+        {
+            RemoteWindowPreparationResponse result = await peer.PrepareAsync(
+                CreateRequest(),
+                CancellationToken.None);
+
+            Assert.Equal(RemoteWindowPreparationOutcome.Rejected, result.Outcome);
+            Assert.Equal("participant_stopping", result.ReasonCode);
+            Assert.Equal(0, acquisitions);
+            Assert.Equal(0, factory.PrepareCount);
+        }
+
+        bool AcquireConnection(
+            DeviceId deviceId,
+            out AuthenticatedRemoteWindowConnectionLease? lease)
+        {
+            acquisitions++;
+            lease = null;
+            return false;
+        }
+    }
+
+    private sealed class StopDuringPolicy(Func<ValueTask> stop) :
+        IDesktopRemoteWindowReceivePolicy
+    {
+        public string? GetRejectionReason(RemoteWindowPreparationRequest request)
+        {
+            Task stopped = stop().AsTask();
+            Assert.True(stopped.IsCompletedSuccessfully);
+            stopped.GetAwaiter().GetResult();
+            return null;
+        }
+    }
 
     [Fact]
     public async Task ReadyDoesNotRenderUntilExactAdmissionThenRendersMedia()

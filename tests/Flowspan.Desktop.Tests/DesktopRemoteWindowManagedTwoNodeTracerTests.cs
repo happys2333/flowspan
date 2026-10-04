@@ -98,7 +98,7 @@ public sealed class RemoteWindowSessionStopClassifierTests
     }
 }
 
-public sealed class DesktopRemoteWindowManagedTwoNodeTracerTests
+public sealed partial class DesktopRemoteWindowManagedTwoNodeTracerTests
 {
     private static readonly DeviceId HostDeviceId = DeviceId.Parse(
         "11111111-1111-1111-1111-111111111111");

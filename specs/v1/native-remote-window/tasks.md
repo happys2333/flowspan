@@ -1422,9 +1422,11 @@
     passes. Task 5, Task 5.5, and every native, physical-device, accessibility, and
     packaged-runtime gate remain open.
   - `CreateProduction()` must continue to expose Remote Window as unavailable:
-    this candidate does not wire the managed coordinator, native source/capture,
-    or participant renderer into the shipped composition root. It cannot be
-    treated as a product runtime merely because the managed tracer succeeds.
+    host sharing still lacks the fully composed managed coordinator, native
+    source/capture, protection, independent stop and input boundaries. Task 5.5b
+    separately composes the opt-in ViewOnly participant renderer; that receiver
+    does not make the host sharing runtime available. A managed tracer alone
+    cannot complete the native or physical product gates.
   - Task 5, Task 5.5a, Task 5.5, tasks 6-10, every native/physical/release gate,
     and the long-term Goal remain open. In particular, local macOS managed
     loopback evidence does not represent Windows or Linux execution, native API
@@ -1438,6 +1440,12 @@
     ScreenCaptureKit APIs.
   - Prove the ScreenCaptureKit interop lifetime approach; record an ADR before
     adding a Swift shim if direct managed interop is not maintainable.
+    [ADR 0029](../../../docs/adr/0029-direct-csharp-screencapturekit-interop.md)
+    accepts the direct C# ordinary-arm64 candidate after actual local Blocks,
+    sample-ownership and task-owned exact-window feasibility execution. The
+    repository reproducer is committed at `b021251`; the adapter is in progress.
+    This does
+    not complete the native, permission, protection, input or package gates.
   - Implement exact-window capture, bounded frame ownership, CoreGraphics input,
     source/permission loss, and independent local Emergency Stop.
   - Run deterministic tests everywhere, matching-host native smoke on macOS, and

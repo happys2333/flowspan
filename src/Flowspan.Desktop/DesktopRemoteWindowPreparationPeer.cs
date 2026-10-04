@@ -87,8 +87,8 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
     IRemoteWindowPreparationPeer,
     IAsyncDisposable
 {
-    private static readonly AsyncLocal<ParticipantGeneration?> CurrentPreparer = new();
-    private static readonly AsyncLocal<ParticipantGeneration?> CurrentReceiver = new();
+    private static readonly AsyncLocal<ParticipantCallbackScope?> CurrentPreparer = new();
+    private static readonly AsyncLocal<ParticipantCallbackScope?> CurrentReceiver = new();
     private readonly ParticipantGeneration?[] active = new ParticipantGeneration?[1];
     private readonly TaskCompletionSource disposalCompletion = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
@@ -99,6 +99,10 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
     private readonly TimeProvider timeProvider;
     private readonly TryAcquireDesktopRemoteWindowPeerConnection tryAcquireConnection;
     private ParticipantGeneration? pendingResponseCleanup;
+    private ParticipantGeneration? ownedGeneration;
+    private long receiveEpoch;
+    private Task receiveStopTask = Task.CompletedTask;
+    private ParticipantGeneration? receiveStopGeneration;
     private int disposed;
 
     public DesktopRemoteWindowPreparationPeer(
@@ -132,6 +136,12 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         }
 
         string? policyRejection;
+        long preparationEpoch;
+        lock (gate)
+        {
+            preparationEpoch = receiveEpoch;
+        }
+
         try
         {
             policyRejection = BoundPolicyRejection(
@@ -150,7 +160,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         ParticipantGeneration generation;
         lock (gate)
         {
-            if (disposed != 0)
+            if (disposed != 0 || preparationEpoch != receiveEpoch)
             {
                 return Rejected(request, "participant_stopping");
             }
@@ -159,17 +169,19 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
                 request,
                 lifetimeCancellation.Token,
                 cancellationToken);
-            if (active[0] is not null)
+            if (ownedGeneration is not null || !receiveStopTask.IsCompleted)
             {
                 generation.DisposeCancellation();
                 return Rejected(request, "participant_busy");
             }
 
             active[0] = generation;
+            ownedGeneration = generation;
         }
 
-        ParticipantGeneration? previousPreparer = CurrentPreparer.Value;
-        CurrentPreparer.Value = generation;
+        ParticipantCallbackScope? previousPreparer = CurrentPreparer.Value;
+        var preparationScope = new ParticipantCallbackScope(generation, previousPreparer);
+        CurrentPreparer.Value = preparationScope;
         PreparationStage stage = PreparationStage.AcquiringMedia;
         try
         {
@@ -288,6 +300,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         finally
         {
             generation.CompletePreparation();
+            preparationScope.Exit();
             CurrentPreparer.Value = previousPreparer;
         }
     }
@@ -450,13 +463,115 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         return new ValueTask(disposalCompletion.Task);
     }
 
+    // This is the external local-user stop path. Protocol callbacks keep using
+    // their existing generation cleanup so that they never join their own
+    // authenticated control dispatcher.
+    public ValueTask StopReceivingAsync()
+    {
+        ParticipantGeneration? generation;
+        TaskCompletionSource completion;
+        lock (gate)
+        {
+            if (!receiveStopTask.IsCompleted)
+            {
+                return receiveStopGeneration is { } stoppingGeneration
+                    && HasActiveCallback(stoppingGeneration)
+                        ? ValueTask.CompletedTask
+                        : new ValueTask(receiveStopTask);
+            }
+
+            receiveEpoch = checked(receiveEpoch + 1);
+            generation = ownedGeneration;
+            active[0] = null;
+            pendingResponseCleanup = null;
+            if (generation is null)
+            {
+                return new ValueTask(receiveStopTask);
+            }
+
+            completion = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            receiveStopTask = completion.Task;
+            receiveStopGeneration = generation;
+        }
+        bool calledFromCallback = HasActiveCallback(generation);
+        // The facade may defer its own callback's wait. The one real stop
+        // worker always has independent ancestry and joins preparation,
+        // rendering, and the exact authenticated registration to completion.
+        using (ExecutionContext.SuppressFlow())
+        {
+            _ = Task.Run(() => CompleteReceiveStopAsync(generation, completion));
+        }
+
+        return calledFromCallback
+                ? ValueTask.CompletedTask
+                : new ValueTask(completion.Task);
+    }
+
+    private async Task CompleteReceiveStopAsync(
+        ParticipantGeneration generation,
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            await StopGenerationExternallyAsync(generation).ConfigureAwait(false);
+            completion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+    }
+
+    private async Task StopGenerationExternallyAsync(ParticipantGeneration generation)
+    {
+        Exception? failure = CaptureCleanupFailure(generation.Cancel);
+        AuthenticatedRemoteWindowConnectionLease? earlyLease = generation.Lease;
+        Task? earlyClose = null;
+        try
+        {
+            earlyClose = earlyLease?.FailCloseAsync().AsTask();
+        }
+        catch (ObjectDisposedException) when (generation.IsCleanupStarted)
+        {
+            // The existing cleanup already released this borrowed lease.
+        }
+        catch (Exception exception)
+        {
+            failure = CombineFailures(failure, exception);
+        }
+        failure = CombineFailures(failure,
+            await CaptureCleanupFailureAsync(() => CleanupTerminalGenerationAsync(generation))
+                .ConfigureAwait(false));
+        if (earlyClose is not null)
+        {
+            failure = CombineFailures(failure,
+                await CaptureCleanupFailureAsync(() => new ValueTask(earlyClose))
+                    .ConfigureAwait(false));
+        }
+
+        AuthenticatedRemoteWindowConnectionLease? finalLease = generation.Lease;
+        if (finalLease is not null)
+        {
+            failure = CombineFailures(failure,
+                await CaptureCleanupFailureAsync(finalLease.WaitForConnectionClosedAsync)
+                    .ConfigureAwait(false));
+        }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
     private async Task RunReceiveLoopAsync(
         ParticipantGeneration generation,
         Task receiveStart)
     {
         await receiveStart.ConfigureAwait(false);
-        ParticipantGeneration? previous = CurrentReceiver.Value;
-        CurrentReceiver.Value = generation;
+        ParticipantCallbackScope? previous = CurrentReceiver.Value;
+        var receiveScope = new ParticipantCallbackScope(generation, previous);
+        CurrentReceiver.Value = receiveScope;
         try
         {
             AuthenticatedRemoteWindowConnectionLease lease = generation.Lease
@@ -517,6 +632,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         }
         finally
         {
+            receiveScope.Exit();
             CurrentReceiver.Value = previous;
         }
     }
@@ -529,7 +645,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         bool terminalCleanupFailed = false;
         lock (gate)
         {
-            generation = active[0] ?? pendingResponseCleanup;
+            generation = ownedGeneration;
             active[0] = null;
             if (ReferenceEquals(pendingResponseCleanup, generation))
             {
@@ -551,6 +667,20 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
                 failure = CombineFailures(failure, exception);
             }
 
+        }
+
+        Task stopping;
+        lock (gate)
+        {
+            stopping = receiveStopTask;
+        }
+
+        if (generation is null
+            || !HasActiveCallback(generation))
+        {
+            failure = CombineFailures(failure,
+                await CaptureCleanupFailureAsync(() => new ValueTask(stopping))
+                    .ConfigureAwait(false));
         }
 
         failure = CombineFailures(
@@ -580,8 +710,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         DetachGeneration(generation);
         if (!generation.TryBeginCleanup())
         {
-            if (ReferenceEquals(CurrentPreparer.Value, generation)
-                || ReferenceEquals(CurrentReceiver.Value, generation))
+            if (HasActiveCallback(generation))
             {
                 return;
             }
@@ -600,14 +729,14 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
             failure = CombineFailures(failure, exception);
         }
 
-        if (!ReferenceEquals(CurrentPreparer.Value, generation))
+        if (!IsActiveFor(CurrentPreparer.Value, generation))
         {
             await generation.PreparationCompletion.ConfigureAwait(false);
         }
 
         Task? receiveTask = generation.ReceiveTask;
         if (receiveTask is not null
-            && !ReferenceEquals(CurrentReceiver.Value, generation))
+            && !IsActiveFor(CurrentReceiver.Value, generation))
         {
             try
             {
@@ -656,6 +785,13 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
             failure,
             CaptureCleanupFailure(generation.DisposeCancellation));
         generation.CompleteCleanup(failure);
+        lock (gate)
+        {
+            if (ReferenceEquals(ownedGeneration, generation))
+            {
+                ownedGeneration = null;
+            }
+        }
         if (failure is not null)
         {
             ExceptionDispatchInfo.Capture(failure).Throw();
@@ -679,7 +815,7 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
         lock (gate)
         {
             ParticipantGeneration? generation =
-                active[0] ?? pendingResponseCleanup;
+                active[0] ?? pendingResponseCleanup ?? ownedGeneration;
             if (generation?.Request.HostDeviceId != hostDeviceId)
             {
                 return null;
@@ -825,6 +961,42 @@ internal sealed class DesktopRemoteWindowPreparationPeer :
                 first!,
                 second!),
         };
+
+    private static bool HasActiveCallback(ParticipantGeneration generation) =>
+        IsActiveFor(CurrentPreparer.Value, generation)
+        || IsActiveFor(CurrentReceiver.Value, generation);
+
+    private static bool IsActiveFor(
+        ParticipantCallbackScope? scope,
+        ParticipantGeneration generation)
+    {
+        for (ParticipantCallbackScope? current = scope;
+            current is not null;
+            current = current.Previous)
+        {
+            if (current.IsActive && ReferenceEquals(current.Generation, generation))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private sealed class ParticipantCallbackScope(
+        ParticipantGeneration generation,
+        ParticipantCallbackScope? previous)
+    {
+        private int active = 1;
+
+        public ParticipantGeneration Generation { get; } = generation;
+
+        public ParticipantCallbackScope? Previous { get; } = previous;
+
+        public bool IsActive => Volatile.Read(ref active) != 0;
+
+        public void Exit() => Volatile.Write(ref active, 0);
+    }
 
     private enum PreparationStage
     {

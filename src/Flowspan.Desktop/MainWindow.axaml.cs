@@ -38,7 +38,14 @@ public sealed partial class MainWindow : Window
         disposalStarted = true;
         try
         {
-            await asyncDisposable.DisposeAsync().ConfigureAwait(true);
+            if (asyncDisposable is WorkspaceShellViewModel shell)
+            {
+                await shell.DisposeForOwnerAsync().ConfigureAwait(true);
+            }
+            else
+            {
+                await asyncDisposable.DisposeAsync().ConfigureAwait(true);
+            }
         }
         catch
         {

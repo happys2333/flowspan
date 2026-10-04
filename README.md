@@ -79,13 +79,18 @@ includes:
   sharing and Driver/protection state, accessible Emergency Stop,
   generation-bound stale result rejection, and fail-closed teardown; production
   sharing remains unavailable because protocol-1.7 Preparation is not yet
-  connected to the complete exact-source, native capture/input, participant
-  renderer, protection, and final-admission Task 5 host/participant runtime;
+  connected to the complete exact-source, native capture/input, protection,
+  and final-admission Task 5 host runtime;
+- an opt-in production ViewOnly participant Viewer, disabled by default, with
+  exact Prepare/Admission fencing, real Avalonia/Skia pixel copying, rejection
+  of driving authority, resource-backed enable/stop controls, and generation-
+  scoped participant/media/control teardown. Its authenticated TCP tracer uses
+  a managed host capture boundary; it is not physical-device or native-host proof;
 - Windows/macOS/Linux CI definitions.
 
 It does **not** yet provide physical-LAN discovery evidence, progressive native
 permission integrations, native capture/input, a composed production Remote
-Window media listener/runtime or renderer, complete Activity desktop workflows,
+Window host runtime, complete Activity desktop workflows,
 packaged native accessibility evidence, signed/notarized real-machine
 install/upgrade/uninstall evidence, or the complete Windows/macOS/Linux acceptance
 matrix. See
@@ -164,8 +169,12 @@ Window operation rechecks its exact current grants. Viewing still requires
 `mirror.view`, and driving still requires both Mirror grants at each use boundary.
 Production Remote Window sharing intentionally reports unsupported because its
 authenticated media attachment and JPEG codec contracts are not yet bound through
-the protocol-1.7 Preparation and exact final-Admission gate to a production
-renderer, native capture, protected-surface probe, or input-injection adapter. The
+the protocol-1.7 Preparation and exact final-Admission gate to a complete native
+host capture, protected-surface probe, independent stop or input-injection adapter.
+The production participant Viewer is a separate, explicitly enabled ViewOnly
+receiver; Prepare alone shows no pixels, and stopping reception closes local
+admission before joining its actual connection cleanup. It does not enable the
+host sharing command or confer driving authority. The
 in-memory simulator and same-host loopback evidence do not substitute for
 physical-device, native-permission, or independent security review gates.
 

@@ -226,6 +226,50 @@
             </Border>
           </Grid>
 
+          <Border x:Name="RemoteWindowViewerBand"
+                  Background="#1D2226"
+                  BorderBrush="{StaticResource CoolGrayBrush}"
+                  BorderThickness="1"
+                  Padding="18"
+                  AutomationProperties.Name="{DynamicResource Viewer_ReceiverAutomationName}">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="label"
+                         Foreground="{StaticResource SafetyAmberBrush}"
+                         Text="{DynamicResource Viewer_Heading}" />
+              <TextBlock x:Name="RemoteWindowViewerStatusText"
+                         FontWeight="SemiBold"
+                         Text="{Binding RemoteWindowViewer.Status}"
+                         TextWrapping="Wrap"
+                         AutomationProperties.Name="{DynamicResource Viewer_StatusAutomationName}" />
+              <TextBlock x:Name="RemoteWindowViewerExplanationText"
+                         Classes="secondary"
+                         Text="{DynamicResource Viewer_Explanation}"
+                         TextWrapping="Wrap" />
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                <Button x:Name="EnableRemoteWindowReceivingButton"
+                        Grid.Column="0"
+                        MinHeight="44"
+                        Content="{DynamicResource Viewer_EnableLabel}"
+                        Command="{Binding RemoteWindowViewer.EnableReceivingCommand}"
+                        AutomationProperties.Name="{DynamicResource Viewer_EnableAutomationName}"
+                        AutomationProperties.HelpText="{DynamicResource Viewer_EnableHelp}" />
+                <Button x:Name="StopRemoteWindowReceivingButton"
+                        Grid.Column="1"
+                        MinHeight="44"
+                        Content="{DynamicResource Viewer_StopLabel}"
+                        Command="{Binding RemoteWindowViewer.StopReceivingCommand}"
+                        AutomationProperties.Name="{DynamicResource Viewer_StopAutomationName}"
+                        AutomationProperties.HelpText="{DynamicResource Viewer_StopHelp}" />
+              </Grid>
+              <Image x:Name="RemoteWindowViewerImage"
+                     Source="{Binding RemoteWindowViewer.ImageSource}"
+                     IsVisible="{Binding RemoteWindowViewer.IsViewing}"
+                     MaxHeight="420"
+                     Stretch="Uniform"
+                     AutomationProperties.Name="{DynamicResource Viewer_ImageAutomationName}" />
+            </StackPanel>
+          </Border>
+
           <Border x:Name="RemoteWindowDetailBand"
                   BorderBrush="{StaticResource SafetyAmberBrush}"
                   BorderThickness="2,1"
