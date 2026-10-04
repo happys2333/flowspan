@@ -58,6 +58,26 @@ internal sealed class MacOSRemoteWindowStreamDelegateRouter
         target?.Receive(signal);
     }
 
+    internal void PoisonConstruction()
+    {
+        lock (gate)
+        {
+            poisoned = true;
+        }
+    }
+
+    internal void CloseAdmissionForNativeFault()
+    {
+        lock (gate)
+        {
+            poisoned = true;
+            foreach (Registration? registration in registrations)
+            {
+                registration?.Quarantine();
+            }
+        }
+    }
+
     internal sealed class Registration(MacOSRemoteWindowStreamDelegateRouter router, long generation)
     {
         private Action? handler;

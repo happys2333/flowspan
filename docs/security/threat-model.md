@@ -2011,11 +2011,16 @@ deallocation in local Debug/Release. It has no Capture or early-initializer
 protocol; nil tags are rejected, not retained as pending facts. Permanent
 bridge/classes remain process-owned. Native faults/Objective-C exceptions are
 not proved contained, and healthy runs are not such fault evidence. Early
-publication coordinator contracts are being implemented portably; actual
+publication coordinator contracts now have final local fake-boundary verification
+(29 coordinator cases, plus the existing 33 router cases, in Debug and Release);
+this is not native early-publication execution. A true CompleteAssociation result
+confirms association only; cleanup can still fail-close runtime admission, which
+future Capture must independently consume. Actual
 Foundation race execution and Capture composition remain unverified;
 production host sharing, sample/Block lifetime, protection, input, physical and
 release gates remain independently open. See
 [Phase 2a evidence](../evidence/2026-10-05-macos-native-association.md),
+[portable coordinator evidence](../evidence/2026-10-05-macos-early-association-coordinator.md),
 [ADR 0030](../adr/0030-generation-routed-macos-stream-delegate.md) and the
 [MSC specification](../../specs/v1/native-remote-window/macos-stream-delegate/requirements.md).
 

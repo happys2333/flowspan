@@ -48,6 +48,12 @@ now passes CI/CodeQL, with three independently downloaded complete inventories
 of 12 TRX / 2746 Passed and the new strict Foundation native gate. This closes
 MSC 2a's local/hosted verification and the fixture checkpoint, not MSC task 2.
 MSC 2b early publication and actual Capture integration remain open.
+The [portable early-association coordinator](../../docs/evidence/2026-10-05-macos-early-association-coordinator.md)
+now passes final local Debug/Release solutions at 2775/2775 and focused suites
+at 62/62 (29 new coordinator + 33 router). Two independent preserved-evidence
+audits replay successfully; both review axes have no remaining findings.
+Only MSC 2b's portable/local subitem closes. Its exact new-SHA hosted checkpoint,
+actual Foundation early-publication proof, Capture, Task 6 and v1 remain open.
 
 ## 0. Product and engineering baseline
 

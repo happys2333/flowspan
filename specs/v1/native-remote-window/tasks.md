@@ -1473,6 +1473,11 @@
     1320/1320. Native association/tag-deallocation, Capture wiring and exact
     new-SHA hosted evidence remain open; see
     [portable router evidence](../../../docs/evidence/2026-10-05-macos-stream-delegate-router.md).
+    The separately implemented early-association coordinator now passes final
+    local Debug/Release focused 62/62 and complete solutions 2775/2775; see
+    [portable coordinator evidence](../../../docs/evidence/2026-10-05-macos-early-association-coordinator.md).
+    This closes only MSC 2b's portable/local subitem. Exact new-SHA hosted,
+    actual Foundation early-publication and Capture gates remain open.
   - Implement prompt-free screen-capture and Accessibility facts, explicit TCC
     requests, secure-input observation, exact source enumeration, and generation
     leases through documented CoreGraphics, ApplicationServices, and

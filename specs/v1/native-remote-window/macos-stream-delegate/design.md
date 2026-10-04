@@ -93,7 +93,12 @@ Objective-C association publication can initialize/reenter runtime code. Do not
 hold the routing gate across `objc_setAssociatedObject`, native retain/release,
 superclass deallocation or handlers.
 
-## Retained early-association coordinator (portable implementation in progress)
+## Retained early-association coordinator (portable/local contracts verified)
+
+The final 29-case coordinator and 33-case router focused suites pass in both
+configurations; full local solutions pass 2775 cases each. See
+[portable evidence](../../../../docs/evidence/2026-10-05-macos-early-association-coordinator.md).
+Exact new-SHA hosted and actual Foundation early-publication proof remain open.
 
 An immutable Initializer object wraps one registration; it is never recycled.
 The coordinator serializes exact-token/pending-fact state with a short gate,
@@ -138,6 +143,9 @@ finally paths after a fault; failure of one release must not skip the other.
 Portable boundary fixtures prove only these managed ownership and ordering
 contracts. Actual Foundation early-publication execution remains a separate
 required gate before any Capture composition.
+`CompleteAssociation` returning true confirms an association fact only: cleanup
+in its finally path can still fail and close the runtime. Capture must consume
+`Failure` and `NativeAdmissionClosed`; the Boolean cannot grant sharing admission.
 
 ## Capture composition (not yet implemented)
 

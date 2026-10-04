@@ -29,12 +29,20 @@
     See [Phase 2a evidence](../../../../docs/evidence/2026-10-05-macos-native-association.md).
   - [ ] 2b. Implement and verify exact-initializer retained early facts, nil-tag
     publication/pending-clear/third-read races, ambiguity and poison/quarantine.
-    Portable coordinator implementation is in progress: reserve a separate
-    maximum-16 ownership record before native work, preserve unknown ownership,
-    and fail all delivery admission closed on native resource/ownership faults.
-    Prove source identity, terminal-only coalescing, unique release, replacement
-    isolation and reentrant association before a separate actual Foundation
-    early-publication probe. Neither boundary is checked complete yet.
+    - [x] Portable coordinator and final local contracts: independent max-16
+      ownership records, exact retained source/token, second/third reads,
+      terminal-only coalescing, unique cleanup, replacement/reentry isolation,
+      unknown ownership quarantine and global resource-fault admission closure.
+      Final focused Debug/Release each pass 62/62 (29 coordinator + 33 router);
+      complete solutions each pass 2775/2775 across 12 TRX. Nine actual RED→GREEN
+      pairs and twenty direct-GREEN cases are separately recorded. Both review
+      axes have no remaining findings; see
+      [portable coordinator evidence](../../../../docs/evidence/2026-10-05-macos-early-association-coordinator.md).
+    - [ ] Verify this exact implementation commit in hosted CI/CodeQL and
+      independently audit downloaded all-OS TRX and native/security artifacts.
+    - [ ] Implement and actually execute separate Foundation early-publication
+      proof. Existing Phase 2a still reports early_publication_proved=false;
+      portable fake-boundary tests cannot close this gate or parent 2b.
   - Verify permanent bridge, retained numeric tag, independent tag budget,
     callback reference ownership, nil-tag publication race and tag deallocation
     ABI in Debug and Release. Keep no-native defaults and strict evidence gates.
