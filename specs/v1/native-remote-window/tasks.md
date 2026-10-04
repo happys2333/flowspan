@@ -1471,8 +1471,13 @@
     builds and passes ten managed self-checks locally in Debug/Release, with an
     explicit unsupported-host Skip. Its default CI mode performs only a fixed
     D3D11 software-texture staging-copy/readback on Windows x64; it never captures
-    windows. Matching-host native ABI, pixel hash and release evidence is pending.
-    This is not WGC, protection, input or production-host readiness. The next
+    windows. Exact-SHA Windows CI `37200897609` executes that WARP path, verifies
+    the 24-byte known-answer hash and balances four owned references; native
+    RowPitch is 12, so padding remains managed-fixture evidence. The enclosing CI
+    fails one existing Linux route-disposal test and skips all package jobs.
+    [Executed evidence](../../../docs/evidence/2026-10-04-windows-warp-readback.md)
+    preserves that failure. This is not WGC, protection, input or production-host
+    readiness. The next
     slice and identity/safety boundaries are in
     [Windows research](../../../docs/research/windows-capture-feasibility.md).
   - Implement exact-window Windows Graphics Capture, permission/readiness facts,
@@ -1485,6 +1490,11 @@
   - _Requirements: NR1-NR10_
 
 - [ ] 8. Deliver Wayland and explicit X11 native slices
+  - Freeze the session/serial identity, request/FD ownership and OS-selection
+    versus Flowspan-ingestion distinction from
+    [Linux research](../../../docs/research/linux-capture-feasibility.md) before
+    composing a portal. The independent thread-loop ABI probe is in progress;
+    no Linux native capture or production readiness is proven.
   - Implement ScreenCast/RemoteDesktop portal negotiation, PipeWire frame
     ownership, revocation/session-close handling, input mapping, and Emergency
     Stop for the supported Wayland matrix.

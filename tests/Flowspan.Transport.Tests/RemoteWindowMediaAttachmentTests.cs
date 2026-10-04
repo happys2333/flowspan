@@ -589,7 +589,10 @@ public sealed class RemoteWindowMediaAttachmentTests
     [Fact]
     public async Task RegistryDisposeStartsEveryOwnedRouteBeforeJoiningCleanup()
     {
-        var registry = new RemoteWindowMediaRouteRegistry(maximumRoutes: 2);
+        var time = new SecondRouteCleanupGatedTimeProvider();
+        var registry = new RemoteWindowMediaRouteRegistry(
+            maximumRoutes: 2,
+            timeProvider: time);
         (SecureFrameSession firstInitiator, SecureFrameSession firstResponder) =
             CreateSecureSessions(seed: 0x2c);
         (SecureFrameSession secondInitiator, SecureFrameSession secondResponder) =
@@ -619,12 +622,33 @@ public sealed class RemoteWindowMediaAttachmentTests
             await candidate.PayloadWriteStarted.WaitAsync(TimeSpan.FromSeconds(2));
 
             Task registryCleanup = registry.DisposeAsync().AsTask();
-            await candidate.DisposeStarted.WaitAsync(TimeSpan.FromSeconds(2));
+            try
+            {
+                await candidate.DisposeStarted.WaitAsync(TimeSpan.FromSeconds(2));
+                await time.SecondRouteDisposeStarted.Task.WaitAsync(
+                    TimeSpan.FromSeconds(2));
+                Assert.False(registryCleanup.IsCompleted);
 
-            Assert.False(registryCleanup.IsCompleted);
-            Assert.Throws<ObjectDisposedException>(() =>
-                secondResponder.Encrypt([0x01]));
-            candidate.AllowFailureAfterDispose.TrySetResult();
+                // Each route has an independent cleanup worker. Closing the
+                // first candidate does not imply the second session is closed.
+                byte[] stillOpen = secondResponder.Encrypt([0x01]);
+                CryptographicOperations.ZeroMemory(stillOpen);
+                time.AllowSecondRouteDispose.TrySetResult();
+                await ObserveSessionDisposalAsync(secondResponder);
+
+                // The second session must close while the first acceptance is
+                // still blocked, without revoking the second registration here.
+                Assert.False(accepting.IsCompleted);
+                Assert.False(registryCleanup.IsCompleted);
+                Assert.Throws<ObjectDisposedException>(() =>
+                    secondResponder.Encrypt([0x01]));
+            }
+            finally
+            {
+                time.AllowSecondRouteDispose.TrySetResult();
+                candidate.AllowFailureAfterDispose.TrySetResult();
+            }
+
             await registryCleanup.WaitAsync(TimeSpan.FromSeconds(2));
             await Assert.ThrowsAnyAsync<Exception>(() => accepting);
             await firstRegistration.DisposeAsync();
@@ -1427,6 +1451,88 @@ public sealed class RemoteWindowMediaAttachmentTests
             if (acknowledgement is not null)
             {
                 CryptographicOperations.ZeroMemory(acknowledgement);
+            }
+        }
+    }
+
+    private static async Task ObserveSessionDisposalAsync(
+        SecureFrameSession session)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (true)
+        {
+            deadline.Token.ThrowIfCancellationRequested();
+            try
+            {
+                byte[] encrypted = session.Encrypt([0x01]);
+                CryptographicOperations.ZeroMemory(encrypted);
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(1), deadline.Token);
+        }
+    }
+
+    private sealed class SecondRouteCleanupGatedTimeProvider : TimeProvider
+    {
+        private int timersCreated;
+
+        public TaskCompletionSource AllowSecondRouteDispose { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource SecondRouteDisposeStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            // The first two timers belong to the registered routes; acceptance
+            // creates its deadline timer afterward. All timers are inert, so
+            // wall-clock timeout cannot release the first acceptance gate.
+            _ = callback;
+            _ = state;
+            _ = dueTime;
+            _ = period;
+            return new CleanupTimer(
+                this,
+                isSecondRoute: Interlocked.Increment(ref timersCreated) == 2);
+        }
+
+        public override DateTimeOffset GetUtcNow() =>
+            new(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
+
+        private sealed class CleanupTimer(
+            SecondRouteCleanupGatedTimeProvider owner,
+            bool isSecondRoute) : ITimer
+        {
+            private int disposed;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                _ = dueTime;
+                _ = period;
+                return Volatile.Read(ref disposed) == 0;
+            }
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref disposed, 1) == 0 && isSecondRoute)
+                {
+                    owner.SecondRouteDisposeStarted.TrySetResult();
+                    owner.AllowSecondRouteDispose.Task.GetAwaiter().GetResult();
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
             }
         }
     }
