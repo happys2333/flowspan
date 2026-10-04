@@ -106,6 +106,21 @@ ruby /tmp/flowspan-wgc-hosted-27a26b1/attempt2/audit.rb
 
 ## Acceptance boundary and next work
 
+The exact implementation branch `codex/v1-foundation` also completed
+[CI 37210545001](https://github.com/happys2333/flowspan/actions/runs/37210545001)
+and [CodeQL 37210544992](https://github.com/happys2333/flowspan/actions/runs/37210544992),
+both run 241/attempt 1 on `27a26b1`. All eight CI jobs succeeded. Independently
+downloaded 36 TRX prove 2692/2692 per OS, twelve project files per OS, identical
+2692-case inventories and every non-success counter zero. This is not the
+same-SHA test-ref CI substituted for the implementation-ref run.
+CodeQL analysis `1888954828` reports actual 426/426 C# extraction, 52 rules and
+zero selected-rule results; no diagnostic-count claim is made by this audit.
+Gitleaks 8.24.3 actually scanned only one commit (`--log-opts=-1`, about 102
+bytes), not full history. New unsigned-package jobs/API/upload facts passed,
+but those `27a26b1` package contents were not downloaded or locally inspected;
+the older `470d0f3` package audit is not substituted. Raw metadata, TRX, hashes
+and compact audit are at `/tmp/flowspan-wgc-implementation-27a26b1/`.
+
 This is a task-owned popup HWND captured through WGC using a software WARP
 device. It never enumerates other windows, reads user titles, requests
 permissions, hides the OS capture border, injects input or writes pixels.
