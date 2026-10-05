@@ -882,6 +882,10 @@ internal sealed class MacOSRemoteWindowTestApi : IMacOSRemoteWindowNativeApi
 
     public IMacOSRemoteWindowNativeCapture? Capture { get; set; }
 
+    public Func<IMacOSRemoteWindowNativeSource, Action<IMacOSRemoteWindowNativeSample>,
+        Action, IMacOSRemoteWindowNativeCapture>? CaptureFactory
+    { get; set; }
+
     public int CaptureCalls { get; private set; }
 
     public Action<IMacOSRemoteWindowNativeSample>? SampleCallback { get; private set; }
@@ -916,7 +920,9 @@ internal sealed class MacOSRemoteWindowTestApi : IMacOSRemoteWindowNativeApi
         CaptureCalls++;
         SampleCallback = takeSampleOwnership;
         SourceUnavailableCallback = sourceUnavailable;
-        return Capture ?? throw new NotSupportedException();
+        return CaptureFactory is { } factory
+            ? factory(source, takeSampleOwnership, sourceUnavailable)
+            : Capture ?? throw new NotSupportedException();
     }
 }
 

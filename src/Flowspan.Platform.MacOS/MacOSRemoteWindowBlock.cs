@@ -12,6 +12,7 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
     private readonly object releaseGate = new();
     private readonly BlockState state;
     private readonly IMacOSRemoteWindowBlockOperations? stagedOperations;
+    private readonly int stagedArgumentCount;
     private nint pointer;
     private bool releaseInProgress;
     private int acquisitionAttempted;
@@ -27,12 +28,14 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         "Completion acquisition is closed or has already been attempted.");
 
     private MacOSRemoteWindowBlock(
-        Action<nint, nint> action,
+        Delegate action,
+        int argumentCount,
         Action<Exception>? failure,
         Action? completed,
         IMacOSRemoteWindowBlockOperations operations)
     {
         stagedOperations = operations;
+        stagedArgumentCount = argumentCount;
         state = new BlockState(action, failure, completed, allocateRoot: false);
     }
 
@@ -126,11 +129,52 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
 
     internal Task ManagedInvocationDrain => state.ManagedInvocationDrain;
 
+    internal bool TryGetKnownLifetimeJoin(out Task? join)
+    {
+        join = null;
+        lock (releaseGate)
+        {
+            // Only this actual staged primitive can qualify its own effects.
+            // Unknown acquisition, caller release or root free never becomes
+            // a recoverable lifetime wait merely because a Task is pending.
+            if (stagedOperations is null || acquisitionInProgress || releaseInProgress
+                || !RootAllocationAttempted || !RootAllocationConfirmed
+                || !CopyAttempted || !CopyConfirmed
+                || !OwnedReleaseAttempted || !OwnedReleaseConfirmed
+                || !state.IsRootRetirementKnown)
+            {
+                return false;
+            }
+        }
+
+        // These are the original lifetime Tasks, even if they became terminal
+        // after a previous cleanup observation. No synthetic success or retry.
+        join = Task.WhenAll(NativeCaptureRetirement, ManagedInvocationDrain);
+        return true;
+    }
+
     internal int ActiveManagedInvocations => state.ActiveManagedInvocations;
 
     // Observation only: heap retains can share one physical capture. This
     // count never authorizes release, retirement, join or batch settlement.
     internal long PhysicalCaptureCopyCount => state.PhysicalCaptureCopyCount;
+
+    internal static MacOSRemoteWindowBlock Prepare(
+        Action<nint> action,
+        Action<Exception>? failure = null,
+        Action? completed = null) =>
+        PrepareWithOperations(action, NativeBlockOperations.Instance, failure, completed);
+
+    internal static MacOSRemoteWindowBlock PrepareWithOperations(
+        Action<nint> action,
+        IMacOSRemoteWindowBlockOperations operations,
+        Action<Exception>? failure = null,
+        Action? completed = null)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(operations);
+        return new MacOSRemoteWindowBlock(action, 1, failure, completed, operations);
+    }
 
     internal static MacOSRemoteWindowBlock Prepare(
         Action<nint, nint> action,
@@ -146,7 +190,7 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
     {
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(operations);
-        return new MacOSRemoteWindowBlock(action, failure, completed, operations);
+        return new MacOSRemoteWindowBlock(action, 2, failure, completed, operations);
     }
 
     internal void AcquireCopy()
@@ -183,13 +227,16 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
                 isa = Abi.StackIsa;
             }
 
-            nint descriptor = CaptureMetadata.TwoArgumentDescriptor;
+            nint descriptor = stagedArgumentCount == 1
+                ? CaptureMetadata.OneArgumentDescriptor : CaptureMetadata.TwoArgumentDescriptor;
             state.AcquireRoot(stagedOperations);
             var literal = new BlockLiteral
             {
                 Isa = isa,
                 Flags = (1 << 25) | (1 << 30),
-                Invoke = (nint)(delegate* unmanaged[Cdecl]<nint, nint, nint, void>)&InvokeTwo,
+                Invoke = stagedArgumentCount == 1
+                    ? (nint)(delegate* unmanaged[Cdecl]<nint, nint, void>)&InvokeOne
+                    : (nint)(delegate* unmanaged[Cdecl]<nint, nint, nint, void>)&InvokeTwo,
                 Descriptor = descriptor,
                 Context = state.Handle,
             };
@@ -552,6 +599,17 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         public bool RootReleaseAttempted => Volatile.Read(ref rootReleaseAttempted) != 0;
 
         public bool RootReleaseConfirmed => Volatile.Read(ref rootReleaseConfirmed) != 0;
+
+        public bool IsRootRetirementKnown
+        {
+            get
+            {
+                lock (invocationGate)
+                {
+                    return rootReleaseAttempted == 0 || RootReleaseConfirmed;
+                }
+            }
+        }
 
         public Task NativeCaptureRetirement => nativeCaptureRetirement.Task;
 

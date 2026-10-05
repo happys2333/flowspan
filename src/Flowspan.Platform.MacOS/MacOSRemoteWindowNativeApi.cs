@@ -59,6 +59,18 @@ internal interface IMacOSRemoteWindowNativeCapture : IDisposable
     // Fakes which do not provide that proof remain conservatively unconfirmed.
     public bool IsDrained => false;
 
+    // Complete owner/pool/terminal/root cleanup, not physical sample drain or
+    // absence of a diagnostic. Legacy/unknown owners conservatively provide no proof.
+    public bool IsCleanupConfirmed => false;
+
+    // Optional actual known-effects lifetime recovery. A pending Task alone
+    // cannot authorize it; opaque/legacy owners conservatively decline.
+    public bool TryGetKnownPendingCleanupJoin(out Task? join)
+    {
+        join = null;
+        return false;
+    }
+
     public ValueTask<bool> StartAsync();
 
     // Success proves Start settled, native Stop, output removal and its serial

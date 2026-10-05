@@ -1,7 +1,7 @@
 # Enumeration hosted gates and regression repair — 2026-10-05
 
-Status: both local repair checkpoints complete; fresh exact-SHA hosted acceptance
-pending. Goal active.
+Status: both local repair checkpoints and the fresh exact `1ab2511` scoped
+hosted gates pass. Goal active; this is not production or v1 acceptance.
 
 CI `37281400039` for `65589d2418bdc32f2cb387c98cc3eeb5d3670b60`
 failed: Windows two-peer inbound authentication produced client EOF; Linux
@@ -162,5 +162,57 @@ Current report SHA256:
 `23bfa8c60471a4d69a55aff9590ce948f2fd73c232f210711334351d2cd68262`.
 Diagnosis root replay also exits0 and matches its independent report SHA256
 `4b3c6d7d164dc2be1f25914cd94df78bbaa92ba68ce9f03562555319b3e89ac4`.
-New hosted verification remains open; this test-only repair is not fresh native,
-cross-platform system, production sharing or v1 acceptance.
+At the repair02 local checkpoint, new hosted verification remained open. This
+test-only repair is not fresh native, cross-platform system, production sharing
+or v1 acceptance.
+
+## Final exact-SHA hosted checkpoint
+
+Candidate `1ab251135f3617bc18e39d5f67e38885b53e85a7`, parent
+`f73f5fc3da2b17ad798f3e46083a8632f5e8d686`, passes attempt1 of
+[CI37289212862](https://github.com/happys2333/flowspan/actions/runs/37289212862)
+and [CodeQL37289212735](https://github.com/happys2333/flowspan/actions/runs/37289212735).
+All8 CI jobs and the CodeQL job succeed. Independent downloaded evidence covers
+all17 complete artifacts, run/job logs, exact source archive/reconstructed Git
+tree, API/SARIF and unsigned package content/provenance. Root queried the terminal
+run states and actually replayed the saved-data auditor; the frozen independent
+reviews report0 unresolved concrete findings.
+
+Windows/macOS/Linux each pass **12 TRX /2951 Passed**, with every non-success
+counter0 and the same complete qualified identities. All2951 prior identities
+remain, with0 added/removed. Identity SHA256:
+`47165974506d994f53af742be93f94aa5041d613cbd743952c8a746c77a730cd`.
+Repair02 continuity is separately checked against the exact new source; only
+the final evidence, main tasks and HRR tasks documents differ from its snapshot.
+This does not claim that the current uncommitted MCC implementation is tested
+by `1ab2511`, or that hosted compiled runtimes equal local Debug/Release bytes.
+
+CodeQL binds7 analyzed builds,456 aggregate C# files,52 selected rules and0
+results. Aggregate counts are not independent per-file extraction proof;
+API-reconstructed SARIF is not the original invocation diagnostic stream.
+Gitleaks checks208 rules with0 results on the exact HEAD patch (`-1`), not full
+history. Three independently content-verified packages are unsigned test
+packages, version `0.1.255`; signing, installation, upgrade/uninstall and
+dependency-license review remain open.
+
+Immutable evidence:
+`/tmp/flowspan-enumeration-composition-hosted-20261005/head-1ab2511/`.
+Terminal snapshot: `snapshots/20261005T092943302530Z/`.
+Canonical report: `replay-run01/replay-01.stdout.json` (2,041,736 bytes), SHA256:
+`36c63a7bc1bf52fc19cbb3d4752b23b5bfe268323dda1c94ac8f7b320f410de6`.
+Two worker replays, actual `cmp`, and root's third replay each exit0, with
+byte-identical reports and empty replay stderr. Classification:
+`HOSTED_SCOPE_GATES_PASSED_NOT_V1`, `violations=[]`.
+
+Read-only replay:
+
+```sh
+python3 -B /tmp/flowspan-enumeration-composition-hosted-20261005/head-1ab2511/replay.py --snapshot /tmp/flowspan-enumeration-composition-hosted-20261005/head-1ab2511/snapshots/20261005T092943302530Z
+```
+
+The two earlier exact-SHA failed candidates remain failed and preserved above.
+Hosted Block modes are isolated no-capture ABI scopes, not actual SCK dispatch/
+content/list fault containment. Healthy task-owned SCK execution remains the
+separate selected local regression. No physical LAN, actual Windows/Linux
+capture, global Capture admission, nonzero delegate, secure-input/protection,
+production sharing, signed release or v1/Goal acceptance follows from this gate.

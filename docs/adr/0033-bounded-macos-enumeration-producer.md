@@ -1,6 +1,7 @@
 # ADR 0033: Bounded macOS enumeration producer
 
-- Status: accepted for staged implementation; acceptance unverified
+- Status: accepted; finite MEP implementation verified at `1ab2511` with the
+  independent frozen-runtime focused Release closeout
 - Date: 2026-10-05
 - Requirements: MEP1-MEP8; NR8/NR10; MSC6/MSC9 prerequisites
 
@@ -40,3 +41,9 @@ new production dependency. See the
 [requirements](../../specs/v1/native-remote-window/macos-enumeration-producer/requirements.md),
 [design](../../specs/v1/native-remote-window/macos-enumeration-producer/design.md)
 and [tasks](../../specs/v1/native-remote-window/macos-enumeration-producer/tasks.md).
+
+Finite acceptance binds actual composition/fault contracts, selected native
+Block/SCK regression, complete local D/R, fresh exact-SHA hosted evidence and
+the [focused Release closeout](../evidence/2026-10-05-enumeration-focused-release-closeout.md).
+It is not actual SCK fault containment, full platform lifetime safety or parent
+MSC/native production/physical/release/v1 acceptance.

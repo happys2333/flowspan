@@ -4,15 +4,15 @@
   content-retain after-effect ownership RED on the same orchestration.
   - Keep old algorithm until the failing test actually executes.
   - _Requirements: MEP1-MEP2, MEP6, MEP8_
-- [-] 2. Preattach the same-batch ledger and contain content acquisition/cleanup
+- [x] 2. Preattach the same-batch ledger and contain content acquisition/cleanup
   uncertainty, exact context failure and reentrant settlement/reuse.
   - Verify pool-only GC reachability, before-effect saturation and healthy return.
   - _Requirements: MEP1-MEP2, MEP5-MEP7_
-- [-] 3. Close dispatch/pool/list cleanup obligations and bounded duplicate,
+- [x] 3. Close dispatch/pool/list cleanup obligations and bounded duplicate,
   concurrent and late callback admission plus managed invocation joins.
   - Independent cleanup and original fatal must survive every required branch.
   - _Requirements: MEP3-MEP7_
-- [-] 4. Close actual native completion factory/primitive Block ownership and
+- [x] 4. Close actual native completion factory/primitive Block ownership and
   physical native-copy retirement; do not substitute an outer wrapper proof.
   - Preserve existing Capture contracts; no unknown-effect finalizer/retry return.
   - Stage inert primitive owner before root/copy effects; observe actual last
@@ -20,14 +20,34 @@
   - Execute extra-native-copy/later-last-copy retirement proof; portable
     content healthy-return checks alone cannot satisfy this native requirement.
   - _Requirements: MEP3-MEP4, MEP6_
-- [ ] 5. Final frozen focused/project/solution D/R, fault/concurrency contracts,
+- [x] 5. Final frozen focused/project/solution D/R, fault/concurrency contracts,
   source/runtime/qualified inventories, review and selected healthy native proof.
   - _Requirements: MEP8_
-- [ ] 6. Commit/push implementation branch and verify fresh exact-SHA all-OS
+- [x] 6. Commit/push implementation branch and verify fresh exact-SHA all-OS
   CI/CodeQL with independently downloaded complete evidence and root replay.
   - _Requirements: MEP8_
 
-## Current portable progress (not slice acceptance)
+## Current acceptance reconciliation
+
+Tasks1–6 are accepted for this finite bounded enumeration prerequisite.
+The final composition/native contracts and exact `1ab2511` hosted checkpoint
+are independently audited with actual root replays. Native task4 uses actual
+Block copy/dispose helpers and an extra native copy through the same production
+enumeration core; it is not a fake `IsReleased` assertion. Selected healthy
+task-owned SCK D/R remains separate, not actual SCK fault injection or complete
+platform lifetime safety. See the
+[hosted gate record](../../../../docs/evidence/2026-10-05-enumeration-hosted-gates.md).
+
+Task5's final separate Release98 evidence gap is now closed by an actual isolated
+frozen-runtime command, equal Debug98 qualified identities and full source/
+runtime bindings with actual root replay. See the
+[focused Release closeout](../../../../docs/evidence/2026-10-05-enumeration-focused-release-closeout.md).
+MCC/MSC, nonzero delegate, global Capture admission, protection/secure input,
+physical/release, v1 and the active Goal remain open.
+The progress below records historical intermediate boundaries, not new pending
+implementation for this accepted finite slice.
+
+## Historical portable progress (not then full-slice acceptance)
 
 Stages02/03,04/06,07/08,09/10,11/12,13/14,15/16,17/18,19/20 and21/22
 are actual behavioral RED→GREEN pairs. Final focused Debug stage22 passes12

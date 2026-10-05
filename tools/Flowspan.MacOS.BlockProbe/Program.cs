@@ -17,24 +17,43 @@ internal static unsafe partial class Program
             return 0;
         }
 
-        if (args is not ["--run"] && args is not ["--run-enumeration"])
+        if (args is not ["--run"] && args is not ["--run-enumeration"] &&
+            args is not ["--run-capture-completion"])
         {
             Console.Error.WriteLine("block_probe=fail reason=invalid_arguments");
             return 2;
         }
 
         bool enumerationMode = args is ["--run-enumeration"];
+        bool captureCompletionMode = args is ["--run-capture-completion"];
         if (!OperatingSystem.IsMacOS() ||
             RuntimeInformation.ProcessArchitecture != Architecture.Arm64)
         {
-            Console.WriteLine(enumerationMode
-                ? "enumeration_block_probe=skip reason=unsupported_host native_pass=false"
-                : "block_probe=skip reason=unsupported_host native_pass=false");
+            Console.WriteLine(captureCompletionMode
+                ? "capture_completion_block_probe=skip reason=unsupported_host native_pass=false"
+                : enumerationMode
+                    ? "enumeration_block_probe=skip reason=unsupported_host native_pass=false"
+                    : "block_probe=skip reason=unsupported_host native_pass=false");
             return 3;
         }
 
         try
         {
+            if (captureCompletionMode)
+            {
+                RunNativeCaptureCompletionLifetime();
+                Console.WriteLine(
+                    "capture_completion_block_probe=pass mode=actual_one_argument_block_abi " +
+                    "real_completion_owner=true inert_preparation=true signature=v16@?0@8 " +
+                    "initial_copy_helpers=1 extra_heap_copies=1 extra_copy_helpers=0 " +
+                    "caller_releases=1 last_copy_releases=1 root_free_confirmed=true " +
+                    "native_retirement=true drain_pending_while_completed_observer_active=true " +
+                    "managed_drain=true abi_return_joined=true callbacks=1 completed_notifications=1 " +
+                    "contained_failures=0 sck_executed=false tcc_preflight_called=false " +
+                    "capture_proved=false v1_acceptance=false");
+                return 0;
+            }
+
             if (enumerationMode)
             {
                 RunNativeEnumerationComposition();
@@ -64,9 +83,11 @@ internal static unsafe partial class Program
         {
             // Exceptions may contain native identities or host paths. The raw
             // exit and this bounded diagnosis are the outward evidence boundary.
-            Console.Error.WriteLine(enumerationMode
-                ? "enumeration_block_probe=fail reason=lifetime_contract_or_cleanup"
-                : "block_probe=fail reason=lifetime_contract_or_cleanup");
+            Console.Error.WriteLine(captureCompletionMode
+                ? "capture_completion_block_probe=fail reason=lifetime_contract_or_cleanup"
+                : enumerationMode
+                    ? "enumeration_block_probe=fail reason=lifetime_contract_or_cleanup"
+                    : "block_probe=fail reason=lifetime_contract_or_cleanup");
             return 1;
         }
     }

@@ -225,6 +225,36 @@ internal sealed class MacOSRemoteWindowControlledBlockRuntime : IMacOSRemoteWind
         }
     }
 
+    public void Invoke(nint block, nint argument)
+    {
+        Allocation allocation;
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            invokeAttempts++;
+            if (!blocks.TryGetValue(block, out allocation!) || allocation.References == 0)
+            {
+                throw new IOException("Controlled invocation requires a live test Block reference.");
+            }
+
+            allocation.ActiveUses++;
+            activeOperations++;
+        }
+
+        try
+        {
+            var invoke = Marshal.GetDelegateForFunctionPointer<InvokeOne>(
+                Marshal.ReadIntPtr(block, 16));
+            invoke(block, argument);
+            lock (gate) { invokeReturns++; }
+        }
+        finally
+        {
+            EndBlockUse(allocation);
+            EndOperation();
+        }
+    }
+
     private void EndBlockUse(Allocation allocation)
     {
         bool free;
@@ -289,4 +319,7 @@ internal sealed class MacOSRemoteWindowControlledBlockRuntime : IMacOSRemoteWind
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void InvokeTwo(nint block, nint first, nint second);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void InvokeOne(nint block, nint argument);
 }

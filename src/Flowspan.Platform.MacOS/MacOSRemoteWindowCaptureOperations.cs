@@ -26,6 +26,20 @@ internal interface IMacOSRemoteWindowCaptureCompletion : IDisposable
     public Exception? FirstFailure { get; }
 }
 
+internal interface IMacOSRemoteWindowStagedCaptureCompletion : IMacOSRemoteWindowCaptureCompletion
+{
+    public void AcquireCopy();
+    public Task CloseResourceUse();
+    public bool HasActiveResourceUseAncestry { get; }
+    public Task NativeCaptureRetirement { get; }
+    public Task ManagedInvocationDrain { get; }
+    public bool TryGetKnownLifetimeJoin(out Task? join)
+    {
+        join = null;
+        return false;
+    }
+}
+
 internal interface IMacOSRemoteWindowCaptureOperations
 {
     public nint PushAutoreleasePool();

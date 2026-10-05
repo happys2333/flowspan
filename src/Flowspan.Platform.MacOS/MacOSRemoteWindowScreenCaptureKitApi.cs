@@ -442,6 +442,25 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
     }
 
     internal IMacOSRemoteWindowNativeCapture CreateCaptureWithOperations(
+        IMacOSRemoteWindowNativeSource source,
+        IMacOSRemoteWindowCaptureOperations operations,
+        Action<IMacOSRemoteWindowNativeSample> takeSampleOwnership,
+        Action sourceUnavailable)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(operations);
+        ArgumentNullException.ThrowIfNull(takeSampleOwnership);
+        ArgumentNullException.ThrowIfNull(sourceUnavailable);
+        if (!IsCurrent(source) || source is not NativeSource nativeSource)
+        {
+            throw new InvalidOperationException("macOS exact window unavailable.");
+        }
+
+        return new Capture(this, operations, new NativeCaptureSource(this, nativeSource),
+            takeSampleOwnership, sourceUnavailable);
+    }
+
+    internal IMacOSRemoteWindowNativeCapture CreateCaptureWithOperations(
         IMacOSRemoteWindowCaptureSource source,
         IMacOSRemoteWindowCaptureOperations operations,
         Action<IMacOSRemoteWindowNativeSample> takeSampleOwnership,
@@ -1259,23 +1278,6 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         public void Dispose() => source.Dispose();
     }
 
-    private sealed class NativeCaptureCompletion : IMacOSRemoteWindowCaptureCompletion
-    {
-        private readonly MacOSRemoteWindowBlock block;
-
-        internal NativeCaptureCompletion(Action<nint> action, Action<Exception> failure, Action completed)
-        {
-            // The adapter itself exists before Block.Create acquires its +1.
-            // Nothing is allocated between successful Create and assignment.
-            block = MacOSRemoteWindowBlock.Create(action, failure, completed);
-        }
-
-        public nint Pointer => block.Pointer;
-        public bool IsReleased => block.IsReleased;
-        public Exception? FirstFailure => block.FirstFailure;
-        public void Dispose() => block.Dispose();
-    }
-
     private sealed class NativeCaptureOperations(Runtime runtime) : IMacOSRemoteWindowCaptureOperations
     {
         public nint PushAutoreleasePool() => N.objc_autoreleasePoolPush();
@@ -1313,7 +1315,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
         public IMacOSRemoteWindowCaptureCompletion CreateCompletion(
             Action<nint> action, Action<Exception> failure, Action completed) =>
-            new NativeCaptureCompletion(action, failure, completed);
+            MacOSRemoteWindowCaptureCompletion.Create(action, failure, completed);
 
         public nint GetCompletionSelector(bool isStart) => N.Sel(isStart
             ? "startCaptureWithCompletionHandler:" : "stopCaptureWithCompletionHandler:");
@@ -1387,7 +1389,12 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         private Task<bool>? drain;
         private bool startRequested;
         private bool startIssued;
+        private bool startInvocationReturned;
+        private bool startInvocationBorrowExited;
         private bool stopIssued;
+        private bool stopInvocationReturned;
+        private bool stopInvocationBorrowExited;
+        private bool stopSetupSettledUnissued;
         private bool startSettled;
         private bool stopSettled;
         private bool outputRemoved;
@@ -1410,6 +1417,22 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         private readonly bool sourceRetainAttempted;
         private readonly bool sourceCleanupOwned;
         private readonly Exception? factoryFailure;
+        private readonly bool constructorPoolPushAttempted;
+        private readonly bool constructorPoolPushConfirmed;
+        private readonly bool constructorPoolPopAttempted;
+        private readonly bool constructorPoolPopConfirmed;
+        private bool startPoolPushAttempted;
+        private bool startPoolPushConfirmed;
+        private bool startPoolPopAttempted;
+        private bool startPoolPopConfirmed;
+        private bool stopPoolPushAttempted;
+        private bool stopPoolPushConfirmed;
+        private bool stopPoolPopAttempted;
+        private bool stopPoolPopConfirmed;
+        private bool removePoolPushAttempted;
+        private bool removePoolPushConfirmed;
+        private bool removePoolPopAttempted;
+        private bool removePoolPopConfirmed;
         private Exception? disposalFailure;
         private bool rootCounted;
         private readonly InvalidOperationException releaseUnconfirmed =
@@ -1427,6 +1450,49 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         // Physical drain is monotonic. Reading its published proof must not
         // acquire the release gate from a joined failure-observer child task.
         public bool IsDrained => Volatile.Read(ref nativeDrainConfirmed) != 0;
+
+        // Existing monotonic proof: independent owners/pools, both terminal
+        // lifetimes and shell-root/accounting cleanup have all confirmed.
+        public bool IsCleanupConfirmed { get { lock (gate) { return disposed; } } }
+
+        public bool TryGetKnownPendingCleanupJoin(out Task? join)
+        {
+            join = null;
+            IMacOSRemoteWindowStagedCaptureCompletion start;
+            IMacOSRemoteWindowStagedCaptureCompletion stop;
+            lock (gate)
+            {
+                // A recorded disposal fault may include shell-root free with
+                // unknown effect. This narrow recovery must not retry it.
+                if (disposed || disposing || releasingOwners || disposalFailure is not null || !callbackRoot.IsAllocated || !rootCounted
+                    || !IsDrainedCore() || HasActiveNativeInvocationBorrowCore()
+                    || stream != 0 || output != 0 || queue != 0 || configuration != 0
+                    || !sourceReleaseConfirmed || !startBlockReleaseConfirmed || !stopBlockReleaseConfirmed
+                    || (constructorPoolPushAttempted && (!constructorPoolPushConfirmed || !constructorPoolPopAttempted || !constructorPoolPopConfirmed))
+                    || (startPoolPushAttempted && (!startPoolPushConfirmed || !startPoolPopAttempted || !startPoolPopConfirmed))
+                    || (stopPoolPushAttempted && (!stopPoolPushConfirmed || !stopPoolPopAttempted || !stopPoolPopConfirmed))
+                    || (removePoolPushAttempted && (!removePoolPushConfirmed || !removePoolPopAttempted || !removePoolPopConfirmed))
+                    || startBlock is not IMacOSRemoteWindowStagedCaptureCompletion actualStart
+                    || stopBlock is not IMacOSRemoteWindowStagedCaptureCompletion actualStop)
+                {
+                    return false;
+                }
+
+                start = actualStart;
+                stop = actualStop;
+            }
+
+            // Owner qualification/getters and join allocation stay outside
+            // Capture's gate. Defaults decline opaque or unknown primitives.
+            if (!start.TryGetKnownLifetimeJoin(out Task? startJoin) || startJoin is null
+                || !stop.TryGetKnownLifetimeJoin(out Task? stopJoin) || stopJoin is null)
+            {
+                return false;
+            }
+
+            join = Task.WhenAll(startJoin, stopJoin);
+            return true;
+        }
 
         private bool IsDrainedCore() => startSettled && stopSettled
             && outputRemoved && queueDrained
@@ -1449,6 +1515,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             bool rooted = false;
             bool publicationAttempted = false;
             bool publicationRejected = false;
+            Exception? constructionFailure = null;
             try
             {
                 // Keep the complete owner reachable before any per-Capture
@@ -1475,7 +1542,13 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     throw new InvalidOperationException("macOS window pixel bounds unavailable.");
                 }
 
+                constructorPoolPushAttempted = true;
                 pool = operations.PushAutoreleasePool();
+                constructorPoolPushConfirmed = pool != 0;
+                if (!constructorPoolPushConfirmed)
+                {
+                    throw new InvalidOperationException("macOS capture autorelease pool unavailable.");
+                }
                 configuration = operations.AllocateConfiguration();
                 output = operations.AllocateOutput();
                 queue = operations.CreateSampleQueue();
@@ -1512,14 +1585,42 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             catch (Exception exception)
             {
                 RecordFatal(exception);
-                factoryFailure = (Exception?)FindFatal(exception) ?? exception;
+                constructionFailure = exception;
                 unsafeFailure = true;
                 Interlocked.Exchange(ref deliveryClosed, 1);
+            }
+            finally
+            {
+                if (constructorPoolPushConfirmed)
+                {
+                    // This fixed synchronous scope pops once on its creating
+                    // thread. A throwing pop may already have consumed it;
+                    // never transfer or retry that unknown obligation.
+                    constructorPoolPopAttempted = true;
+                    try
+                    {
+                        operations.PopAutoreleasePool(pool);
+                        constructorPoolPopConfirmed = true;
+                    }
+                    catch (Exception exception)
+                    {
+                        RecordFatal(exception);
+                        constructionFailure ??= exception;
+                        unsafeFailure = true;
+                        Interlocked.Exchange(ref deliveryClosed, 1);
+                    }
+                }
+            }
+
+            if (constructionFailure is not null)
+            {
+                // Pool unwind and primary/fatal selection precede the exact
+                // failed-shell handoff and every independent cleanup attempt.
+                // The replaceable slot is not the shell's durable GC root.
+                factoryFailure = (Exception?)Volatile.Read(ref fatalFailure) ?? constructionFailure;
+                failedFactoryCapture = this;
                 if (!publicationAttempted)
                 {
-                    // No callback queue has ever been handed to native code.
-                    // These absence facts permit one cleanup attempt; they
-                    // do not prove a throwing native release had no effect.
                     startSettled = true;
                     stopSettled = true;
                     outputRemoved = true;
@@ -1530,19 +1631,15 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                         Roots.TryRemove(new KeyValuePair<nint, Capture>(output, this));
                     }
 
-                    if (!ReleaseUnpublishedOwners())
+                    if (ReleaseUnpublishedOwners() && ReferenceEquals(failedFactoryCapture, this))
                     {
-                        failedFactoryCapture = this;
+                        failedFactoryCapture = null;
                     }
                 }
                 else
                 {
-                    failedFactoryCapture = this;
                     try
                     {
-                        // A failed factory still has an independent owner.
-                        // It can release only after confirmed absence/removal
-                        // and the actual serial-queue barrier.
                         drain = RunIsolated(() => RollbackConstructionAsync(publicationRejected));
                     }
                     catch (Exception schedulingFailure)
@@ -1551,18 +1648,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     }
                 }
 
-                // A tracked uncertain source acquisition or known-owner
-                // release retains the complete shell independently of the
-                // single failed-factory slot.
                 ThrowPendingFatal();
-                throw;
-            }
-            finally
-            {
-                if (pool != 0)
-                {
-                    operations.PopAutoreleasePool(pool);
-                }
+                ExceptionDispatchInfo.Capture(constructionFailure).Throw();
             }
         }
 
@@ -1584,6 +1671,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
                 if (startRequested)
                 {
+                    ThrowPendingFatal();
                     return new(startCompletion.Task);
                 }
 
@@ -1607,8 +1695,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
                 startBlock = operations.CreateCompletion(error =>
                 {
-                    SetStartResult(error == 0);
-                    if (error != 0)
+                    if (SetStartResult(error == 0) && error != 0)
                     {
                         NotifyUnavailable();
                     }
@@ -1619,7 +1706,19 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     SetStartResult(false);
                     NotifyUnavailable();
                 }, () => startCallbackExited.TrySetResult(true));
+                if (startBlock is IMacOSRemoteWindowStagedCaptureCompletion stagedStart)
+                {
+                    stagedStart.AcquireCopy();
+                }
                 InvokeCompletion(startBlock.Pointer, isStart: true);
+                lock (gate)
+                {
+                    startInvocationReturned = true;
+                }
+                // A synchronous callback can settle success and then record a
+                // fatal. Preserve the real handoff/result facts, but never let
+                // that cached result hide the already recorded local failure.
+                ThrowPendingFatal();
             }
             catch (Exception exception)
             {
@@ -1684,7 +1783,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 bool released = ReleaseUnpublishedOwners();
                 lock (gate)
                 {
-                    disposed = released;
+                    disposed |= released;
                 }
 
                 ThrowDisposalFailure();
@@ -1705,7 +1804,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             // Reject same-owner callback ancestry before acquiring the gate:
             // its parent may be holding that gate while releasing a block.
             if (CallbackScope.Contains(this)
-                || NativeRemoteWindowDrainActivityScope.IsActiveForOwner(this))
+                || NativeRemoteWindowDrainActivityScope.IsActiveForOwner(this)
+                || HasActiveCompletionResourceUseAncestry())
             {
                 Interlocked.Exchange(ref deliveryClosed, 1);
                 return ValueTask.FromException<bool>(new InvalidOperationException(
@@ -1792,7 +1892,21 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     {
                         Volatile.Write(ref nativeDrainConfirmed, 1);
                     }
+                }
 
+                // Result/exit notification and the physical sample barrier do
+                // not join an admitted completion resource-use region. Close
+                // both owners before awaiting their fixed joins outside gates.
+                // This is pre-release use drain, not native-copy retirement or
+                // ManagedInvocationDrain, which depend on later owner releases.
+                Task startResourceUse = startBlock is IMacOSRemoteWindowStagedCaptureCompletion stagedStart
+                    ? stagedStart.CloseResourceUse() : Task.CompletedTask;
+                Task stopResourceUse = stopBlock is IMacOSRemoteWindowStagedCaptureCompletion stagedStop
+                    ? stagedStop.CloseResourceUse() : Task.CompletedTask;
+                await startResourceUse.ConfigureAwait(false);
+                await stopResourceUse.ConfigureAwait(false);
+                lock (gate)
+                {
                     return startSettled && stopSettled && outputRemoved && !unsafeFailure;
                 }
             }
@@ -1820,24 +1934,32 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 return true;
             }
 
+            bool acquisitionReturnedConfirmed = false;
             try
             {
                 stopBlock = operations.CreateCompletion(error =>
                 {
                     lock (gate)
                     {
+                        // Result admission and its corresponding Stop facts
+                        // have one winner, for both success and rejection.
+                        if (!stopCompletion.TrySetResult(error == 0)) { return; }
                         stopSettled = error == 0;
                         unsafeFailure |= error != 0;
                     }
-
-                    stopCompletion.TrySetResult(error == 0);
                 }, exception =>
                 {
                     RecordFatal(exception);
                     MarkUnsafeFailure();
                     stopCompletion.TrySetResult(false);
                 }, () => stopCallbackExited.TrySetResult(true));
+                if (stopBlock is IMacOSRemoteWindowStagedCaptureCompletion stagedStop)
+                {
+                    stagedStop.AcquireCopy();
+                    acquisitionReturnedConfirmed = true;
+                }
                 InvokeCompletion(stopBlock.Pointer, isStart: false);
+                lock (gate) { stopInvocationReturned = true; }
                 bool stopped = await stopCompletion.Task.ConfigureAwait(false);
                 await stopCallbackExited.Task.ConfigureAwait(false);
                 return stopped;
@@ -1865,22 +1987,31 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     return stopSettled;
                 }
             }
+            finally
+            {
+                if (acquisitionReturnedConfirmed)
+                {
+                    // This unique setup flow has ended and cannot resume a
+                    // handoff. A transient !stopIssued during acquisition is
+                    // never sufficient to release the attached caller copy.
+                    lock (gate)
+                    {
+                        if (!stopIssued) { stopSetupSettledUnissued = true; }
+                    }
+                }
+            }
         }
 
-        private void SetStartResult(bool success)
+        private bool SetStartResult(bool success)
         {
             lock (gate)
             {
+                // A real late callback still confirms settlement after an
+                // issued handoff fault has already faulted the result task.
                 startSettled = true;
-            }
-
-            if (Volatile.Read(ref fatalFailure) is { } fatal)
-            {
-                startCompletion.TrySetException(fatal);
-            }
-            else
-            {
-                startCompletion.TrySetResult(success);
+                return Volatile.Read(ref fatalFailure) is { } fatal
+                    ? startCompletion.TrySetException(fatal)
+                    : startCompletion.TrySetResult(success);
             }
         }
 
@@ -2018,41 +2149,134 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
         private void InvokeCompletion(nint block, bool isStart)
         {
-            nint pool = operations.PushAutoreleasePool();
+            if (isStart)
+            {
+                lock (gate) { startPoolPushAttempted = true; }
+            }
+            else
+            {
+                lock (gate) { stopPoolPushAttempted = true; }
+            }
+
             try
             {
-                nint selectorPointer = operations.GetCompletionSelector(isStart);
-                lock (gate)
+                nint pool = operations.PushAutoreleasePool();
+                if (isStart)
+                {
+                    lock (gate) { startPoolPushConfirmed = pool != 0; }
+                }
+                else
+                {
+                    lock (gate) { stopPoolPushConfirmed = pool != 0; }
+                }
+
+                if (pool == 0)
+                {
+                    throw new InvalidOperationException("macOS capture autorelease pool unavailable.");
+                }
+
+                try
+                {
+                    nint selectorPointer = operations.GetCompletionSelector(isStart);
+                    lock (gate)
+                    {
+                        if (isStart)
+                        {
+                            startIssued = true;
+                        }
+                        else
+                        {
+                            stopIssued = true;
+                        }
+                    }
+
+                    operations.InvokeCompletion(stream, selectorPointer, block);
+                }
+                catch (Exception exception)
+                {
+                    // Preserve the original body fatal before the known
+                    // pool unwinds; a later pop fault must not replace it.
+                    RecordFatal(exception);
+                    throw;
+                }
+                finally
                 {
                     if (isStart)
                     {
-                        startIssued = true;
+                        if (pool != 0)
+                        {
+                            // This synchronous scope owns one pop attempt on
+                            // its creating thread, never a retry after a fault.
+                            lock (gate) { startPoolPopAttempted = true; }
+                            operations.PopAutoreleasePool(pool);
+                            lock (gate) { startPoolPopConfirmed = true; }
+                        }
                     }
                     else
                     {
-                        stopIssued = true;
+                        if (pool != 0)
+                        {
+                            lock (gate) { stopPoolPopAttempted = true; }
+                            operations.PopAutoreleasePool(pool);
+                            lock (gate) { stopPoolPopConfirmed = true; }
+                        }
                     }
                 }
-
-                operations.InvokeCompletion(stream, selectorPointer, block);
             }
             finally
             {
-                operations.PopAutoreleasePool(pool);
+                // Callback result/exit and resource-use idle do not end this
+                // synchronous borrow. Publish its fixed exit even when push,
+                // selector, native invocation or original-thread pop throws.
+                lock (gate)
+                {
+                    if (isStart) { startInvocationBorrowExited = true; }
+                    else { stopInvocationBorrowExited = true; }
+                }
             }
         }
 
         private bool RemoveNativeOutput(nint stream, nint output)
         {
+            lock (gate) { removePoolPushAttempted = true; }
             nint pool = operations.PushAutoreleasePool();
+            lock (gate) { removePoolPushConfirmed = pool != 0; }
+            if (pool == 0)
+            {
+                throw new InvalidOperationException("macOS capture autorelease pool unavailable.");
+            }
+            bool removed;
             try
             {
-                return operations.RemoveOutput(stream, output, out nint error) != 0 && error == 0;
+                removed = operations.RemoveOutput(stream, output, out nint error) != 0 && error == 0;
+            }
+            catch (Exception exception)
+            {
+                RecordFatal(exception);
+                throw;
             }
             finally
             {
-                operations.PopAutoreleasePool(pool);
+                if (pool != 0)
+                {
+                    lock (gate) { removePoolPopAttempted = true; }
+                    try
+                    {
+                        operations.PopAutoreleasePool(pool);
+                        lock (gate) { removePoolPopConfirmed = true; }
+                    }
+                    catch (Exception exception)
+                    {
+                        // Pop failure does not erase an independently
+                        // confirmed BOOL/error removal result. Keep cleanup
+                        // possible, but never confirm or retry this pool.
+                        RecordFatal(exception);
+                        MarkUnsafeFailure();
+                    }
+                }
             }
+
+            return removed;
         }
 
         private static Task<bool> RunIsolated(Func<Task<bool>> operation)
@@ -2107,12 +2331,16 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         public void Dispose()
         {
             if (CallbackScope.Contains(this)
-                || NativeRemoteWindowDrainActivityScope.IsActiveForOwner(this))
+                || NativeRemoteWindowDrainActivityScope.IsActiveForOwner(this)
+                || HasActiveCompletionResourceUseAncestry())
             {
                 throw new InvalidOperationException(
                     "macOS native callback cannot dispose its own cleanup owner.");
             }
 
+            bool drained;
+            bool releaseCompletedStartCaller;
+            bool releaseCompletedStopCaller;
             lock (gate)
             {
                 if (disposed)
@@ -2126,21 +2354,47 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     throw releaseUnconfirmed;
                 }
 
-                if (!IsDrainedCore())
-                {
-                    ThrowPendingFatal();
-                    throw new InvalidOperationException("macOS capture cleanup remains unconfirmed.");
-                }
-
+                drained = IsDrainedCore();
+                releaseCompletedStartCaller = !drained && startInvocationReturned
+                    && startCompletion.Task.IsCompleted
+                    && startCallbackExited.Task.IsCompletedSuccessfully
+                    && startBlock is IMacOSRemoteWindowStagedCaptureCompletion;
+                releaseCompletedStopCaller = !drained && (stopSetupSettledUnissued
+                    || (stopInvocationReturned && stopCompletion.Task.IsCompleted
+                        && stopCallbackExited.Task.IsCompletedSuccessfully))
+                    && stopBlock is IMacOSRemoteWindowStagedCaptureCompletion;
                 disposing = true;
             }
 
             try
             {
+                if (!drained)
+                {
+                    // A confirmed +1 is independent after unissued setup ends,
+                    // or handoff returns and completion notification is observed.
+                    // ReleaseBlock additionally closes and joins all admitted
+                    // action/failure/completed resource users. This is not
+                    // terminal managed drain or final ABI return.
+                    // This releases no stream/output/source owner, confirms no
+                    // Stop/drain and cannot return the Capture root/accounting.
+                    if (releaseCompletedStartCaller)
+                    {
+                        _ = ReleaseBlock(startBlock, ref startBlockReleaseAttempted, ref startBlockReleaseConfirmed);
+                    }
+                    if (releaseCompletedStopCaller)
+                    {
+                        _ = ReleaseBlock(stopBlock, ref stopBlockReleaseAttempted, ref stopBlockReleaseConfirmed);
+                    }
+
+                    ThrowDisposalFailure();
+                    ThrowPendingFatal();
+                    throw new InvalidOperationException("macOS capture cleanup remains unconfirmed.");
+                }
+
                 bool released = ReleaseUnpublishedOwners();
                 lock (gate)
                 {
-                    disposed = released;
+                    disposed |= released;
                 }
 
                 ThrowDisposalFailure();
@@ -2168,11 +2422,28 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     return false;
                 }
 
+                if (HasActiveNativeInvocationBorrowCore()
+                    || (startBlock is not null && !startCompletion.Task.IsCompleted)
+                    || (stopBlock is not null && !stopSetupSettledUnissued && !stopCompletion.Task.IsCompleted))
+                {
+                    return false;
+                }
+
                 releasingOwners = true;
             }
 
             try
             {
+                // A real settled result (or completed, unissued setup) is the
+                // eligibility for closure. Never close a still-pending issued
+                // callback and strand the result/exit this flow must await.
+                // Join is independent of native-copy retirement and performs
+                // no blocking wait under a gate or before stream release.
+                if (!CloseCompletionResourceUse(startBlock) | !CloseCompletionResourceUse(stopBlock))
+                {
+                    return false;
+                }
+
                 bool released = ReleaseBlock(startBlock, ref startBlockReleaseAttempted, ref startBlockReleaseConfirmed)
                     & ReleaseBlock(stopBlock, ref stopBlockReleaseAttempted, ref stopBlockReleaseConfirmed);
                 released &= ReleaseObject(ref stream, ref streamReleaseAttempted);
@@ -2192,6 +2463,25 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
 
                 released &= ReleaseObject(ref configuration, ref configurationReleaseAttempted);
                 released &= ReleaseSource();
+
+                // Caller ownership and independent native owners must release
+                // first: SCStream may hold a completion copy until its release.
+                // A confirmed caller release is not last-copy retirement or
+                // terminal managed drain. Observe late failure on every pass,
+                // even when the caller's single-attempt result was cached.
+                released &= IsCompletionLifetimeConfirmed(startBlock)
+                    & IsCompletionLifetimeConfirmed(stopBlock);
+                released &= !constructorPoolPushAttempted || (constructorPoolPushConfirmed
+                    && constructorPoolPopAttempted && constructorPoolPopConfirmed);
+                lock (gate)
+                {
+                    released &= !startPoolPushAttempted || (startPoolPushConfirmed
+                        && startPoolPopAttempted && startPoolPopConfirmed);
+                    released &= !stopPoolPushAttempted || (stopPoolPushConfirmed
+                        && stopPoolPopAttempted && stopPoolPopConfirmed);
+                    released &= !removePoolPushAttempted || (removePoolPushConfirmed
+                        && removePoolPopAttempted && removePoolPopConfirmed);
+                }
 
                 if (released && callbackRoot.IsAllocated)
                 {
@@ -2222,11 +2512,56 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             }
         }
 
+        private bool IsCompletionLifetimeConfirmed(IMacOSRemoteWindowCaptureCompletion? block)
+        {
+            if (block is not IMacOSRemoteWindowStagedCaptureCompletion staged)
+            {
+                return true;
+            }
+
+            bool lifetimeConfirmed = staged.NativeCaptureRetirement.IsCompletedSuccessfully
+                && staged.ManagedInvocationDrain.IsCompletedSuccessfully;
+            // Observe failure freshly after terminal lifetime observation;
+            // the pre-release sample cannot authorize shell/root return.
+            if (staged.FirstFailure is { } failure)
+            {
+                RecordDisposalFailure(failure);
+                // Keep the original failure reportable. A contained managed
+                // callback fault is not unknown ownership once independent
+                // releases and both terminal lifetime facts are confirmed.
+            }
+
+            return lifetimeConfirmed;
+        }
+
+        private bool HasActiveCompletionResourceUseAncestry() =>
+            (startBlock is IMacOSRemoteWindowStagedCaptureCompletion start && start.HasActiveResourceUseAncestry)
+            || (stopBlock is IMacOSRemoteWindowStagedCaptureCompletion stop && stop.HasActiveResourceUseAncestry);
+
+        private static bool CloseCompletionResourceUse(IMacOSRemoteWindowCaptureCompletion? block) =>
+            block is not IMacOSRemoteWindowStagedCaptureCompletion staged
+            || staged.CloseResourceUse().IsCompletedSuccessfully;
+
+        // Read only under the Capture gate. Each fixed invocation has one
+        // synchronous scope, whose exit is distinct from normal handoff return.
+        private bool HasActiveNativeInvocationBorrowCore() =>
+            (startPoolPushAttempted && !startInvocationBorrowExited)
+            || (stopPoolPushAttempted && !stopInvocationBorrowExited);
+
         private bool ReleaseBlock(IMacOSRemoteWindowCaptureCompletion? block, ref bool attempted, ref bool confirmed)
         {
+            // Closing admission with active users is pending, not a native
+            // release attempt. A later pass can observe the immutable join.
+            if (!CloseCompletionResourceUse(block)) { return false; }
+
             lock (gate)
             {
                 if (block is null) { return true; }
+                if ((ReferenceEquals(block, startBlock) && startPoolPushAttempted && !startInvocationBorrowExited)
+                    || (ReferenceEquals(block, stopBlock) && stopPoolPushAttempted && !stopInvocationBorrowExited))
+                {
+                    return false;
+                }
                 if (attempted) { return confirmed; }
                 attempted = true;
             }

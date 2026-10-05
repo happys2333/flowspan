@@ -1,7 +1,11 @@
 # macOS enumeration staged composition — 2026-10-05
 
-This is a local MEP1-MEP8 checkpoint, not complete slice, production,
-cross-platform, or v1 acceptance. The long-term Goal remains active.
+This records a historical local MEP1-MEP8 checkpoint. At recording time it was
+not complete-slice, production, cross-platform or v1 acceptance. The subsequent
+[exact-SHA hosted gates](2026-10-05-enumeration-hosted-gates.md) and
+[focused Release closeout](2026-10-05-enumeration-focused-release-closeout.md)
+now accept the finite prerequisite, not parent native/production/v1 gates.
+The long-term Goal remains active.
 Base: `2678dd59eaaf201af3c58703c085dea78f20f50e`.
 Immutable stages: `/tmp/flowspan-enumeration-composition-20261005/`.
 
@@ -117,10 +121,11 @@ concrete findings. Review is not an additional test/native execution.
 Documentary edits after freezing do not support full live-tree equality; only
 explicitly compared compiler/probe/test inputs may be called freeze-identical.
 
-## Open acceptance
+## Historical open acceptance
 
-Tasks2/3/4/5/6 and full MEP remain open until
-fresh exact-commit Windows/macOS/Linux CI/CodeQL are verified. No GitHub message
+At this local checkpoint tasks2/3/4/5/6 and full MEP remained open until
+fresh exact-commit Windows/macOS/Linux CI/CodeQL were verified. The linked later
+records close that finite prerequisite; the boundaries below remain. No GitHub message
 was posted; exact target/text approval remains required for issue/PR/comment/
 review/discussion. Production remains `delegate=0`, macOS14.2/Arm64 candidate,
 Protection Unknown and sharing unavailable. Global Capture admission, secure

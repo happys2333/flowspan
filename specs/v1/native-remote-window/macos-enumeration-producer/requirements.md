@@ -1,6 +1,7 @@
 # macOS enumeration-producer ownership
 
-Status: executing the approved v1 fail-closed baseline. This follows the exact
+Status: finite MEP prerequisite accepted at exact `1ab2511`, with the independent
+frozen-runtime focused Release closeout. This follows the exact
 `5f62eb8` initial source-producer checkpoint; none of its outcomes transfers to
 new implementation. Trace: NR8/NR10, MSC6/MSC9 ownership prerequisites.
 
@@ -47,9 +48,11 @@ that a callback exit, thrown effect or empty result proves cleanup.
   shall pass. Compiler candidates and simulation cannot stand in for native proof.
 
 Boundary: implement the full bounded enumeration path, not just a test-only
-content owner. Native completion factory/Block primitive debts remain open
-until task4 actually proves them; a content-only checkpoint cannot close MEP3,
-MEP4, MEP6 or this slice. Nonzero SCStream delegate, global Capture admission,
+content owner. Native completion factory/Block primitive debt required the actual
+task4 composition and extra-copy/last-copy retirement proof; content-only
+checkpoints did not close MEP3, MEP4, MEP6 or this slice. Actual SCK fault injection
+and complete platform lifetime safety are not established by the accepted finite
+portable/Block/selected healthy SCK evidence. Nonzero SCStream delegate, global Capture admission,
 query-internal temporary resources, TCC/secure-input/protection, physical LAN,
 production host availability and signed release remain subsequent gates.
 Candidate platform floor, delegate=0 and Protection Unknown stay unchanged.

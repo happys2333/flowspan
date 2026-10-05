@@ -2158,7 +2158,7 @@ Controlled-effect ownership, selected healthy local native regression and exact
 Enumeration content/Block/callback and query-internal resource faults remain
 separate. See [ADR0032](../adr/0032-pre-reserved-macos-source-producer.md).
 
-### macOS enumeration producer (MEP1-MEP8, local composition checkpoint)
+### macOS enumeration producer (MEP1-MEP8, accepted finite prerequisite)
 
 For T13, retained enumeration content, dispatch-copied native completion and
 autorelease-pool effects can remain uncertain before their results are assigned.
@@ -2173,8 +2173,9 @@ The portable content path now preattaches its exact ledger, retains unknown
 content debt, rejects additional result acquisition and independently collects
 content/pool/source cleanup failures. Ten actual behavioral RED→GREEN pairs
 cover these scoped branches. Its callback counter's first idle boundary still
-does not prove native-copy retirement or exclude later ABI entry. Dispatch,
-factory/primitive and complete lifetime acceptance remain open. See
+does not prove native-copy retirement or exclude later ABI entry. At that
+content-only checkpoint dispatch, factory/primitive and complete lifetime
+acceptance remained open. See
 [ADR0033](../adr/0033-bounded-macos-enumeration-producer.md).
 The later effects path separately accounts dispatch and both thread-affine
 pools, atomically closes result admission, selects confirmed content/completion
@@ -2192,9 +2193,321 @@ source owner and source factory boundaries, preserving independent cleanup and
 first nested fatal. Seven actual composition RED→GREEN pairs/eight direct
 contracts and actual task-owned Block/SCK healthy D/R evidence are recorded in the
 [composition checkpoint](../evidence/2026-10-05-enumeration-composition-progress.md).
-These local facts do not establish native fault injection, global Capture
-admission, secure-input/protection or production sharing. Complete enumeration
-and fresh exact-commit hosted acceptance remain required.
+The finite prerequisite now has independently verified exact `1ab2511` hosted
+gates and its separate [focused Release closeout](../evidence/2026-10-05-enumeration-focused-release-closeout.md).
+This does not establish actual SCK fault injection or complete platform lifetime
+safety, global Capture admission, secure-input/protection or production sharing.
+Parent MSC/native, physical/release and v1 acceptance remain required.
+
+### Same-Capture one-argument completion prerequisite (MCC1-MCC8)
+
+For T13, Start/Stop completion root/copy and the four synchronous pool scopes
+can fail after their effects. The original Capture must own its inert primitive
+before acquisition and retain the complete graph after uncertainty. Known
+independent cleanup receives one attempt outside gates; unknown ownership is
+neither guessed released nor retried. A callback result or sample barrier cannot
+authorize complete shell/source-binding return.
+
+Close/join action, failure and completed resource-use regions before dependent
+release, separately from post-release physical retirement and terminal primitive
+drain. SCStream may hold a native completion copy until stream release; awaiting
+its retirement first can deadlock cleanup. Late callbacks must not read released
+Capture resources or resurrect delivery. Fixed constructor/Start/Stop/removal
+pool facts remain thread-affine; unsettled constructor pop prevents root return
+and cannot replace the original primary/fatal failure or exact failed-shell.
+
+The [Start](../evidence/2026-10-05-capture-completion-start-progress.md),
+[first Stop-copy](../evidence/2026-10-05-capture-completion-stop-progress.md) and
+[late root-free](../evidence/2026-10-05-capture-completion-root-free-progress.md)
+portable checkpoints now prove their limited after-effect/independent-cleanup
+behaviors. The last adds fresh staged failure/retirement/terminal-drain checks
+after independent releases, preventing shell-root/count return on late debt.
+They do not verify this complete pool/resource-use/lifetime contract.
+The [eight-row uncertainty matrix](../evidence/2026-10-05-capture-completion-uncertainty-matrix.md)
+now completes task3's finite local coverage at focused D/R120/project D/R389
+with both review axes and actual root replay. It separately proves ordinary
+invalid-root rejection and retains caller-release debt despite independently
+confirmed retirement/drain, without retry. No new production repair or native
+fault proof is claimed by those direct-GREEN tests; pool/resource-use/outer-drain
+and complete MCC obligations remain open.
+The [first constructor pool checkpoint](../evidence/2026-10-05-capture-completion-constructor-pool-progress.md)
+then closes one actual body-fatal/pop-after-effect graph-loss RED→GREEN:
+constructor pop and original-failure selection precede exact handoff/independent
+cleanup, and unknown pool debt retains the shell beyond genuine slot replacement.
+Focused D/R121/project D/R390, both reviews and root replay pass locally; other
+pool outcomes/scopes, observers and complete resource-use/lifetime proof remain open.
+The [Start pool checkpoint](../evidence/2026-10-05-capture-completion-start-pool-progress.md)
+also retains shell/accounting on unconfirmed Start pool pop despite confirmed
+primitive/native cleanup. Its actual RED→GREEN, focused D/R122 and root replay
+pass locally. The compiler candidate is excluded; no new project/native/hosted
+gate or remaining-pool/resource-use acceptance is implied.
+The [Stop pool checkpoint](../evidence/2026-10-05-capture-completion-stop-pool-progress.md)
+retains unknown Stop pool debt without retry while independent cleanup completes.
+Its actual RED→GREEN, focused D/R123, both reviews and root replay pass locally;
+removal/combined/acquisition/observer behaviors and complete MCC remain open.
+The [output-removal pool checkpoint](../evidence/2026-10-05-capture-completion-remove-pool-progress.md)
+separately preserves confirmed removal and known independent cleanup after
+pool-pop failure, without returning the shell or retrying unknown debt. Its
+canonical RED→GREEN, focused D/R124, both reviews and root replay pass locally;
+body/pop combinations, acquisition/observer outcomes and complete MCC stay open.
+The [Start body/pop checkpoint](../evidence/2026-10-05-capture-completion-start-body-pool-progress.md)
+prevents a later pop fatal from hiding the original body fatal. Actual
+unchanged-test-byte RED→GREEN, focused D/R125, both reviews and root replay pass;
+remaining Stop/removal combinations and acquisition/observer outcomes stay open.
+The [Stop body/pop checkpoint](../evidence/2026-10-05-capture-completion-stop-body-pool-progress.md)
+subsequently passes direct GREEN at focused D/R126 with unchanged production,
+both reviews and actual root replay. Removal combinations, acquisition/observer
+outcomes and complete MCC remain open; no native-fault proof is implied.
+The [unknown-removal body/pop checkpoint](../evidence/2026-10-05-capture-completion-remove-body-pool-progress.md)
+retains the first body fatal and cleans up the independently confirmed Stop
+caller once, while unknown removal keeps barrier/dependent-native/source
+cleanup and shell return forbidden. Actual RED→GREEN, focused D/R127, both
+reviews and root replay pass; no action/failure/completed resource-use join,
+global admission or complete MCC safety proof follows.
+The [constructor zero-pool checkpoint](../evidence/2026-10-05-capture-completion-constructor-zero-pool-progress.md)
+actually reproduces invalid pool acquisition permitting native construction,
+then rejects the body with ordinary InvalidOperationException. Focused D/R128,
+both reviews and root replay pass. Known source cleanup remains single-attempt;
+unknown acquisition permits no guessed pop/retry or shell-root return, including
+after genuine factory-slot replacement. Other scopes and full MCC remain open.
+The [Start zero-pool checkpoint](../evidence/2026-10-05-capture-completion-start-zero-pool-progress.md)
+likewise rejects selector/issued/native invocation after a zero token, with
+actual RED→GREEN, focused D/R129, both reviews and root replay. Local unissued
+settlement is not a fabricated callback. Known cleanup runs independently,
+but unknown pool acquisition still retains the full graph/accounting. The
+shared guard does not verify Stop-zero or complete MCC resource-use safety.
+The [Stop zero-pool checkpoint](../evidence/2026-10-05-capture-completion-stop-zero-pool-progress.md)
+now independently verifies refusal and retained graph/charge at focused
+D/R130, both reviews and root replay, as direct GREEN with unchanged production.
+It fabricates no callback/result/exit or pop. The acquired-but-unissued Stop
+caller remains a later independent cleanup obligation, not accepted cleanup;
+remaining acquisition, resource-use and complete MCC gates remain open.
+The [output-removal zero-pool checkpoint](../evidence/2026-10-05-capture-completion-remove-zero-pool-progress.md)
+closes actual zero-token native-body admission RED→GREEN at focused D/R131,
+both reviews and root replay. Confirmed callers clean up independently once,
+but no removal/barrier/dependent release/physical-drain/root-return is invented.
+Unknown push outcomes, unissued caller, resource-use and full MCC remain open.
+The [four-scope unknown-push matrix](../evidence/2026-10-05-capture-completion-unknown-push-matrix.md)
+now independently exercises nonzero simulated effects followed by throw before
+token return. Sequential single D/R and final focused D/R135, both reviews and
+root replay pass without production changes. No body/guessed pop/retry is
+authorized; original fatal and full graph/charge remain. Unissued caller cleanup,
+observer/resource-use/races and full MCC safety proof remain open.
+The [confirmed-unissued Stop caller checkpoint](../evidence/2026-10-05-capture-completion-stop-unissued-caller-progress.md)
+then gives that known caller its single independent release only after normal
+acquisition and unique setup termination prove no possible later handoff. Actual
+RED→GREEN, focused D/R136, both reviews and root replay pass; no instantaneous
+issued snapshot, fabricated callback/Stop/dependent cleanup or shell return is
+used. Unknown acquisition, resource-use/races and full MCC safety remain open.
+The [late-callback pair checkpoint](../evidence/2026-10-05-capture-completion-late-callback-progress.md)
+separately exercises actual extra heap retain followed by Start/Stop invocation
+throw before callback. Single D/R and focused D/R138, both reviews and actual
+root replay pass without production changes. Pending watchdogs do not authorize
+cleanup; real late typed callbacks/ABI Joins precede the finite independent
+caller/stream-copy release and confirmed retirement/accounting return. Original
+fatal and faulted Start result remain unchanged; native handoff return is not
+fabricated. This is controlled-effect evidence, not pending cross-boundary GC
+graph proof, resource-use join, native-fault containment or complete MCC safety.
+The [first active-action checkpoint](../evidence/2026-10-05-capture-completion-active-action-progress.md)
+then actually reproduces caller release while a first Start action remains
+active after duplicate completion. Unchanged-test-byte RED→GREEN, focused
+D/R139, both reviews and root replay pass. Fixed closed+active0 resource-use
+join now gates caller/dependent releases separately from post-release native/
+managed retirement, without caching first idle or recording a premature attempt.
+Only this active-action behavior is proved; failure/completed faults, reentry,
+async join, races and the outer-drain contract still require their own evidence.
+The subsequent [terminal observer-fault matrix](../evidence/2026-10-05-capture-completion-observer-fault-progress.md)
+passes focused D/R142, both reviews and actual root replay. Initial Start no
+longer hides the first managed callback fatal behind a settled success. Fully
+confirmed independent cleanup and native/managed terminal lifetime can return
+the graph despite a contained callback fault; the original fatal remains
+reportable and unknown ownership effects remain disqualifying. The action's two
+actual same-byte REDs and failure/completed direct GREENs prove only terminal
+cases, not active observer resource-use, cached repeated Start, self-join,
+async/races/outer drain, native exceptions or complete MCC safety.
+The [repeated-Start checkpoint](../evidence/2026-10-05-capture-completion-repeated-start-progress.md)
+now separately reproduces cached true hiding an already recorded fatal and
+repairs only that return path. Same-byte RED→GREEN, focused D/R143, both reviews
+and root replay pass. Real initial result/handoff facts are not rolled back and
+no repeated native Start/owner/notification occurs. Active observer joins,
+ancestry/races/outer drain and complete task5/MCC safety remain unproved.
+The [active completed/failure pair](../evidence/2026-10-06-capture-completion-active-observer-progress.md)
+then verifies those two pending observer regions as direct GREEN with unchanged
+production: focused D/R145, both reviews and actual root replay pass. A real
+completed publication or duplicate ABI return cannot authorize caller release
+while another guarded observer is still active; release0/no-attempt is observed.
+Only after actual ABI joins do independent caller/stream-copy cleanup, terminal
+lifetime and outer GC confirm graph return. Pending-phase snapshots are not a
+cross-boundary weak-graph proof; async/self joins, races, Stop equivalents and
+outer drain plus complete MCC safety remain open.
+The [completed ancestry pair](../evidence/2026-10-06-capture-completion-completed-ancestry-progress.md)
+now verifies direct same-Capture Dispose and active inherited-EC async descendant
+Stop rejection before waiting or native cleanup. Sequential single D/R direct
+GREEN, focused D/R147, both reviews and actual root replay pass, with unchanged
+production. Parent resource-use remains open/active, with no release attempt or
+native Stop before rejection. Actual ABI/child joins precede confirmed external
+cleanup. This is not inactive-descendant, opposite-entry/region, asynchronous
+resource join, race, outer-boundary or complete MCC safety proof.
+The [async resource-use join checkpoint](../evidence/2026-10-06-capture-completion-async-resource-join-progress.md)
+now prevents StopAndDrain success while an admitted completed observer still
+uses Capture resources, even after confirmed physical Stop/removal/barrier.
+Actual same-test-byte RED→GREEN, focused D/R148, both code review axes and root
+replay pass. It closes both admissions before gate-free resource-use waits;
+caller/native releases and post-release retirement remain independent. Physical
+`IsDrained` is not full cleanup or binding-return proof; remaining task4/task5,
+outer composition, races and complete MCC safety stay open.
+The [outer binding checkpoint](../evidence/2026-10-06-capture-completion-outer-binding-progress.md)
+now exercises the real same-source Catalog/Boundary/Capture fallback. Physical
+drain=true with cached drain=false cannot bypass native Dispose's pending Stop
+copy check: binding, retired source and Catalog capacity remain owned. Single
+D/R direct GREEN and focused D/R149, both code review axes and root replay pass;
+only known fixture copy cleanup occurs, with no binding return/quarantine reset.
+This is a strongly held negative snapshot, not pending-GC, eventual recovery,
+healthy/late-fatal composition or full task4/task5/MCC safety proof.
+The [pending healthy Start checkpoint](../evidence/2026-10-06-capture-completion-pending-start-progress.md)
+passes direct GREEN, focused D/R150, both code review axes and actual root replay.
+External Dispose cannot suppress the real pending callback by closing its
+resource admission or releasing its owners. Native handoff has already returned
+in that case; callback result/exit and active0 still cannot establish borrow exit
+for a different handoff held on its native calling stack. Pending-GC, other
+races and full task4/task5/MCC remain open.
+The [native handoff borrow checkpoint](../evidence/2026-10-06-capture-completion-native-borrow-progress.md)
+then repairs that actual premature Start caller release. Callback ABI return,
+published result/exit and active0 no longer authorize dependency release while
+the original synchronous native frame remains active. Two fixed finally-exited
+facts guard owner selection without gate-held effects/waits, preserve original
+pool-thread affinity and retain unknown pool debts after exceptional exit.
+Precise same-test-byte RED→GREEN, focused D/R151, both review axes and actual root
+replay pass. This controlled-effects held Start case does not prove all
+acquisition/handoff races, other observer paths or full MCC/native/v1 safety.
+The actual [SourceUnavailable user observer](../evidence/2026-10-06-capture-completion-unavailable-observer-progress.md)
+and [Stop completed notification](../evidence/2026-10-06-capture-completion-stop-completed-progress.md)
+then pass sequential direct GREEN without production changes, focused D/R153,
+both review axes and root replay. Observer B cannot replace the original copy
+fatal A or authorize unknown ownership return. Conversely, a contained Stop
+notification fatal cannot by itself retain ownership once independent cleanup
+and both terminal lifetimes are confirmed; its successful Stop and diagnosis
+remain independently observable. Stop action/failure-wrapper paths and full
+task4/task5/MCC/native/v1 proof remain open.
+The separate [Stop action](../evidence/2026-10-06-capture-completion-stop-action-progress.md)
+and [Stop failure-observer](../evidence/2026-10-06-capture-completion-stop-failure-observer-progress.md)
+checkpoints now execute direct GREEN without production changes, focused
+D/R155, both review axes and root saved/current replay/cmp/receipts. Actual
+successful Stop remains distinct from action fatal A and later observer fatal B;
+B cannot overwrite A or skip independently known single cleanup. Confirmed
+terminal lifetimes permit ownership return despite reportable contained fatal,
+not despite unknown effects. Task4's published-constructor first pool-pop-fatal
+rollback trace and remaining task5/final MCC/native/hosted/v1 proof are still open.
+The [Start copy-in-flight checkpoint](../evidence/2026-10-06-capture-completion-start-copy-inflight-progress.md)
+then passes direct GREEN, focused D/R156, both reviews and root replay/cmp/
+receipts without production changes. An actual acquired physical copy that has
+not returned/confirmed authorizes no pointer/native work or release. External
+Stop/Dispose preserve its exact owner and pending admission; real release/Join
+precedes ordered Stop/known cleanup with delivery still closed. This is not
+pending cross-GC retention or complete race/MCC/native safety proof.
+The [published constructor pop checkpoint](../evidence/2026-10-06-capture-completion-published-constructor-pop-progress.md)
+then passes direct GREEN, focused D/R157, both reviews and root replay/cmp/
+receipts. Successful publication followed by first pop fatal enters the actual
+cached async rollback: physical true and known single cleanup do not erase
+unknown pool debt or authorize shell return. Original graph/charge survive
+real slot replacement and weak GC. Only finite task4 coverage closes; task5
+and aggregate/native/new hosted/full MCC/v1 safety remain open.
+The [duplicate Stop checkpoint](../evidence/2026-10-06-capture-completion-duplicate-stop-progress.md)
+then has actual unchanged-test-byte RED→GREEN, focused D/R158, both reviews and
+root saved/current replay/cmp/receipts. A later error ABI cannot contradict the
+first admitted successful result by regressing confirmed Stop/unsafe facts.
+The first completed region/native handoff stays active until actual release/join;
+duplicate invocation accounting is preserved and normal known cleanup returns
+the full graph. Reverse first-error is not executed, and task5/final safety
+acceptance is not inferred.
+The [duplicate Start checkpoint](../evidence/2026-10-06-capture-completion-duplicate-start-progress.md)
+then proves unchanged-test-byte RED→final GREEN, focused D/R159, both reviews
+and root saved/current replay/cmp/receipts. A duplicate ordinary error cannot
+close delivery or notify source loss after the first successful Start. Real
+late-callback settlement and independent fatal/failure/catch fail-closed
+notification are preserved. This first-result guard alone is not closed-resource
+admission proof; closed-late ABI/outer composition and task5/final safety remain open.
+The [closed Start late-ABI checkpoint](../evidence/2026-10-06-capture-completion-closed-start-late-progress.md)
+now passes direct GREEN, focused D/R160, both reviews and root replay/cmp/
+receipts. A known retained copy, not a released caller-owned handle, makes the
+real late pointer valid. Both resource admissions remain closed after known
+native release, completed does not reenter and only invocation accounting
+increases. One known-copy retirement precedes normal terminal cleanup; unknown
+effects are never retried. This shared-guard/standalone proof does not claim
+independent action/failure hooks, outer pending-GC/recovery or complete safety.
+The [exited completed ancestry checkpoint](../evidence/2026-10-06-capture-completion-exited-ancestry-progress.md)
+passes direct GREEN, focused D/R161, both reviews and actual root replay/cmp/
+receipts without production changes. Real inherited ExecutionContext retains
+the same actual scope identity after parent ABI Join, but its shared active
+marker is false; it must not falsely reject ordinary child Stop/Dispose as a
+self-join. The parent joins before child release, and both join before raw
+teardown. Full weak collection includes the actual scope. This closes only
+that stale-ancestry behavior, not equivalent matrices, terminal failure
+publication, outer recovery, native faults or complete task5/MCC safety.
+The [fresh terminal/outer contained-fatal checkpoint](../evidence/2026-10-06-capture-completion-fresh-terminal-progress.md)
+passes actual same-test-byte binding RED→GREEN, final focused D/R162, both
+reviews and root replay/cmp/receipts. Real fatal publication precedes managed
+terminal; the fresh production failure read follows both terminal observations.
+Contained diagnosis remains reportable while separately confirmed native
+cleanup permits binding/source/capacity return. Only actual complete proof,
+default false for unknown/legacy owners, qualifies that return; IsDrained and
+exception type do not. Two gate-protected OR publications prevent static proof
+regression, without claiming a new executed concurrency RED. Existing pending
+Stop-copy rejection remains in regression; unknown effects are never retried.
+Outer healthy/pending-GC recovery and full task5/MCC/native/v1 safety remain open.
+The [outer healthy checkpoint](../evidence/2026-10-06-capture-completion-outer-healthy-progress.md)
+then observes confirmed cleanup and binding/source/capacity return on the same
+actual outer path, including weak collection and same-pool reuse. Production
+and unknown-effect policy are unchanged; focused D/R163 and root replay do not
+prove pending-GC recovery, SCK fault containment or full task5/MCC/v1 safety.
+The [outer pending-GC checkpoint](../evidence/2026-10-06-capture-completion-outer-pending-gc-progress.md)
+subsequently proves that Boundary loss does not discard the exact pending graph
+or charge. A default-false real-fact qualification and one isolated recovery join
+the original failed Stop and native/managed lifetimes, then freshly observe full
+cleanup before returning binding/capacity. Known fixture retirement is the only
+extra release; native effects and immutable failure results are not replayed.
+Already-terminal Tasks do not lose qualification to an observation race. Recorded
+disposal failure or unknown primitive/owner/pool effects reject recovery and
+retain the graph; this is only ordinary known-held recovery, not all contained-
+diagnostic-plus-pending combinations. Final focused D/R164, macOS project D/R433,
+both reviews and actual root replay/cmp/receipts are controlled shared-ABI proof,
+not SCK faults, global admission, aggregate/hosted or complete MCC/v1 safety.
+The [final source readiness review](../evidence/2026-10-06-capture-completion-final-local-readiness.md)
+closes finite task5 source coverage only. Its static BlockProbe repair guards
+finally caller/extra release with confirmed ABI-thread Join; an observation
+timeout or Join exception retains those known references and events, then
+reports failure. This prevents the diagnostic tool from treating a watchdog as
+borrow-exit authority, but is not executed fault/timeout-cleanup proof. New
+aggregate, exact-source healthy native and hosted gates remain mandatory.
+The [one-argument Block subgate](../evidence/2026-10-05-capture-completion-native-block-progress.md)
+now has actual local native Debug/Release lifetime observations, original-result
+strict gate validation,259 hostile raw-record CLI fixtures and root replay.
+Two parser rejection gaps have unchanged-test-byte RED→GREEN proof, including
+bounded deep-JSON rejection on Python3.9. This is no SCK/Capture execution,
+native-fault containment or new hosted proof; full MCC obligations stay open.
+Per-shell retention and diagnostic owner counts do not prove global bounded
+Capture admission: the max-16 permit is not yet composed. Delegate=0, Protection
+Unknown and production sharing unavailable remain unchanged. Portable faults,
+finite native lifetime observations and a process watchdog do not prove native
+fault containment, arbitrary SCStream scheduling, physical or v1 acceptance.
+See [ADR0034](../adr/0034-staged-macos-capture-completion.md).
+
+The [final local progress](../evidence/2026-10-06-capture-completion-final-local-progress.md)
+covers final-source local Block and task-owned healthy Capture D/R only. It
+preserves failed aggregate candidate01 and its scanner result. All27 reported
+documentation checksums were matched to actual source artifacts/manifests;
+presentation is corrected without rule/allowlist changes, and a fresh default
+scan remains required. Healthy native observations do not validate sensitive
+windows, secure input, TCC revocation, native fault containment or production
+sharing. Full MCC/MSC/global-admission/hosted/physical/release gates stay open.
+
+Fresh candidate03 subsequently passes default gitleaks with an empty report,
+dependency queries and portable hostile-record/process contracts, without rule
+exemptions. Actual worker/root saved/current replays and corresponding receipts
+match. This verifies only the frozen selected content/query-time dependency
+knowledge and finite local task7; it is not Git-history security clearance,
+native-fault containment or production readiness. Candidate01/02 failures remain
+preserved; new committed-SHA hosted, full MCC/MSC and v1 safety gates stay open.
 
 ## 6. Security state machine rules
 

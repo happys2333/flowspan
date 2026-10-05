@@ -220,6 +220,37 @@ jobs:
           done
           exit "$failed"
 
+      - name: Require actual one-argument macOS completion Block lifetime without capture
+        if: runner.os == 'macOS'
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_root="$RUNNER_TEMP/MacOSBlockEvidence"
+          test -d "$evidence_root"
+          evidence="$evidence_root/capture-completion"
+          test ! -e "$evidence"
+          dll="$PWD/tools/Flowspan.MacOS.BlockProbe/bin/Release/net10.0/Flowspan.MacOS.BlockProbe.dll"
+          if python3 .github/scripts/posix-watchdog.py "$evidence" 45 2 -- dotnet "$dll" --run-capture-completion; then
+            status=0
+          else
+            status=$?
+          fi
+          test -d "$evidence"
+          printf '%q ' dotnet "$dll" --run-capture-completion > "$evidence/command.raw"
+          printf '\n' >> "$evidence/command.raw"
+          printf '%s\n' "$status" > "$evidence/gate.watchdog.exit.raw"
+          test ! -e "$evidence/gate.command.exit.raw"
+          if python3 .github/scripts/macos-capture-completion-block-gate.py "$evidence" "$GITHUB_SHA" > "$evidence/gate.stdout.raw" 2> "$evidence/gate.stderr.raw"; then
+            gate_status=0
+          else
+            gate_status=$?
+          fi
+          printf '%s\n' "$gate_status" > "$evidence/gate.command.exit.raw"
+          cat "$evidence/gate.stdout.raw"
+          cat "$evidence/gate.stderr.raw" >&2
+          exit "$gate_status"
+
       - name: Upload Block probe evidence even on failure
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -354,6 +385,27 @@ jobs:
         run: >-
           bash .github/scripts/test-macos-early-association-gate.sh
           "$RUNNER_TEMP/MacOSEarlyAssociationGateFixtures"
+
+      - name: Exercise strict one-argument completion Block gate fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Windows) python_command=python ;;
+            Linux|macOS) python_command=python3 ;;
+            *) exit 2 ;;
+          esac
+          "$python_command" -B .github/scripts/test-macos-capture-completion-block-gate.py \
+            "$RUNNER_TEMP/MacOSCaptureCompletionBlockGateFixtures"
+
+      - name: Upload one-argument completion Block gate fixtures even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capture-completion-block-gate-${{ runner.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/MacOSCaptureCompletionBlockGateFixtures
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Exercise independent POSIX process watchdog contracts
         if: runner.os != 'Windows'

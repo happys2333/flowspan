@@ -155,6 +155,7 @@ public sealed class MacOSRemoteWindowCaptureBoundary :
         private IMacOSRemoteWindowNativeCapture? nativeCapture;
         private IMacOSRemoteWindowNativeSample? pendingSample;
         private Task? stopCompletion;
+        private Task? knownPendingCleanupRecovery;
         private Task? sourceRetirement;
         private Task? rejectedSampleRelease;
         private MacOSRemoteWindowSampleRetention? retainedFailedSamples;
@@ -593,7 +594,22 @@ public sealed class MacOSRemoteWindowCaptureBoundary :
                     using NativeRemoteWindowDrainActivityScope activity =
                         NativeRemoteWindowDrainActivityScope.Enter(this, new object());
                     invalidation?.Dispose();
-                    nativeCapture?.Dispose();
+                    try
+                    {
+                        nativeCapture?.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        RecordFailure(exception);
+                        // A contained diagnostic does not erase complete native
+                        // cleanup. Unknown/legacy owners provide no such proof,
+                        // so their binding remains held without guessed retry.
+                        if (nativeCapture?.IsCleanupConfirmed != true)
+                        {
+                            StartKnownPendingCleanupRecovery();
+                            throw;
+                        }
+                    }
                     binding.Dispose();
                     sampleReady.Dispose();
                 }
@@ -628,6 +644,65 @@ public sealed class MacOSRemoteWindowCaptureBoundary :
             {
                 signalPending = true;
                 sampleReady.Release();
+            }
+        }
+
+        private void StartKnownPendingCleanupRecovery()
+        {
+            try
+            {
+                if (nativeCapture is null || !nativeCapture.TryGetKnownPendingCleanupJoin(out Task? join) || join is null)
+                {
+                    return;
+                }
+
+                lock (gate)
+                {
+                    knownPendingCleanupRecovery ??= RunIsolated(() => RecoverKnownPendingCleanupAsync(join));
+                }
+            }
+            catch (Exception exception)
+            {
+                // Qualification/join/registration can fail before recovery
+                // owns any work. Preserve the original owner and diagnosis.
+                RecordFailure(exception);
+            }
+        }
+
+        private async Task RecoverKnownPendingCleanupAsync(Task lifetimeJoin)
+        {
+            try
+            {
+                Task originalStop;
+                lock (gate) { originalStop = stopCompletion!; }
+                try { await originalStop.ConfigureAwait(false); }
+                catch (Exception) { }
+
+                // Original StopCompletion remains the same failed receipt.
+                // CleanupAsync never waits on this independent recovery.
+                await lifetimeJoin.ConfigureAwait(false);
+                using NativeRemoteWindowDrainActivityScope activity =
+                    NativeRemoteWindowDrainActivityScope.Enter(this, new object());
+                try { nativeCapture!.Dispose(); }
+                catch (Exception exception)
+                {
+                    RecordFailure(exception);
+                    if (!nativeCapture!.IsCleanupConfirmed) { throw; }
+                }
+
+                if (!nativeCapture!.IsCleanupConfirmed)
+                {
+                    throw new InvalidOperationException("macos_capture_cleanup_unconfirmed");
+                }
+
+                binding.Dispose();
+                sampleReady.Dispose();
+                if (fatalFailure is not null) { ExceptionDispatchInfo.Capture(fatalFailure).Throw(); }
+            }
+            catch (Exception exception)
+            {
+                RecordFailure(exception);
+                throw;
             }
         }
 

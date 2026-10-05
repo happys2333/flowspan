@@ -8,6 +8,9 @@ Default/help do not initialize native code. Unsupported `--run` exits 3 with
 The separate `--run-enumeration` mode uses the actual enumeration orchestration
 and completion owner described below; the original `--run` behavior and result
 line remain unchanged.
+The additional `--run-capture-completion` mode uses the real one-argument
+completion adapter and native Block primitive described below. The existing
+default/help output and both previous native mode result lines remain unchanged.
 
 Build the project separately with isolated artifacts, then execute the DLL in a
 fresh process supervised by an external deadline (GNU `timeout` shown):
@@ -113,3 +116,60 @@ prove all enumeration obligations. A fresh task-owned `NativeCaptureProbe --run`
 is still required as separate healthy SCK regression evidence. Production sharing,
 protection/secure input, global Capture admission, minimum-platform support,
 release readiness and v1 acceptance remain unchanged and unverified.
+
+## One-argument completion lifetime mode
+
+`--run-capture-completion` uses the actual inert
+`MacOSRemoteWindowCaptureCompletion.Create` adapter and its same staged
+`MacOSRemoteWindowBlock` with default native operations. It verifies preparation
+has not attempted any per-operation root/copy effect, then acquires a real
+stack-to-heap Block and checks its exact one-object-argument `v16@?0@8` descriptor.
+A real extra heap-to-heap `_Block_copy` must retain the same physical capture
+without another capture-copy helper entry. The dedicated invoke thread calls
+the saved real one-argument function pointer with one nil, unused object argument.
+
+The callback returns normally and records its completed notification once, but
+the completed observer stays active at a controlled managed gate. Releasing the
+caller's own +1 must leave native retirement and managed drain pending while the
+extra heap retain remains. Releasing the actual last native copy must confirm
+the original root free and native retirement, while the admitted completed
+observer still keeps terminal managed drain pending. Only after the observer
+exits may managed drain complete. The separate dedicated-thread join, not that
+managed task, observes final ABI return. The saved function and the thunk's
+strong managed state local avoid rereading a freed Block; no invocation starts
+after the last release.
+
+Cleanup in `finally` opens the observer gate, joins the task-owned thread and
+attempts each still-owned caller/extra release at most once only after a confirmed
+join (or when no invocation thread was created). If join fails or throws, it
+retains those known references and reports failure; an observation timeout does
+not authorize release of a pointer a late thread may still enter. It does not
+dispose the managed waiting gates without a confirmed join. The helper count is
+observation only; it cannot authorize cleanup or prove retirement.
+
+Run both configurations from the same frozen inputs in separate fresh processes
+with new evidence paths and the external task-process-group watchdog:
+
+```sh
+dotnet restore tools/Flowspan.MacOS.BlockProbe/Flowspan.MacOS.BlockProbe.csproj --locked-mode --artifacts-path /tmp/flowspan-capture-completion-native/artifacts
+dotnet build tools/Flowspan.MacOS.BlockProbe/Flowspan.MacOS.BlockProbe.csproj -c Debug --no-restore --artifacts-path /tmp/flowspan-capture-completion-native/artifacts
+python3 .github/scripts/posix-watchdog.py /tmp/flowspan-capture-completion-native/debug-run01 45 2 -- dotnet /tmp/flowspan-capture-completion-native/artifacts/bin/Flowspan.MacOS.BlockProbe/debug/Flowspan.MacOS.BlockProbe.dll --run-capture-completion
+dotnet build tools/Flowspan.MacOS.BlockProbe/Flowspan.MacOS.BlockProbe.csproj -c Release --no-restore --artifacts-path /tmp/flowspan-capture-completion-native/artifacts
+python3 .github/scripts/posix-watchdog.py /tmp/flowspan-capture-completion-native/release-run01 45 2 -- dotnet /tmp/flowspan-capture-completion-native/artifacts/bin/Flowspan.MacOS.BlockProbe/release/Flowspan.MacOS.BlockProbe.dll --run-capture-completion
+```
+
+These are invocation examples, not claimed results. Preserve command/cwd,
+stdout/stderr/exit and before/after source/runtime inventories. Require the
+fixed `capture_completion_block_probe=pass` record, exit 0, empty stderr and
+successful watchdog terminal facts. Unsupported hosts return a separate skip
+with exit 3 and `native_pass=false`; a skip or deadline is not a native pass.
+
+This mode is a healthy task-owned one-argument Block lifetime observation only.
+It does not create a Capture, call SCK/AppKit/TCC, inspect screen pixels, prompt
+for permissions, use input/network APIs or inject native faults. The adapter
+name does not imply actual SCStream Start/Stop orchestration or Capture cleanup
+acceptance. A separately frozen `NativeCaptureProbe --run` Debug/Release remains
+required for healthy task-owned SCK regression. Neither mode proves arbitrary
+future native-copy scheduling, native fault containment, protection/secure input,
+global Capture admission, physical LAN, minimum-OS/Intel/arm64e support,
+production sharing, release readiness, full MCC/MSC or v1 acceptance.

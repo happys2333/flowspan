@@ -15,10 +15,15 @@
 - [x] 3.2 Freeze/review the cleanup-confirmation repair in new local stages;
   preserve all 2951 identities and the failed `f73f5fc` hosted evidence.
   - _Requirements: HRR4-HRR5_
-- [ ] 4. Commit/push the implementation branch and independently verify fresh
+- [x] 4. Commit/push the implementation branch and independently verify fresh
   exact-SHA all-OS CI/CodeQL, complete artifacts and root saved-data replay.
   - _Requirements: HRR4, MEP8_
 
 Local tasks1–3.2 are backed by the
 [repair evidence](../../../docs/evidence/2026-10-05-enumeration-hosted-gates.md).
-Task4 and overall HRR/MEP acceptance remain open until fresh hosted verification.
+Task4 and the finite HRR repair are accepted at exact `1ab2511`: CI37289212862
+and CodeQL37289212735 pass; each OS has12 TRX/2951 Passed with no non-success
+items and identical qualified identities. Complete independent artifact/source/
+package auditing and actual root saved-data replay pass. The frozen report is
+`HOSTED_SCOPE_GATES_PASSED_NOT_V1`; MEP's full task reconciliation, subsequent
+MCC/MSC, native production, physical/release and v1/Goal gates remain separate.
