@@ -2675,6 +2675,26 @@ CodeQL's reported447/447 is aggregate coverage, not a per-file extractor invento
 See the [hosted checkpoint](../evidence/2026-10-05-source-producer-hosted-checkpoint.md)
 for source/artifact bindings and remaining enumeration/native boundaries.
 
+### Enumeration-producer ownership (MEP1-MEP8, portable progress)
+
+First run `EnumerationContentRetainAfterEffectFaultKeepsBatchDebt` through the
+actual EnumerateCoreAsync with only external effects replaced. A retain produces
++1 then throws nested OOM; original batch charge and complete graph must remain
+after settlement/GC, with the original fatal and zero guessed content releases.
+Save a real seam-only behavior RED before changing the algorithm. Follow with
+exact-context/reentrant settlement, healthy return, duplicate/concurrent/late
+callback, dispatch/pool and independent cleanup tracers. Native completion
+factory/Block primitive and physical native-copy retirement have separate
+required proof; controlled completion IsReleased is not native drain.
+Final D/R/native and fresh exact-SHA hosted gates are not inherited from `5f62eb8`.
+Actual stages02→22 preserve ten scoped behavioral RED→GREEN pairs; the final
+focused Debug inventory is12 executed Passed cases. Compile-only candidates01
+(CA1001) and05(CA2219) remain separate. The overlap tracer holds the admitted
+invocation before its completion observer and exits a duplicate first; no content
+cleanup may occur until the admitted invocation exits. This is a portable first
+idle-boundary contract, not proof of final native ABI return or native-copy drain.
+See the [enumeration plan](../../specs/v1/native-remote-window/macos-enumeration-producer/tasks.md).
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source

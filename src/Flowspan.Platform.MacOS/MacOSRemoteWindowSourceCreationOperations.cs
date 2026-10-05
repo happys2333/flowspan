@@ -40,6 +40,14 @@ internal sealed class MacOSRemoteWindowSourceCreationContext
 
     internal void Close() => Volatile.Write(ref closed, 1);
 
+    internal void FailEnumeration(MacOSRemoteWindowEnumerationOwnershipLedger ledger,
+        Exception failure)
+    {
+        Close();
+        if (!Pool.FailEnumeration(ledger)) { return; }
+        owner.RecordProducerFailure(failure);
+    }
+
     internal void Fail(MacOSRemoteWindowSourceCreationLedger ledger, Exception failure,
         IMacOSRemoteWindowNativeSource? native = null)
     {

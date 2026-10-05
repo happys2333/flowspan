@@ -121,6 +121,33 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         }
     }
 
+    internal void PrepareEnumeration(MacOSRemoteWindowEnumerationOwnershipLedger ledger)
+    {
+        lock (gate)
+        {
+            BatchRecord batch = ledger.Context.Batch;
+            if (batch.Owner is null || batch.Failed || ledger.Context.IsClosed
+                || !ReferenceEquals(batch.Context, ledger.Context)
+                || batch.Enumeration is not null)
+            {
+                throw new InvalidOperationException("macos_source_enumeration_admission_closed");
+            }
+            batch.Enumeration = ledger;
+        }
+    }
+
+    internal bool FailEnumeration(MacOSRemoteWindowEnumerationOwnershipLedger ledger)
+    {
+        lock (gate)
+        {
+            BatchRecord batch = ledger.Context.Batch;
+            if (!ReferenceEquals(batch.Context, ledger.Context)
+                || !ReferenceEquals(batch.Enumeration, ledger)) { return false; }
+            batch.Failed = true;
+            return true;
+        }
+    }
+
     internal bool FailCreation(MacOSRemoteWindowSourceCreationLedger ledger,
         IMacOSRemoteWindowNativeSource? native)
     {
@@ -248,6 +275,13 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         {
             if (context is not null && !ReferenceEquals(batch.Context, context)) { return; }
             if (batch.Failed) { return; }
+            if (batch.Enumeration is { IsContentLifecycleEnded: false })
+            {
+                // Reentrant settlement closes new work, but cannot detach
+                // the original graph while content effects are in flight.
+                batch.Context?.Close();
+                return;
+            }
             CatalogRecord owner = batch.Owner!;
             for (int index = 0; index < batch.Slots.Length; index++)
             {
@@ -265,6 +299,7 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
             batch.KnownSourceCount = 0;
             batch.Context?.Close();
             batch.Context = null;
+            batch.Enumeration = null;
             batch.Owner = null;
             owner.BatchCount--;
             TryReturnCatalog(owner);
@@ -359,6 +394,7 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         internal IReadOnlyList<IMacOSRemoteWindowNativeSource>? Original;
         internal bool Failed;
         internal MacOSRemoteWindowSourceCreationContext? Context;
+        internal MacOSRemoteWindowEnumerationOwnershipLedger? Enumeration;
         internal SourceRecord?[] Slots { get; } = new SourceRecord?[NativeRemoteWindowSourceRegistry.MaximumSources];
         internal IMacOSRemoteWindowNativeSource[] KnownSources { get; } =
             new IMacOSRemoteWindowNativeSource[NativeRemoteWindowSourceRegistry.MaximumSources];

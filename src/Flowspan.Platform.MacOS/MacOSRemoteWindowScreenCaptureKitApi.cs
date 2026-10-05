@@ -45,83 +45,123 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         return EnumerateCoreAsync(context);
     }
 
-    private async ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateCoreAsync(
-        MacOSRemoteWindowSourceCreationContext context)
+    private ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateCoreAsync(
+        MacOSRemoteWindowSourceCreationContext context) =>
+        EnumerateCoreAsync(context, new NativeEnumerationOperations(this));
+
+    internal static ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateWithOperations(
+        MacOSRemoteWindowSourceCreationContext context,
+        IMacOSRemoteWindowEnumerationOperations operations)
     {
-        if (!PreflightCaptureAccess() || !HasExistingApplication())
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(operations);
+        return EnumerateCoreAsync(context, operations);
+    }
+
+    internal static ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateDirectWithOperations(
+        MacOSRemoteWindowSourceOwnershipPool ownershipPool,
+        IMacOSRemoteWindowEnumerationOperations operations)
+    {
+        ArgumentNullException.ThrowIfNull(ownershipPool);
+        ArgumentNullException.ThrowIfNull(operations);
+        return WithDirectCreationContextAsync(ownershipPool,
+            context => EnumerateCoreAsync(context, operations));
+    }
+
+    private static async ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateCoreAsync(
+        MacOSRemoteWindowSourceCreationContext context,
+        IMacOSRemoteWindowEnumerationOperations operations)
+    {
+        if (!operations.PreflightCaptureAccess() || !operations.HasExistingApplication())
         {
             return [];
         }
 
-        Runtime runtime = NativeRuntime.Value;
+        var ownership = new MacOSRemoteWindowEnumerationOwnershipLedger(context, operations);
+        context.Pool.PrepareEnumeration(ownership);
+        operations.InitializeRuntime();
         var completion = new TaskCompletionSource<nint>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var callbackExited = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         OutOfMemoryException? callbackFatal = null;
         var failure = new InvalidOperationException("macOS source enumeration unavailable.");
-        using var block = MacOSRemoteWindowBlock.Create((content, error) =>
+        using var block = operations.CreateCompletion((content, error) =>
         {
+            ownership.EnterInvocation();
+            if (!ownership.TryAdmitCallback()) { return; }
             if (error != 0 || content == 0)
             {
                 completion.TrySetException(failure);
                 return;
             }
 
-            nint owner = N.objc_retain(content);
+            ownership.BorrowedContent = content;
+            ownership.ContentRetainAttempted = true;
+            nint owner = operations.RetainContent(content);
+            if (owner == 0 || owner != content)
+            {
+                throw failure;
+            }
+            ownership.ContentOwner = owner;
+            ownership.ContentRetainConfirmed = true;
             if (!completion.TrySetResult(owner))
             {
-                N.objc_release(owner);
+                operations.ReleaseContent(owner);
             }
         }, exception =>
         {
+            ownership.Failure ??= exception;
+            context.FailEnumeration(ownership, exception);
             if (FindFatal(exception) is { } fatal)
             {
                 Interlocked.CompareExchange(ref callbackFatal, fatal, null);
             }
 
             completion.TrySetException((Exception?)callbackFatal ?? failure);
-        }, () => callbackExited.TrySetResult(true));
+        }, ownership.ExitInvocation);
+        ownership.Completion = block;
 
-        nint pool = N.objc_autoreleasePoolPush();
+        nint pool = operations.PushAutoreleasePool();
         try
         {
             // This API can prompt when permission is absent; the prompt-free
             // preflight is repeated immediately before its sole invocation.
-            if (!PreflightCaptureAccess())
+            if (!operations.PreflightCaptureAccess())
             {
                 return [];
             }
 
-            N.Enumerate(runtime.ShareableClass,
-                N.Sel("getShareableContentExcludingDesktopWindows:onScreenWindowsOnly:completionHandler:"),
-                1, 1, block.Pointer);
+            operations.Dispatch(block.Pointer);
         }
         finally
         {
-            N.objc_autoreleasePoolPop(pool);
+            operations.PopAutoreleasePool(pool);
         }
 
         nint contentOwner = 0;
         List<IMacOSRemoteWindowNativeSource>? sources = null;
+        Exception? bodyFailure = null;
+        Exception? contentCleanupFailure = null;
+        Exception? poolCleanupFailure = null;
+        Exception? sourceCleanupFailure = null;
+        OutOfMemoryException? sourceCleanupFatal = null;
         pool = 0;
         try
         {
             contentOwner = await completion.Task.ConfigureAwait(false);
-            await callbackExited.Task.ConfigureAwait(false);
+            await ownership.InvocationsExited.ConfigureAwait(false);
             if (Volatile.Read(ref callbackFatal) is { } fatal)
             {
                 ExceptionDispatchInfo.Capture(fatal).Throw();
             }
 
-            pool = N.objc_autoreleasePoolPush();
+            pool = operations.PushAutoreleasePool();
             sources = [];
-            nint windows = N.Send0(contentOwner, N.Sel("windows"));
-            nuint count = Math.Min(N.GetNUInt(windows, N.Sel("count")), MaximumSources);
+            nint windows = operations.GetWindows(contentOwner);
+            nuint count = Math.Min(operations.GetWindowCount(windows), MaximumSources);
             for (nuint index = 0; index < count; index++)
             {
-                nint window = N.SendIndex(windows, N.Sel("objectAtIndex:"), index);
-                NativeSource? source = CreateSource(runtime, window, context);
+                nint window = operations.GetWindow(windows, index);
+                NativeSource? source = CreateSourceCore(window, operations.SourceCreationOperations, context);
                 if (source is not null)
                 {
                     try
@@ -136,42 +176,78 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 }
             }
 
-            return sources;
         }
         catch (Exception exception)
         {
-            await callbackExited.Task.ConfigureAwait(false);
-            if (sources is not null)
-            {
-                foreach (IMacOSRemoteWindowNativeSource source in sources)
-                {
-                    source.Dispose();
-                }
-            }
+            bodyFailure = exception;
+            context.Close();
+            await ownership.InvocationsExited.ConfigureAwait(false);
 
             if (Volatile.Read(ref callbackFatal) is { } fatal)
             {
-                ExceptionDispatchInfo.Capture(fatal).Throw();
+                bodyFailure = fatal;
             }
-
-            if (FindFatal(exception) is { } capturedFatal)
+            else if (FindFatal(exception) is { } capturedFatal)
             {
-                ExceptionDispatchInfo.Capture(capturedFatal).Throw();
+                bodyFailure = capturedFatal;
             }
-
-            throw;
         }
         finally
         {
             if (contentOwner != 0)
             {
-                N.objc_release(contentOwner);
+                ownership.ContentReleaseAttempted = true;
+                try
+                {
+                    operations.ReleaseContent(contentOwner);
+                    ownership.ContentReleaseConfirmed = true;
+                }
+                catch (Exception exception)
+                {
+                    ownership.Failure ??= exception;
+                    context.FailEnumeration(ownership, exception);
+                    contentCleanupFailure = exception;
+                }
             }
             if (pool != 0)
             {
-                N.objc_autoreleasePoolPop(pool);
+                try { operations.PopAutoreleasePool(pool); }
+                catch (Exception exception)
+                {
+                    ownership.Failure ??= exception;
+                    context.FailEnumeration(ownership, exception);
+                    poolCleanupFailure = exception;
+                }
             }
         }
+        if ((bodyFailure is not null || contentCleanupFailure is not null || poolCleanupFailure is not null)
+            && sources is not null)
+        {
+            foreach (IMacOSRemoteWindowNativeSource source in sources)
+            {
+                try { source.Dispose(); }
+                catch (Exception exception)
+                {
+                    sourceCleanupFailure ??= exception;
+                    sourceCleanupFatal ??= FindFatal(exception);
+                }
+            }
+        }
+        ownership.EndContentLifecycle();
+        OutOfMemoryException? selectedFatal = bodyFailure is null ? null : FindFatal(bodyFailure);
+        selectedFatal ??= contentCleanupFailure is null ? null : FindFatal(contentCleanupFailure);
+        selectedFatal ??= poolCleanupFailure is null ? null : FindFatal(poolCleanupFailure);
+        selectedFatal ??= sourceCleanupFatal;
+        if (selectedFatal is not null)
+        {
+            ExceptionDispatchInfo.Capture(selectedFatal).Throw();
+        }
+        if (bodyFailure is not null || contentCleanupFailure is not null
+            || poolCleanupFailure is not null || sourceCleanupFailure is not null)
+        {
+            throw failure;
+        }
+        return sources ?? throw failure;
     }
 
     public bool IsCurrent(IMacOSRemoteWindowNativeSource source)
@@ -267,12 +343,6 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         nint appKit = NativeLibrary.Load(N.AppKit);
         return NativeLibrary.TryGetExport(appKit, "NSApp", out nint pointer)
             && Marshal.ReadIntPtr(pointer) != 0;
-    }
-
-    private NativeSource? CreateSource(Runtime runtime, nint window,
-        MacOSRemoteWindowSourceCreationContext context)
-    {
-        return CreateSourceCore(window, new NativeSourceCreationOperations(this, runtime), context);
     }
 
     internal static IMacOSRemoteWindowNativeSource? CreateSourceWithOperations(
@@ -573,6 +643,49 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             NativeRemoteWindowGeometry geometry) => api.PreflightCaptureAccess()
                 && N.GetFloat(filter, N.Sel("pointPixelScale")) == geometry.ScaleFactor
                 && CheckWindowInfo(NativeRuntime.Value, identity, geometry);
+    }
+
+    private sealed class NativeEnumerationOperations(MacOSRemoteWindowScreenCaptureKitApi api)
+        : IMacOSRemoteWindowEnumerationOperations
+    {
+        private Runtime? runtime;
+        public bool PreflightCaptureAccess() => api.PreflightCaptureAccess();
+        public bool HasExistingApplication() => MacOSRemoteWindowScreenCaptureKitApi.HasExistingApplication();
+        public void InitializeRuntime() => runtime = NativeRuntime.Value;
+        public IMacOSRemoteWindowEnumerationCompletion CreateCompletion(
+            Action<nint, nint> action, Action<Exception> failure, Action completed) =>
+            new NativeEnumerationCompletion(action, failure, completed);
+        public nint PushAutoreleasePool() => N.objc_autoreleasePoolPush();
+        public void PopAutoreleasePool(nint pool) => N.objc_autoreleasePoolPop(pool);
+        public void Dispatch(nint completion) => N.Enumerate(runtime!.ShareableClass,
+            N.Sel("getShareableContentExcludingDesktopWindows:onScreenWindowsOnly:completionHandler:"),
+            1, 1, completion);
+        public nint RetainContent(nint content) => N.objc_retain(content);
+        public void ReleaseContent(nint content) => N.objc_release(content);
+        public nint GetWindows(nint content) => N.Send0(content, N.Sel("windows"));
+        public nuint GetWindowCount(nint windows) => N.GetNUInt(windows, N.Sel("count"));
+        public nint GetWindow(nint windows, nuint index) =>
+            N.SendIndex(windows, N.Sel("objectAtIndex:"), index);
+        public IMacOSRemoteWindowSourceCreationOperations SourceCreationOperations =>
+            new NativeSourceCreationOperations(api, runtime!);
+    }
+
+    private sealed class NativeEnumerationCompletion : IMacOSRemoteWindowEnumerationCompletion
+    {
+        private readonly MacOSRemoteWindowBlock block;
+
+        internal NativeEnumerationCompletion(
+            Action<nint, nint> action, Action<Exception> failure, Action completed)
+        {
+            // This provisional seam only adapts the existing primitive. It does
+            // not contain a Block factory owner lost before Create returns.
+            block = MacOSRemoteWindowBlock.Create(action, failure, completed);
+        }
+
+        public nint Pointer => block.Pointer;
+        public bool IsReleased => block.IsReleased;
+        public Exception? FirstFailure => block.FirstFailure;
+        public void Dispose() => block.Dispose();
     }
 
     private sealed class NativeSourceCreationOperations(

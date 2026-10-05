@@ -2158,6 +2158,25 @@ Controlled-effect ownership, selected healthy local native regression and exact
 Enumeration content/Block/callback and query-internal resource faults remain
 separate. See [ADR0032](../adr/0032-pre-reserved-macos-source-producer.md).
 
+### macOS enumeration producer (MEP1-MEP8, partial portable implementation)
+
+For T13, retained enumeration content, dispatch-copied native completion and
+autorelease-pool effects can remain uncertain before their results are assigned.
+The full enumeration graph must be rooted by its original bounded batch before
+those effects; a first callback exit, empty result or outer Block wrapper is not
+complete ownership/drain proof. Duplicate/late callbacks must not create further
+retain debt. Independently confirmed cleanup is selected once outside gates;
+unknown effects remain charged, and original fatal identity survives later
+cleanup faults. Actual native Block factory and native-copy retirement remain
+required acceptance within this slice, not a passing controlled-effect result.
+The portable content path now preattaches its exact ledger, retains unknown
+content debt, rejects additional result acquisition and independently collects
+content/pool/source cleanup failures. Ten actual behavioral RED→GREEN pairs
+cover these scoped branches. Its callback counter's first idle boundary still
+does not prove native-copy retirement or exclude later ABI entry. Dispatch,
+factory/primitive and complete lifetime acceptance remain open. See
+[ADR0033](../adr/0033-bounded-macos-enumeration-producer.md).
+
 ## 6. Security state machine rules
 
 - `Discovered` is never equivalent to `Paired`.

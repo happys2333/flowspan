@@ -106,6 +106,19 @@ passes CI/CodeQL, matching three-OS12-TRX/2888 inventories and root replay.
 Producer tasks1–5 close only this bounded initial CreateSource prerequisite.
 Initial enumeration content/Block/callback obligations, nonzero delegate,
 global admission, production sharing, native/physical/release and Goal stay open.
+The next [enumeration-producer ownership slice](native-remote-window/macos-enumeration-producer/tasks.md)
+now starts with a real content-retain after-effect tracer and a thin system
+effects seam. Its full acceptance includes native completion factory/Block and
+callback lifetime; content-only progress cannot close that prerequisite.
+Ten actual portable RED→GREEN pairs now cover content uncertainty, reentrant
+settlement, invalid retain returns, fatal priority, one-result admission,
+context closure and independent source/pool cleanup. Focused Debug passes12;
+the current invocation join is only a first idle boundary, not native retirement.
+The complete enumeration tasks and fresh native/hosted gates remain open.
+Its [local portable checkpoint](../../docs/evidence/2026-10-05-enumeration-content-progress.md)
+now passes project D/R329 each, complete solution D/R2900 each,120 Release
+repeat executions and quality gates, with exact baseline retention and root
+saved-data replay. This progress still closes only enumeration task1.
 
 ## 0. Product and engineering baseline
 
