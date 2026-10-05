@@ -1,9 +1,10 @@
 # macOS initial source-producer ownership
 
-Status: approved v1 fail-closed baseline; implementation/local verification
-complete, fresh hosted gates pending after the
-SourceEntry/Catalog checkpoint `3aa099b`. Fresh hosted verification of that
-earlier checkpoint passes separately, not for this new work. Trace: NR8/NR10, MSC6/MSC9.
+Status: approved v1 fail-closed baseline; scoped implementation/local and fresh
+exact `5f62eb8` hosted verification complete. See the
+[hosted checkpoint](../../../../docs/evidence/2026-10-05-source-producer-hosted-checkpoint.md).
+This does not inherit the earlier SourceEntry/Catalog `3aa099b` outcome or close
+enumeration/native composition. Trace: NR8/NR10, MSC6/MSC9.
 
 As a source host, I need initial source creation to keep partial native ownership
 durably charged even when an acquisition effect throws before its return value

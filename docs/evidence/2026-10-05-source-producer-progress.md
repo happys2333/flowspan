@@ -1,14 +1,16 @@
 # Initial source-producer — staged behavioral evidence
 
-Status: implementation and final local verification complete; fresh exact-SHA
-hosted gates pending. Catalog production
+Status: implementation, final local and exact `5f62eb8` hosted verification
+complete; see the [hosted checkpoint](2026-10-05-source-producer-hosted-checkpoint.md).
+Catalog production
 enumeration now forwards its bounded context; real NativeSource is rooted before
 return and hands the same record to SourceEntry. Stable context/token checks
 protect batch reuse and late cleanup. Finite direct no-context envelopes and the
 scoped allocation/initialization/cleanup matrix now pass38 controlled-effect
 cases. Final local project D/R passes317 cases; solution D/R passes2888.
-Selected new task-owned macOS native D/R passes separately. These are not fresh
-hosted/MSP acceptance, production-sharing or v1 completion.
+Selected new task-owned macOS native D/R passes separately. The staged records
+below are local evidence; fresh hosted evidence is separate. Neither is
+production-sharing or v1 completion.
 
 Base checkpoint: `3aa099becb579395ee150eac65fbe4d8c7838c5c`.
 Specification: `specs/v1/native-remote-window/macos-source-producer/`;
@@ -206,6 +208,7 @@ host only. Global enumeration metadata, preflight/TCC TOCTOU, same-process
 window-ID ABA, secure-input/protection, whole native fault containment, content/
 Block/callback obligations, physical devices, all-OS native execution, production
 UI and signing/release remain open. Delegate=0 and Protection Unknown remain.
-Tasks1–4 close locally; task5 requires new exact-SHA CI/CodeQL and independently
-downloaded complete inventories. The complete MSP slice, MSC9, v1 and Goal do
-not close yet.
+At this local freeze tasks1–4 close; task5 still requires new exact-SHA CI/CodeQL
+and independently downloaded complete inventories. Subsequent `5f62eb8`
+[hosted verification](2026-10-05-source-producer-hosted-checkpoint.md) now passes
+and closes task5/MSP only. MSC9, v1 and Goal do not close.

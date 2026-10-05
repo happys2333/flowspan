@@ -1,13 +1,13 @@
 # ADR 0032: Pre-reserved macOS initial source producer
 
-- Status: accepted for staged implementation; verification pending
+- Status: accepted; scoped local and exact `5f62eb8` hosted verification complete
 - Date: 2026-10-05
 - Requirements: MSP1-MSP6; NR8/NR10; MSC6/MSC9 prerequisites
 
 ## Context
 
-CreateSource currently combines filter alloc/init, then assigns the initial
-window retain return value before constructing NativeSource. A native effect
+At entry to this slice CreateSource combined filter alloc/init, then assigned
+the initial window retain return value before constructing NativeSource. A native effect
 may change ownership and throw before assignment. Catalog cannot retain that
 unreturned owner, and a local finally/raw address is not durable uncertainty
 accounting. Adding another unlimited quarantine would hide rather than bound it.
@@ -57,3 +57,5 @@ no Deskflow implementation or new production dependency is introduced. See
 [requirements](../../specs/v1/native-remote-window/macos-source-producer/requirements.md),
 [design](../../specs/v1/native-remote-window/macos-source-producer/design.md)
 and [tasks](../../specs/v1/native-remote-window/macos-source-producer/tasks.md).
+See the separate [hosted checkpoint](../evidence/2026-10-05-source-producer-hosted-checkpoint.md)
+for the exact verification scope and remaining enumeration/native boundaries.

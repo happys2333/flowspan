@@ -100,8 +100,10 @@ now completes same-record producer/source/entry handoff, finite direct envelopes
 and the scoped alloc/init/cleanup contracts in ADR0032. Final focused/project
 D/R pass38/317; complete solutions each pass2888 with12 TRX and all2850 baseline
 identities retained. Single-layer review, root saved-data audits, required local
-quality gates and new selected healthy task-owned macOS D/R pass. Fresh exact-
-SHA all-OS CI/CodeQL remains pending, so only local producer tasks1–4 close.
+quality gates and new selected healthy task-owned macOS D/R pass. Fresh exact
+`5f62eb8` [hosted verification](../../docs/evidence/2026-10-05-source-producer-hosted-checkpoint.md)
+passes CI/CodeQL, matching three-OS12-TRX/2888 inventories and root replay.
+Producer tasks1–5 close only this bounded initial CreateSource prerequisite.
 Initial enumeration content/Block/callback obligations, nonzero delegate,
 global admission, production sharing, native/physical/release and Goal stay open.
 

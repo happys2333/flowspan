@@ -16,7 +16,7 @@
 - [x] 4. Final frozen local D/R, complete qualified inventories, review, evidence
   replay and selected healthy task-owned native regression.
   - _Requirements: MSP6_
-- [-] 5. Commit/push implementation branch; verify fresh exact-SHA all-OS
+- [x] 5. Commit/push implementation branch; verify fresh exact-SHA all-OS
   CI/CodeQL and independently audit downloaded evidence.
   - _Requirements: MSP6_
 
@@ -46,7 +46,7 @@ confirmed-owner cleanup and rejected/query-failed candidates. Valid38/39,
 analyzer correction candidate, not behavioral RED. Standards and Spec review
 have no remaining implementation finding after the direct diagnosis correction;
 final-source D/R/native verification subsequently passes as recorded below;
-exact-new-SHA hosted gates remain open.
+at that local checkpoint exact-new-SHA hosted gates remain open.
 Stages54–57 are pre-diagnosis-correction progress, not final-source evidence.
 
 Final63–68 pass focused D/R38, project D/R317 and complete solution D/R2888
@@ -55,7 +55,16 @@ complete D/R inventories match and750-file source/runtime manifests replay.
 Root executes the immutable v2 audit, exit0/violations=[]; locked restore,
 format verify and diff check also exit0. New69/70 native tool builds and selected
 actual task-owned healthy macOS D/R each pass; root read-only native replay
-matches. Only local task4 closes. Fresh hosted task5 and all broader gates stay.
+matches. At that local freeze only task4 closes; the fresh hosted result follows.
+
+Exact implementation `5f62eb8` CI37263429713 and CodeQL37263429746 succeed.
+Downloaded three-OS archives each contain12 TRX/2888 Passed; full inventories
+match local final D/R, with all2850 prior and38 producer identities retained.
+Root actually replays the frozen hosted audit, exit0/violations=[], identical
+to its immutable report. Source archive Git-tree,14 downloaded artifact digests,
+job logs and exact analysis/SARIF bindings pass. CodeQL's reported447/447 is an
+aggregate, not per-file extractor proof. Only task5 and this prerequisite close;
+see [hosted checkpoint](../../../../docs/evidence/2026-10-05-source-producer-hosted-checkpoint.md).
 
 SourceEntry/Catalog `3aa099b` now has its own closed local/hosted tasks1–4.
 Neither slice closes content/Block/dispatch/callback ownership, global native

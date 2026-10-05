@@ -246,6 +246,13 @@ implementation convenience.
   nonzero delegate, protection/input, physical Devices and release gates remain
   open; no release criterion closes.
 
+- [2026-10-05 initial source producer](../evidence/2026-10-05-source-producer-hosted-checkpoint.md):
+  exact `5f62eb8` CI/CodeQL pass with matching local D/R and three-OS
+  12-TRX/2888 inventories,38 added managed producer cases, actual healthy local
+  task-owned macOS D/R and root replays. Only this ownership prerequisite closes.
+  Enumeration content/Block/callback, nonzero delegate, production sharing and
+  physical/release gates remain open; no release criterion closes.
+
 Portable/headless/hosted results and selected task-owned native smoke evidence
 have different scopes. None satisfies the full physical-device, native
 permission/protection/hardware, signed or

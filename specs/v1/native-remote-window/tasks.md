@@ -1491,8 +1491,12 @@
     20-process/340-case normal pressure and selected actual task-owned macOS
     native regression in both configurations; see
     [local evidence](../../../docs/evidence/2026-10-05-macos-capture-system-boundary.md).
-    Fresh exact-source hosted verification is pending. No nonzero delegate or
-    production sharing was enabled; existing cleanup gate/retry debts remain.
+    That boundary and the subsequent cleanup/NativeSource/SourceEntry
+    prerequisites now have separate local/hosted checkpoints. The latest
+    [initial source-producer checkpoint](../../../docs/evidence/2026-10-05-source-producer-hosted-checkpoint.md)
+    passes exact `5f62eb8` CI/CodeQL and three-OS2888-case inventories with root
+    replay. No nonzero delegate or production sharing was enabled; enumeration
+    content/Block/callback and complete native admission/cleanup remain open.
   - Implement prompt-free screen-capture and Accessibility facts, explicit TCC
     requests, secure-input observation, exact source enumeration, and generation
     leases through documented CoreGraphics, ApplicationServices, and

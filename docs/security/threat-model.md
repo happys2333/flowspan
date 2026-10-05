@@ -2138,7 +2138,7 @@ global admission closure of existing Captures. See the
 [hosted checkpoint](../evidence/2026-10-05-source-entry-hosted-checkpoint.md), plus
 [ADR 0031](../adr/0031-bounded-macos-source-entry-ownership.md).
 
-### Initial CreateSource producer (MSP1-MSP6, implementation; final gates pending)
+### Initial CreateSource producer (MSP1-MSP6, scoped local/hosted verified)
 
 For T13, a filter allocation/initialization or initial window retain may change
 ownership then throw before assignment/NativeSource construction. A catalog
@@ -2153,8 +2153,9 @@ poison a reused batch. Ordinary direct body failures expose a preallocated
 bounded diagnosis with no inner exception; original fatal identity remains.
 Init-family normal return explicitly consumes the receiver and owns only the
 returned nonzero self; nil allocation skips init, and throw leaves uncertainty.
-This is controlled-effect progress, not completed verification;
-enumeration content/Block/callback and query-internal resource faults remain
+Controlled-effect ownership, selected healthy local native regression and exact
+`5f62eb8` hosted verification pass; this is not whole native fault containment.
+Enumeration content/Block/callback and query-internal resource faults remain
 separate. See [ADR0032](../adr/0032-pre-reserved-macos-source-producer.md).
 
 ## 6. Security state machine rules

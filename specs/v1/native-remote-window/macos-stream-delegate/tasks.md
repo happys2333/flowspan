@@ -168,11 +168,13 @@
         Start, global-fault admission and managed retirement on the same Capture.
         Prerequisite: [source-entry ownership](../macos-source-entry-ownership/tasks.md)
         closes the late catalog-binding failure and pre-reserved durable roots;
-        initial native producer acquisition remains subsequent separate work.
-        [Initial CreateSource work](../macos-source-producer/tasks.md) has a
-        now has locally verified bounded same-record/direct ownership,38
+        initial producer acquisition has its separate checkpoint below, while
+        enumeration ownership remains unresolved.
+        [Initial CreateSource work](../macos-source-producer/tasks.md) now has
+        verified bounded same-record/direct ownership,38
         producer cases and complete D/R2888-case solutions plus new selected
-        healthy macOS native D/R. Fresh exact-SHA hosted gates remain pending;
+        healthy macOS native D/R. Fresh exact `5f62eb8` CI/CodeQL and matching
+        three-OS2888 inventories pass with root replay;
         it does not include enumeration content/Block/callback ownership or
         close this nonzero-delegate composition task.
       - [ ] 3b.2c Implement the bounded process native bridge/tag runtime and

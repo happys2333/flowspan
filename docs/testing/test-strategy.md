@@ -2648,7 +2648,7 @@ The catalog cannot retain a native owner lost inside CreateSource/EnumerateAsync
 before producer return; those entry faults and global runtime admission stay
 separate. See [source-entry specification](../../specs/v1/native-remote-window/macos-source-entry-ownership/requirements.md).
 
-### Initial source-producer tests (MSP1-MSP6, implementation; final gates pending)
+### Initial source-producer tests (MSP1-MSP6, scoped local/hosted verified)
 
 Extract only external effects from the same production CreateSource path. First
 save an actual after-effect initial window-retain RED with confirmed filter,
@@ -2669,6 +2669,11 @@ Direct ordinary failures must expose only the bounded diagnosis, while fatal
 identity remains. Compiler/analyzer corrections and superseded freezes are
 preserved and excluded from behavioral RED or final-source claims.
 See the [producer plan](../../specs/v1/native-remote-window/macos-source-producer/tasks.md).
+Final local D/R and exact `5f62eb8` downloaded three-OS inventories each pass2888
+with all38 producer cases; root's offline hosted replay matches its frozen report.
+CodeQL's reported447/447 is aggregate coverage, not a per-file extractor inventory.
+See the [hosted checkpoint](../evidence/2026-10-05-source-producer-hosted-checkpoint.md)
+for source/artifact bindings and remaining enumeration/native boundaries.
 
 Core invariants are asserted after every event:
 
