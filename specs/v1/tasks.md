@@ -148,6 +148,16 @@ The repair now has actual behavioral RED/GREEN, frozen solution D/R each
 12 TRX/2951 Passed, exact retention of2948 baseline identities plus3 Facts,
 locked quality gates and root saved/current replays. Deadline defaults and
 production sharing remain unchanged; fresh hosted verification is still open.
+The subsequent exact `f73f5fc` CI fails one existing Windows cleanup-confirmation
+fixture; Linux/macOS each pass2951 and CodeQL succeeds. Complete available
+failure evidence is preserved. HRR5 now tracks the fixture's independent blocking
+workers and unchanged observations; that failure required a new local freeze
+and hosted checkpoint before HRR/MEP acceptance.
+The test-only repair now has controlled-scheduling differential evidence, all
+original assertions/budgets, final focused/repeat gates and0 unresolved static
+review findings. Fresh frozen solution D/R again pass2951/12 TRX, retaining all
+2951 identities without additions; quality and root saved/current replays pass.
+Only HRR local tasks3.1–3.2 close; new exact-SHA hosted verification stays open.
 
 ## 0. Product and engineering baseline
 

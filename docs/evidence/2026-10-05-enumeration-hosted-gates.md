@@ -1,6 +1,7 @@
 # Enumeration hosted gates and regression repair — 2026-10-05
 
-Status: local repair/gates complete; fresh hosted acceptance pending. Goal active.
+Status: both local repair checkpoints complete; fresh exact-SHA hosted acceptance
+pending. Goal active.
 
 CI `37281400039` for `65589d2418bdc32f2cb387c98cc3eeb5d3670b60`
 failed: Windows two-peer inbound authentication produced client EOF; Linux
@@ -105,3 +106,61 @@ This is selected-input continuity, not expanded compiler-input evaluation,
 external SDK/cache binding, a fresh native run, or proof the whole repair tree
 was tested by those native executions. Final static Standards/Spec reviews each
 have0 unresolved concrete findings. Fresh exact-SHA hosted evidence remains open.
+
+## Preserved subsequent hosted failure
+
+The fresh exact `f73f5fc3da2b17ad798f3e46083a8632f5e8d686` attempt1 has CI
+`37285404195` failure and CodeQL `37285404060` success. Linux/macOS each have
+12 TRX/2951 Passed; Windows has12 TRX/2950 Passed+1 Failed in the original
+`DesktopRemoteWindowCleanupConfirmationTests.ProviderFailureDoesNotWaitForAnInFlightTimeoutCommit`.
+Its TimeoutException is at line38, with finally at62. Packaging was skipped;
+Windows Block steps after the failing test were not executed. These are not
+accepted all-OS hosted gates.
+
+All12 available artifact ZIPs, both run-log ZIPs, executed job logs, exact-source
+archive/Git-tree reconstruction, API/SARIF and download receipts are retained
+under `/tmp/flowspan-enumeration-composition-hosted-20261005/`. The independent
+failed-candidate integrity replay and root's actual read-only replay each exit0,
+with byte-identical report SHA256
+`1245589b6077821ad3f3381fc84c51dc1ffcb6d573b688daf7002c824e15d9a2`.
+This proves preservation/integrity, not CI success. At this failed hosted
+checkpoint, HRR5 added the fixture scheduling dependency; new repair02 source/
+runtime/identity freezes and fresh exact-SHA hosted verification were required.
+
+The controlled single-worker harness actually fails waiting for Start while its
+callback is still queued; replacing only the two blocking workers with dedicated
+synchronous workers passes the original pending-commit, provider/late-owner
+identity and stable timeout assertions. Three repeated differential pairs agree.
+This demonstrates a scheduling mechanism, not the unique original Windows
+trigger or an unchanged-fixture-byte RED/GREEN. Production code is unchanged.
+
+The original Fact now runs its controller, Start and callback on synchronous
+`LongRunning`/`TaskScheduler.Default` workers, retaining all five-second budgets.
+Root and both review axes caught an intermediate finally task-snapshot gap; the
+final version releases barriers, joins Start, then reads and joins its latest
+callback in nested finally. Earlier WhenAll candidate runs are superseded, not
+final acceptance. Final focused D/R each pass1/1; five fresh processes per
+configuration each pass1/1, with source/two-DLL before/after binding. Formatting
+and both final static review axes pass, with0 unresolved findings. Final test
+SHA256: `4952b0791ce6ebdb8f65c79cb0d6c94d6acda724f728d332bb1dab2d80eb04a3`.
+Raw diagnosis evidence: `/tmp/flowspan-hosted-cleanup-confirmation-20261005/`.
+
+Fresh `repair02-debug`/`repair02-release`, explicitly based on full `f73f5fc`,
+each pass12 TRX/2951 Passed with every non-success counter0. All2951 prior
+qualified identities remain, with0 added/removed. D/R/quality match all775
+selected source files; each1540-file complete runtime binds before/after/actual.
+Locked solution/BlockProbe restore and both format checks pass. Worker and actual
+root saved/current replays each exit0 with0 violations and byte-identical reports.
+The current replay establishes full live selected source/Git equality **before
+these final documentary updates**; no such equality is claimed afterward.
+
+Repair02 auditor SHA256:
+`ed4656226b17a6cc1b4764c51c91aa3d8b0706343463e9ec35a70cd970d5a15c`.
+Saved report SHA256:
+`f305eb3238b10930bff3637cc0cac2ba7caa56d48aaece1bbf4a4d5f9b42623d`.
+Current report SHA256:
+`23bfa8c60471a4d69a55aff9590ce948f2fd73c232f210711334351d2cd68262`.
+Diagnosis root replay also exits0 and matches its independent report SHA256
+`4b3c6d7d164dc2be1f25914cd94df78bbaa92ba68ce9f03562555319b3e89ac4`.
+New hosted verification remains open; this test-only repair is not fresh native,
+cross-platform system, production sharing or v1 acceptance.

@@ -5,7 +5,10 @@ namespace Flowspan.Desktop.Tests;
 public sealed class DesktopRemoteWindowCleanupConfirmationTests
 {
     [Fact]
-    public async Task ProviderFailureDoesNotWaitForAnInFlightTimeoutCommit()
+    public Task ProviderFailureDoesNotWaitForAnInFlightTimeoutCommit() =>
+        StartIndependentWorker(VerifyProviderFailureDoesNotWaitForAnInFlightTimeoutCommit);
+
+    private static void VerifyProviderFailureDoesNotWaitForAnInFlightTimeoutCommit()
     {
         using var commitEntered = new ManualResetEventSlim();
         using var releaseCommit = new ManualResetEventSlim();
@@ -32,10 +35,10 @@ public sealed class DesktopRemoteWindowCleanupConfirmationTests
             failure => realCommitted.TrySetResult(failure),
             failure => setupDiagnostic = failure,
             _ => throw new InvalidOperationException("No timer was returned to release."));
-        Task starting = Task.Run(operation.Start);
+        Task starting = StartIndependentWorker(operation.Start);
         try
         {
-            await starting.WaitAsync(TimeSpan.FromSeconds(5));
+            WaitForCompletion(starting);
             Assert.True(commitEntered.IsSet);
             Assert.False(operation.Completion.IsCompleted);
             Assert.Same(providerFailure, setupDiagnostic);
@@ -46,21 +49,62 @@ public sealed class DesktopRemoteWindowCleanupConfirmationTests
             Assert.False(realCommitted.Task.IsCompleted);
             releaseCommit.Set();
 
-            CleanupConfirmationResult outcome = await operation.Completion
-                .WaitAsync(TimeSpan.FromSeconds(5));
+            CleanupConfirmationResult outcome = WaitForCompletion(operation.Completion);
             Assert.Equal(CleanupConfirmationStatus.Timeout, outcome.Status);
             Assert.Contains("host_cleanup_timeout", Assert.IsType<InvalidOperationException>(outcome.Failure).Message);
-            Assert.Same(ownerFailure, await realCommitted.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-            Assert.Same(outcome, await operation.Completion);
-            await time.CallbackTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Same(ownerFailure, WaitForCompletion(realCommitted.Task));
+            Assert.Same(outcome, WaitForCompletion(operation.Completion));
+            WaitForCompletion(time.CallbackTask);
         }
         finally
         {
             releaseCommit.Set();
             realCleanup.TrySetResult(null);
-            await starting.WaitAsync(TimeSpan.FromSeconds(5));
-            await time.CallbackTask.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                WaitForCompletion(starting);
+            }
+            finally
+            {
+                // Start owns callback publication; read the latest task only
+                // after attempting its join, even when that join throws.
+                WaitForCompletion(time.CallbackTask);
+            }
         }
+    }
+
+    // Each synchronous blocker owns a thread instead of requiring another
+    // shared-pool worker to start before it can release its current worker.
+    private static Task StartIndependentWorker(Action action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private static void WaitForCompletion(Task task)
+    {
+        try
+        {
+            if (!task.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException(
+                    "The test worker did not complete within its original five-second bound.");
+            }
+        }
+        catch (AggregateException) when (task.IsFaulted || task.IsCanceled)
+        {
+            // Keep the same original exception identity as the former await.
+            task.GetAwaiter().GetResult();
+        }
+
+        task.GetAwaiter().GetResult();
+    }
+
+    private static TResult WaitForCompletion<TResult>(Task<TResult> task)
+    {
+        WaitForCompletion((Task)task);
+        return task.GetAwaiter().GetResult();
     }
 
     private sealed class ConcurrentFailingTimeProvider(
@@ -76,7 +120,7 @@ public sealed class DesktopRemoteWindowCleanupConfirmationTests
             TimeSpan dueTime,
             TimeSpan period)
         {
-            CallbackTask = Task.Run(() => callback(state));
+            CallbackTask = StartIndependentWorker(() => callback(state));
             if (!commitEntered.Wait(TimeSpan.FromSeconds(5)))
             {
                 throw new TimeoutException("The timeout callback did not reach its commit boundary.");

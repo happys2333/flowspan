@@ -1,7 +1,9 @@
 # Hosted regression reliability
 
 Scope: repair the two independently observed failures in CI `37281400039`
-for `65589d2418bdc32f2cb387c98cc3eeb5d3670b60`, without weakening product
+for `65589d2418bdc32f2cb387c98cc3eeb5d3670b60`, and the subsequent cleanup
+confirmation fixture failure in CI `37285404195` for
+`f73f5fc3da2b17ad798f3e46083a8632f5e8d686`, without weakening product
 deadlines, cancellation, authorization or cleanup assertions. Trace: R9, R12,
 MEP8. This is not native or v1 acceptance.
 
@@ -20,6 +22,13 @@ MEP8. This is not native or v1 acceptance.
   failing evidence, focused regressions, frozen solution Debug/Release and fresh
   exact-SHA Windows/macOS/Linux CI/CodeQL shall be verified. A matching local
   symptom shall not be presented as proof of the original Windows trigger.
+- HRR5: While the timeout commit is blocked and the timer provider fails after
+  confirming callback entry, the cleanup-confirmation test shall independently
+  execute Start and its synchronous callback, observe Start returning without
+  waiting for that commit, retain timeout/late-owner/failure-identity assertions,
+  and unconditionally release and join its workers. Test-owned blocking shall
+  not require spare shared-thread-pool workers, and the existing five-second
+  observation budgets shall not be extended.
 
 Non-goals: changing the wire protocol, extending handshake budgets, changing
 production native availability, or masking failures through retries/Skip.

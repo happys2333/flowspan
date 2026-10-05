@@ -25,3 +25,16 @@ Save actual RED/GREEN and diagnostic campaigns separately. Freeze final source
 and complete runtime inventories for solution D/R, preserve all 2948 baseline
 qualified identities, then use the new exact branch SHA for CI/CodeQL. Hosted
 and local evidence remain separately labelled.
+
+The subsequent exact `f73f5fc` Windows run fails the existing
+`ProviderFailureDoesNotWaitForAnInFlightTimeoutCommit` fixture. Both Start and
+the blocked timer callback use the shared thread pool; the provider itself waits
+synchronously for callback entry. Test the scheduling hypothesis through the
+real CleanupConfirmationOperation under controlled finite-worker scheduling,
+then use independent synchronous dedicated workers for the fixture. Preserve the
+original Fact, blocked-commit observation, provider and late-owner identities,
+terminal timeout outcome, original five-second observations and finally release/
+join. This is test scheduling, not a production cleanup-policy change or unique
+proof of the original Windows scheduler condition. Preserve the failed candidate
+and rerun a new freeze against expected base `f73f5fc`, retaining all 2951 prior
+qualified identities before fresh hosted verification.

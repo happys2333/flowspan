@@ -9,10 +9,16 @@
 - [x] 3. Freeze focused and solution Debug/Release, quality and complete source/
   runtime/qualified inventories; review the final diff.
   - _Requirements: HRR4_
+- [x] 3.1 Reproduce and repair the newly exposed cleanup-confirmation fixture's
+  blocked-worker scheduling dependency without changing its identity or budgets.
+  - _Requirements: HRR4-HRR5_
+- [x] 3.2 Freeze/review the cleanup-confirmation repair in new local stages;
+  preserve all 2951 identities and the failed `f73f5fc` hosted evidence.
+  - _Requirements: HRR4-HRR5_
 - [ ] 4. Commit/push the implementation branch and independently verify fresh
   exact-SHA all-OS CI/CodeQL, complete artifacts and root saved-data replay.
   - _Requirements: HRR4, MEP8_
 
-Local tasks1–3 are backed by the
+Local tasks1–3.2 are backed by the
 [repair evidence](../../../docs/evidence/2026-10-05-enumeration-hosted-gates.md).
 Task4 and overall HRR/MEP acceptance remain open until fresh hosted verification.
