@@ -78,6 +78,159 @@ jobs:
           --no-build
           --no-restore
 
+      - name: Restore standalone Block probe locked dependencies
+        run: >-
+          dotnet restore
+          tools/Flowspan.MacOS.BlockProbe/Flowspan.MacOS.BlockProbe.csproj
+          --locked-mode
+
+      - name: Verify Block probe formatting
+        run: >-
+          dotnet format
+          tools/Flowspan.MacOS.BlockProbe/Flowspan.MacOS.BlockProbe.csproj
+          --verify-no-changes
+          --no-restore
+
+      - name: Build standalone Block probe with warnings as errors
+        run: >-
+          dotnet build
+          tools/Flowspan.MacOS.BlockProbe/Flowspan.MacOS.BlockProbe.csproj
+          --configuration Release
+          --no-restore
+          -warnaserror
+
+      - name: Require no-native Block probe default
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/MacOSBlockDefaultEvidence"
+          test ! -e "$evidence"
+          mkdir "$evidence"
+          if dotnet tools/Flowspan.MacOS.BlockProbe/bin/Release/net10.0/Flowspan.MacOS.BlockProbe.dll > "$evidence/native.stdout.raw" 2> "$evidence/native.stderr.raw"; then
+            status=0
+          else
+            status=$?
+          fi
+          printf '%s\n' "$status" > "$evidence/command.exit.raw"
+          test "$status" = 0
+          case "$RUNNER_OS" in
+            Windows) line_ending=$'\r\n' ;;
+            Linux|macOS) line_ending=$'\n' ;;
+            *) exit 2 ;;
+          esac
+          printf '%s%s' \
+            'block_probe=not_run mode=explicit_run_required' "$line_ending" \
+            'Usage: Flowspan.MacOS.BlockProbe --run (macOS arm64; no capture or input)' "$line_ending" \
+            '       Flowspan.MacOS.BlockProbe --run-enumeration (actual enumeration Block; controlled non-capture effects)' "$line_ending" \
+            > "$evidence/expected.stdout.raw"
+          test ! -s "$evidence/native.stderr.raw"
+          cmp -s "$evidence/expected.stdout.raw" "$evidence/native.stdout.raw"
+          cat "$evidence/native.stdout.raw"
+
+      - name: Require actual macOS Block and enumeration lifetimes without capture
+        if: runner.os == 'macOS'
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_root="$RUNNER_TEMP/MacOSBlockEvidence"
+          test ! -e "$evidence_root"
+          mkdir "$evidence_root"
+          printf '%s\n' "$GITHUB_SHA" > "$evidence_root/source.commit.raw"
+          git rev-parse HEAD > "$evidence_root/checkout.commit.raw"
+          cmp -s "$evidence_root/source.commit.raw" "$evidence_root/checkout.commit.raw"
+          pwd > "$evidence_root/command.cwd.raw"
+          dotnet --info > "$evidence_root/dotnet.info.raw"
+          dll="$PWD/tools/Flowspan.MacOS.BlockProbe/bin/Release/net10.0/Flowspan.MacOS.BlockProbe.dll"
+          failed=0
+          for mode in primitive enumeration; do
+            evidence="$evidence_root/$mode"
+            case "$mode" in
+              primitive)
+                argument=--run
+                expected='block_probe=pass mode=actual_block_abi initial_copy_helpers=1 extra_heap_copies=1 extra_copy_helpers=0 caller_releases=1 last_copy_releases=1 root_free_confirmed=true native_retirement=true drain_pending_while_active=true managed_drain=true abi_return_joined=true callbacks=1 completed_observers=1 contained_failures=0 capture_proved=false v1_acceptance=false'
+                ;;
+              enumeration)
+                argument=--run-enumeration
+                expected='enumeration_block_probe=pass mode=actual_enumeration_block_abi real_orchestration=true real_source_ownership_pool=true inert_preparation=true extra_heap_copies=1 caller_release_before_retirement=true batch_pending_before_last_release=true native_retirement=true drain_pending_while_completed_observer_active=true managed_drain=true abi_return_joined=true empty_result=true final_pool_catalogs=0 final_pool_sources=0 final_pool_batches=0 controlled_external_effects=true sck_executed=false tcc_preflight_called=false capture_proved=false v1_acceptance=false'
+                ;;
+            esac
+            if python3 .github/scripts/posix-watchdog.py "$evidence" 45 2 -- dotnet "$dll" "$argument"; then
+              status=0
+            else
+              status=$?
+            fi
+            if test ! -d "$evidence"; then
+              failed=1
+              continue
+            fi
+            printf '%q ' dotnet "$dll" "$argument" > "$evidence/command.raw"
+            printf '\n' >> "$evidence/command.raw"
+            printf '%s\n' "$expected" > "$evidence/expected.stdout.raw"
+            printf '%s\n' "$status" > "$evidence/gate.watchdog.exit.raw"
+            if python3 - "$evidence" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          def require(condition, reason):
+              if not condition:
+                  raise SystemExit("block_probe_gate=fail reason=" + reason)
+
+          evidence = Path(sys.argv[1])
+          stdout = (evidence / "native.stdout.raw").read_bytes()
+          expected = (evidence / "expected.stdout.raw").read_bytes()
+          require(len(stdout) <= 4096 and stdout == expected, "exact_success_record")
+          require((evidence / "native.stderr.raw").read_bytes() == b"", "native_stderr")
+          for name in ("gate.watchdog.exit.raw", "watchdog.exit.raw", "native.command.exit.raw"):
+              require((evidence / name).read_bytes() == b"0\n", name)
+          for name in ("watchdog.timeout.raw", "watchdog.interrupted.raw"):
+              require(not (evidence / name).exists(), name)
+          report_bytes = (evidence / "watchdog.report.json").read_bytes()
+          require(len(report_bytes) <= 4096, "bounded_watchdog_report")
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  require(key not in result, "duplicate_watchdog_key")
+                  result[key] = value
+              return result
+          report = json.loads(report_bytes, object_pairs_hook=unique_object)
+          expected_report = {
+              "scope": "POSIX_TASK_PROCESS_GROUP_NOT_NATIVE_CLEANUP",
+              "reason": "exited",
+              "signal_count": 0,
+              "pending_signals_at_commit": [],
+              "terminal_signals_blocked": True,
+              "group_signals": [],
+              "group_signal_errors": [],
+              "leader_joined": True,
+              "native_exit": 0,
+              "failure": None,
+          }
+          require(report == expected_report, "successful_watchdog_terminal_facts")
+          require(all(type(report[key]) is type(value) for key, value in expected_report.items()), "watchdog_terminal_field_types")
+          PY
+            then
+              printf '0\n' > "$evidence/gate.command.exit.raw"
+              cat "$evidence/native.stdout.raw"
+            else
+              printf '1\n' > "$evidence/gate.command.exit.raw"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Upload Block probe evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-block-${{ runner.os }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/MacOSBlockDefaultEvidence
+            ${{ runner.temp }}/MacOSBlockEvidence
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Build standalone capture ABI probe
         run: >-
           dotnet build

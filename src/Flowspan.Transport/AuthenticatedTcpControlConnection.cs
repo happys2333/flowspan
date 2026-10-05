@@ -243,19 +243,37 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
         }
     }
 
-    public static async ValueTask<AuthenticatedTcpControlConnection>
+    public static ValueTask<AuthenticatedTcpControlConnection>
         AcceptAnyTrustedAsync(
             TcpListener listener,
             DeviceIdentity localIdentity,
             TrustSessionCoordinator trustSessions,
             IEnumerable<ProtocolVersion> supportedVersions,
             TimeSpan handshakeTimeout,
+            CancellationToken cancellationToken = default) => AcceptAnyTrustedAsync(
+            listener,
+            localIdentity,
+            trustSessions,
+            supportedVersions,
+            handshakeTimeout,
+            TimeProvider.System,
+            cancellationToken);
+
+    internal static async ValueTask<AuthenticatedTcpControlConnection>
+        AcceptAnyTrustedAsync(
+            TcpListener listener,
+            DeviceIdentity localIdentity,
+            TrustSessionCoordinator trustSessions,
+            IEnumerable<ProtocolVersion> supportedVersions,
+            TimeSpan handshakeTimeout,
+            TimeProvider timeProvider,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(listener);
         ArgumentNullException.ThrowIfNull(localIdentity);
         ArgumentNullException.ThrowIfNull(trustSessions);
         ArgumentNullException.ThrowIfNull(supportedVersions);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         ValidateHandshakeTimeout(handshakeTimeout);
         DirectTcpPeerConnection connection = await DirectTcpPeerConnection.AcceptAsync(
             listener,
@@ -268,6 +286,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             supportedVersions,
             handshakeTimeout,
             remoteWindowMediaUsageLimits: null,
+            timeProvider,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -296,6 +315,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             supportedVersions,
             handshakeTimeout,
             remoteWindowMediaUsageLimits,
+            TimeProvider.System,
             cancellationToken);
     }
 
@@ -308,12 +328,18 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             IEnumerable<ProtocolVersion> supportedVersions,
             TimeSpan handshakeTimeout,
             SecureFrameSessionUsageLimits? remoteWindowMediaUsageLimits,
+            TimeProvider timeProvider,
             CancellationToken cancellationToken)
     {
         try
         {
+            using var deadline = new CancellationTokenSource(
+                handshakeTimeout,
+                timeProvider);
             using CancellationTokenSource handshakeCancellation =
-                CreateHandshakeCancellation(handshakeTimeout, cancellationToken);
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    deadline.Token);
             try
             {
                 return await AuthenticateResolvedResponderAsync(
@@ -327,7 +353,7 @@ public sealed class AuthenticatedTcpControlConnection : IAsyncDisposable
             }
             catch (OperationCanceledException exception) when (
                 !cancellationToken.IsCancellationRequested
-                && handshakeCancellation.IsCancellationRequested)
+                && deadline.IsCancellationRequested)
             {
                 throw new TimeoutException(
                     "The authenticated TCP handshake timed out.",

@@ -66,6 +66,19 @@ codec rather than assuming ordinary JSON serialization is canonical.
 - Discovery and transport implementations can change without changing domain
   operations.
 
+### Inbound authentication clock port — 2026-10-05
+
+The trusted inbound profile also supplies the clock for its authentication
+deadline. Omission uses `TimeProvider.System`; existing public entry points,
+the ten-second default and two-minute maximum remain unchanged. Start the
+deadline after accepting the connection, as before. Own the deadline token and
+caller-linked token separately and dispose both on success or failure. Caller
+cancellation is not reported as timeout. This changes no wire format, Trust or
+capability decision and adds no dependency. Real-loopback success tests can now
+hold test time while explicit negative tests advance to exact expiry; observed
+scheduler delay cannot silently replace those protocol assertions.
+See [HRR requirements](../../specs/v1/hosted-regression-reliability/requirements.md).
+
 ## Deferred decisions
 
 The production mDNS library, storage engine, and cryptographic wire formats need

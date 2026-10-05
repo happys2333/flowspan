@@ -137,6 +137,18 @@ first-idle and ABI return. Actual task-owned Block/SCK healthy D/R and saved-dat
 root replays pass. Fresh exact-SHA CI/CodeQL and complete acceptance remain open;
 no production/v1 requirement is inherited from these local gates.
 
+The exact `65589d2` CI then failed in independent Windows inbound authentication
+and Linux participant Stop tests; macOS and CodeQL passed. The new standalone
+Block hosted gates have local native/strict-fixture validation, but no new-SHA
+hosted acceptance yet. Follow the bounded
+[regression repair](hosted-regression-reliability/tasks.md) and
+[gate evidence](../../docs/evidence/2026-10-05-enumeration-hosted-gates.md);
+preserve both original failures rather than treating partial CI as completion.
+The repair now has actual behavioral RED/GREEN, frozen solution D/R each
+12 TRX/2951 Passed, exact retention of2948 baseline identities plus3 Facts,
+locked quality gates and root saved/current replays. Deadline defaults and
+production sharing remain unchanged; fresh hosted verification is still open.
+
 ## 0. Product and engineering baseline
 
 - [x] 0.1 Record the approved v1 scope as EARS-style acceptance criteria.

@@ -44,7 +44,8 @@ public sealed class AuthenticatedInboundSessionProfile
         IEnumerable<ProtocolVersion> supportedVersions,
         int maximumConcurrentSessions = DefaultMaximumConcurrentSessions,
         TimeSpan? handshakeTimeout = null,
-        CapabilityRequirementMatch capabilityMatch = CapabilityRequirementMatch.All)
+        CapabilityRequirementMatch capabilityMatch = CapabilityRequirementMatch.All,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(requiredCapabilities);
         ArgumentNullException.ThrowIfNull(supportedVersions);
@@ -91,9 +92,12 @@ public sealed class AuthenticatedInboundSessionProfile
         SupportedVersions = versions;
         MaximumConcurrentSessions = maximumConcurrentSessions;
         HandshakeTimeout = timeout;
+        TimeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public TimeSpan HandshakeTimeout { get; }
+
+    public TimeProvider TimeProvider { get; }
 
     public int MaximumConcurrentSessions { get; }
 
@@ -158,6 +162,7 @@ public sealed class SystemAuthenticatedControlSessionAcceptor :
                 trustSessions,
                 profile.SupportedVersions,
                 profile.HandshakeTimeout,
+                profile.TimeProvider,
                 cancellationToken).ConfigureAwait(false);
         return new AcceptedTcpControlSession(connection);
     }

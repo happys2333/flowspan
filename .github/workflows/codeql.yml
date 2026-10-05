@@ -45,6 +45,8 @@ jobs:
 
       - name: Build standalone probe source for analysis
         run: |
+          dotnet restore tools/Flowspan.MacOS.BlockProbe/Flowspan.MacOS.BlockProbe.csproj --locked-mode
+          dotnet build tools/Flowspan.MacOS.BlockProbe/Flowspan.MacOS.BlockProbe.csproj --configuration Release --no-restore -warnaserror
           dotnet build tools/Flowspan.MacOS.CaptureProbe/Flowspan.MacOS.CaptureProbe.csproj --configuration Release
           dotnet build tools/Flowspan.MacOS.NativeCaptureProbe/Flowspan.MacOS.NativeCaptureProbe.csproj --configuration Release
           dotnet build tools/Flowspan.MacOS.DelegateProbe/Flowspan.MacOS.DelegateProbe.csproj --configuration Release -p:RestoreLockedMode=true

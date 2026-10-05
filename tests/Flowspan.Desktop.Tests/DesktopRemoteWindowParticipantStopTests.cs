@@ -64,10 +64,18 @@ public sealed partial class DesktopRemoteWindowPreparationPeerTests
     }
 
     [Fact]
-    public async Task PreparationCallbackStopRetainsLateRendererUntilExternalStopDrains()
+    public Task PreparationCallbackStopRetainsLateRendererUntilExternalStopDrains() =>
+        RunPreparationCallbackStopRetainsLateRendererAsync(preparationOwnsCleanup: true);
+
+    [Fact]
+    public Task PreparationCallbackStopJoinsExternallyClaimedLateRendererCleanup() =>
+        RunPreparationCallbackStopRetainsLateRendererAsync(preparationOwnsCleanup: false);
+
+    private static async Task RunPreparationCallbackStopRetainsLateRendererAsync(
+        bool preparationOwnsCleanup)
     {
         var renderer = new ParticipantStopBlockingRenderer();
-        var factory = new StopInsidePreparationFactory(renderer);
+        using var factory = new StopInsidePreparationFactory(renderer);
         AuthenticatedRemoteWindowConnectionLease? participantLease = null;
 
         await RunConnectedScenarioAsync(
@@ -78,6 +86,7 @@ public sealed partial class DesktopRemoteWindowPreparationPeerTests
                 Task<(RemoteWindowPreparationRequest Request,
                     RemoteWindowPreparationResponse Response)> preparing =
                     context.PrepareAsync();
+                Task disconnecting = Task.CompletedTask;
                 try
                 {
                     bool callbackStopCompleted = await factory.StopReturned.Task.WaitAsync(
@@ -90,16 +99,39 @@ public sealed partial class DesktopRemoteWindowPreparationPeerTests
                     Assert.False(stopping.IsCompleted);
                     Assert.False(renderer.IsDisposed);
 
+                    if (!preparationOwnsCleanup)
+                    {
+                        // The stop worker is still inside the controlled cancellation
+                        // callback, so this external caller claims cleanup first.
+                        disconnecting = context.PreparationPeer.PeerDisconnectedAsync(
+                            HostDeviceId,
+                            default).AsTask();
+                        Assert.False(disconnecting.IsCompleted);
+                    }
+
                     factory.ReleasePreparation();
+                    await renderer.DisposeEntered.Task.WaitAsync(
+                        TimeSpan.FromSeconds(5));
+                    Assert.False(stopping.IsCompleted);
+                    Assert.False(renderer.IsDisposed);
+                    if (preparationOwnsCleanup)
+                    {
+                        Assert.False(preparing.IsCompleted);
+                    }
+                    else
+                    {
+                        await preparing.WaitAsync(TimeSpan.FromSeconds(5));
+                        Assert.True(preparing.IsCompletedSuccessfully);
+                        Assert.False(disconnecting.IsCompleted);
+                    }
+
+                    factory.ReleaseCancellation();
+                    renderer.ReleaseDisposal();
                     (_, RemoteWindowPreparationResponse response) =
                         await preparing.WaitAsync(TimeSpan.FromSeconds(5));
                     Assert.Equal(RemoteWindowPreparationOutcome.Rejected, response.Outcome);
                     Assert.Equal("preparation_cancelled", response.ReasonCode);
-                    await renderer.DisposeEntered.Task.WaitAsync(
-                        TimeSpan.FromSeconds(5));
-                    Assert.False(stopping.IsCompleted);
-
-                    renderer.ReleaseDisposal();
+                    await disconnecting.WaitAsync(TimeSpan.FromSeconds(5));
                     await stopping.WaitAsync(TimeSpan.FromSeconds(5));
                     Assert.True(renderer.IsDisposed);
                     AuthenticatedRemoteWindowConnectionLease lease =
@@ -111,12 +143,15 @@ public sealed partial class DesktopRemoteWindowPreparationPeerTests
                 }
                 finally
                 {
+                    factory.ReleaseCancellation();
                     factory.ReleasePreparation();
                     renderer.ReleaseDisposal();
-                    await preparing.WaitAsync(TimeSpan.FromSeconds(5));
-                    await factory.CallbackStop.WaitAsync(TimeSpan.FromSeconds(5));
-                    await context.PreparationPeer.StopReceivingAsync().AsTask()
-                        .WaitAsync(TimeSpan.FromSeconds(5));
+                    Task finalStop = context.PreparationPeer.StopReceivingAsync().AsTask();
+                    await Task.WhenAll(
+                        preparing.WaitAsync(TimeSpan.FromSeconds(5)),
+                        disconnecting.WaitAsync(TimeSpan.FromSeconds(5)),
+                        factory.CallbackStop.WaitAsync(TimeSpan.FromSeconds(5)),
+                        finalStop.WaitAsync(TimeSpan.FromSeconds(5)));
                 }
             },
             decorateConnectionAcquirer: acquire =>
@@ -166,10 +201,13 @@ public sealed partial class DesktopRemoteWindowPreparationPeerTests
 
     private sealed class StopInsidePreparationFactory(
         IDesktopRemoteWindowParticipantRenderer renderer) :
-        IDesktopRemoteWindowParticipantRendererFactory
+        IDesktopRemoteWindowParticipantRendererFactory,
+        IDisposable
     {
+        private readonly ManualResetEventSlim releaseCancellation = new(false);
         private readonly TaskCompletionSource releasePreparation = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        private CancellationTokenRegistration cancellationRegistration;
 
         public DesktopRemoteWindowPreparationPeer? PreparationPeer { get; set; }
 
@@ -186,10 +224,11 @@ public sealed partial class DesktopRemoteWindowPreparationPeerTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using CancellationTokenRegistration registration =
-                cancellationToken.UnsafeRegister(
-                    static state => ((TaskCompletionSource)state!).TrySetResult(),
-                    CancellationObserved);
+            // Returning the late renderer must not dispose a registration whose
+            // callback deliberately holds the independent stop worker.
+            cancellationRegistration = cancellationToken.UnsafeRegister(
+                static state => ((StopInsidePreparationFactory)state!).ObserveCancellation(),
+                this);
             CallbackStop = PreparationPeer!.StopReceivingAsync().AsTask();
             StopReturned.TrySetResult(CallbackStop.IsCompletedSuccessfully);
             await releasePreparation.Task.ConfigureAwait(false);
@@ -197,6 +236,22 @@ public sealed partial class DesktopRemoteWindowPreparationPeerTests
         }
 
         public void ReleasePreparation() => releasePreparation.TrySetResult();
+
+        public void ReleaseCancellation() => releaseCancellation.Set();
+
+        public void Dispose()
+        {
+            ReleaseCancellation();
+            ReleasePreparation();
+            cancellationRegistration.Dispose();
+            releaseCancellation.Dispose();
+        }
+
+        private void ObserveCancellation()
+        {
+            CancellationObserved.TrySetResult();
+            releaseCancellation.Wait();
+        }
     }
 
     private sealed class ParticipantStopBlockingRenderer :

@@ -15,6 +15,136 @@ public sealed class AuthenticatedTcpInboundListenerTests
     private static readonly CapabilityGrant Required =
         CapabilityGrant.Of(Capability.ActivityReceive);
 
+    [Fact]
+    public async Task SilentPeerExpiresAtInjectedHandshakeDeadlineWithoutRunningHandler()
+    {
+        using DeviceIdentity serverIdentity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Server");
+        using DeviceIdentity trustedPeer = CreateIdentity(
+            "22222222-2222-2222-2222-222222222222",
+            "Desk");
+        var trustStore = new InMemoryTrustStore();
+        trustStore.Register(CreateTrust(trustedPeer));
+        await using var trustSessions = new TrustSessionCoordinator(trustStore);
+        using var socket = new TcpListener(IPAddress.Loopback, 0);
+        socket.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(socket.LocalEndpoint);
+        var time = new ManualTimeProvider();
+        var profile = new AuthenticatedInboundSessionProfile(
+            Required,
+            [new ProtocolVersion(1, 0)],
+            maximumConcurrentSessions: 1,
+            handshakeTimeout: TimeSpan.FromSeconds(2),
+            timeProvider: time);
+        var handler = new MultiPeerBlockingHandler(expectedPeers: 1);
+        var listener = new AuthenticatedTcpInboundListener(
+            socket,
+            serverIdentity,
+            trustSessions,
+            profile,
+            handler);
+        var failureSeen = new TaskCompletionSource<InboundSessionFailure>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        listener.SessionFaulted += failure => failureSeen.TrySetResult(failure);
+        using var stop = new CancellationTokenSource();
+        Task running = listener.RunAsync(stop.Token).AsTask();
+        using var peer = new TcpClient(AddressFamily.InterNetwork);
+        try
+        {
+            await peer.ConnectAsync(endpoint, stop.Token);
+            await time.TimerCreated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            time.Advance(TimeSpan.FromSeconds(1));
+            Assert.False(failureSeen.Task.IsCompleted);
+            time.Advance(TimeSpan.FromSeconds(1));
+            InboundSessionFailure failure = await failureSeen.Task.WaitAsync(
+                TimeSpan.FromSeconds(5));
+
+            Assert.Equal(InboundSessionFailureStage.Authentication, failure.Stage);
+            var authenticationFailure = Assert.IsType<IncomingPeerAuthenticationException>(
+                failure.Exception);
+            Assert.IsType<TimeoutException>(authenticationFailure.InnerException);
+            Assert.Empty(handler.PeerDeviceIds);
+            Assert.Equal(0, time.ActiveTimerCount);
+            int read = await peer.GetStream().ReadAsync(new byte[1], stop.Token)
+                .AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, read);
+
+            await using AuthenticatedTcpControlConnection accepted =
+                await AuthenticatedTcpControlConnection.ConnectAsync(
+                    endpoint,
+                    trustedPeer,
+                    CreateTrust(serverIdentity),
+                    [new ProtocolVersion(1, 0)],
+                    stop.Token);
+            await handler.AllStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(trustedPeer.DeviceId, Assert.Single(handler.PeerDeviceIds));
+            Assert.Equal(0, time.ActiveTimerCount);
+        }
+        finally
+        {
+            stop.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
+    public async Task CallerCancellationWinsOverInjectedHandshakeDeadlineAndDrainsTimer()
+    {
+        using DeviceIdentity serverIdentity = CreateIdentity(
+            "11111111-1111-1111-1111-111111111111",
+            "Server");
+        var trustStore = new InMemoryTrustStore();
+        await using var trustSessions = new TrustSessionCoordinator(trustStore);
+        using var socket = new TcpListener(IPAddress.Loopback, 0);
+        socket.Start(backlog: 1);
+        var endpoint = Assert.IsType<IPEndPoint>(socket.LocalEndpoint);
+        var time = new ManualTimeProvider();
+        var profile = new AuthenticatedInboundSessionProfile(
+            Required,
+            [new ProtocolVersion(1, 0)],
+            maximumConcurrentSessions: 1,
+            handshakeTimeout: TimeSpan.FromSeconds(2),
+            timeProvider: time);
+        var handler = new RecordingHandler();
+        var listener = new AuthenticatedTcpInboundListener(
+            socket,
+            serverIdentity,
+            trustSessions,
+            profile,
+            handler);
+        var failures = new ConcurrentQueue<InboundSessionFailure>();
+        listener.SessionFaulted += failures.Enqueue;
+        using var stop = new CancellationTokenSource();
+        Task running = listener.RunAsync(stop.Token).AsTask();
+        using var peer = new TcpClient(AddressFamily.InterNetwork);
+        try
+        {
+            await peer.ConnectAsync(endpoint, stop.Token);
+            await time.TimerCreated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            stop.Cancel();
+            time.Advance(TimeSpan.FromSeconds(2));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+
+            Assert.Empty(failures);
+            Assert.Equal(0, handler.RunCount);
+            Assert.Equal(0, time.ActiveTimerCount);
+            int read = await peer.GetStream().ReadAsync(new byte[1])
+                .AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, read);
+        }
+        finally
+        {
+            stop.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                running.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
     [Theory]
     [InlineData(ManualInitiatorFinishedBehavior.Omit)]
     [InlineData(ManualInitiatorFinishedBehavior.Tamper)]
@@ -90,13 +220,16 @@ public sealed class AuthenticatedTcpInboundListenerTests
         using var socket = new TcpListener(IPAddress.Loopback, 0);
         socket.Start(backlog: 4);
         var endPoint = Assert.IsType<IPEndPoint>(socket.LocalEndpoint);
+        var time = new ManualTimeProvider();
         var handler = new MultiPeerBlockingHandler(expectedPeers: 2);
+        var failures = new ConcurrentQueue<InboundSessionFailure>();
         var listener = new AuthenticatedTcpInboundListener(
             socket,
             serverIdentity,
             trustSessions,
-            CreateProfile(maximumConcurrentSessions: 2),
+            CreateProfile(maximumConcurrentSessions: 2, time),
             handler);
+        listener.SessionFaulted += failures.Enqueue;
         using var cancellation = new CancellationTokenSource();
         Task running = listener.RunAsync(cancellation.Token).AsTask();
 
@@ -105,25 +238,46 @@ public sealed class AuthenticatedTcpInboundListenerTests
                 endPoint,
                 firstPeer,
                 CreateTrust(serverIdentity),
-                [new ProtocolVersion(1, 0)]).AsTask();
+                [new ProtocolVersion(1, 0)],
+                cancellation.Token).AsTask();
         Task<AuthenticatedTcpControlConnection> secondConnecting =
             AuthenticatedTcpControlConnection.ConnectAsync(
                 endPoint,
                 secondPeer,
                 CreateTrust(serverIdentity),
-                [new ProtocolVersion(1, 0)]).AsTask();
-        await using AuthenticatedTcpControlConnection first = await firstConnecting;
-        await using AuthenticatedTcpControlConnection second = await secondConnecting;
+                [new ProtocolVersion(1, 0)],
+                cancellation.Token).AsTask();
+        try
+        {
+            await Task.WhenAll(firstConnecting, secondConnecting)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            await handler.AllStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        await handler.AllStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal<DeviceId>(
+                [firstPeer.DeviceId, secondPeer.DeviceId],
+                handler.PeerDeviceIds
+                    .OrderBy(static id => id.ToString(), StringComparer.Ordinal)
+                    .ToArray());
+            Assert.Empty(failures);
+            Assert.Equal(0, time.ActiveTimerCount);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            try
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                    running.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                await Task.WhenAll(
+                    DrainConnectionAsync(firstConnecting),
+                    DrainConnectionAsync(secondConnecting))
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
 
-        Assert.Equal<DeviceId>(
-            [firstPeer.DeviceId, secondPeer.DeviceId],
-            handler.PeerDeviceIds
-                .OrderBy(static id => id.ToString(), StringComparer.Ordinal)
-                .ToArray());
-        cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
         Assert.Equal(2, handler.CancellationCount);
     }
 
@@ -449,11 +603,30 @@ public sealed class AuthenticatedTcpInboundListenerTests
         DeviceIdentity.Generate(DeviceId.Parse(id), name);
 
     private static AuthenticatedInboundSessionProfile CreateProfile(
-        int maximumConcurrentSessions) => new(
+        int maximumConcurrentSessions,
+        TimeProvider? timeProvider = null) => new(
             Required,
             [new ProtocolVersion(1, 0)],
             maximumConcurrentSessions,
-            handshakeTimeout: TimeSpan.FromSeconds(2));
+            handshakeTimeout: TimeSpan.FromSeconds(2),
+            timeProvider: timeProvider);
+
+    private static async Task DrainConnectionAsync(
+        Task<AuthenticatedTcpControlConnection> connecting)
+    {
+        AuthenticatedTcpControlConnection connection;
+        try
+        {
+            connection = await connecting;
+        }
+        catch
+        {
+            // The primary scenario already observes connection failures.
+            return;
+        }
+
+        await connection.DisposeAsync();
+    }
 
     private static TrustRecord CreateTrust(DeviceIdentity identity) =>
         new(identity.PublicIdentity, Now, Required);
@@ -616,6 +789,117 @@ public sealed class AuthenticatedTcpInboundListenerTests
         {
             Interlocked.Increment(ref runCount);
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private readonly Lock gate = new();
+        private readonly List<ManualTimer> timers = [];
+        private TimeSpan elapsed;
+
+        public TaskCompletionSource TimerCreated { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ActiveTimerCount
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return timers.Count;
+                }
+            }
+        }
+
+        public void Advance(TimeSpan value)
+        {
+            ManualTimer[] due;
+            lock (gate)
+            {
+                elapsed += value;
+                due = timers.Where(timer => timer.IsDue(elapsed)).ToArray();
+            }
+
+            foreach (ManualTimer timer in due)
+            {
+                timer.Fire();
+            }
+        }
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            lock (gate)
+            {
+                timers.Add(timer);
+            }
+
+            TimerCreated.TrySetResult();
+            return timer;
+        }
+
+        private sealed class ManualTimer(
+            ManualTimeProvider owner,
+            TimerCallback callback,
+            object? state) : ITimer
+        {
+            private bool disposed;
+            private TimeSpan dueAt;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                Assert.Equal(Timeout.InfiniteTimeSpan, period);
+                lock (owner.gate)
+                {
+                    if (disposed)
+                    {
+                        return false;
+                    }
+
+                    dueAt = dueTime == Timeout.InfiniteTimeSpan
+                        ? TimeSpan.MaxValue
+                        : owner.elapsed + dueTime;
+                    return true;
+                }
+            }
+
+            public void Dispose()
+            {
+                lock (owner.gate)
+                {
+                    disposed = true;
+                    owner.timers.Remove(this);
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+
+            public void Fire()
+            {
+                lock (owner.gate)
+                {
+                    if (disposed)
+                    {
+                        return;
+                    }
+
+                    dueAt = TimeSpan.MaxValue;
+                }
+
+                callback(state);
+            }
+
+            public bool IsDue(TimeSpan elapsed) => !disposed && dueAt <= elapsed;
         }
     }
 }
