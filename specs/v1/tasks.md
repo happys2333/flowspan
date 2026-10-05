@@ -96,9 +96,14 @@ passes CI/CodeQL and matching three-OS2850 inventories. Only this prerequisite
 closes; neither checkpoint publishes a nonzero
 delegate or closes initial CreateSource/enumeration producer obligations.
 The next [initial source-producer slice](native-remote-window/macos-source-producer/tasks.md)
-has a thin production-effects seam and first actual after-effect-retain
-test-entry RED→GREEN. Its same-record bounded handoff is specified in ADR0032;
-production context/handoff integration and final verification remain incomplete.
+now completes same-record producer/source/entry handoff, finite direct envelopes
+and the scoped alloc/init/cleanup contracts in ADR0032. Final focused/project
+D/R pass38/317; complete solutions each pass2888 with12 TRX and all2850 baseline
+identities retained. Single-layer review, root saved-data audits, required local
+quality gates and new selected healthy task-owned macOS D/R pass. Fresh exact-
+SHA all-OS CI/CodeQL remains pending, so only local producer tasks1–4 close.
+Initial enumeration content/Block/callback obligations, nonzero delegate,
+global admission, production sharing, native/physical/release and Goal stay open.
 
 ## 0. Product and engineering baseline
 

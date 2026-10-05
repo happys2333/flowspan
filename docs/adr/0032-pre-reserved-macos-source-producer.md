@@ -28,6 +28,22 @@ rooted/charged without retry or guessed release. Original nested fatal wins over
 later cleanup failures. Capture's additional retained-source copy remains a
 separate obligation and is not changed into the producer's base token.
 
+Direct envelopes reuse the owner-record, batch and source capacities. A stable
+failure-sink object is captured by each exact context; it never dynamically
+looks up the reused batch's owner. Healthy settlement returns unused slots but
+retains every live source, then closes the direct owner. Its last confirmed
+source cleanup returns that owner. A failed acquisition keeps the active batch;
+late cleanup failure after settlement retains only its original source/owner.
+
+The effect interface explicitly follows the Objective-C init-family consuming
+receiver contract: normal return consumes the allocation +1 and returns either
+the sole owned self (possibly replaced) or nil. Nil allocation skips init;
+throw confirms neither receiver consumption nor output. Basis:
+[Clang init semantics](https://clang.llvm.org/docs/AutomaticReferenceCounting.html#semantics-of-init)
+and [Apple initialization guidance](https://developer.apple.com/library/archive/documentation/General/Conceptual/CocoaEncyclopedia/Initialization/Initialization.html).
+This is ownership documentation, not copied implementation or proof of native
+exception recovery; no new production dependency is introduced.
+
 ## Consequences and provenance
 
 Uncertainty consumes finite capacity until restart; full graph retention is

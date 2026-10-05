@@ -24,7 +24,7 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         for (int index = 0; index < batches.Length; index++) { batches[index] = new(); }
     }
 
-    internal bool TryReserveCatalog(MacOSRemoteWindowSourceCatalog owner,
+    internal bool TryReserveCatalog(IMacOSRemoteWindowSourceCreationFailureSink owner,
         out CatalogRecord? record)
     {
         lock (gate)
@@ -85,6 +85,107 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         lock (gate) { batch.Original = original; }
     }
 
+    internal IMacOSRemoteWindowSourceCreationFailureSink BindCreationContext(BatchRecord batch,
+        MacOSRemoteWindowSourceCreationContext context)
+    {
+        lock (gate)
+        {
+            if (batch.Owner is null || batch.Failed || batch.Context is not null)
+            {
+                throw new InvalidOperationException("macos_source_creation_admission_closed");
+            }
+            batch.Context = context;
+            return batch.Owner.Owner!;
+        }
+    }
+
+    internal SourceRecord PrepareCreation(BatchRecord batch,
+        MacOSRemoteWindowSourceCreationLedger ledger)
+    {
+        lock (gate)
+        {
+            if (batch.Owner is null || batch.Failed || ledger.Context.IsClosed
+                || !ReferenceEquals(batch.Context, ledger.Context))
+            {
+                throw new InvalidOperationException("macos_source_creation_admission_closed");
+            }
+            foreach (SourceRecord? record in batch.Slots)
+            {
+                if (record is not null && record.Native is null && record.Acquisition is null)
+                {
+                    record.Acquisition = ledger;
+                    return record;
+                }
+            }
+            throw new InvalidOperationException("macos_source_ownership_capacity_exhausted");
+        }
+    }
+
+    internal bool FailCreation(MacOSRemoteWindowSourceCreationLedger ledger,
+        IMacOSRemoteWindowNativeSource? native)
+    {
+        lock (gate)
+        {
+            SourceRecord record = ledger.Record!;
+            if (!ReferenceEquals(record.Acquisition, ledger)
+                || (native is not null && !ReferenceEquals(record.Native, native))) { return false; }
+            record.Failed = true;
+            BatchRecord batch = ledger.Context.Batch;
+            if (ReferenceEquals(batch.Context, ledger.Context))
+            {
+                foreach (SourceRecord? candidate in batch.Slots)
+                {
+                    if (ReferenceEquals(candidate, record)) { batch.Failed = true; break; }
+                }
+            }
+            return true;
+        }
+    }
+
+    internal void AttachCreatedSource(MacOSRemoteWindowSourceCreationLedger ledger,
+        IMacOSRemoteWindowNativeSource native)
+    {
+        lock (gate)
+        {
+            SourceRecord record = ledger.Record!;
+            if (!ReferenceEquals(record.Acquisition, ledger) || record.Native is not null
+                || ledger.Context.IsClosed
+                || !ReferenceEquals(ledger.Context.Batch.Context, ledger.Context))
+            {
+                throw new InvalidOperationException("macos_source_ownership_transfer_unavailable");
+            }
+            record.Native = native;
+        }
+    }
+
+    internal void CompleteCreatedSource(MacOSRemoteWindowSourceCreationLedger ledger,
+        IMacOSRemoteWindowNativeSource? native)
+    {
+        lock (gate)
+        {
+            SourceRecord record = ledger.Record!;
+            if (!ReferenceEquals(record.Acquisition, ledger)
+                || !ReferenceEquals(record.Native, native) || record.Failed) { return; }
+            ledger.CleanupConfirmed = true;
+            // An entry also owes registry cleanup; NativeSource cannot return
+            // that obligation before CompleteEntry confirms the entry's end.
+            if (record.Entry is not null || record.Registration is not null) { return; }
+            CatalogRecord owner = record.Owner!;
+            BatchRecord batch = ledger.Context.Batch;
+            for (int index = 0; ReferenceEquals(batch.Context, ledger.Context)
+                && index < batch.Slots.Length; index++)
+            {
+                if (ReferenceEquals(batch.Slots[index], record))
+                {
+                    batch.Slots[index] = null;
+                    break;
+                }
+            }
+            ReturnSource(record);
+            TryReturnCatalog(owner);
+        }
+    }
+
     internal SourceRecord PrepareEntry(BatchRecord batch,
         IMacOSRemoteWindowNativeSource native,
         NativeRemoteWindowSourceRegistration registration)
@@ -93,7 +194,16 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         {
             foreach (SourceRecord? record in batch.Slots)
             {
-                if (record is not null && record.Native is null)
+                if (record is not null && ReferenceEquals(record.Native, native)
+                    && record.Registration is null && record.Entry is null)
+                {
+                    record.Registration = registration;
+                    return record;
+                }
+            }
+            foreach (SourceRecord? record in batch.Slots)
+            {
+                if (record is not null && record.Native is null && record.Acquisition is null)
                 {
                     record.Native = native;
                     record.Registration = registration;
@@ -131,23 +241,30 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         lock (gate) { batch.Failed = true; }
     }
 
-    internal void CompleteBatch(BatchRecord batch)
+    internal void CompleteBatch(BatchRecord batch,
+        MacOSRemoteWindowSourceCreationContext? context = null)
     {
         lock (gate)
         {
+            if (context is not null && !ReferenceEquals(batch.Context, context)) { return; }
             if (batch.Failed) { return; }
             CatalogRecord owner = batch.Owner!;
             for (int index = 0; index < batch.Slots.Length; index++)
             {
                 if (batch.Slots[index] is { } record)
                 {
-                    ReturnSource(record);
+                    if (record.Acquisition is null || record.Acquisition.CleanupConfirmed)
+                    {
+                        ReturnSource(record);
+                    }
                     batch.Slots[index] = null;
                 }
             }
             batch.Original = null;
             Array.Clear(batch.KnownSources);
             batch.KnownSourceCount = 0;
+            batch.Context?.Close();
+            batch.Context = null;
             batch.Owner = null;
             owner.BatchCount--;
             TryReturnCatalog(owner);
@@ -204,6 +321,7 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         record.Native = null;
         record.Registration = null;
         record.Entry = null;
+        record.Acquisition = null;
         record.Failed = false;
     }
 
@@ -218,7 +336,7 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
 
     internal sealed class CatalogRecord
     {
-        internal MacOSRemoteWindowSourceCatalog? Owner;
+        internal IMacOSRemoteWindowSourceCreationFailureSink? Owner;
         internal int SourceCount;
         internal int BatchCount;
         internal bool Closed;
@@ -231,6 +349,7 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         internal IMacOSRemoteWindowNativeSource? Native;
         internal NativeRemoteWindowSourceRegistration? Registration;
         internal MacOSRemoteWindowSourceCatalog.SourceEntry? Entry;
+        internal MacOSRemoteWindowSourceCreationLedger? Acquisition;
         internal bool Failed;
     }
 
@@ -239,6 +358,7 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         internal CatalogRecord? Owner;
         internal IReadOnlyList<IMacOSRemoteWindowNativeSource>? Original;
         internal bool Failed;
+        internal MacOSRemoteWindowSourceCreationContext? Context;
         internal SourceRecord?[] Slots { get; } = new SourceRecord?[NativeRemoteWindowSourceRegistry.MaximumSources];
         internal IMacOSRemoteWindowNativeSource[] KnownSources { get; } =
             new IMacOSRemoteWindowNativeSource[NativeRemoteWindowSourceRegistry.MaximumSources];

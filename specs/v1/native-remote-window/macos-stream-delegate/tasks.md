@@ -170,8 +170,11 @@
         closes the late catalog-binding failure and pre-reserved durable roots;
         initial native producer acquisition remains subsequent separate work.
         [Initial CreateSource work](../macos-source-producer/tasks.md) has a
-        bounded same-record plan and first behavioral tracer in progress; it
-        does not include enumeration content/Block/callback ownership.
+        now has locally verified bounded same-record/direct ownership,38
+        producer cases and complete D/R2888-case solutions plus new selected
+        healthy macOS native D/R. Fresh exact-SHA hosted gates remain pending;
+        it does not include enumeration content/Block/callback ownership or
+        close this nonzero-delegate composition task.
       - [ ] 3b.2c Implement the bounded process native bridge/tag runtime and
         require complete confirmed owner/root cleanup before permit return.
       - [ ] 3b.2d Verify final exact-source local and fresh all-OS hosted gates;

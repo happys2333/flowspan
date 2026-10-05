@@ -2648,7 +2648,7 @@ The catalog cannot retain a native owner lost inside CreateSource/EnumerateAsync
 before producer return; those entry faults and global runtime admission stay
 separate. See [source-entry specification](../../specs/v1/native-remote-window/macos-source-entry-ownership/requirements.md).
 
-### Initial source-producer tests (MSP1-MSP6, implementation beginning)
+### Initial source-producer tests (MSP1-MSP6, implementation; final gates pending)
 
 Extract only external effects from the same production CreateSource path. First
 save an actual after-effect initial window-retain RED with confirmed filter,
@@ -2659,6 +2659,15 @@ Then repair minimally and add one ownership behavior at a time. Same-record
 producer/source/entry transfer, finite direct-call envelope, nil/changed-self
 initialization, independent cleanup and complete healthy return need their own
 contracts. Full local, native healthy and exact-SHA hosted evidence stay separate.
+Direct capacity tests separately exhaust owner, batch and128-slot source
+budgets before creation effects. Fresh-pool GC preserves real successful sources
+and unknown allocation/retain/init graphs after caller scope ends. Initializer
+fixtures implement consuming receiver semantics for nil, same and replacement
+self; their internal known outcome never authorizes guessed cleanup after throw.
+Failed-handoff cleanup covers either/both confirmed owner release failures.
+Direct ordinary failures must expose only the bounded diagnosis, while fatal
+identity remains. Compiler/analyzer corrections and superseded freezes are
+preserved and excluded from behavioral RED or final-source claims.
 See the [producer plan](../../specs/v1/native-remote-window/macos-source-producer/tasks.md).
 
 Core invariants are asserted after every event:

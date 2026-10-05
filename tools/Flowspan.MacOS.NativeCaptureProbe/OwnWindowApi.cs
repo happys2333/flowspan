@@ -16,9 +16,17 @@ internal sealed class OwnWindowApi(MacOSRemoteWindowScreenCaptureKitApi driver, 
 
     public bool PreflightCaptureAccess() => driver.PreflightCaptureAccess();
 
-    public async ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateAsync()
+    public ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateAsync() =>
+        FilterSourcesAsync(driver.EnumerateAsync());
+
+    public ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateAsync(
+        MacOSRemoteWindowSourceCreationContext context) =>
+        FilterSourcesAsync(driver.EnumerateAsync(context));
+
+    private async ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> FilterSourcesAsync(
+        ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> enumeration)
     {
-        IReadOnlyList<IMacOSRemoteWindowNativeSource> sources = await driver.EnumerateAsync().ConfigureAwait(false);
+        IReadOnlyList<IMacOSRemoteWindowNativeSource> sources = await enumeration.ConfigureAwait(false);
         try
         {
             List<IMacOSRemoteWindowNativeSource> own = [];

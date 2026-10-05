@@ -34,11 +34,48 @@ It also closes the exact producing context's admission before propagating the
 failure, without a native effect or external callback under a pool/state gate.
 No separate producer pool or second charge for the same base ownership.
 
+A published base source must not keep the mutable BatchRecord as its late-failure
+routing authority: a healthy batch may settle and that record can be reused by
+another owner. Routing and return must prove the exact source record/token and
+its current handoff phase; stale contexts must not poison or return a replacement
+batch/record. Root the real returned NativeSource before dropping producer-local
+roots, not only a ledger holding its raw addresses.
+
+Bind each reservation to its exact creation context, close it at settlement,
+and capture the original catalog owner independently of mutable batch/owner
+records. Return requires confirmed terminal cleanup; NativeSource not yet
+constructed is an in-flight state, not proof of no debt. NativeSource attachment
+requires its context to remain the exact active reservation. After reentrant
+settlement/reuse before attachment, creation fails closed and independently
+cleans known owners rather than letting a late source cross into replacement
+slots. Published NativeSource cleanup confirms only native debt; its entry/
+registry charge remains until complete entry cleanup.
+
 The existing no-context internal API is used by native tools. It must obtain a
 finite envelope from this same pool and retain it until every produced owner is
 confirmed cleaned. No public user API is added. Portable old API fixtures can
 use a default overload, but production must not bypass its context. Define the
 direct-envelope lifetime and return contract before its first native effect.
+
+The direct envelope uses the existing owner-record capacity (the internal
+CatalogRecord also represents this non-catalog lifetime), one existing batch
+and its128 source slots. A tiny internal failure sink is implemented by real
+Catalog and direct lifetime; Context captures the sink object, never a mutable
+owner-record lookup. Reservation failure returns only confirmed empty capacity
+and rejects before source effects. After enumeration settles, CompleteBatch
+returns unused slots but keeps live/uncertain source records; the direct owner
+is then marked closed. Its last confirmed source cleanup returns the owner
+record. Unknown live-batch debt keeps batch/source/owner; late source debt after
+healthy batch settlement keeps original source/owner without affecting a reused
+batch. There is no finalizer, lease timeout, independent pool or synthetic
+Catalog. The explicit Catalog overload does not enter the direct wrapper.
+
+Catalog exposes its existing bounded failure result. The direct adapter envelope
+preallocates a bounded `macos_source_producer_unavailable` diagnosis before
+effects; ordinary body failures leave no inner exception or native metadata at
+that boundary. Original nested fatal identity still propagates unchanged.
+The internal effects seam/ledger retains original failure facts for ownership
+accounting, not for serialization or logging.
 
 Capture PrepareOwner/AcquireOwner still represents a distinct retained copy;
 it must not consume the base source's catalog/producer record. State gates only
@@ -52,6 +89,20 @@ native contract: nil or changed self is not permission to release the old
 receiver blindly. Exceptions leave uncertainty charged. A retain exception may
 have taken an extra reference without yielding its returned address; do not
 release the borrowed window to guess a rollback.
+
+The operations boundary has one fixed Objective-C init-family contract: a
+nonzero receiver carries one allocation +1; normal return confirms consumption
+of that ownership, and only the returned nonzero self owns a new +1. Nil has no
+returned owner. A nil allocation never enters initialization. Initialization
+throw confirms neither consumption nor output, regardless of a fake's known
+internal result, so neither old nor guessed replacement addresses are released.
+This follows [Clang init semantics](https://clang.llvm.org/docs/AutomaticReferenceCounting.html#semantics-of-init)
+and [Apple initialization guidance](https://developer.apple.com/library/archive/documentation/General/Conceptual/CocoaEncyclopedia/Initialization/Initialization.html).
+The installed SCStream.h declares a normal init-family method without an
+ownership override (SDK header SHA-256
+`11633abf2df86bd6c92345a9c4804a0746e18d4db39994ae29243671f332825b`).
+Controlled nil/changed-self/throw tests do not prove these behaviors occur in
+ScreenCaptureKit, or that an Objective-C exception safely crosses P/Invoke.
 
 After successful ownership effects, construction/list/entry failures still have
 the preattached token. Independently confirmed filter/window cleanup is attempted

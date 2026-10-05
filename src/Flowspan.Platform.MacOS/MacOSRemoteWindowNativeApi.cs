@@ -73,6 +73,9 @@ internal interface IMacOSRemoteWindowNativeApi
 
     public ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateAsync();
 
+    public ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateAsync(
+        MacOSRemoteWindowSourceCreationContext context) => EnumerateAsync();
+
     public bool IsCurrent(IMacOSRemoteWindowNativeSource source);
 
     public IMacOSRemoteWindowNativeCapture CreateCapture(

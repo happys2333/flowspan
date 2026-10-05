@@ -1,6 +1,7 @@
 # macOS initial source-producer ownership
 
-Status: approved v1 fail-closed baseline; implementation beginning after the
+Status: approved v1 fail-closed baseline; implementation/local verification
+complete, fresh hosted gates pending after the
 SourceEntry/Catalog checkpoint `3aa099b`. Fresh hosted verification of that
 earlier checkpoint passes separately, not for this new work. Trace: NR8/NR10, MSC6/MSC9.
 

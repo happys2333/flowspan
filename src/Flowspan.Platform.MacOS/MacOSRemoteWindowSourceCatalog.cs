@@ -5,7 +5,8 @@ namespace Flowspan.Platform.MacOS;
 
 public sealed class MacOSRemoteWindowSourceCatalog :
     INativeRemoteWindowSourceCatalog,
-    IAsyncDisposable
+    IAsyncDisposable,
+    IMacOSRemoteWindowSourceCreationFailureSink
 {
     private readonly object gate = new();
     private readonly Dictionary<MacOSRemoteWindowNativeIdentity, SourceEntry>
@@ -95,6 +96,7 @@ public sealed class MacOSRemoteWindowSourceCatalog :
             {
                 return LocalBoundaryResult.Failed("macos_source_ownership_capacity_exhausted");
             }
+            MacOSRemoteWindowSourceCreationContext? context = null;
             try
             {
                 // This is the admission check after permission/reservation work.
@@ -104,8 +106,9 @@ public sealed class MacOSRemoteWindowSourceCatalog :
                     ObjectDisposedException.ThrowIf(disposed, this);
                     ThrowCleanupFailure();
                 }
+                context = new MacOSRemoteWindowSourceCreationContext(ownershipPool, batch!);
                 IReadOnlyList<IMacOSRemoteWindowNativeSource> sources =
-                    await nativeApi.EnumerateAsync().ConfigureAwait(false);
+                    await nativeApi.EnumerateAsync(context).ConfigureAwait(false);
                 ownershipPool.AttachBatch(batch!, sources);
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -142,7 +145,7 @@ public sealed class MacOSRemoteWindowSourceCatalog :
             }
             finally
             {
-                ownershipPool.CompleteBatch(batch!);
+                ownershipPool.CompleteBatch(batch!, context);
             }
         }
         catch (OperationCanceledException)
@@ -598,6 +601,9 @@ public sealed class MacOSRemoteWindowSourceCatalog :
             }
         }
     }
+
+    void IMacOSRemoteWindowSourceCreationFailureSink.RecordProducerFailure(Exception exception) =>
+        RecordCleanupFailure(exception);
 
     private void ThrowCleanupFailure()
     {

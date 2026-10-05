@@ -35,7 +35,18 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
     public bool PreflightCaptureAccess() => IsSupported
         && N.CGPreflightScreenCaptureAccess() != 0;
 
-    public async ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateAsync()
+    public ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateAsync() =>
+        WithDirectCreationContextAsync(MacOSRemoteWindowSourceOwnershipPool.Shared, EnumerateCoreAsync);
+
+    public ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateAsync(
+        MacOSRemoteWindowSourceCreationContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return EnumerateCoreAsync(context);
+    }
+
+    private async ValueTask<IReadOnlyList<IMacOSRemoteWindowNativeSource>> EnumerateCoreAsync(
+        MacOSRemoteWindowSourceCreationContext context)
     {
         if (!PreflightCaptureAccess() || !HasExistingApplication())
         {
@@ -110,7 +121,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             for (nuint index = 0; index < count; index++)
             {
                 nint window = N.SendIndex(windows, N.Sel("objectAtIndex:"), index);
-                NativeSource? source = CreateSource(runtime, window);
+                NativeSource? source = CreateSource(runtime, window, context);
                 if (source is not null)
                 {
                     try
@@ -258,36 +269,104 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             && Marshal.ReadIntPtr(pointer) != 0;
     }
 
-    private NativeSource? CreateSource(Runtime runtime, nint window)
+    private NativeSource? CreateSource(Runtime runtime, nint window,
+        MacOSRemoteWindowSourceCreationContext context)
     {
-        if (window == 0 || N.GetByte(window, N.Sel("isOnScreen")) == 0
-            || N.GetNInt(window, N.Sel("windowLayer")) != 0)
-        {
-            return null;
-        }
+        return CreateSourceCore(window, new NativeSourceCreationOperations(this, runtime), context);
+    }
 
-        uint windowId = N.GetUInt(window, N.Sel("windowID"));
-        nint application = N.Send0(window, N.Sel("owningApplication"));
-        int processId = N.GetInt(application, N.Sel("processID"));
-        if (windowId == 0 || application == 0 || processId <= 0
-            || (processId == Environment.ProcessId && !allowedOwnWindowIds.Contains(windowId))
-            || !TryProcessIdentity(windowId, processId, out MacOSRemoteWindowNativeIdentity identity))
-        {
-            return null;
-        }
+    internal static IMacOSRemoteWindowNativeSource? CreateSourceWithOperations(
+        MacOSRemoteWindowSourceCreationContext context, nint window,
+        IMacOSRemoteWindowSourceCreationOperations operations)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(operations);
+        return CreateSourceCore(window, operations, context);
+    }
 
-        nint filter = N.Send1(N.Send0(runtime.FilterClass, N.Sel("alloc")),
-            N.Sel("initWithDesktopIndependentWindow:"), window);
-        if (filter == 0)
-        {
-            return null;
-        }
+    internal static ValueTask<IMacOSRemoteWindowNativeSource?> CreateDirectSourceWithOperations(
+        MacOSRemoteWindowSourceOwnershipPool ownershipPool, nint window,
+        IMacOSRemoteWindowSourceCreationOperations operations)
+    {
+        ArgumentNullException.ThrowIfNull(ownershipPool);
+        ArgumentNullException.ThrowIfNull(operations);
+        return WithDirectCreationContextAsync(ownershipPool, context =>
+            ValueTask.FromResult<IMacOSRemoteWindowNativeSource?>(CreateSourceCore(window, operations, context)));
+    }
 
-        nint windowOwner = 0;
+    private static async ValueTask<T> WithDirectCreationContextAsync<T>(
+        MacOSRemoteWindowSourceOwnershipPool ownershipPool,
+        Func<MacOSRemoteWindowSourceCreationContext, ValueTask<T>> body)
+    {
+        var lifetime = new DirectSourceLifetime();
+        var unavailable = new InvalidOperationException("macos_source_producer_unavailable");
+        if (!ownershipPool.TryReserveCatalog(lifetime, out var owner))
+        {
+            throw new InvalidOperationException("macos_source_ownership_capacity_exhausted");
+        }
+        MacOSRemoteWindowSourceOwnershipPool.BatchRecord? batch = null;
+        MacOSRemoteWindowSourceCreationContext? context = null;
         try
         {
-            MacOSCaptureRect frame = N.GetRect(window, N.Sel("frame"));
-            float scale = N.GetFloat(filter, N.Sel("pointPixelScale"));
+            if (!ownershipPool.TryReserveBatch(owner!, out batch))
+            {
+                throw new InvalidOperationException("macos_source_ownership_capacity_exhausted");
+            }
+            context = new(ownershipPool, batch!);
+            try
+            {
+                return await body(context).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                if (FindFatal(exception) is { } fatal) { ExceptionDispatchInfo.Capture(fatal).Throw(); }
+                throw unavailable;
+            }
+        }
+        finally
+        {
+            if (batch is not null) { ownershipPool.CompleteBatch(batch, context); }
+            ownershipPool.CloseCatalog(owner!, registryConfirmed: true);
+        }
+    }
+
+    // The pool owns the direct lifetime and all its debt. Context.Fail already
+    // closes admission and marks the exact source/batch; no catalog registry or
+    // fallible/native work is needed for this stable sink.
+    private sealed class DirectSourceLifetime : IMacOSRemoteWindowSourceCreationFailureSink
+    {
+        public void RecordProducerFailure(Exception failure) { }
+    }
+
+    private static NativeSource? CreateSourceCore(nint window,
+        IMacOSRemoteWindowSourceCreationOperations operations,
+        MacOSRemoteWindowSourceCreationContext context)
+    {
+        if (!operations.TryGetIdentity(window, out MacOSRemoteWindowNativeIdentity identity))
+        {
+            return null;
+        }
+
+        var ledger = new MacOSRemoteWindowSourceCreationLedger(context, window, operations);
+        ledger.Record = context.Pool.PrepareCreation(context.Batch, ledger);
+        nint filter = 0;
+        nint windowOwner = 0;
+        OutOfMemoryException? originalFatal = null;
+        bool handedOff = false;
+        try
+        {
+            ledger.AllocationAttempted = true;
+            nint allocatedFilter = operations.AllocateFilter();
+            ledger.AllocatedFilter = allocatedFilter;
+            ledger.AllocationConfirmed = true;
+            if (allocatedFilter == 0) { return null; }
+            ledger.InitializationAttempted = true;
+            filter = operations.InitializeFilter(allocatedFilter, window);
+            ledger.Filter = filter;
+            ledger.InitializationConfirmed = true;
+            if (filter == 0) { return null; }
+            var frame = operations.GetFrame(window);
+            float scale = operations.GetScale(filter);
             NativeRemoteWindowGeometry geometry;
             try
             {
@@ -300,28 +379,78 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             }
 
             if (!TryDimensions(geometry, out _, out _)
-                || !CheckWindowInfo(runtime, identity, geometry))
+                || !operations.ValidateWindow(identity, geometry))
             {
                 return null;
             }
 
-            windowOwner = N.objc_retain(window);
-            var source = new NativeSource(identity, geometry, windowOwner, filter, sourceOperations);
+            ledger.WindowRetainAttempted = true;
+            nint retainedWindow = operations.Retain(window);
+            ledger.Window = retainedWindow;
+            ledger.WindowRetainConfirmed = retainedWindow == window && retainedWindow != 0;
+            if (retainedWindow != window || retainedWindow == 0)
+            {
+                throw new InvalidOperationException("macOS native window retain unconfirmed.");
+            }
+            windowOwner = retainedWindow;
+            var source = new NativeSource(identity, geometry, windowOwner, filter, operations,
+                creationLedger: ledger);
+            context.Pool.AttachCreatedSource(ledger, source);
             windowOwner = 0;
             filter = 0;
+            handedOff = true;
             return source;
+        }
+        catch (Exception exception)
+        {
+            originalFatal = FindFatal(exception);
+            ledger.Failure = exception;
+            if (ledger.HasUnconfirmedAcquisition)
+            {
+                context.Fail(ledger, exception);
+            }
+            throw;
         }
         finally
         {
-            if (windowOwner != 0)
+            Exception? cleanupFailure = null;
+            OutOfMemoryException? cleanupFatal = null;
+            ReleaseCreatedOwner(windowOwner, isFilter: false, operations, ledger,
+                ref cleanupFailure, ref cleanupFatal);
+            ReleaseCreatedOwner(filter, isFilter: true, operations, ledger,
+                ref cleanupFailure, ref cleanupFatal);
+            if (cleanupFailure is not null)
             {
-                N.objc_release(windowOwner);
+                Exception selected = (Exception?)originalFatal ?? cleanupFatal ?? cleanupFailure;
+                ledger.Failure ??= cleanupFailure;
+                context.Fail(ledger, selected);
+                ExceptionDispatchInfo.Capture(selected).Throw();
             }
+            if (!handedOff && ledger.InitialOwnersCleaned)
+            {
+                context.Pool.CompleteCreatedSource(ledger, native: null);
+            }
+        }
+    }
 
-            if (filter != 0)
-            {
-                N.objc_release(filter);
-            }
+    private static void ReleaseCreatedOwner(nint owner, bool isFilter,
+        IMacOSRemoteWindowSourceCreationOperations operations,
+        MacOSRemoteWindowSourceCreationLedger ledger,
+        ref Exception? cleanupFailure, ref OutOfMemoryException? cleanupFatal)
+    {
+        if (owner == 0) { return; }
+        if (isFilter) { ledger.FilterReleaseAttempted = true; }
+        else { ledger.WindowReleaseAttempted = true; }
+        try
+        {
+            operations.Release(owner);
+            if (isFilter) { ledger.FilterReleaseConfirmed = true; }
+            else { ledger.WindowReleaseConfirmed = true; }
+        }
+        catch (Exception exception)
+        {
+            cleanupFailure ??= exception;
+            cleanupFatal ??= FindFatal(exception);
         }
     }
 
@@ -446,12 +575,46 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 && CheckWindowInfo(NativeRuntime.Value, identity, geometry);
     }
 
+    private sealed class NativeSourceCreationOperations(
+        MacOSRemoteWindowScreenCaptureKitApi api, Runtime runtime)
+        : IMacOSRemoteWindowSourceCreationOperations
+    {
+        public bool TryGetIdentity(nint window, out MacOSRemoteWindowNativeIdentity identity)
+        {
+            identity = default;
+            if (window == 0 || N.GetByte(window, N.Sel("isOnScreen")) == 0
+                || N.GetNInt(window, N.Sel("windowLayer")) != 0) { return false; }
+            uint windowId = N.GetUInt(window, N.Sel("windowID"));
+            nint application = N.Send0(window, N.Sel("owningApplication"));
+            int processId = N.GetInt(application, N.Sel("processID"));
+            return windowId != 0 && application != 0 && processId > 0
+                && (processId != Environment.ProcessId || api.allowedOwnWindowIds.Contains(windowId))
+                && TryProcessIdentity(windowId, processId, out identity);
+        }
+        public nint AllocateFilter() => N.Send0(runtime.FilterClass, N.Sel("alloc"));
+        public nint InitializeFilter(nint allocatedFilter, nint window) =>
+            N.Send1(allocatedFilter, N.Sel("initWithDesktopIndependentWindow:"), window);
+        public (double X, double Y, double Width, double Height) GetFrame(nint window)
+        {
+            MacOSCaptureRect frame = N.GetRect(window, N.Sel("frame"));
+            return (frame.X, frame.Y, frame.Width, frame.Height);
+        }
+        public float GetScale(nint filter) => N.GetFloat(filter, N.Sel("pointPixelScale"));
+        public bool ValidateWindow(MacOSRemoteWindowNativeIdentity identity,
+            NativeRemoteWindowGeometry geometry) => CheckWindowInfo(runtime, identity, geometry);
+        public nint Retain(nint owner) => N.objc_retain(owner);
+        public void Release(nint owner) => N.objc_release(owner);
+        public bool CheckCurrent(nint filter, MacOSRemoteWindowNativeIdentity identity,
+            NativeRemoteWindowGeometry geometry) => api.sourceOperations.CheckCurrent(filter, identity, geometry);
+    }
+
     private sealed class NativeSource(
         MacOSRemoteWindowNativeIdentity identity,
         NativeRemoteWindowGeometry geometry,
         nint windowOwner,
         nint filterOwner, IMacOSRemoteWindowSourceOperations operations,
-        NativeSource? acquisitionSource = null) : IMacOSRemoteWindowNativeSource
+        NativeSource? acquisitionSource = null,
+        MacOSRemoteWindowSourceCreationLedger? creationLedger = null) : IMacOSRemoteWindowNativeSource
     {
         private readonly object gate = new();
         private readonly NativeSource? parent = acquisitionSource;
@@ -596,13 +759,17 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 // delay cleanup, and their exit is joined outside the gate.
                 wait.GetAwaiter().GetResult();
                 bool released = ReleaseOwner(ref filter, filterRetainAttempted,
-                    filterRetainConfirmed, ref filterReleaseAttempted)
+                    filterRetainConfirmed, ref filterReleaseAttempted, isFilter: true)
                     & ReleaseOwner(ref window, windowRetainAttempted,
-                        windowRetainConfirmed, ref windowReleaseAttempted);
+                        windowRetainConfirmed, ref windowReleaseAttempted, isFilter: false);
                 if (!released)
                 {
                     if (Volatile.Read(ref ownerFatal) is { } fatal) { ExceptionDispatchInfo.Capture(fatal).Throw(); }
                     throw releaseUnconfirmed;
+                }
+                if (creationLedger is not null)
+                {
+                    creationLedger.Context.Pool.CompleteCreatedSource(creationLedger, this);
                 }
             }
             finally
@@ -640,7 +807,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             if (notify) { usesExited.TrySetResult(true); }
         }
 
-        private bool ReleaseOwner(ref nint owner, bool attempted, bool confirmed, ref bool releaseAttempted)
+        private bool ReleaseOwner(ref nint owner, bool attempted, bool confirmed,
+            ref bool releaseAttempted, bool isFilter)
         {
             nint selected;
             lock (gate)
@@ -650,11 +818,24 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 if (releaseAttempted) { return false; }
                 releaseAttempted = true;
                 selected = owner;
+                if (creationLedger is not null)
+                {
+                    if (isFilter) { creationLedger.FilterReleaseAttempted = true; }
+                    else { creationLedger.WindowReleaseAttempted = true; }
+                }
             }
             try
             {
                 operations.Release(selected);
-                lock (gate) { owner = 0; }
+                lock (gate)
+                {
+                    owner = 0;
+                    if (creationLedger is not null)
+                    {
+                        if (isFilter) { creationLedger.FilterReleaseConfirmed = true; }
+                        else { creationLedger.WindowReleaseConfirmed = true; }
+                    }
+                }
                 return true;
             }
             catch (Exception exception)
@@ -668,6 +849,11 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         {
             Interlocked.CompareExchange(ref ownerFailure, exception, null);
             if (FindFatal(exception) is { } fatal) { Interlocked.CompareExchange(ref ownerFatal, fatal, null); }
+            if (creationLedger is not null)
+            {
+                creationLedger.Failure ??= exception;
+                creationLedger.Context.Fail(creationLedger, exception, this);
+            }
         }
     }
 

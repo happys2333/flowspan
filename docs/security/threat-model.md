@@ -2138,16 +2138,22 @@ global admission closure of existing Captures. See the
 [hosted checkpoint](../evidence/2026-10-05-source-entry-hosted-checkpoint.md), plus
 [ADR 0031](../adr/0031-bounded-macos-source-entry-ownership.md).
 
-### Initial CreateSource producer (MSP1-MSP6, implementation beginning)
+### Initial CreateSource producer (MSP1-MSP6, implementation; final gates pending)
 
 For T13, a filter allocation/initialization or initial window retain may change
 ownership then throw before assignment/NativeSource construction. A catalog
-cannot quarantine the unreturned owner. The next contract attaches a pre-effect
+cannot quarantine the unreturned owner. The implementation attaches a pre-effect
 token to the existing reserved source record, keeps attempted/confirmed facts,
 preserves independent confirmed cleanup and original fatal identity, and hands
 the same charge through source/entry. Unknown debt must not be retried, guessed
 released or returned by batch settlement. Direct internal callers must use the
-same bounded pool. This is a specified mitigation, not completed verification;
+same bounded pool. Direct envelopes use the same finite owner/batch/source
+capacities; settlement keeps live source ownership, and late failure cannot
+poison a reused batch. Ordinary direct body failures expose a preallocated
+bounded diagnosis with no inner exception; original fatal identity remains.
+Init-family normal return explicitly consumes the receiver and owns only the
+returned nonzero self; nil allocation skips init, and throw leaves uncertainty.
+This is controlled-effect progress, not completed verification;
 enumeration content/Block/callback and query-internal resource faults remain
 separate. See [ADR0032](../adr/0032-pre-reserved-macos-source-producer.md).
 
