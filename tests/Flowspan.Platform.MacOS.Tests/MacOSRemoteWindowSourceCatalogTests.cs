@@ -14,7 +14,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
             Sources = [new MacOSRemoteWindowTestSource()],
         };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(catalog.GetSnapshot());
         Assert.True(catalog.TryAcquire(snapshot.Token,
@@ -56,7 +56,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         };
         var api = new MacOSRemoteWindowTestApi { Sources = [nativeSource] };
         catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         try
         {
             Assert.True((await catalog.RefreshAsync()).Succeeded);
@@ -94,7 +94,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
             Sources = [first, second],
         };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         Assert.True((await catalog.RefreshAsync()).Succeeded);
 
         InvalidOperationException reported = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -134,7 +134,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         };
         var api = new MacOSRemoteWindowTestApi { Sources = [first, second] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         Assert.True((await catalog.RefreshAsync()).Succeeded);
 
         Task disposal = catalog.DisposeAsync().AsTask();
@@ -178,7 +178,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         };
         var api = new MacOSRemoteWindowTestApi { Sources = [first, second] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         Assert.True((await catalog.RefreshAsync()).Succeeded);
         IReadOnlyList<NativeRemoteWindowSourceSnapshot> before = catalog.GetSnapshot();
         api.Sources = hasReplacementCandidates
@@ -231,7 +231,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         var drainEntered = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         using var cancellation = new CancellationTokenSource();
         Task<LocalBoundaryResult>? drain = null;
         try
@@ -278,7 +278,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
             ? original : new MacOSRemoteWindowTestSource();
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         try
         {
             Assert.True((await catalog.RefreshAsync()).Succeeded);
@@ -390,7 +390,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         var returnedIdentity = new MacOSRemoteWindowTestSource();
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         try
         {
             Assert.True((await catalog.RefreshAsync()).Succeeded);
@@ -446,7 +446,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         var original = new MacOSRemoteWindowTestSource();
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         Assert.True((await catalog.RefreshAsync()).Succeeded);
         NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(
             catalog.GetSnapshot());
@@ -484,7 +484,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         var original = new MacOSRemoteWindowTestSource();
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         try
         {
             Assert.True((await catalog.RefreshAsync()).Succeeded);
@@ -528,7 +528,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         var original = new MacOSRemoteWindowTestSource();
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         Assert.True((await catalog.RefreshAsync()).Succeeded);
         NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(
             catalog.GetSnapshot());
@@ -566,7 +566,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
             ? new MacOSRemoteWindowTestSource() : original;
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         try
         {
             Assert.True((await catalog.RefreshAsync()).Succeeded);
@@ -612,7 +612,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
             }).ToArray();
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         Assert.True((await catalog.RefreshAsync()).Succeeded);
         NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(
             catalog.GetSnapshot());
@@ -659,7 +659,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         Assert.True((await catalog.RefreshAsync()).Succeeded);
         NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(
             catalog.GetSnapshot());
@@ -726,7 +726,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         Assert.True((await catalog.RefreshAsync()).Succeeded);
         NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(catalog.GetSnapshot());
         Assert.True(catalog.TryAcquireNativeBinding(
@@ -780,7 +780,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
     {
         var api = new MacOSRemoteWindowTestApi { Sources = [original] };
         var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         try
         {
             Assert.True((await catalog.RefreshAsync()).Succeeded);
@@ -840,7 +840,7 @@ public sealed class MacOSRemoteWindowSourceCatalogTests
         api.Sources = [nativeSource];
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
             DeviceId.From(Guid.NewGuid()),
-            api);
+            api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
 
         LocalBoundaryResult result = await catalog.RefreshAsync();
 

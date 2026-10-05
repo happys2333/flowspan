@@ -223,6 +223,15 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
     internal static void DeliverCaptureSample(nint output, nint stream, nint sample, nint kind) =>
         Capture.ProcessOutput(output, stream, sample, kind);
 
+    internal static IMacOSRemoteWindowNativeSource CreateNativeSourceWithOperations(
+        MacOSRemoteWindowNativeIdentity identity, NativeRemoteWindowGeometry geometry,
+        nint windowOwner, nint filterOwner, IMacOSRemoteWindowSourceOperations operations)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(operations);
+        return new NativeSource(identity, geometry, windowOwner, filterOwner, operations);
+    }
+
     public bool TryTakeFailedCapture(Exception failure,
         out IMacOSRemoteWindowNativeCapture? capture)
     {

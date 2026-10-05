@@ -1,8 +1,9 @@
 # Real NativeSource lifecycle prerequisite
 
 Status: final local implementation, independent complete regression, selected
-healthy native regression and saved-data replay pass. Fresh exact-commit hosted
-verification remains pending; MSC task 3b.2a remains in progress. This is not
+healthy native regression and saved-data replay pass. Fresh exact `c5c5c52`
+[hosted verification](2026-10-05-native-source-hosted-checkpoint.md) now passes;
+MSC task 3b.2a closes. This is not
 nonzero-delegate composition, production sharing or Flowspan v1 acceptance.
 
 Base: `a07d911624c57c3a33ab9708de96d1d7838674dc`; implementation branch
@@ -212,11 +213,15 @@ static sign-off is not test execution, native proof or security certification.
 
 ## Remaining gates
 
-Fresh exact-new-commit Windows/macOS/Linux CI, CodeQL and independent downloaded
-inventory/artifact audits remain required. No prior a07d911 result closes them.
+Fresh exact `c5c5c52` Windows/macOS/Linux CI, CodeQL and independently audited
+downloaded inventories/artifacts now pass in the linked hosted checkpoint.
+Those results are not inherited from a07d911 and do not cover later source edits.
+The subsequent [SourceEntry/Catalog slice](2026-10-05-macos-source-entry-ownership.md)
+now records its own final local durable-root/budget verification; its fresh
+exact-commit hosted verification remains pending.
 
 Initial CreateSource filter alloc/init/window retain, enumeration/content/list
-handoff, durable catalog/source/batch roots and independent bounded budgets
+handoff, and the remaining global/native composition
 remain open. Nonzero delegate/exact initializer/global-fault admission,
 terminal Start, managed retirement, complete-cleanup permit return, real native
 faults and aggregate MSC2b/MSC6/MSC9 acceptance remain separate work.

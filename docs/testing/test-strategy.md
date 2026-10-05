@@ -2612,6 +2612,41 @@ all-OS evidence rather than inherit task 3b.1 success. Healthy actual task-owned
 SCStream regression stays separate; injected effects do not prove native faults,
 initial CreateSource/enumeration/catalog handoff or nonzero-delegate acceptance.
 
+### Source-entry/catalog ownership tests (SCE1-SCE6, local verified; hosted pending)
+
+Use the real SourceEntry/NativeBinding and NativeSource, replacing only native
+effects and the producer's returned list. Save an actual last-binding RED before
+changing the catalog: retire a bound entry, consume filter release then throw,
+and prove a later Refresh must reject before another enumeration. Cover stable
+ordinary diagnosis and original nested fatal without retry or skipped window
+cleanup. Never substitute a fake Source state machine for this proof.
+Inject the same late fault during preflight after the initial Refresh check;
+the final enumeration admission check must still reject before the effect.
+Already admitted batches stay owned through cleanup and cannot publish new
+binding authority after closure.
+
+Reserve a shared bounded pool before enumeration; test exhaustion before the
+effect, candidate-to-entry transfer, held binding after catalog disposal, final
+healthy return, entry/batch quarantine and independent cleanup after registration
+failure. Use fresh injected pools for fault contracts, never reset production
+quarantine. NoInlining GC helpers must drop all caller/list/API/binding/task
+references and avoid a strong fixture root; they prove managed reachability,
+not native lifetime or cleanup. Bind final commands, snapshots, runtime and TRX
+separately from complete solution and new exact-commit hosted evidence.
+
+Final repaired local focused/project D/R pass 14/279 cases each, complete
+solution D/R each passes 12 TRX/2850 cases, and ten ordinary CLI repetitions pass
+140 cases against recorded Debug bytes. Five actual RED→GREEN pairs, fresh-pool
+GC isolation, single-layer repair reviews, selected healthy native D/R and root
+saved-data replays are recorded in the
+[local evidence](../evidence/2026-10-05-macos-source-entry-ownership.md).
+Repetitions do not prove independent PID/process groups or a single-worker/
+untuned environment. Fresh exact-new-SHA all-OS verification remains pending.
+
+The catalog cannot retain a native owner lost inside CreateSource/EnumerateAsync
+before producer return; those entry faults and global runtime admission stay
+separate. See [source-entry specification](../../specs/v1/native-remote-window/macos-source-entry-ownership/requirements.md).
+
 Core invariants are asserted after every event:
 
 1. a move never removes the only acknowledged instance, and closes the source

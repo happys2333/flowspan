@@ -228,7 +228,25 @@ implementation convenience.
   package, and physical-machine gates remain open, so the related release
   criteria remain unchecked.
 
-This is portable, headless Desktop, and hosted unsigned-package evidence only.
-It does not satisfy physical-device, native permission/hardware, signed or
+- [2026-10-05 real NativeSource lifecycle](../evidence/2026-10-05-macos-native-source-lifecycle.md)
+  and its [exact c5c5c52 hosted checkpoint](../evidence/2026-10-05-native-source-hosted-checkpoint.md):
+  final local Debug/Release and each hosted OS pass 12 TRX/2836 cases, with exact
+  identities, source/runtime bindings and independent saved-data audits. Actual
+  selected task-owned healthy local macOS Capture regression is separately
+  preserved; hosted helpers do not execute Capture. Native fault containment,
+  initial producer/catalog handoff, nonzero delegate, production sharing and
+  all physical/release gates remain open. No release criterion closes.
+
+- [2026-10-05 SourceEntry/Catalog ownership](../evidence/2026-10-05-macos-source-entry-ownership.md):
+  final repaired local D/R each passes 12 TRX/2850 cases, including 14 added
+  managed contracts, and selected healthy actual local macOS Capture D/R passes
+  separately. Root evidence replays and single-layer repair reviews pass. Fresh
+  exact-commit hosted verification remains pending. Initial producer acquisition,
+  nonzero delegate, protection/input, physical Devices and release gates remain
+  open; no release criterion closes.
+
+Portable/headless/hosted results and selected task-owned native smoke evidence
+have different scopes. None satisfies the full physical-device, native
+permission/protection/hardware, signed or
 notarized real-machine package lifecycle, independent security-review, or full
 product acceptance gates.

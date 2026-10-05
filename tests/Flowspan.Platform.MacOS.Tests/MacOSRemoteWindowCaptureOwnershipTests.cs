@@ -25,7 +25,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         int prematureCopy = 0;
@@ -113,7 +113,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         using var cancellation = new CancellationTokenSource();
@@ -207,7 +207,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         var sink = new MacOSRemoteWindowTestSink
@@ -311,7 +311,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         var sink = new MacOSRemoteWindowTestSink
@@ -390,7 +390,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         var sink = new MacOSRemoteWindowTestSink
@@ -448,7 +448,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         var sink = new MacOSRemoteWindowTestSink
@@ -523,7 +523,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         var sink = new MacOSRemoteWindowTestSink
@@ -586,7 +586,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         NativeRemoteWindowSourceSnapshot snapshot = Assert.Single(catalog.GetSnapshot());
         var otherApi = new MacOSRemoteWindowTestApi
@@ -594,7 +594,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Sources = [new MacOSRemoteWindowTestSource()],
         };
         await using var otherCatalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), otherApi);
+            DeviceId.From(Guid.NewGuid()), otherApi, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await otherCatalog.RefreshAsync();
         NativeRemoteWindowSourceSnapshot other = Assert.Single(otherCatalog.GetSnapshot());
         var sourceUse = new NativeRemoteWindowSourceUse(
@@ -635,7 +635,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
 
@@ -668,7 +668,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Sources = [nativeSource],
             Capture = nativeCapture,
         };
-        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()), api);
+        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         Assert.True((await boundary.StartAsync(
@@ -712,7 +712,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         NativeRemoteWindowSourceUse sourceUse = NativeRemoteWindowSourceUse.Create(
@@ -763,7 +763,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         var sink = new MacOSRemoteWindowTestSink();
@@ -828,7 +828,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         var api = new FailedConstructionTestApi(innerApi, injected, nativeCapture);
-        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()), api);
+        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         Task? disposal = null;
@@ -880,7 +880,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Sources = [nativeSource],
             Capture = nativeCapture,
         };
-        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()), api);
+        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         nativeCapture.OnDispose = () =>
@@ -927,7 +927,7 @@ public sealed class MacOSRemoteWindowCaptureOwnershipTests
             Capture = nativeCapture,
         };
         await using var catalog = new MacOSRemoteWindowSourceCatalog(
-            DeviceId.From(Guid.NewGuid()), api);
+            DeviceId.From(Guid.NewGuid()), api, ownershipPool: new MacOSRemoteWindowSourceOwnershipPool());
         await catalog.RefreshAsync();
         var boundary = new MacOSRemoteWindowCaptureBoundary(catalog);
         var sink = new MacOSRemoteWindowTestSink();

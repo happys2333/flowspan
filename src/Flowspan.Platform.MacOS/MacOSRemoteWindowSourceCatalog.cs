@@ -14,6 +14,8 @@ public sealed class MacOSRemoteWindowSourceCatalog :
     private readonly NativeRemoteWindowSourceRegistry registry;
     private readonly SemaphoreSlim refreshGate = new(1);
     private readonly TimeProvider timeProvider;
+    private readonly MacOSRemoteWindowSourceOwnershipPool ownershipPool;
+    private MacOSRemoteWindowSourceOwnershipPool.CatalogRecord? ownership;
     private SourceEntry? retainedFailedEntries;
     private readonly InvalidOperationException cleanupFailure =
         new("macos_source_cleanup_failed");
@@ -31,11 +33,13 @@ public sealed class MacOSRemoteWindowSourceCatalog :
     internal MacOSRemoteWindowSourceCatalog(
         DeviceId hostDeviceId,
         IMacOSRemoteWindowNativeApi nativeApi,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        MacOSRemoteWindowSourceOwnershipPool? ownershipPool = null)
     {
         ArgumentNullException.ThrowIfNull(nativeApi);
         this.nativeApi = nativeApi;
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.ownershipPool = ownershipPool ?? MacOSRemoteWindowSourceOwnershipPool.Shared;
         registry = new NativeRemoteWindowSourceRegistry(hostDeviceId);
     }
 
@@ -82,39 +86,64 @@ public sealed class MacOSRemoteWindowSourceCatalog :
                 return LocalBoundaryResult.Failed("macos_capture_permission_absent");
             }
 
-            IReadOnlyList<IMacOSRemoteWindowNativeSource> sources =
-                await nativeApi.EnumerateAsync().ConfigureAwait(false);
-            if (cancellationToken.IsCancellationRequested)
+            if (ownership is null
+                && !ownershipPool.TryReserveCatalog(this, out ownership))
             {
-                DisposeNativeSources(sources);
-                cancellationToken.ThrowIfCancellationRequested();
+                return LocalBoundaryResult.Failed("macos_source_ownership_capacity_exhausted");
             }
-
-            int sourceCount;
+            if (!ownershipPool.TryReserveBatch(ownership!, out var batch))
+            {
+                return LocalBoundaryResult.Failed("macos_source_ownership_capacity_exhausted");
+            }
             try
             {
-                sourceCount = sources.Count;
-            }
-            catch (Exception exception)
-            {
+                // This is the admission check after permission/reservation work.
+                // A previously admitted operation owns its batch through cleanup.
                 lock (gate)
                 {
-                    retainedFailedBatch = sources;
+                    ObjectDisposedException.ThrowIf(disposed, this);
+                    ThrowCleanupFailure();
                 }
-                RecordCleanupFailure(exception);
-                throw;
-            }
+                IReadOnlyList<IMacOSRemoteWindowNativeSource> sources =
+                    await nativeApi.EnumerateAsync().ConfigureAwait(false);
+                ownershipPool.AttachBatch(batch!, sources);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    DisposeNativeSources(sources, batch!);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
 
-            if (sourceCount > NativeRemoteWindowSourceRegistry.MaximumSources)
+                int sourceCount;
+                try
+                {
+                    sourceCount = sources.Count;
+                }
+                catch (Exception exception)
+                {
+                    lock (gate)
+                    {
+                        retainedFailedBatch = sources;
+                    }
+                    RecordCleanupFailure(exception);
+                    ownershipPool.FailBatch(batch!);
+                    throw;
+                }
+
+                if (sourceCount > NativeRemoteWindowSourceRegistry.MaximumSources)
+                {
+                    DisposeNativeSources(sources, batch!, sourceCount);
+                    RetireAll();
+                    return LocalBoundaryResult.Failed("macos_source_catalog_overflow");
+                }
+
+                RefreshSources(sources, sourceCount, batch!);
+                cancellationToken.ThrowIfCancellationRequested();
+                return LocalBoundaryResult.Confirmed("macos_source_catalog_refreshed");
+            }
+            finally
             {
-                DisposeNativeSources(sources);
-                RetireAll();
-                return LocalBoundaryResult.Failed("macos_source_catalog_overflow");
+                ownershipPool.CompleteBatch(batch!);
             }
-
-            RefreshSources(sources);
-            cancellationToken.ThrowIfCancellationRequested();
-            return LocalBoundaryResult.Confirmed("macos_source_catalog_refreshed");
         }
         catch (OperationCanceledException)
         {
@@ -164,8 +193,16 @@ public sealed class MacOSRemoteWindowSourceCatalog :
         long sourceGeneration,
         out NativeRemoteWindowSourceLease? lease)
     {
-        ThrowIfDisposed();
-        return registry.TryAcquire(token, sourceGeneration, out lease);
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (cleanupFailed || fatalFailure is not null)
+            {
+                lease = null;
+                return false;
+            }
+            return registry.TryAcquire(token, sourceGeneration, out lease);
+        }
     }
 
     public ValueTask DisposeAsync()
@@ -231,7 +268,7 @@ public sealed class MacOSRemoteWindowSourceCatalog :
         lock (gate)
         {
             binding = null;
-            if (disposed)
+            if (disposed || cleanupFailed || fatalFailure is not null)
             {
                 return false;
             }
@@ -252,27 +289,45 @@ public sealed class MacOSRemoteWindowSourceCatalog :
                 return false;
             }
 
-            entry.Retain();
             binding = new NativeBinding(entry, lease);
+            entry.Retain();
             return true;
         }
     }
 
     private void RefreshSources(
-        IReadOnlyList<IMacOSRemoteWindowNativeSource> sources)
+        IReadOnlyList<IMacOSRemoteWindowNativeSource> sources,
+        int sourceCount,
+        MacOSRemoteWindowSourceOwnershipPool.BatchRecord batch)
     {
         HashSet<IMacOSRemoteWindowNativeSource>? ownedCandidates = null;
         Exception? failure = null;
+        bool readCompleted = false;
         try
         {
+            // Retain each known object before the next fallible list access.
+            // A failed index is never revisited by compensating cleanup.
+            for (int index = 0; index < sourceCount; index++)
+            {
+                batch.KnownSources[index] = sources[index];
+                batch.KnownSourceCount++;
+            }
+            readCompleted = true;
+            sources = new ArraySegment<IMacOSRemoteWindowNativeSource>(
+                batch.KnownSources, 0, sourceCount);
             ownedCandidates = new HashSet<IMacOSRemoteWindowNativeSource>(
                 sources,
                 ReferenceEqualityComparer.Instance);
-            RefreshOwnedSources(sources, ownedCandidates);
+            RefreshOwnedSources(sources, ownedCandidates, batch);
         }
         catch (Exception exception)
         {
             failure = exception;
+            if (!readCompleted)
+            {
+                ownershipPool.FailBatch(batch);
+                RecordCleanupFailure(exception);
+            }
             lock (gate)
             {
                 fatalFailure ??= MacOSRemoteWindowFailure.FindFatal(exception);
@@ -285,7 +340,7 @@ public sealed class MacOSRemoteWindowSourceCatalog :
             {
                 try
                 {
-                    DisposeNativeSources(sources);
+                    DisposeNativeSources(batch.KnownSources, batch, batch.KnownSourceCount);
                 }
                 catch (Exception exception)
                 {
@@ -309,6 +364,7 @@ public sealed class MacOSRemoteWindowSourceCatalog :
                             retainedFailedBatch = sources;
                         }
                         RecordCleanupFailure(exception);
+                        ownershipPool.FailBatch(batch);
                         failure ??= exception;
                     }
                 }
@@ -324,7 +380,8 @@ public sealed class MacOSRemoteWindowSourceCatalog :
 
     private void RefreshOwnedSources(
         IReadOnlyList<IMacOSRemoteWindowNativeSource> sources,
-        HashSet<IMacOSRemoteWindowNativeSource> ownedCandidates)
+        HashSet<IMacOSRemoteWindowNativeSource> ownedCandidates,
+        MacOSRemoteWindowSourceOwnershipPool.BatchRecord batch)
     {
         var candidates = sources.GroupBy(static source => source.Identity)
             .Where(static group => group.Count() == 1)
@@ -371,12 +428,14 @@ public sealed class MacOSRemoteWindowSourceCatalog :
             IMacOSRemoteWindowNativeSource source) in candidates)
         {
             NativeRemoteWindowSourceRegistration? registration = null;
+            SourceEntry? pendingEntry = null;
             bool published = false;
+            Exception? publicationFailure = null;
             try
             {
                 lock (gate)
                 {
-                    if (disposed)
+                    if (disposed || cleanupFailed || fatalFailure is not null)
                     {
                         continue;
                     }
@@ -387,18 +446,38 @@ public sealed class MacOSRemoteWindowSourceCatalog :
                         new ProtectionSnapshot(ProtectionKind.Unknown,
                             timeProvider.GetUtcNow(), "macos_protection_unverified"));
                     registration = registry.RegisterGeneric(metadata);
-                    entries.Add(identity, new SourceEntry(source, registration, identity));
+                    var record = ownershipPool.PrepareEntry(batch, source, registration);
+                    pendingEntry = new SourceEntry(this, source, registration, identity, record);
+                    ownershipPool.AttachEntry(record, pendingEntry);
+                    entries.Add(identity, pendingEntry);
                     ownedCandidates.Remove(source);
+                    ownershipPool.PublishEntry(batch, record);
                     published = true;
                 }
+            }
+            catch (Exception exception)
+            {
+                publicationFailure = exception;
             }
             finally
             {
                 if (!published)
                 {
-                    registration?.Dispose();
+                    try
+                    {
+                        registration?.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        ownershipPool.FailBatch(batch);
+                        RecordCleanupFailure(exception, pendingEntry);
+                        publicationFailure = MacOSRemoteWindowFailure.FindFatal(publicationFailure ?? exception)
+                            ?? MacOSRemoteWindowFailure.FindFatal(exception)
+                            ?? publicationFailure ?? exception;
+                    }
                 }
             }
+            if (publicationFailure is not null) { ExceptionDispatchInfo.Capture(publicationFailure).Throw(); }
         }
     }
 
@@ -424,43 +503,64 @@ public sealed class MacOSRemoteWindowSourceCatalog :
     }
 
     private void DisposeNativeSources(
-        IReadOnlyList<IMacOSRemoteWindowNativeSource> sources)
+        IReadOnlyList<IMacOSRemoteWindowNativeSource> sources,
+        MacOSRemoteWindowSourceOwnershipPool.BatchRecord batch,
+        int? knownCount = null)
     {
         bool failed = false;
-        for (int index = 0; index < sources.Count; index++)
+        try
         {
-            IMacOSRemoteWindowNativeSource source = sources[index];
-            bool duplicate = false;
-            for (int previous = 0; previous < index; previous++)
+            int sourceCount = knownCount ?? sources.Count;
+            for (int index = 0; index < sourceCount; index++)
             {
-                duplicate |= ReferenceEquals(sources[previous], source);
-            }
+                IMacOSRemoteWindowNativeSource source = sources[index];
+                bool duplicate = false;
+                // Once an owner has been read, no fallible prior list access
+                // may prevent its independent cleanup. The producer is bounded;
+                // its already allocated buffer is the reference-identity ledger.
+                for (int previous = 0; previous < Math.Min(index, batch.KnownSources.Length); previous++)
+                {
+                    duplicate |= ReferenceEquals(batch.KnownSources[previous], source);
+                }
+                if (index < batch.KnownSources.Length)
+                {
+                    batch.KnownSources[index] = source;
+                    batch.KnownSourceCount = Math.Max(batch.KnownSourceCount, index + 1);
+                }
 
-            lock (gate)
-            {
-                duplicate |= entries.Values.Any(entry => ReferenceEquals(entry.Native, source));
-            }
-
-            if (duplicate)
-            {
-                continue;
-            }
-
-            try
-            {
-                using NativeRemoteWindowDrainActivityScope activity =
-                    NativeRemoteWindowDrainActivityScope.Enter(this, new object());
-                source.Dispose();
-            }
-            catch (Exception exception)
-            {
                 lock (gate)
                 {
-                    retainedFailedBatch = sources;
+                    duplicate |= entries.Values.Any(entry => ReferenceEquals(entry.Native, source));
                 }
-                RecordCleanupFailure(exception);
-                failed = true;
+
+                if (duplicate)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using NativeRemoteWindowDrainActivityScope activity =
+                        NativeRemoteWindowDrainActivityScope.Enter(this, new object());
+                    source.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    lock (gate)
+                    {
+                        retainedFailedBatch = sources;
+                    }
+                    RecordCleanupFailure(exception);
+                    ownershipPool.FailBatch(batch);
+                    failed = true;
+                }
             }
+        }
+        catch (Exception exception)
+        {
+            ownershipPool.FailBatch(batch);
+            RecordCleanupFailure(exception);
+            throw;
         }
 
         if (failed)
@@ -479,21 +579,23 @@ public sealed class MacOSRemoteWindowSourceCatalog :
         {
             // The entry itself is already allocated and retains its native
             // owner even when no new failure-ledger allocation is possible.
-            lock (gate)
-            {
-                entry.NextRetained = retainedFailedEntries;
-                retainedFailedEntries = entry;
-            }
-            RecordCleanupFailure(exception);
+            RecordCleanupFailure(exception, entry);
         }
     }
 
-    private void RecordCleanupFailure(Exception exception)
+    private void RecordCleanupFailure(Exception exception, SourceEntry? entry = null)
     {
         lock (gate)
         {
             cleanupFailed = true;
             fatalFailure ??= MacOSRemoteWindowFailure.FindFatal(exception);
+            if (entry is not null && !entry.IsRetained)
+            {
+                ownershipPool.FailEntry(entry.Ownership, entry);
+                entry.IsRetained = true;
+                entry.NextRetained = retainedFailedEntries;
+                retainedFailedEntries = entry;
+            }
         }
     }
 
@@ -516,13 +618,29 @@ public sealed class MacOSRemoteWindowSourceCatalog :
     private async Task DisposeCoreAsync()
     {
         await refreshGate.WaitAsync().ConfigureAwait(false);
+        bool registryConfirmed = false;
+        Exception? failure = null;
         try
         {
-            RetireAll();
-            registry.Dispose();
+            try { RetireAll(); }
+            catch (Exception exception) { failure = exception; }
+            try
+            {
+                registry.Dispose();
+                registryConfirmed = true;
+            }
+            catch (Exception exception)
+            {
+                RecordCleanupFailure(exception);
+                failure = MacOSRemoteWindowFailure.FindFatal(failure ?? exception)
+                    ?? MacOSRemoteWindowFailure.FindFatal(exception)
+                    ?? failure ?? exception;
+            }
+            if (failure is not null) { ExceptionDispatchInfo.Capture(failure).Throw(); }
         }
         finally
         {
+            if (ownership is not null) { ownershipPool.CloseCatalog(ownership, registryConfirmed); }
             refreshGate.Release();
         }
     }
@@ -553,14 +671,34 @@ public sealed class MacOSRemoteWindowSourceCatalog :
         public IMacOSRemoteWindowNativeSource Native => entry.Native;
 
         public bool IsCurrent => Volatile.Read(ref disposed) == 0
-            && entry.Current && Lease.IsCurrent;
+            && entry.Current && !Volatile.Read(ref entry.Owner.cleanupFailed)
+            && Lease.IsCurrent;
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref disposed, 1) == 0)
             {
-                Lease.Dispose();
-                entry.Release();
+                Exception? failure = null;
+                try
+                {
+                    Lease.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    entry.Owner.RecordCleanupFailure(exception, entry);
+                    failure = exception;
+                }
+                try
+                {
+                    entry.Release();
+                }
+                catch (Exception exception)
+                {
+                    failure = MacOSRemoteWindowFailure.FindFatal(failure ?? exception)
+                        ?? MacOSRemoteWindowFailure.FindFatal(exception)
+                        ?? failure ?? exception;
+                }
+                if (failure is not null) { ExceptionDispatchInfo.Capture(failure).Throw(); }
             }
         }
     }
@@ -571,13 +709,17 @@ public sealed class MacOSRemoteWindowSourceCatalog :
         private int current = 1;
 
         internal SourceEntry(
+            MacOSRemoteWindowSourceCatalog owner,
             IMacOSRemoteWindowNativeSource native,
             NativeRemoteWindowSourceRegistration registration,
-            MacOSRemoteWindowNativeIdentity identity)
+            MacOSRemoteWindowNativeIdentity identity,
+            MacOSRemoteWindowSourceOwnershipPool.SourceRecord ownership)
         {
+            Owner = owner;
             Native = native;
             Registration = registration;
             Identity = identity;
+            Ownership = ownership;
         }
 
         public bool Current
@@ -592,29 +734,59 @@ public sealed class MacOSRemoteWindowSourceCatalog :
 
         public NativeRemoteWindowSourceRegistration Registration { get; }
 
+        internal MacOSRemoteWindowSourceCatalog Owner { get; }
+
+        internal MacOSRemoteWindowSourceOwnershipPool.SourceRecord Ownership { get; }
+
+        internal bool IsRetained { get; set; }
+
         internal SourceEntry? NextRetained { get; set; }
 
         public void Retain() => Interlocked.Increment(ref references);
 
         public void Retire()
         {
+            Exception? failure = null;
             try
             {
                 Registration.Dispose();
             }
-            finally
+            catch (Exception exception)
+            {
+                Owner.RecordCleanupFailure(exception, this);
+                failure = exception;
+            }
+            try
             {
                 Release();
             }
+            catch (Exception exception)
+            {
+                failure = MacOSRemoteWindowFailure.FindFatal(failure ?? exception)
+                    ?? MacOSRemoteWindowFailure.FindFatal(exception)
+                    ?? failure ?? exception;
+            }
+            if (failure is not null) { ExceptionDispatchInfo.Capture(failure).Throw(); }
         }
 
         public void Release()
         {
             if (Interlocked.Decrement(ref references) == 0)
             {
-                using NativeRemoteWindowDrainActivityScope activity =
-                    NativeRemoteWindowDrainActivityScope.Enter(this, new object());
-                Native.Dispose();
+                try
+                {
+                    using (NativeRemoteWindowDrainActivityScope activity =
+                        NativeRemoteWindowDrainActivityScope.Enter(this, new object()))
+                    {
+                        Native.Dispose();
+                    }
+                }
+                catch (Exception exception)
+                {
+                    Owner.RecordCleanupFailure(exception, this);
+                    throw;
+                }
+                Owner.ownershipPool.CompleteEntry(Ownership, this);
             }
         }
     }

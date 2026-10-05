@@ -83,9 +83,16 @@ not inherited from 473c625. This closes only MSC task 3b.1.
 Task 3b.2a now has [final local evidence](../../docs/evidence/2026-10-05-macos-native-source-lifecycle.md)
 for the real NativeSource retained-owner lifecycle: focused/project D/R 59/265,
 complete solutions 2836 each, 590 ordinary repeat executions, selected actual
-healthy native D/R and saved-data replays pass. Fresh exact-commit hosted
-verification remains open. This does not publish a nonzero delegate or close
-initial CreateSource/enumeration/catalog-owner handoff obligations.
+healthy native D/R and saved-data replays pass. Fresh exact `c5c5c52`
+[hosted verification](../../docs/evidence/2026-10-05-native-source-hosted-checkpoint.md)
+passes CI/CodeQL, matching three-OS 12-TRX/2836-Passed inventories and root
+saved-data replay. Only MSC 3b.2a closes. The next
+[SourceEntry/Catalog ownership slice](native-remote-window/macos-source-entry-ownership/tasks.md)
+has final repaired local implementation: five actual behavioral RED→GREEN pairs,
+14 focused/279 MacOS cases and 12 TRX/2850 complete cases in each configuration,
+selected healthy native D/R and root evidence replays. Fresh exact-new-SHA hosted
+verification is pending. Neither checkpoint publishes a nonzero
+delegate or closes initial CreateSource/enumeration producer obligations.
 
 ## 0. Product and engineering baseline
 

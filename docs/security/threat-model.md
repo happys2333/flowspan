@@ -2086,7 +2086,7 @@ Capture-only patch; this does not validate real NativeSource fault paths or
 nonzero delegate admission. See
 [cleanup evidence](../evidence/2026-10-05-macos-capture-cleanup.md).
 
-### Real NativeSource prerequisite (task 3b.2a, local verified; hosted pending)
+### Real NativeSource prerequisite (task 3b.2a, local/hosted verified)
 
 Two retains are not one atomic acquisition: the first may return an owned
 window while the second changes filter ownership and throws. Stage the complete
@@ -2110,7 +2110,32 @@ native regression remains a distinct evidence level. Delegate=0,
 14.2/Arm64 candidate admission and production sharing availability stay unchanged.
 The [final local checkpoint](../evidence/2026-10-05-macos-native-source-lifecycle.md)
 records injected behavior, independent full regression and selected healthy
-native execution separately; fresh exact-commit hosted verification stays open.
+native execution separately. Fresh exact `c5c5c52`
+[hosted verification](../evidence/2026-10-05-native-source-hosted-checkpoint.md)
+passes complete all-OS contracts and saved-data audits, not native injected
+faults or the remaining initial-producer/catalog/global admission obligations.
+
+### Source-entry/catalog ownership prerequisite (SCE1-SCE6, local verified; hosted pending)
+
+A retired entry's last binding can fail after it leaves the active dictionary.
+Its failure must close new catalog admission and transfer the complete owner
+graph into pre-reserved process retention; a catalog field or completed Task
+cycle is collectible and cannot be the sole quarantine. Never retry an uncertain
+release or overwrite an earlier failed batch. Independent known owners still
+receive cleanup attempts outside state gates, preserving the original fatal.
+
+Separate engineering budgets are 8 catalog lifetimes, 1024 source obligations
+and 8 maximum-128 producer batches, independent of Capture/association/tag
+permits. Exhaustion rejects before enumeration; held bindings and unknown debt
+keep their charge after catalog disposal. Root count is not a byte bound for an
+arbitrary injected object graph. Final portable contracts, independent complete
+D/R regressions, selected healthy native D/R and root evidence replays pass;
+fresh exact-commit hosted verification remains pending. Managed graph retention
+and healthy native regression are not native-fault containment. The catalog
+cannot recover native owners lost inside the producer before return or prove
+global admission closure of existing Captures. See the
+[local evidence](../evidence/2026-10-05-macos-source-entry-ownership.md) and
+[ADR 0031](../adr/0031-bounded-macos-source-entry-ownership.md).
 
 ## 6. Security state machine rules
 

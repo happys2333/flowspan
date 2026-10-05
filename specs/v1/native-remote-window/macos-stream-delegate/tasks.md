@@ -134,7 +134,7 @@
     - [-] 3b.2 Stage source-acquisition ownership, reserve before native work,
       compose nonzero delegate and exact initializer/global failure admission,
       monotonic Start, managed retirement and complete-cleanup permit return.
-      - [-] 3b.2a Fix the real NativeSource acquisition/use/cleanup prerequisite.
+      - [x] 3b.2a Fix the real NativeSource acquisition/use/cleanup prerequisite.
         Inject only native retain/release/current-check effects; stage the
         managed retained owner on the same rooted Capture before acquisition.
         Join admitted uses outside gates, reject direct/active-descendant
@@ -154,12 +154,21 @@
           actual task-owned native D/R and root saved-data replays pass;
           Standards/Spec have no remaining findings. No nonzero delegate or
           source-entry/catalog ownership acceptance follows.
-        - [ ] Verify fresh exact-new-commit Windows/macOS/Linux CI and CodeQL,
+        - [x] Verify fresh exact-new-commit Windows/macOS/Linux CI and CodeQL,
           downloaded complete inventories and source/artifact bindings. Prior
           a07d911 success is not a result for this implementation.
+          Exact `c5c5c52` CI/CodeQL pass; each OS has 12 TRX/2836 Passed
+          matching final local D/R and all 27 additions. Root actually replays
+          both audits; the independent current review has zero findings. See
+          [hosted checkpoint](../../../../docs/evidence/2026-10-05-native-source-hosted-checkpoint.md).
+          Three large packages remain API/log-only; native/global/catalog
+          obligations and the parent task remain open.
         _Requirements: MSC6-MSC7, MSC9 ownership prerequisite; NR8, NR10_
       - [ ] 3b.2b Compose reserved nonzero delegate/exact initializer, monotonic
         Start, global-fault admission and managed retirement on the same Capture.
+        Prerequisite: [source-entry ownership](../macos-source-entry-ownership/tasks.md)
+        closes the late catalog-binding failure and pre-reserved durable roots;
+        initial native producer acquisition remains subsequent separate work.
       - [ ] 3b.2c Implement the bounded process native bridge/tag runtime and
         require complete confirmed owner/root cleanup before permit return.
       - [ ] 3b.2d Verify final exact-source local and fresh all-OS hosted gates;
