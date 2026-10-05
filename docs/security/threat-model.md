@@ -2158,7 +2158,7 @@ Controlled-effect ownership, selected healthy local native regression and exact
 Enumeration content/Block/callback and query-internal resource faults remain
 separate. See [ADR0032](../adr/0032-pre-reserved-macos-source-producer.md).
 
-### macOS enumeration producer (MEP1-MEP8, partial portable implementation)
+### macOS enumeration producer (MEP1-MEP8, local composition checkpoint)
 
 For T13, retained enumeration content, dispatch-copied native completion and
 autorelease-pool effects can remain uncertain before their results are assigned.
@@ -2182,12 +2182,19 @@ cleanup once and preserves the first observed nested fatal across all faults.
 An opt-in staged Block primitive now avoids unknown-effect retries/finalizer
 cleanup and separates confirmed last-capture root free from managed exits.
 Its actual extra-copy ABI probe is task-owned and invokes no SCK/capture/input.
-Neither primitive nor probe is yet composed into enumeration; caller-owned
-Block release, first idle callback notification, native-copy retirement and
-final ABI return remain distinct. Until complete composition supplies lifetime
-proof, these observations must not authorize batch return, global Capture
-admission or secure-input/protection/production-sharing claims. Complete
-enumeration and fresh hosted acceptance remain required.
+The actual enumeration now composes the inert primitive into its original batch
+before root/copy. Caller release, first-idle content use, physical native-copy
+retirement, terminal managed drain and final ABI return remain distinct.
+Preallocated failure signaling avoids impossible waits after unknown effects;
+timeout/finalizer never returns capacity. Confirmed sources clean up before
+delayed native retirement. Fallible failure sinks are contained at enumeration,
+source owner and source factory boundaries, preserving independent cleanup and
+first nested fatal. Seven actual composition RED→GREEN pairs/eight direct
+contracts and actual task-owned Block/SCK healthy D/R evidence are recorded in the
+[composition checkpoint](../evidence/2026-10-05-enumeration-composition-progress.md).
+These local facts do not establish native fault injection, global Capture
+admission, secure-input/protection or production sharing. Complete enumeration
+and fresh exact-commit hosted acceptance remain required.
 
 ## 6. Security state machine rules
 

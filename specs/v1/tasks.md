@@ -127,6 +127,16 @@ solution D/R each pass2933/12 TRX, including macOS362; same-batch staged enumera
 composition, SCK lifetime and fresh exact-commit hosted gates are still open.
 No additional enumeration task or production-sharing/v1 acceptance closes here.
 
+The later [same-batch composition checkpoint](../../docs/evidence/2026-10-05-enumeration-composition-progress.md)
+adds15 actual composition contracts (seven RED→GREEN pairs/eight direct GREEN),
+including notification defects exposed by two-axis review. Focused Debug98 and
+frozen solution D/R2948/12 TRX (macOS377) pass; every preceding2933 identity remains.
+Actual staged owner attachment precedes root/copy on the same batch; caller release
+precedes physical retirement waits, with terminal managed drain separate from
+first-idle and ABI return. Actual task-owned Block/SCK healthy D/R and saved-data
+root replays pass. Fresh exact-SHA CI/CodeQL and complete acceptance remain open;
+no production/v1 requirement is inherited from these local gates.
+
 ## 0. Product and engineering baseline
 
 - [x] 0.1 Record the approved v1 scope as EARS-style acceptance criteria.

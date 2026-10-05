@@ -7,7 +7,7 @@ internal interface IMacOSRemoteWindowEnumerationOperations
     public bool PreflightCaptureAccess();
     public bool HasExistingApplication();
     public void InitializeRuntime();
-    public IMacOSRemoteWindowEnumerationCompletion CreateCompletion(
+    public IMacOSRemoteWindowEnumerationCompletion PrepareCompletion(
         Action<nint, nint> action, Action<Exception> failure, Action completed);
     public nint PushAutoreleasePool();
     public void PopAutoreleasePool(nint pool);
@@ -20,11 +20,14 @@ internal interface IMacOSRemoteWindowEnumerationOperations
     public IMacOSRemoteWindowSourceCreationOperations SourceCreationOperations { get; }
 }
 
-// These facts describe the caller-owned Block reference only. They do not
-// certify callback join or retirement of copies held by a native API.
+// Preparation is inert. Acquisition, owned release, physical capture retirement
+// and the terminal managed invocation drain are independent lifetime facts.
 internal interface IMacOSRemoteWindowEnumerationCompletion : IDisposable
 {
+    public void AcquireCopy();
     public nint Pointer { get; }
     public bool IsReleased { get; }
     public Exception? FirstFailure { get; }
+    public Task NativeCaptureRetirement { get; }
+    public Task ManagedInvocationDrain { get; }
 }

@@ -1,5 +1,8 @@
 # macOS enumeration effects progress — 2026-10-05
 
+Historical checkpoint; later implementation/evidence is recorded in the
+[composition checkpoint](2026-10-05-enumeration-composition-progress.md).
+
 This is a portable managed/controlled-effects checkpoint, not complete MEP,
 native capture, cross-platform or v1 acceptance. The active Goal is unchanged.
 Base: `f2cbdb8588482203751736d245718650c113f372`. Raw immutable stages are under

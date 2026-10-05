@@ -1,17 +1,20 @@
 namespace Flowspan.Platform.MacOS;
 
 // The original reserved batch owns this graph before enumeration effects.
-// This first tracer stages content ownership; primitive Block/dispatch/drain
-// obligations remain separate unverified work within the enumeration slice.
+// The completion shell is inert until attached here. Caller-owned release and
+// terminal native/managed lifetime proof are separate from content use ending.
 internal sealed class MacOSRemoteWindowEnumerationOwnershipLedger(
     MacOSRemoteWindowSourceCreationContext context,
     IMacOSRemoteWindowEnumerationOperations operations)
 {
-    private int contentLifecycleEnded;
+    private int enumerationLifecycleEnded;
     private int callbackAdmission;
     private int activeInvocations;
     private readonly TaskCompletionSource<bool> invocationsExited =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource failureObserved =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Exception? failure;
     internal MacOSRemoteWindowSourceCreationContext Context { get; } = context;
     internal IMacOSRemoteWindowEnumerationOperations Operations { get; } = operations;
     internal IMacOSRemoteWindowEnumerationCompletion? Completion;
@@ -35,9 +38,17 @@ internal sealed class MacOSRemoteWindowEnumerationOwnershipLedger(
     internal nint ContentOwner;
     internal bool ContentReleaseAttempted;
     internal bool ContentReleaseConfirmed;
-    internal Exception? Failure;
-    internal bool IsContentLifecycleEnded => Volatile.Read(ref contentLifecycleEnded) != 0;
-    internal void EndContentLifecycle() => Volatile.Write(ref contentLifecycleEnded, 1);
+    internal Exception? Failure => Volatile.Read(ref failure);
+    internal Task FailureObserved => failureObserved.Task;
+    internal void RecordFailure(Exception exception)
+    {
+        Interlocked.CompareExchange(ref failure, exception, null);
+        // Publish before the possibly fallible outward context/sink observer.
+        // A last-copy failure may leave retirement permanently unconfirmed.
+        failureObserved.TrySetResult();
+    }
+    internal bool IsEnumerationLifecycleEnded => Volatile.Read(ref enumerationLifecycleEnded) != 0;
+    internal void EndEnumerationLifecycle() => Volatile.Write(ref enumerationLifecycleEnded, 1);
     internal bool TryAdmitCallback() => Interlocked.CompareExchange(ref callbackAdmission, 1, 0) == 0;
     internal bool HasAdmittedCallback => Volatile.Read(ref callbackAdmission) is 1 or 3;
     internal void CloseCallbackAdmission()

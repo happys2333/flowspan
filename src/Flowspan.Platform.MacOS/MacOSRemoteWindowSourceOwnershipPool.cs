@@ -275,10 +275,10 @@ internal sealed class MacOSRemoteWindowSourceOwnershipPool
         {
             if (context is not null && !ReferenceEquals(batch.Context, context)) { return; }
             if (batch.Failed) { return; }
-            if (batch.Enumeration is { IsContentLifecycleEnded: false })
+            if (batch.Enumeration is { IsEnumerationLifecycleEnded: false })
             {
                 // Reentrant settlement closes new work, but cannot detach
-                // the original graph while content effects are in flight.
+                // the original graph before native retirement and managed drain.
                 batch.Context?.Close();
                 return;
             }

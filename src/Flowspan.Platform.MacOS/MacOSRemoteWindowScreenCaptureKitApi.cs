@@ -85,7 +85,18 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         OutOfMemoryException? callbackFatal = null;
         OutOfMemoryException? firstFatal = null;
         var failure = new InvalidOperationException("macOS source enumeration unavailable.");
-        var block = operations.CreateCompletion((content, error) =>
+        void NotifyEnumerationFailure(Exception exception)
+        {
+            try { context.FailEnumeration(ownership, exception); }
+            catch (Exception notificationFailure)
+            {
+                // The durable failure facts precede this external observer.
+                // Its own fault cannot skip a result or independent cleanup.
+                RecordFirstEnumerationFatal(ref firstFatal, notificationFailure);
+                ownership.RecordFailure(notificationFailure);
+            }
+        }
+        var block = operations.PrepareCompletion((content, error) =>
         {
             ownership.EnterInvocation();
             if (!ownership.TryAdmitCallback()) { return; }
@@ -111,8 +122,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         }, exception =>
         {
             RecordFirstEnumerationFatal(ref firstFatal, exception);
-            ownership.Failure ??= exception;
-            context.FailEnumeration(ownership, exception);
+            ownership.RecordFailure(exception);
+            NotifyEnumerationFailure(exception);
             if (FindFatal(exception) is { } fatal)
             {
                 Interlocked.CompareExchange(ref callbackFatal, fatal, null);
@@ -128,6 +139,7 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         nint pool = 0;
         try
         {
+            block.AcquireCopy();
             ownership.FirstPoolAcquireAttempted = true;
             pool = operations.PushAutoreleasePool();
             ownership.FirstPoolOwner = pool;
@@ -150,8 +162,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             RecordFirstEnumerationFatal(ref firstFatal, exception);
             bodyFailure = exception;
             ownership.CloseCallbackAdmission();
-            ownership.Failure ??= exception;
-            context.FailEnumeration(ownership, exception);
+            ownership.RecordFailure(exception);
+            NotifyEnumerationFailure(exception);
         }
         finally
         {
@@ -169,8 +181,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                     bodyFailure ??= exception;
                     poolCleanupFailure = exception;
                     ownership.CloseCallbackAdmission();
-                    ownership.Failure ??= exception;
-                    context.FailEnumeration(ownership, exception);
+                    ownership.RecordFailure(exception);
+                    NotifyEnumerationFailure(exception);
                 }
             }
         }
@@ -194,6 +206,11 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             }
             else
             {
+                await Task.WhenAny(completion.Task, ownership.FailureObserved).ConfigureAwait(false);
+                if (!completion.Task.IsCompleted && ownership.Failure is { } resultFailure)
+                {
+                    ExceptionDispatchInfo.Capture(resultFailure).Throw();
+                }
                 contentOwner = await completion.Task.ConfigureAwait(false);
                 await ownership.InvocationsExited.ConfigureAwait(false);
                 if (Volatile.Read(ref callbackFatal) is { } fatal)
@@ -235,8 +252,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             context.Close();
             if (ownership.SecondPoolAcquireAttempted && !ownership.SecondPoolAcquireConfirmed)
             {
-                ownership.Failure ??= exception;
-                context.FailEnumeration(ownership, exception);
+                ownership.RecordFailure(exception);
+                NotifyEnumerationFailure(exception);
             }
             if (ownership.HasAdmittedCallback)
             {
@@ -269,8 +286,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 catch (Exception exception)
                 {
                     RecordFirstEnumerationFatal(ref firstFatal, exception);
-                    ownership.Failure ??= exception;
-                    context.FailEnumeration(ownership, exception);
+                    ownership.RecordFailure(exception);
+                    NotifyEnumerationFailure(exception);
                     contentCleanupFailure = exception;
                 }
             }
@@ -285,8 +302,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 catch (Exception exception)
                 {
                     RecordFirstEnumerationFatal(ref firstFatal, exception);
-                    ownership.Failure ??= exception;
-                    context.FailEnumeration(ownership, exception);
+                    ownership.RecordFailure(exception);
+                    NotifyEnumerationFailure(exception);
                     poolCleanupFailure = exception;
                 }
             }
@@ -304,8 +321,8 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             {
                 RecordFirstEnumerationFatal(ref firstFatal, reportedFailure);
                 ownership.CloseCallbackAdmission();
-                ownership.Failure ??= reportedFailure;
-                context.FailEnumeration(ownership, reportedFailure);
+                ownership.RecordFailure(reportedFailure);
+                NotifyEnumerationFailure(reportedFailure);
                 completionCleanupFailure = reportedFailure;
             }
         }
@@ -313,14 +330,15 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         {
             RecordFirstEnumerationFatal(ref firstFatal, exception);
             ownership.CloseCallbackAdmission();
-            ownership.Failure ??= exception;
-            context.FailEnumeration(ownership, exception);
+            ownership.RecordFailure(exception);
+            NotifyEnumerationFailure(exception);
             completionCleanupFailure = exception;
         }
-        if ((bodyFailure is not null || contentCleanupFailure is not null || poolCleanupFailure is not null
-            || completionCleanupFailure is not null)
-            && sources is not null)
+        bool sourceCleanupSelected = false;
+        void CleanupConfirmedSources()
         {
+            if (sourceCleanupSelected || sources is null) { return; }
+            sourceCleanupSelected = true;
             foreach (IMacOSRemoteWindowNativeSource source in sources)
             {
                 try { source.Dispose(); }
@@ -328,10 +346,49 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
                 {
                     RecordFirstEnumerationFatal(ref firstFatal, exception);
                     sourceCleanupFailure ??= exception;
+                    ownership.RecordFailure(exception);
+                    NotifyEnumerationFailure(exception);
                 }
             }
         }
-        ownership.EndContentLifecycle();
+        if (bodyFailure is not null || contentCleanupFailure is not null || poolCleanupFailure is not null
+            || completionCleanupFailure is not null)
+        {
+            // Known independent source obligations cannot wait for a native
+            // API's last retained completion copy to return.
+            CleanupConfirmedSources();
+        }
+        if (ownership.CompletionReleaseConfirmed && ownership.Failure is null)
+        {
+            // Caller ownership must be consumed first: otherwise its own +1
+            // would prevent the last physical capture from ever retiring.
+            await Task.WhenAny(block.NativeCaptureRetirement, ownership.FailureObserved).ConfigureAwait(false);
+            if (ownership.Failure is null)
+            {
+                await Task.WhenAny(block.ManagedInvocationDrain, ownership.FailureObserved).ConfigureAwait(false);
+            }
+        }
+        if ((block.FirstFailure ?? ownership.Failure) is { } lifetimeFailure)
+        {
+            RecordFirstEnumerationFatal(ref firstFatal, lifetimeFailure);
+            ownership.CloseCallbackAdmission();
+            ownership.RecordFailure(lifetimeFailure);
+            NotifyEnumerationFailure(lifetimeFailure);
+            completionCleanupFailure ??= lifetimeFailure;
+        }
+        if ((bodyFailure is not null || contentCleanupFailure is not null || poolCleanupFailure is not null
+            || completionCleanupFailure is not null)
+            && sources is not null)
+        {
+            CleanupConfirmedSources();
+        }
+        if (ownership.Failure is null && ownership.CompletionReleaseConfirmed
+            && block.NativeCaptureRetirement.IsCompletedSuccessfully
+            && block.ManagedInvocationDrain.IsCompletedSuccessfully)
+        {
+            ownership.CloseCallbackAdmission();
+            ownership.EndEnumerationLifecycle();
+        }
         OutOfMemoryException? selectedFatal = Volatile.Read(ref firstFatal);
         if (selectedFatal is not null)
         {
@@ -582,7 +639,15 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             ledger.Failure = exception;
             if (ledger.HasUnconfirmedAcquisition)
             {
-                context.Fail(ledger, exception);
+                try { context.Fail(ledger, exception); }
+                catch (Exception notificationFailure)
+                {
+                    originalFatal ??= FindFatal(notificationFailure);
+                }
+            }
+            if (originalFatal is not null)
+            {
+                ExceptionDispatchInfo.Capture(originalFatal).Throw();
             }
             throw;
         }
@@ -598,7 +663,14 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             {
                 Exception selected = (Exception?)originalFatal ?? cleanupFatal ?? cleanupFailure;
                 ledger.Failure ??= cleanupFailure;
-                context.Fail(ledger, selected);
+                try { context.Fail(ledger, selected); }
+                catch (Exception notificationFailure)
+                {
+                    if (FindFatal(selected) is null && FindFatal(notificationFailure) is { } notificationFatal)
+                    {
+                        selected = notificationFatal;
+                    }
+                }
                 ExceptionDispatchInfo.Capture(selected).Throw();
             }
             if (!handedOff && ledger.InitialOwnersCleaned)
@@ -757,9 +829,9 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
         public bool PreflightCaptureAccess() => api.PreflightCaptureAccess();
         public bool HasExistingApplication() => MacOSRemoteWindowScreenCaptureKitApi.HasExistingApplication();
         public void InitializeRuntime() => runtime = NativeRuntime.Value;
-        public IMacOSRemoteWindowEnumerationCompletion CreateCompletion(
+        public IMacOSRemoteWindowEnumerationCompletion PrepareCompletion(
             Action<nint, nint> action, Action<Exception> failure, Action completed) =>
-            new NativeEnumerationCompletion(action, failure, completed);
+            MacOSRemoteWindowEnumerationCompletion.Prepare(action, failure, completed);
         public nint PushAutoreleasePool() => N.objc_autoreleasePoolPush();
         public void PopAutoreleasePool(nint pool) => N.objc_autoreleasePoolPop(pool);
         public void Dispatch(nint completion) => N.Enumerate(runtime!.ShareableClass,
@@ -773,24 +845,6 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             N.SendIndex(windows, N.Sel("objectAtIndex:"), index);
         public IMacOSRemoteWindowSourceCreationOperations SourceCreationOperations =>
             new NativeSourceCreationOperations(api, runtime!);
-    }
-
-    private sealed class NativeEnumerationCompletion : IMacOSRemoteWindowEnumerationCompletion
-    {
-        private readonly MacOSRemoteWindowBlock block;
-
-        internal NativeEnumerationCompletion(
-            Action<nint, nint> action, Action<Exception> failure, Action completed)
-        {
-            // This provisional seam only adapts the existing primitive. It does
-            // not contain a Block factory owner lost before Create returns.
-            block = MacOSRemoteWindowBlock.Create(action, failure, completed);
-        }
-
-        public nint Pointer => block.Pointer;
-        public bool IsReleased => block.IsReleased;
-        public Exception? FirstFailure => block.FirstFailure;
-        public void Dispose() => block.Dispose();
     }
 
     private sealed class NativeSourceCreationOperations(
@@ -1070,7 +1124,16 @@ internal sealed class MacOSRemoteWindowScreenCaptureKitApi : IMacOSRemoteWindowN
             if (creationLedger is not null)
             {
                 creationLedger.Failure ??= exception;
-                creationLedger.Context.Fail(creationLedger, exception, this);
+                try { creationLedger.Context.Fail(creationLedger, exception, this); }
+                catch (Exception notificationFailure)
+                {
+                    // The original owner fault is selected before notification.
+                    // Containment lets the independent second owner release run.
+                    if (FindFatal(notificationFailure) is { } notificationFatal)
+                    {
+                        Interlocked.CompareExchange(ref ownerFatal, notificationFatal, null);
+                    }
+                }
             }
         }
     }

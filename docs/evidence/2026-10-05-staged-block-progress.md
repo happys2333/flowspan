@@ -1,5 +1,8 @@
 # Staged macOS Block ownership progress — 2026-10-05
 
+Historical primitive checkpoint; later enumeration composition is recorded in
+the [composition checkpoint](2026-10-05-enumeration-composition-progress.md).
+
 This closes no enumeration task or v1 requirement by itself. Enumeration still
 uses the legacy Create adapter; same-batch staged composition is next work.
 

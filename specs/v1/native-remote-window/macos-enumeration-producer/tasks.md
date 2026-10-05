@@ -78,3 +78,17 @@ composition, SCK-specific lifetime or task4/5/6/full-slice acceptance.
 This plan implements the full enumeration ownership prerequisite. Intermediate
 content-only progress does not close this slice, MSC9, nonzero delegate, native
 production sharing, physical/release acceptance or the active Goal.
+
+## Same-batch staged composition progress
+
+The [composition checkpoint](../../../../docs/evidence/2026-10-05-enumeration-composition-progress.md)
+records seven actual single-behavior RED→GREEN pairs and eight direct-GREEN
+contracts. Actual enumeration now attaches its inert completion before root/copy,
+releases caller ownership before physical retirement, and separates terminal
+managed drain from first-idle content use. Unknown effects retain their original
+graph/charge; fallible notifications cannot skip known independent cleanup or
+replace earlier fatal. Original batch/source records handle reentrant settlement
+and nonempty source-charge transfer. Focused Debug passes98; frozen solution D/R
+each pass12 TRX/2948 (macOS377), retaining every prior2933 identity plus15 new
+composition cases. Final native/root and exact-SHA hosted gates remain pending;
+no additional task or production/v1 gate is closed by these local facts.

@@ -784,7 +784,7 @@ public sealed class MacOSRemoteWindowEnumerationProducerTests
         public bool PreflightCaptureAccess() => true;
         public bool HasExistingApplication() => true;
         public void InitializeRuntime() { }
-        public IMacOSRemoteWindowEnumerationCompletion CreateCompletion(
+        public IMacOSRemoteWindowEnumerationCompletion PrepareCompletion(
             Action<nint, nint> action, Action<Exception> failure, Action completed)
         {
             Completion = new(action, failure, completed)
@@ -904,6 +904,9 @@ public sealed class MacOSRemoteWindowEnumerationProducerTests
         public nint Pointer => 30;
         public bool IsReleased { get; private set; }
         public Exception? FirstFailure { get; private set; }
+        public Task NativeCaptureRetirement => Task.CompletedTask;
+        public Task ManagedInvocationDrain => Task.CompletedTask;
+        public void AcquireCopy() { }
 
         internal void Invoke(nint content, nint error)
         {
