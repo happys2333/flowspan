@@ -12,7 +12,7 @@
   concurrent and late callback admission plus managed invocation joins.
   - Independent cleanup and original fatal must survive every required branch.
   - _Requirements: MEP3-MEP7_
-- [ ] 4. Close actual native completion factory/primitive Block ownership and
+- [-] 4. Close actual native completion factory/primitive Block ownership and
   physical native-copy retirement; do not substitute an outer wrapper proof.
   - Preserve existing Capture contracts; no unknown-effect finalizer/retry return.
   - Stage inert primitive owner before root/copy effects; observe actual last
@@ -39,10 +39,11 @@ are preserved compiler candidates, not behavioral results.
 
 The invocation counter only proves the current callback set's first idle
 boundary. It is not final ABI return, exclusion of later native entry or
-physical native-copy retirement. Task2 still needs healthy nonempty transfer,
-capacity and stale/reused-context contracts; task3 still needs dispatch/first
-pool/factory effects, full late/concurrent admission and cleanup selection.
-Task4 has not started implementation. No complete MEP/native/hosted result is
+physical native-copy retirement. At that checkpoint task2 still needed healthy
+nonempty transfer, capacity and stale/reused-context contracts; task3 still needed
+dispatch/first-pool/factory effects, full late/concurrent admission and cleanup.
+Task4 primitive implementation is in progress on a separate staged path; it has
+not yet been composed into enumeration. No complete MEP/native/hosted result is
 inferred from this progress.
 
 [Recorded local progress](../../../../docs/evidence/2026-10-05-enumeration-content-progress.md)
@@ -52,6 +53,27 @@ quality stage28. Both independent saved-data validators have actual root replay,
 exit0 and byte-identical reports. Quality recorder candidate27 remains separate.
 These regression results do not close final task5 because dispatch/primitive and
 complete callback/native lifetime implementation are still pending.
+
+The subsequent effects checkpoint records actual RED→GREEN pairs01/02,03/04,
+05/06,07/08,09/10,11/12,17/18 and23/24: dispatch-after-callback content cleanup,
+first-pool cleanup/fatal ordering, first/second pool acquisition uncertainty,
+completion cleanup/fatal ordering, overlapping invocation double release and
+contained completion-release fault rejection and first-observed fatal ordering.
+Five additional contracts13-16/25
+pass directly (no claimed RED): missing/late callback, healthy nonempty source
+charge transfer, capacity rejection before effects and stale context/old callback
+isolation across actual BatchRecord reuse, plus later-admitted callback fatal
+ordering. The frozen portable effects overlay
+still uses the old Block primitive; parallel staged/native probe changes are
+excluded. See the
+[effects progress](../../../../docs/evidence/2026-10-05-enumeration-effects-progress.md).
+Task2's requested healthy/capacity/reuse portable contracts now exist, but full
+enumeration settlement still requires task4 composition and lifetime proof.
+The separate [staged Block checkpoint](../../../../docs/evidence/2026-10-05-staged-block-progress.md)
+records10 primitive RED→GREEN pairs, focused D/R19, project D/R348 and actual
+task-owned Block ABI D/R extra-copy/last-copy retirement. Final combined local
+D/R pass12 TRX/2933 each (macOS362), but these facts do not close same-batch
+composition, SCK-specific lifetime or task4/5/6/full-slice acceptance.
 
 This plan implements the full enumeration ownership prerequisite. Intermediate
 content-only progress does not close this slice, MSC9, nonzero delegate, native

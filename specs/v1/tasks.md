@@ -119,6 +119,13 @@ Its [local portable checkpoint](../../docs/evidence/2026-10-05-enumeration-conte
 now passes project D/R329 each, complete solution D/R2900 each,120 Release
 repeat executions and quality gates, with exact baseline retention and root
 saved-data replay. This progress still closes only enumeration task1.
+The [effects checkpoint](../../docs/evidence/2026-10-05-enumeration-effects-progress.md)
+adds8 actual fault RED→GREEN pairs and5 direct-GREEN contracts, including observed
+fatal ordering found by review. A separate opt-in staged Block primitive has19
+portable cases and actual task-owned extra-copy ABI D/R proof. Combined local
+solution D/R each pass2933/12 TRX, including macOS362; same-batch staged enumeration
+composition, SCK lifetime and fresh exact-commit hosted gates are still open.
+No additional enumeration task or production-sharing/v1 acceptance closes here.
 
 ## 0. Product and engineering baseline
 

@@ -2176,6 +2176,18 @@ cover these scoped branches. Its callback counter's first idle boundary still
 does not prove native-copy retirement or exclude later ABI entry. Dispatch,
 factory/primitive and complete lifetime acceptance remain open. See
 [ADR0033](../adr/0033-bounded-macos-enumeration-producer.md).
+The later effects path separately accounts dispatch and both thread-affine
+pools, atomically closes result admission, selects confirmed content/completion
+cleanup once and preserves the first observed nested fatal across all faults.
+An opt-in staged Block primitive now avoids unknown-effect retries/finalizer
+cleanup and separates confirmed last-capture root free from managed exits.
+Its actual extra-copy ABI probe is task-owned and invokes no SCK/capture/input.
+Neither primitive nor probe is yet composed into enumeration; caller-owned
+Block release, first idle callback notification, native-copy retirement and
+final ABI return remain distinct. Until complete composition supplies lifetime
+proof, these observations must not authorize batch return, global Capture
+admission or secure-input/protection/production-sharing claims. Complete
+enumeration and fresh hosted acceptance remain required.
 
 ## 6. Security state machine rules
 

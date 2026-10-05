@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 
 namespace Flowspan.Platform.MacOS;
@@ -10,8 +11,30 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
 {
     private readonly object releaseGate = new();
     private readonly BlockState state;
+    private readonly IMacOSRemoteWindowBlockOperations? stagedOperations;
     private nint pointer;
     private bool releaseInProgress;
+    private int acquisitionAttempted;
+    private int copyAttempted;
+    private int copyConfirmed;
+    private int ownedReleaseAttempted;
+    private int ownedReleaseConfirmed;
+    private bool acquisitionInProgress;
+    private bool disposeRequested;
+    private readonly InvalidOperationException allocationUnavailable = new(
+        "Native completion block allocation is unavailable.");
+    private readonly InvalidOperationException acquisitionUnavailable = new(
+        "Completion acquisition is closed or has already been attempted.");
+
+    private MacOSRemoteWindowBlock(
+        Action<nint, nint> action,
+        Action<Exception>? failure,
+        Action? completed,
+        IMacOSRemoteWindowBlockOperations operations)
+    {
+        stagedOperations = operations;
+        state = new BlockState(action, failure, completed, allocateRoot: false);
+    }
 
     private MacOSRemoteWindowBlock(
         Delegate action,
@@ -63,13 +86,157 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         }
     }
 
-    ~MacOSRemoteWindowBlock() => ReleaseOwnerReference();
+    ~MacOSRemoteWindowBlock()
+    {
+        if (stagedOperations is null) { ReleaseOwnerReference(); }
+    }
 
-    public nint Pointer => Volatile.Read(ref pointer);
+    public nint Pointer => stagedOperations is not null &&
+        (Volatile.Read(ref acquisitionInProgress) ||
+            Volatile.Read(ref ownedReleaseAttempted) != 0 || !CopyConfirmed)
+        ? 0 : Volatile.Read(ref pointer);
 
-    internal bool IsReleased => Volatile.Read(ref pointer) == 0;
+    internal bool IsReleased => stagedOperations is null
+        ? Volatile.Read(ref pointer) == 0
+        : Volatile.Read(ref ownedReleaseConfirmed) != 0;
 
     internal Exception? FirstFailure => state.FirstFailure;
+
+    internal bool RootAllocationAttempted => state.RootAllocationAttempted;
+
+    internal bool RootAllocationConfirmed => state.RootAllocationConfirmed;
+
+    internal bool CopyAttempted => Volatile.Read(ref copyAttempted) != 0;
+
+    internal bool AcquisitionAttempted => Volatile.Read(ref acquisitionAttempted) != 0;
+
+    internal bool CopyConfirmed => Volatile.Read(ref copyConfirmed) != 0;
+
+    internal bool OwnedReleaseAttempted => Volatile.Read(ref ownedReleaseAttempted) != 0;
+
+    internal bool OwnedReleaseConfirmed => Volatile.Read(ref ownedReleaseConfirmed) != 0;
+
+    internal bool NativeCaptureRetired => state.RootReleaseConfirmed;
+
+    internal bool RootReleaseAttempted => state.RootReleaseAttempted;
+
+    internal bool RootReleaseConfirmed => state.RootReleaseConfirmed;
+
+    internal Task NativeCaptureRetirement => state.NativeCaptureRetirement;
+
+    internal Task ManagedInvocationDrain => state.ManagedInvocationDrain;
+
+    internal int ActiveManagedInvocations => state.ActiveManagedInvocations;
+
+    // Observation only: heap retains can share one physical capture. This
+    // count never authorizes release, retirement, join or batch settlement.
+    internal long PhysicalCaptureCopyCount => state.PhysicalCaptureCopyCount;
+
+    internal static MacOSRemoteWindowBlock Prepare(
+        Action<nint, nint> action,
+        Action<Exception>? failure = null,
+        Action? completed = null) =>
+        PrepareWithOperations(action, NativeBlockOperations.Instance, failure, completed);
+
+    internal static MacOSRemoteWindowBlock PrepareWithOperations(
+        Action<nint, nint> action,
+        IMacOSRemoteWindowBlockOperations operations,
+        Action<Exception>? failure = null,
+        Action? completed = null)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(operations);
+        return new MacOSRemoteWindowBlock(action, failure, completed, operations);
+    }
+
+    internal void AcquireCopy()
+    {
+        if (stagedOperations is null)
+        {
+            throw new InvalidOperationException("Only a prepared completion can acquire a native copy.");
+        }
+
+        lock (releaseGate)
+        {
+            if (acquisitionAttempted != 0 || disposeRequested)
+            {
+                throw acquisitionUnavailable;
+            }
+
+            Volatile.Write(ref acquisitionAttempted, 1);
+            Volatile.Write(ref acquisitionInProgress, true);
+        }
+
+        Exception? acquisitionFailure = null;
+        Exception? rootCleanupFailure = null;
+        try
+        {
+            nint isa = 0;
+            if (stagedOperations is NativeBlockOperations)
+            {
+                if (!OperatingSystem.IsMacOS() ||
+                    RuntimeInformation.ProcessArchitecture != Architecture.Arm64)
+                {
+                    throw new PlatformNotSupportedException("Native completion blocks require macOS arm64.");
+                }
+
+                isa = Abi.StackIsa;
+            }
+
+            nint descriptor = CaptureMetadata.TwoArgumentDescriptor;
+            state.AcquireRoot(stagedOperations);
+            var literal = new BlockLiteral
+            {
+                Isa = isa,
+                Flags = (1 << 25) | (1 << 30),
+                Invoke = (nint)(delegate* unmanaged[Cdecl]<nint, nint, nint, void>)&InvokeTwo,
+                Descriptor = descriptor,
+                Context = state.Handle,
+            };
+            Volatile.Write(ref copyAttempted, 1);
+            pointer = stagedOperations.CopyBlock((nint)(&literal));
+            if (pointer == 0 || ((BlockLiteral*)pointer)->Context != state.Handle)
+            {
+                throw allocationUnavailable;
+            }
+
+            Volatile.Write(ref copyConfirmed, 1);
+        }
+        catch (Exception exception)
+        {
+            acquisitionFailure = exception;
+            state.ReportFailure(exception);
+        }
+        finally
+        {
+            if (state.RootAllocationConfirmed)
+            {
+                try { state.ReleaseReference(); }
+                catch (Exception exception)
+                {
+                    rootCleanupFailure = exception;
+                    state.ReportFailure(exception);
+                }
+            }
+
+            bool releaseRequested;
+            lock (releaseGate)
+            {
+                Volatile.Write(ref acquisitionInProgress, false);
+                releaseRequested = disposeRequested;
+            }
+
+            if (releaseRequested) { ReleaseStagedOwnerReference(); }
+        }
+
+        Exception? selectedFailure = state.FirstFailure is { } observed
+            ? MacOSRemoteWindowFailure.FindFatal(observed) : null;
+        selectedFailure ??= acquisitionFailure ?? rootCleanupFailure ?? state.FirstFailure;
+        if (selectedFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(selectedFailure).Throw();
+        }
+    }
 
     // completed runs per invocation after the action and its fault observer.
     // Observers must be thread-safe if the native API invokes concurrently.
@@ -120,6 +287,12 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
 
     private void ReleaseOwnerReference()
     {
+        if (stagedOperations is not null)
+        {
+            ReleaseStagedOwnerReference();
+            return;
+        }
+
         if (IsReleased)
         {
             return;
@@ -168,6 +341,32 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         }
     }
 
+    private void ReleaseStagedOwnerReference()
+    {
+        nint ownedPointer;
+        lock (releaseGate)
+        {
+            disposeRequested = true;
+            if (acquisitionInProgress) { return; }
+            ownedPointer = Volatile.Read(ref pointer);
+            if (ownedPointer == 0 || ownedReleaseAttempted != 0) { return; }
+            Volatile.Write(ref ownedReleaseAttempted, 1);
+        }
+
+        try
+        {
+            stagedOperations!.ReleaseBlock(ownedPointer);
+            Volatile.Write(ref ownedReleaseConfirmed, 1);
+            Volatile.Write(ref pointer, 0);
+        }
+        catch (Exception exception)
+        {
+            // The runtime may already have consumed the reference. Keep the
+            // durable unknown fact, hide the borrowed pointer and never retry.
+            state.ReportFailure(exception);
+        }
+    }
+
     private static BlockState? StateOf(nint block)
     {
         nint context = block == 0 ? 0 : ((BlockLiteral*)block)->Context;
@@ -187,6 +386,7 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
                 return;
             }
 
+            capturedState.RecordPhysicalCaptureCopy();
             capturedState.AddReference();
             ((BlockLiteral*)destination)->Context = capturedState.Handle;
         }
@@ -218,10 +418,11 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         try
         {
             capturedState = StateOf(block);
-            if (capturedState is not null)
+            if (capturedState is not null && capturedState.TryEnterInvocation())
             {
                 ((Action)capturedState.Callback)();
             }
+            else { capturedState = null; }
         }
         catch (Exception exception)
         {
@@ -240,10 +441,11 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         try
         {
             capturedState = StateOf(block);
-            if (capturedState is not null)
+            if (capturedState is not null && capturedState.TryEnterInvocation())
             {
                 ((Action<nint>)capturedState.Callback)(argument);
             }
+            else { capturedState = null; }
         }
         catch (Exception exception)
         {
@@ -262,10 +464,11 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         try
         {
             capturedState = StateOf(block);
-            if (capturedState is not null)
+            if (capturedState is not null && capturedState.TryEnterInvocation())
             {
                 ((Action<nint, nint>)capturedState.Callback)(firstArgument, secondArgument);
             }
+            else { capturedState = null; }
         }
         catch (Exception exception)
         {
@@ -303,25 +506,87 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         private readonly Action? completed;
         private readonly Action<Exception>? failure;
         private Exception? firstFailure;
+        private OutOfMemoryException? firstFatal;
+        private readonly bool staged;
+        private readonly InvalidOperationException rootUnavailable = new(
+            "Native completion root allocation is unavailable.");
         private nint handle;
         private int references = 1;
+        private int rootAllocationAttempted;
+        private int rootAllocationConfirmed;
+        private IMacOSRemoteWindowBlockOperations? operations;
+        private int rootReleaseAttempted;
+        private int rootReleaseConfirmed;
+        private readonly TaskCompletionSource nativeCaptureRetirement = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource managedInvocationDrain = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly object invocationGate = new();
+        private int activeManagedInvocations;
+        private long physicalCaptureCopyCount;
 
         public BlockState(
             Delegate callback,
             Action<Exception>? failure,
-            Action? completed)
+            Action? completed,
+            bool allocateRoot = true)
         {
             Callback = callback;
             this.failure = failure;
             this.completed = completed;
-            handle = GCHandle.ToIntPtr(GCHandle.Alloc(this));
+            staged = !allocateRoot;
+            if (allocateRoot) { handle = GCHandle.ToIntPtr(GCHandle.Alloc(this)); }
         }
 
         public Delegate Callback { get; }
 
-        public Exception? FirstFailure => Volatile.Read(ref firstFailure);
+        public Exception? FirstFailure => staged && Volatile.Read(ref firstFatal) is { } fatal
+            ? fatal : Volatile.Read(ref firstFailure);
 
         public nint Handle => Volatile.Read(ref handle);
+
+        public bool RootAllocationAttempted => Volatile.Read(ref rootAllocationAttempted) != 0;
+
+        public bool RootAllocationConfirmed => Volatile.Read(ref rootAllocationConfirmed) != 0;
+
+        public bool RootReleaseAttempted => Volatile.Read(ref rootReleaseAttempted) != 0;
+
+        public bool RootReleaseConfirmed => Volatile.Read(ref rootReleaseConfirmed) != 0;
+
+        public Task NativeCaptureRetirement => nativeCaptureRetirement.Task;
+
+        public Task ManagedInvocationDrain => managedInvocationDrain.Task;
+
+        public int ActiveManagedInvocations => Volatile.Read(ref activeManagedInvocations);
+
+        public long PhysicalCaptureCopyCount => Volatile.Read(ref physicalCaptureCopyCount);
+
+        public void RecordPhysicalCaptureCopy() => Interlocked.Increment(ref physicalCaptureCopyCount);
+
+        public bool TryEnterInvocation()
+        {
+            lock (invocationGate)
+            {
+                if (operations is not null && rootReleaseAttempted != 0) { return false; }
+                activeManagedInvocations++;
+                return true;
+            }
+        }
+
+        public void AcquireRoot(IMacOSRemoteWindowBlockOperations operations)
+        {
+            this.operations = operations;
+            Volatile.Write(ref rootAllocationAttempted, 1);
+            Volatile.Write(ref handle, operations.AllocateRoot(this));
+            nint returnedRoot = Volatile.Read(ref handle);
+            if (returnedRoot == 0 ||
+                !ReferenceEquals(GCHandle.FromIntPtr(returnedRoot).Target, this))
+            {
+                throw rootUnavailable;
+            }
+
+            Volatile.Write(ref rootAllocationConfirmed, 1);
+        }
 
         // Count physical captures, not native heap-block retains. The native
         // runtime calls CopyCapture only when it creates a new copied capture.
@@ -331,10 +596,25 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         {
             if (Interlocked.Decrement(ref references) == 0)
             {
-                nint ownedHandle = Interlocked.Exchange(ref handle, 0);
+                nint ownedHandle = operations is null
+                    ? Interlocked.Exchange(ref handle, 0)
+                    : Volatile.Read(ref handle);
                 if (ownedHandle != 0)
                 {
-                    GCHandle.FromIntPtr(ownedHandle).Free();
+                    lock (invocationGate) { Volatile.Write(ref rootReleaseAttempted, 1); }
+                    if (operations is { } stagedEffects)
+                    {
+                        stagedEffects.FreeRoot(ownedHandle);
+                        Volatile.Write(ref handle, 0);
+                    }
+                    else { GCHandle.FromIntPtr(ownedHandle).Free(); }
+
+                    // A zero handle, native owned-reference release or helper
+                    // call count cannot publish retirement. The actual last
+                    // physical capture's root free has now returned normally.
+                    Volatile.Write(ref rootReleaseConfirmed, 1);
+                    nativeCaptureRetirement.TrySetResult();
+                    TryPublishManagedInvocationDrain();
                 }
             }
         }
@@ -342,13 +622,24 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
         public void ReportFailure(Exception exception)
         {
             _ = Interlocked.CompareExchange(ref firstFailure, exception, null);
+            if (staged && MacOSRemoteWindowFailure.FindFatal(exception) is { } fatal)
+            {
+                _ = Interlocked.CompareExchange(ref firstFatal, fatal, null);
+            }
             try
             {
                 failure?.Invoke(exception);
             }
-            catch (Exception)
+            catch (Exception observerFailure)
             {
                 // Fault observers are also inside the unmanaged ABI boundary.
+                // Preserve their earlier fatal without recursively invoking an
+                // observer that has already failed. Legacy first-fault policy
+                // remains unchanged on the non-staged Create path.
+                if (staged && MacOSRemoteWindowFailure.FindFatal(observerFailure) is { } observerFatal)
+                {
+                    _ = Interlocked.CompareExchange(ref firstFatal, observerFatal, null);
+                }
             }
         }
 
@@ -364,6 +655,22 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
             catch (Exception exception)
             {
                 ReportFailure(exception);
+            }
+            finally
+            {
+                lock (invocationGate) { activeManagedInvocations--; }
+                TryPublishManagedInvocationDrain();
+            }
+        }
+
+        private void TryPublishManagedInvocationDrain()
+        {
+            lock (invocationGate)
+            {
+                if (rootReleaseConfirmed != 0 && activeManagedInvocations == 0)
+                {
+                    managedInvocationDrain.TrySetResult();
+                }
             }
         }
     }
@@ -386,9 +693,9 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
             try
             {
                 nint stackIsa = NativeLibrary.GetExport(systemLibrary, "_NSConcreteStackBlock");
-                zeroArgumentDescriptor = CreateDescriptor("v8@?0\0"u8);
-                oneArgumentDescriptor = CreateDescriptor("v16@?0@8\0"u8);
-                twoArgumentDescriptor = CreateDescriptor("v24@?0@8@16\0"u8);
+                zeroArgumentDescriptor = CaptureMetadata.ZeroArgumentDescriptor;
+                oneArgumentDescriptor = CaptureMetadata.OneArgumentDescriptor;
+                twoArgumentDescriptor = CaptureMetadata.TwoArgumentDescriptor;
                 StackIsa = stackIsa;
                 ZeroArgumentDescriptor = zeroArgumentDescriptor;
                 OneArgumentDescriptor = oneArgumentDescriptor;
@@ -396,12 +703,39 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
             }
             catch
             {
-                // Roll back unpublished metadata only. Successfully published
-                // descriptors, signatures and library remain process-lifetime.
-                NativeMemory.Free((void*)twoArgumentDescriptor);
-                NativeMemory.Free((void*)oneArgumentDescriptor);
-                NativeMemory.Free((void*)zeroArgumentDescriptor);
+                // Metadata owns its own acquisition rollback. Only this
+                // unpublished native library binding remains to release here.
                 NativeLibrary.Free(systemLibrary);
+                throw;
+            }
+        }
+    }
+
+    private static class CaptureMetadata
+    {
+        public static readonly nint ZeroArgumentDescriptor;
+        public static readonly nint OneArgumentDescriptor;
+        public static readonly nint TwoArgumentDescriptor;
+
+        static CaptureMetadata()
+        {
+            nint zero = 0;
+            nint one = 0;
+            nint two = 0;
+            try
+            {
+                zero = CreateDescriptor("v8@?0\0"u8);
+                one = CreateDescriptor("v16@?0@8\0"u8);
+                two = CreateDescriptor("v24@?0@8@16\0"u8);
+                ZeroArgumentDescriptor = zero;
+                OneArgumentDescriptor = one;
+                TwoArgumentDescriptor = two;
+            }
+            catch
+            {
+                NativeMemory.Free((void*)two);
+                NativeMemory.Free((void*)one);
+                NativeMemory.Free((void*)zero);
                 throw;
             }
         }
@@ -424,6 +758,16 @@ internal sealed unsafe partial class MacOSRemoteWindowBlock : IDisposable
             descriptor->Signature = signaturePointer;
             return (nint)descriptor;
         }
+    }
+
+    private sealed class NativeBlockOperations : IMacOSRemoteWindowBlockOperations
+    {
+        public static readonly NativeBlockOperations Instance = new();
+
+        public nint AllocateRoot(object target) => GCHandle.ToIntPtr(GCHandle.Alloc(target));
+        public void FreeRoot(nint root) => GCHandle.FromIntPtr(root).Free();
+        public nint CopyBlock(nint block) => Native.BlockCopy(block);
+        public void ReleaseBlock(nint block) => Native.BlockRelease(block);
     }
 
     private static partial class Native

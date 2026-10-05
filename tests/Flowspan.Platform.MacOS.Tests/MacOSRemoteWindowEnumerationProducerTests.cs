@@ -8,6 +8,450 @@ namespace Flowspan.Platform.MacOS.Tests;
 public sealed class MacOSRemoteWindowEnumerationProducerTests
 {
     [Fact]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects an earlier dispatch fatal followed by a later admitted callback-retain fatal.")]
+    public async Task LaterAdmittedCallbackFatalCannotOverwriteEarlierDispatchFatal()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        using var retainHeld = new ManualResetEventSlim();
+        using var allowRetainReturn = new ManualResetEventSlim();
+        var fatal = new OutOfMemoryException("private earlier dispatch fatal");
+        Task? admitted = null;
+        var effects = new EnumerationEffects(new IOException("private later callback wrapper",
+            new OutOfMemoryException("private later callback fatal")))
+        {
+            RetainCallback = () =>
+            {
+                retainHeld.Set();
+                if (!allowRetainReturn.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    throw new IOException("Controlled retain return timed out.");
+                }
+            },
+            DispatchCallback = completion =>
+            {
+                admitted = Task.Factory.StartNew(
+                    () => completion.Invoke(EnumerationEffects.Content, 0),
+                    CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                Assert.True(retainHeld.Wait(TimeSpan.FromSeconds(5)));
+                throw new IOException("private earlier dispatch wrapper", fatal);
+            },
+        };
+        Task<IReadOnlyList<IMacOSRemoteWindowNativeSource>> operation =
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, effects).AsTask();
+        try
+        {
+            Assert.False(operation.IsCompleted);
+            Assert.Equal(2, effects.ContentReferences);
+            Assert.Empty(effects.ReleaseAttempts);
+        }
+        finally
+        {
+            allowRetainReturn.Set();
+            if (admitted is not null) { await admitted.WaitAsync(TimeSpan.FromSeconds(5)); }
+        }
+
+        var actual = await Record.ExceptionAsync(async () =>
+            await operation.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Same(fatal, actual);
+        Assert.Equal(1, effects.RetainAttempts);
+        Assert.Equal(2, effects.ContentReferences);
+        Assert.Empty(effects.ReleaseAttempts);
+        Assert.Equal(0, effects.QueryAttempts);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects a first-pool cleanup fatal after ordinary dispatch failure and a later content cleanup fatal.")]
+    public void EarlierFirstPoolFatalCannotBeOverwrittenByLaterContentFatal()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var fatal = new OutOfMemoryException("private earlier first-pool cleanup fatal");
+        var effects = new EnumerationEffects(null)
+        {
+            DispatchFailure = new IOException("private ordinary dispatch failure"),
+            FirstPoolPopFailure = new IOException("private first-pool wrapper", fatal),
+            ReleaseFailure = new IOException("private later content wrapper",
+                new OutOfMemoryException("private later content cleanup fatal")),
+        };
+
+        var actual = Record.Exception(() =>
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, effects)
+                .AsTask().GetAwaiter().GetResult());
+
+        Assert.Same(fatal, actual);
+        Assert.Equal(new[] { EnumerationEffects.Content }, effects.ReleaseAttempts);
+        Assert.Equal(1, effects.PoolPopAttempts);
+        Assert.Equal(1, effects.Completion!.DisposeAttempts);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects a contained completion-release observer fatal after a healthy source result.")]
+    public void ContainedCompletionReleaseFaultRejectsSourcesWithoutHidingFatal()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var fatal = new OutOfMemoryException("private contained completion release fatal");
+        var windows = new WindowEffects();
+        var effects = new EnumerationEffects(null)
+        {
+            WindowCount = 1,
+            WindowOperations = windows,
+            CompletionReportedFailure = new IOException("private completion observer wrapper", fatal),
+        };
+
+        var actual = Record.Exception(() =>
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, effects)
+                .AsTask().GetAwaiter().GetResult());
+
+        Assert.Same(fatal, actual);
+        Assert.Equal(1, effects.ContentReferences);
+        Assert.Equal(new[] { EnumerationEffects.Content }, effects.ReleaseAttempts);
+        Assert.Equal(new[] { WindowEffects.Filter, WindowEffects.Window }, windows.ReleaseAttempts);
+        Assert.Equal(0, windows.FilterReferences);
+        Assert.Equal(1, windows.WindowReferences);
+        Assert.True(effects.Completion!.IsReleased);
+        Assert.Equal(1, effects.Completion.DisposeAttempts);
+        Assert.Equal((1, 127, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    public async Task StaleContextAndLateOldCallbackCannotPoisonReusedBatch()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()),
+            new MacOSRemoteWindowTestApi(), ownershipPool: pool);
+        Assert.True(pool.TryReserveCatalog(catalog, out var owner));
+        Assert.True(pool.TryReserveBatch(owner!, out var originalBatch));
+        var originalContext = new MacOSRemoteWindowSourceCreationContext(pool, originalBatch!);
+        var original = new EnumerationEffects(null)
+        {
+            BeforeInvocationExit = sequence =>
+            {
+                if (sequence == 2) { throw new IOException("private old callback fault"); }
+            },
+        };
+        Assert.Empty(await MacOSRemoteWindowScreenCaptureKitApi.EnumerateWithOperations(originalContext, original));
+        pool.CompleteBatch(originalBatch!, originalContext);
+        Assert.True(pool.TryReserveBatch(owner!, out var replacementBatch));
+        Assert.Same(originalBatch, replacementBatch);
+        var replacementContext = new MacOSRemoteWindowSourceCreationContext(pool, replacementBatch!);
+        var rejected = new EnumerationEffects(null);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await MacOSRemoteWindowScreenCaptureKitApi.EnumerateWithOperations(originalContext, rejected));
+        Assert.Null(rejected.Completion);
+        Assert.Equal(0, rejected.PoolPushAttempts);
+        Assert.Equal(0, rejected.RetainAttempts);
+        original.Completion!.Invoke(EnumerationEffects.Content, 0);
+        Assert.Equal(1, original.RetainAttempts);
+        Assert.Equal(1, original.ContentReferences);
+        Assert.False(replacementContext.IsClosed);
+
+        var replacement = new EnumerationEffects(null);
+        Assert.Empty(await MacOSRemoteWindowScreenCaptureKitApi.EnumerateWithOperations(replacementContext, replacement));
+        pool.CompleteBatch(replacementBatch!, replacementContext);
+        pool.CloseCatalog(owner!, registryConfirmed: true);
+        Assert.Equal((0, 0, 0), pool.GetUsage());
+    }
+
+    [Fact]
+    public async Task UnknownEnumerationDebtRejectsCapacityBeforeAnotherOwnedEffect()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var charged = new EnumerationEffects(null)
+        {
+            CallbackCount = 0,
+            DispatchFailure = new IOException("private unknown dispatch effect"),
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, charged));
+        var rejected = new EnumerationEffects(null);
+
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, rejected));
+
+        Assert.Equal("macos_source_ownership_capacity_exhausted", actual.Message);
+        Assert.Null(rejected.Completion);
+        Assert.Equal(0, rejected.PoolPushAttempts);
+        Assert.Equal(0, rejected.DispatchAttempts);
+        Assert.Equal(0, rejected.RetainAttempts);
+        Assert.Empty(rejected.ReleaseAttempts);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    public async Task HealthyNonemptyEnumerationTransfersOnlyTheOriginalSourceCharge()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var windows = new WindowEffects();
+        var effects = new EnumerationEffects(null) { WindowCount = 1, WindowOperations = windows };
+        IReadOnlyList<IMacOSRemoteWindowNativeSource> sources =
+            await MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, effects);
+        try
+        {
+            Assert.Single(sources);
+            Assert.Equal((1, 1, 0), pool.GetUsage());
+            Assert.Equal(2, windows.WindowReferences);
+            Assert.Equal(1, windows.FilterReferences);
+            Assert.Empty(windows.ReleaseAttempts);
+            Assert.Equal(1, effects.ContentReferences);
+            Assert.Equal(new[] { EnumerationEffects.Content }, effects.ReleaseAttempts);
+            Assert.True(effects.Completion!.IsReleased);
+        }
+        finally
+        {
+            foreach (IMacOSRemoteWindowNativeSource source in sources) { source.Dispose(); }
+        }
+
+        Assert.Equal((0, 0, 0), pool.GetUsage());
+        Assert.Equal(1, windows.WindowReferences);
+        Assert.Equal(0, windows.FilterReferences);
+        Assert.Equal(new[] { WindowEffects.Filter, WindowEffects.Window }, windows.ReleaseAttempts);
+    }
+
+    [Fact]
+    public async Task DispatchFailureWithoutCallbackDoesNotWaitForMissingInvocationOrAdmitLateContent()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var effects = new EnumerationEffects(null)
+        {
+            CallbackCount = 0,
+            DispatchFailure = new IOException("private dispatch failure without callback"),
+        };
+
+        var actual = await Record.ExceptionAsync(async () =>
+            await MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, effects)
+                .AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.IsType<InvalidOperationException>(actual);
+        Assert.Equal("macos_source_producer_unavailable", actual.Message);
+        Assert.Equal(1, effects.DispatchAttempts);
+        Assert.Equal(1, effects.PoolPopAttempts);
+        Assert.Equal(0, effects.RetainAttempts);
+        Assert.Empty(effects.ReleaseAttempts);
+        Assert.True(effects.Completion!.IsReleased);
+        effects.Completion.Invoke(EnumerationEffects.Content, 0);
+        Assert.Equal(0, effects.RetainAttempts);
+        Assert.Empty(effects.ReleaseAttempts);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects a duplicate invocation fault while the admitted content retain is still in flight.")]
+    public async Task DuplicateInvocationFaultCannotDoubleReleaseLaterConfirmedContent()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        using var retainHeld = new ManualResetEventSlim();
+        using var allowRetainReturn = new ManualResetEventSlim();
+        var fatal = new OutOfMemoryException("private duplicate invocation fatal");
+        Task? admitted = null;
+        var effects = new EnumerationEffects(null)
+        {
+            RetainCallback = () =>
+            {
+                retainHeld.Set();
+                if (!allowRetainReturn.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    throw new IOException("Controlled retain return timed out.");
+                }
+            },
+            BeforeInvocationExit = sequence =>
+            {
+                if (sequence == 2) { throw new IOException("private duplicate wrapper", fatal); }
+            },
+            DispatchCallback = completion =>
+            {
+                admitted = Task.Factory.StartNew(
+                    () => completion.Invoke(EnumerationEffects.Content, 0),
+                    CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                Assert.True(retainHeld.Wait(TimeSpan.FromSeconds(5)));
+                completion.Invoke(EnumerationEffects.Content, 0);
+            },
+        };
+        Task<IReadOnlyList<IMacOSRemoteWindowNativeSource>> operation =
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, effects).AsTask();
+        try
+        {
+            Assert.False(operation.IsCompleted);
+            Assert.Equal(2, effects.ContentReferences);
+            Assert.Empty(effects.ReleaseAttempts);
+        }
+        finally
+        {
+            allowRetainReturn.Set();
+            if (admitted is not null) { await admitted.WaitAsync(TimeSpan.FromSeconds(5)); }
+        }
+
+        var actual = await Record.ExceptionAsync(async () =>
+            await operation.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, effects.ContentReferences);
+        Assert.Equal(new[] { EnumerationEffects.Content }, effects.ReleaseAttempts);
+        Assert.Equal(1, effects.RetainAttempts);
+        Assert.Equal(0, effects.QueryAttempts);
+        Assert.Equal(2, effects.Completion!.InvocationExits);
+        Assert.Same(fatal, actual);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects an earlier dispatch fatal and a later consumed completion-release fatal.")]
+    public void CompletionCleanupFailureCannotHideEarlierDispatchFatal()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var fatal = new OutOfMemoryException("private earlier dispatch fatal");
+        var effects = new EnumerationEffects(null)
+        {
+            DispatchFailure = new IOException("private dispatch wrapper", fatal),
+            CompletionReleaseFailure = new IOException("private completion release wrapper",
+                new OutOfMemoryException("private later completion release fatal")),
+        };
+
+        var actual = Record.Exception(() =>
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, effects)
+                .AsTask().GetAwaiter().GetResult());
+
+        Assert.Same(fatal, actual);
+        Assert.Equal(1, effects.ContentReferences);
+        Assert.Equal(new[] { EnumerationEffects.Content }, effects.ReleaseAttempts);
+        Assert.Equal(1, effects.PoolPopAttempts);
+        Assert.True(effects.Completion!.IsReleased);
+        Assert.Equal(1, effects.Completion.DisposeAttempts);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects a nested fatal after the query autorelease-pool push effect.")]
+    public void SecondPoolPushAfterEffectFaultCleansContentWithoutReturningUnknownPoolDebt()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var fatal = new OutOfMemoryException("private query pool push fatal");
+        var effects = new EnumerationEffects(null)
+        {
+            SecondPoolPushFailure = new IOException("private query pool push wrapper", fatal),
+        };
+
+        var actual = Record.Exception(() =>
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateDirectWithOperations(pool, effects)
+                .AsTask().GetAwaiter().GetResult());
+
+        Assert.Equal(1, effects.ContentReferences);
+        Assert.Equal(new[] { EnumerationEffects.Content }, effects.ReleaseAttempts);
+        Assert.Equal(2, effects.PoolPushAttempts);
+        Assert.Equal(1, effects.PoolOwners);
+        Assert.Equal(1, effects.PoolPopAttempts);
+        Assert.Equal(0, effects.QueryAttempts);
+        Assert.Same(fatal, actual);
+        Assert.True(effects.Completion!.IsReleased);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects a nested fatal after the first autorelease-pool push effect.")]
+    public void FirstPoolPushAfterEffectFaultClosesContextAndKeepsOriginalBatch()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()),
+            new MacOSRemoteWindowTestApi(), ownershipPool: pool);
+        Assert.True(pool.TryReserveCatalog(catalog, out var owner));
+        Assert.True(pool.TryReserveBatch(owner!, out var batch));
+        var context = new MacOSRemoteWindowSourceCreationContext(pool, batch!);
+        var fatal = new OutOfMemoryException("private pool push fatal");
+        var effects = new EnumerationEffects(null)
+        {
+            FirstPoolPushFailure = new IOException("private pool push wrapper", fatal),
+        };
+
+        var actual = Record.Exception(() =>
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateWithOperations(context, effects)
+                .AsTask().GetAwaiter().GetResult());
+
+        Assert.True(context.IsClosed);
+        Assert.Same(fatal, actual);
+        Assert.Equal(1, effects.PoolPushAttempts);
+        Assert.Equal(1, effects.PoolOwners);
+        Assert.Equal(0, effects.PoolPopAttempts);
+        Assert.Equal(0, effects.DispatchAttempts);
+        Assert.Equal(0, effects.RetainAttempts);
+        Assert.True(effects.Completion!.IsReleased);
+        effects.Completion.Invoke(EnumerationEffects.Content, 0);
+        Assert.Equal(0, effects.RetainAttempts);
+        pool.CompleteBatch(batch!, context);
+        pool.CloseCatalog(owner!, registryConfirmed: true);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects an original dispatch fatal followed by an independent first-pool cleanup fault.")]
+    public void FirstPoolCleanupFailureDoesNotSkipContentOrHideEarlierDispatchFatal(bool laterFatal)
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()),
+            new MacOSRemoteWindowTestApi(), ownershipPool: pool);
+        Assert.True(pool.TryReserveCatalog(catalog, out var owner));
+        Assert.True(pool.TryReserveBatch(owner!, out var batch));
+        var context = new MacOSRemoteWindowSourceCreationContext(pool, batch!);
+        var fatal = new OutOfMemoryException("private original dispatch fatal");
+        Exception cleanupFailure = laterFatal
+            ? new IOException("private pool wrapper", new OutOfMemoryException("private later pool fatal"))
+            : new IOException("private first pool cleanup");
+        var effects = new EnumerationEffects(null)
+        {
+            DispatchFailure = new IOException("private dispatch wrapper", fatal),
+            FirstPoolPopFailure = cleanupFailure,
+        };
+
+        var actual = Record.Exception(() =>
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateWithOperations(context, effects)
+                .AsTask().GetAwaiter().GetResult());
+
+        Assert.Equal(1, effects.ContentReferences);
+        Assert.Equal(new[] { EnumerationEffects.Content }, effects.ReleaseAttempts);
+        Assert.Equal(1, effects.PoolPopAttempts);
+        Assert.Equal(0, effects.QueryAttempts);
+        Assert.Same(fatal, actual);
+        Assert.True(context.IsClosed);
+        Assert.True(effects.Completion!.IsReleased);
+        pool.CompleteBatch(batch!, context);
+        pool.CloseCatalog(owner!, registryConfirmed: true);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
+    [SuppressMessage("Usage", "CA2201", Justification = "Injects the original fatal after dispatch has delivered a retained content callback.")]
+    public void DispatchAfterCallbackFaultStillReleasesConfirmedContent()
+    {
+        var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
+        var catalog = new MacOSRemoteWindowSourceCatalog(DeviceId.From(Guid.NewGuid()),
+            new MacOSRemoteWindowTestApi(), ownershipPool: pool);
+        Assert.True(pool.TryReserveCatalog(catalog, out var owner));
+        Assert.True(pool.TryReserveBatch(owner!, out var batch));
+        var context = new MacOSRemoteWindowSourceCreationContext(pool, batch!);
+        var fatal = new OutOfMemoryException("private dispatch after callback fatal");
+        var effects = new EnumerationEffects(null)
+        {
+            DispatchFailure = new IOException("private dispatch wrapper", fatal),
+        };
+
+        var actual = Record.Exception(() =>
+            MacOSRemoteWindowScreenCaptureKitApi.EnumerateWithOperations(context, effects)
+                .AsTask().GetAwaiter().GetResult());
+
+        Assert.Equal(1, effects.RetainAttempts);
+        Assert.Equal(1, effects.ContentReferences);
+        Assert.Equal(new[] { EnumerationEffects.Content }, effects.ReleaseAttempts);
+        Assert.Equal(1, effects.PoolPopAttempts);
+        Assert.Equal(0, effects.QueryAttempts);
+        Assert.Same(fatal, actual);
+        Assert.True(context.IsClosed);
+        Assert.True(effects.Completion!.IsReleased);
+        pool.CompleteBatch(batch!, context);
+        pool.CloseCatalog(owner!, registryConfirmed: true);
+        Assert.Equal((1, 128, 1), pool.GetUsage());
+    }
+
+    [Fact]
     public async Task DuplicateInvocationExitCannotReleaseContentBeforeAdmittedInvocationExits()
     {
         var pool = new MacOSRemoteWindowSourceOwnershipPool(1, 128, 1);
@@ -314,15 +758,26 @@ public sealed class MacOSRemoteWindowEnumerationProducerTests
         internal int ContentReferences = 1;
         internal int RetainAttempts;
         internal int PoolPopAttempts;
+        internal int PoolPushAttempts;
+        internal int PoolOwners;
+        internal int DispatchAttempts;
         internal Exception? ReleaseFailure { get; init; }
         internal Exception? QueryFailure { get; init; }
         internal Exception? PoolPopFailure { get; init; }
+        internal Exception? FirstPoolPopFailure { get; init; }
+        internal Exception? FirstPoolPushFailure { get; init; }
+        internal Exception? SecondPoolPushFailure { get; init; }
+        internal Exception? DispatchFailure { get; init; }
+        internal Exception? CompletionReleaseFailure { get; init; }
+        internal Exception? CompletionReportedFailure { get; init; }
+        internal int QueryAttempts;
         internal Action? RetainCallback { get; init; }
         internal nint? RetainResult { get; init; }
         internal int CallbackCount { get; init; } = 1;
         internal nuint WindowCount { get; init; }
         internal WindowEffects? WindowOperations { get; init; }
         internal Action? BeforeFirstInvocationExit { get; init; }
+        internal Action<int>? BeforeInvocationExit { get; init; }
         internal Action<EnumerationCompletion>? DispatchCallback { get; init; }
         internal List<nint> ReleaseAttempts { get; } = [];
         internal EnumerationCompletion? Completion;
@@ -332,22 +787,39 @@ public sealed class MacOSRemoteWindowEnumerationProducerTests
         public IMacOSRemoteWindowEnumerationCompletion CreateCompletion(
             Action<nint, nint> action, Action<Exception> failure, Action completed)
         {
-            Completion = new(action, failure, completed) { BeforeFirstExit = BeforeFirstInvocationExit };
+            Completion = new(action, failure, completed)
+            {
+                BeforeFirstExit = BeforeFirstInvocationExit,
+                BeforeExit = BeforeInvocationExit,
+                ReleaseFailure = CompletionReleaseFailure,
+                ReportedReleaseFailure = CompletionReportedFailure,
+            };
             return Completion;
         }
-        public nint PushAutoreleasePool() => 1;
+        public nint PushAutoreleasePool()
+        {
+            PoolPushAttempts++;
+            PoolOwners++;
+            if (PoolPushAttempts == 1 && FirstPoolPushFailure is not null) { throw FirstPoolPushFailure; }
+            if (PoolPushAttempts == 2 && SecondPoolPushFailure is not null) { throw SecondPoolPushFailure; }
+            return PoolPushAttempts;
+        }
         public void PopAutoreleasePool(nint pool)
         {
             PoolPopAttempts++;
+            PoolOwners--;
+            if (PoolPopAttempts == 1 && FirstPoolPopFailure is not null) { throw FirstPoolPopFailure; }
             if (PoolPopAttempts == 2 && PoolPopFailure is not null) { throw PoolPopFailure; }
         }
         public void Dispatch(nint completion)
         {
+            DispatchAttempts++;
             if (DispatchCallback is not null) { DispatchCallback(Completion!); return; }
             for (int index = 0; index < CallbackCount; index++)
             {
                 Completion!.Invoke(Content, 0);
             }
+            if (DispatchFailure is not null) { throw DispatchFailure; }
         }
         public nint RetainContent(nint content)
         {
@@ -365,6 +837,7 @@ public sealed class MacOSRemoteWindowEnumerationProducerTests
         }
         public nint GetWindows(nint content)
         {
+            QueryAttempts++;
             if (QueryFailure is not null) { throw QueryFailure; }
             return 20;
         }
@@ -422,8 +895,12 @@ public sealed class MacOSRemoteWindowEnumerationProducerTests
         : IMacOSRemoteWindowEnumerationCompletion
     {
         internal int InvocationExits;
+        internal int DisposeAttempts;
         private int invocationSequence;
         internal Action? BeforeFirstExit { get; init; }
+        internal Action<int>? BeforeExit { get; init; }
+        internal Exception? ReleaseFailure { get; init; }
+        internal Exception? ReportedReleaseFailure { get; init; }
         public nint Pointer => 30;
         public bool IsReleased { get; private set; }
         public Exception? FirstFailure { get; private set; }
@@ -435,6 +912,7 @@ public sealed class MacOSRemoteWindowEnumerationProducerTests
             {
                 action(content, error);
                 if (sequence == 1) { BeforeFirstExit?.Invoke(); }
+                BeforeExit?.Invoke(sequence);
             }
             catch (Exception exception)
             {
@@ -448,6 +926,16 @@ public sealed class MacOSRemoteWindowEnumerationProducerTests
             }
         }
 
-        public void Dispose() => IsReleased = true;
+        public void Dispose()
+        {
+            DisposeAttempts++;
+            IsReleased = true;
+            if (ReportedReleaseFailure is not null)
+            {
+                FirstFailure ??= ReportedReleaseFailure;
+                failure(ReportedReleaseFailure);
+            }
+            if (ReleaseFailure is not null) { throw ReleaseFailure; }
+        }
     }
 }
