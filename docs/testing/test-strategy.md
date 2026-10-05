@@ -2612,7 +2612,7 @@ all-OS evidence rather than inherit task 3b.1 success. Healthy actual task-owned
 SCStream regression stays separate; injected effects do not prove native faults,
 initial CreateSource/enumeration/catalog handoff or nonzero-delegate acceptance.
 
-### Source-entry/catalog ownership tests (SCE1-SCE6, local verified; hosted pending)
+### Source-entry/catalog ownership tests (SCE1-SCE6, local/hosted verified)
 
 Use the real SourceEntry/NativeBinding and NativeSource, replacing only native
 effects and the producer's returned list. Save an actual last-binding RED before
@@ -2641,11 +2641,25 @@ GC isolation, single-layer repair reviews, selected healthy native D/R and root
 saved-data replays are recorded in the
 [local evidence](../evidence/2026-10-05-macos-source-entry-ownership.md).
 Repetitions do not prove independent PID/process groups or a single-worker/
-untuned environment. Fresh exact-new-SHA all-OS verification remains pending.
+untuned environment. Fresh exact `3aa099b` all-OS2850 inventories and root
+saved-data audits pass in the [hosted checkpoint](../evidence/2026-10-05-source-entry-hosted-checkpoint.md).
 
 The catalog cannot retain a native owner lost inside CreateSource/EnumerateAsync
 before producer return; those entry faults and global runtime admission stay
 separate. See [source-entry specification](../../specs/v1/native-remote-window/macos-source-entry-ownership/requirements.md).
+
+### Initial source-producer tests (MSP1-MSP6, implementation beginning)
+
+Extract only external effects from the same production CreateSource path. First
+save an actual after-effect initial window-retain RED with confirmed filter,
+original nested fatal, independent filter cleanup and no guessed unknown-window
+release. Check the original source charge and managed graph after settlement/GC
+using a fresh actual pool; missing-type/compiler errors are not behavioral RED.
+Then repair minimally and add one ownership behavior at a time. Same-record
+producer/source/entry transfer, finite direct-call envelope, nil/changed-self
+initialization, independent cleanup and complete healthy return need their own
+contracts. Full local, native healthy and exact-SHA hosted evidence stay separate.
+See the [producer plan](../../specs/v1/native-remote-window/macos-source-producer/tasks.md).
 
 Core invariants are asserted after every event:
 

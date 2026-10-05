@@ -1,6 +1,6 @@
 # ADR 0031: Bounded macOS source-entry ownership
 
-- Status: accepted; local verification complete, fresh hosted verification pending
+- Status: accepted; local and exact `3aa099b` hosted verification complete
 - Date: 2026-10-05
 - Requirements: NR8/NR10; SCE1-SCE6; MSC6/MSC9 prerequisites
 

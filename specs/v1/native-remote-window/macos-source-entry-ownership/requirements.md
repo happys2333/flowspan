@@ -1,6 +1,7 @@
 # macOS source-entry ownership prerequisite
 
-Status: approved v1 safety baseline, staged implementation. Requirements trace
+Status: approved v1 safety baseline; local and exact `3aa099b` hosted slice verified.
+Requirements trace
 to NR8/NR10 and MSC6/MSC9 ownership prerequisites; this does not close MSC9.
 
 As a source host, I need a late catalog-binding cleanup failure to remain

@@ -1,8 +1,9 @@
 # SourceEntry/Catalog ownership prerequisite
 
 Status: repaired final local implementation, complete managed regressions,
-selected healthy native D/R and root saved-data replays pass. Fresh exact-commit
-hosted verification is pending. SCE6, nonzero delegate, production sharing and
+selected healthy native D/R and root saved-data replays pass. Fresh exact
+`3aa099b` [hosted verification](2026-10-05-source-entry-hosted-checkpoint.md) now
+passes; SCE1-SCE6 close only this slice. Nonzero delegate, production sharing and
 full v1 remain open.
 
 Exact base is `c5c5c520b99cca5d002ea1bb25642a041581bffe`; branch
@@ -53,7 +54,7 @@ the fresh actual ownership pool as a strong reservation root; Catalog/source/
 batch observations remain weak and effect ledgers have no bypass reference.
 This proves the pool's managed root graph, not native-reference survival or
 dynamic use of production Shared. Final complete/native gates are recorded
-below; fresh exact-commit hosted verification remains open.
+below; fresh exact `3aa099b` hosted verification passes in the linked checkpoint.
 
 ## Actual staged failures and their corrections
 
@@ -209,8 +210,9 @@ bound on arbitrary descendants. Delegate=0 and the 14.2 candidate floor remain
 unchanged; protection, secure input, sensitive windows and physical Devices
 remain unproven.
 
-Fresh exact-new-commit all-OS CI/CodeQL and downloaded evidence are still required.
-No c5c5c52 hosted result is inherited as this new implementation's outcome.
+Fresh exact `3aa099b` all-OS CI/CodeQL and downloaded-evidence audits now pass.
+Root actually replays both main and CodeQL audits; no c5c5c52 hosted result is
+inherited as this implementation's outcome or transferred to later producer edits.
 
 ## Remaining scope
 

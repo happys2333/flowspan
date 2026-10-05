@@ -2115,7 +2115,7 @@ native execution separately. Fresh exact `c5c5c52`
 passes complete all-OS contracts and saved-data audits, not native injected
 faults or the remaining initial-producer/catalog/global admission obligations.
 
-### Source-entry/catalog ownership prerequisite (SCE1-SCE6, local verified; hosted pending)
+### Source-entry/catalog ownership prerequisite (SCE1-SCE6, local/hosted verified)
 
 A retired entry's last binding can fail after it leaves the active dictionary.
 Its failure must close new catalog admission and transfer the complete owner
@@ -2130,12 +2130,26 @@ permits. Exhaustion rejects before enumeration; held bindings and unknown debt
 keep their charge after catalog disposal. Root count is not a byte bound for an
 arbitrary injected object graph. Final portable contracts, independent complete
 D/R regressions, selected healthy native D/R and root evidence replays pass;
-fresh exact-commit hosted verification remains pending. Managed graph retention
+fresh exact `3aa099b` hosted CI/CodeQL and root audits pass. Managed graph retention
 and healthy native regression are not native-fault containment. The catalog
 cannot recover native owners lost inside the producer before return or prove
 global admission closure of existing Captures. See the
 [local evidence](../evidence/2026-10-05-macos-source-entry-ownership.md) and
+[hosted checkpoint](../evidence/2026-10-05-source-entry-hosted-checkpoint.md), plus
 [ADR 0031](../adr/0031-bounded-macos-source-entry-ownership.md).
+
+### Initial CreateSource producer (MSP1-MSP6, implementation beginning)
+
+For T13, a filter allocation/initialization or initial window retain may change
+ownership then throw before assignment/NativeSource construction. A catalog
+cannot quarantine the unreturned owner. The next contract attaches a pre-effect
+token to the existing reserved source record, keeps attempted/confirmed facts,
+preserves independent confirmed cleanup and original fatal identity, and hands
+the same charge through source/entry. Unknown debt must not be retried, guessed
+released or returned by batch settlement. Direct internal callers must use the
+same bounded pool. This is a specified mitigation, not completed verification;
+enumeration content/Block/callback and query-internal resource faults remain
+separate. See [ADR0032](../adr/0032-pre-reserved-macos-source-producer.md).
 
 ## 6. Security state machine rules
 

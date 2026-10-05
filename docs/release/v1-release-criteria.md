@@ -241,7 +241,8 @@ implementation convenience.
   final repaired local D/R each passes 12 TRX/2850 cases, including 14 added
   managed contracts, and selected healthy actual local macOS Capture D/R passes
   separately. Root evidence replays and single-layer repair reviews pass. Fresh
-  exact-commit hosted verification remains pending. Initial producer acquisition,
+  exact `3aa099b` [hosted verification](../evidence/2026-10-05-source-entry-hosted-checkpoint.md)
+  has matching three-OS2850 inventories and CI/CodeQL success. Initial producer acquisition,
   nonzero delegate, protection/input, physical Devices and release gates remain
   open; no release criterion closes.
 

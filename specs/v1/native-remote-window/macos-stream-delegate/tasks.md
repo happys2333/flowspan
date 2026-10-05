@@ -169,6 +169,9 @@
         Prerequisite: [source-entry ownership](../macos-source-entry-ownership/tasks.md)
         closes the late catalog-binding failure and pre-reserved durable roots;
         initial native producer acquisition remains subsequent separate work.
+        [Initial CreateSource work](../macos-source-producer/tasks.md) has a
+        bounded same-record plan and first behavioral tracer in progress; it
+        does not include enumeration content/Block/callback ownership.
       - [ ] 3b.2c Implement the bounded process native bridge/tag runtime and
         require complete confirmed owner/root cleanup before permit return.
       - [ ] 3b.2d Verify final exact-source local and fresh all-OS hosted gates;

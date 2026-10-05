@@ -90,9 +90,15 @@ saved-data replay. Only MSC 3b.2a closes. The next
 [SourceEntry/Catalog ownership slice](native-remote-window/macos-source-entry-ownership/tasks.md)
 has final repaired local implementation: five actual behavioral RED→GREEN pairs,
 14 focused/279 MacOS cases and 12 TRX/2850 complete cases in each configuration,
-selected healthy native D/R and root evidence replays. Fresh exact-new-SHA hosted
-verification is pending. Neither checkpoint publishes a nonzero
+selected healthy native D/R and root evidence replays. Fresh exact `3aa099b`
+[hosted verification](../../docs/evidence/2026-10-05-source-entry-hosted-checkpoint.md)
+passes CI/CodeQL and matching three-OS2850 inventories. Only this prerequisite
+closes; neither checkpoint publishes a nonzero
 delegate or closes initial CreateSource/enumeration producer obligations.
+The next [initial source-producer slice](native-remote-window/macos-source-producer/tasks.md)
+has a thin production-effects seam and first actual after-effect-retain
+test-entry RED→GREEN. Its same-record bounded handoff is specified in ADR0032;
+production context/handoff integration and final verification remain incomplete.
 
 ## 0. Product and engineering baseline
 

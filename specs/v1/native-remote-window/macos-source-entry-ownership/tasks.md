@@ -36,8 +36,13 @@ passes, not final acceptance. Root run-01's nonzero input check is preserved.
     New run-02 task-owned healthy native D/R and root saved-data replays pass;
     superseded run-01 and wrong-path replay failures remain recorded.
   - _Requirements: SCE6_
-- [ ] 4. Fresh exact-commit all-OS CI/CodeQL and downloaded-evidence audit.
+- [x] 4. Fresh exact-commit all-OS CI/CodeQL and downloaded-evidence audit.
   - Do not inherit c5c5c52 or earlier hosted outcomes.
+  - Exact `3aa099b` CI/CodeQL pass; each OS12TRX/2850 matches final local D/R,
+    all old2836 identities and14 additions. Root actually replays both saved-data
+    audits, with exit0/no violations and matching reports. See the
+    [hosted checkpoint](../../../../docs/evidence/2026-10-05-source-entry-hosted-checkpoint.md).
+    Three large package archives remain API/upload/log-only, not local validation.
   - _Requirements: SCE6_
 
 This closes no initial native producer acquisition, MSC9 aggregate, production
