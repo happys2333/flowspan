@@ -113,11 +113,14 @@ class GateContracts(unittest.TestCase):
         })
         # Python 3.14 may parse this depth, while older supported stdlibs raise
         # RecursionError. Both paths must reject with one exact bounded line.
+        # CLI text stderr uses platform newlines; native raw records still require LF.
         self.assertIn(
             (case / "gate.stderr.raw").read_bytes(),
             (
                 b"capture_completion_block_gate=fail reason=unreadable_or_invalid_evidence\n",
                 b"capture_completion_block_gate=fail reason=successful_watchdog_terminal_facts\n",
+                b"capture_completion_block_gate=fail reason=unreadable_or_invalid_evidence\r\n",
+                b"capture_completion_block_gate=fail reason=successful_watchdog_terminal_facts\r\n",
             ),
         )
 
